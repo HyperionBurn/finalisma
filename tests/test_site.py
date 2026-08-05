@@ -331,8 +331,31 @@ class TestCountSyncTests(unittest.TestCase):
         return suite.countTestCases()
 
     @classmethod
+    def _scan_for_stale_counts(cls, path: Path, label: str, live: int) -> list[tuple[str, str, int]]:
+        """Scan one file for published test counts that differ from ``live``."""
+        found: list[tuple[str, str, int]] = []
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return found
+        for line_no, line in enumerate(text.splitlines(), 1):
+            for match in re.finditer(r"\b(\d{2,4})\s+(?:passing\s+)?standard-library tests\b", line, re.IGNORECASE):
+                claimed = int(match.group(1))
+                if claimed != live:
+                    found.append((label, f"{line_no}: {line.strip()}", claimed))
+            for match in re.finditer(r"\b(\d{2,4})\s+passing\s+tests?\b", line, re.IGNORECASE):
+                claimed = int(match.group(1))
+                if claimed != live:
+                    found.append((label, f"{line_no}: {line.strip()}", claimed))
+        return found
+
+    @classmethod
     def _published_instances(cls) -> list[tuple[str, str, int]]:
-        """Return (file, matched_line, claimed_count) for every published count."""
+        """Return (file, matched_line, claimed_count) for every published count.
+
+        Walks docs/*.md, site/**/*.html, and site/llms.txt — every surface that
+        has historically published the test count.
+        """
         live = cls._discover_live_count()
         found: list[tuple[str, str, int]] = []
         docs_root = ROOT / "docs"
@@ -340,15 +363,14 @@ class TestCountSyncTests(unittest.TestCase):
             for path in sorted(docs_root.glob("*.md")):
                 if path.name in cls._PROVENANCE_ONLY:
                     continue
-                for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-                    for match in re.finditer(r"\b(\d{2,4})\s+(?:passing\s+)?standard-library tests\b", line, re.IGNORECASE):
-                        claimed = int(match.group(1))
-                        if claimed != live:
-                            found.append((f"docs/{path.name}", f"{line_no}: {line.strip()}", claimed))
-                    for match in re.finditer(r"\b(\d{2,4})\s+passing\s+tests?\b", line, re.IGNORECASE):
-                        claimed = int(match.group(1))
-                        if claimed != live:
-                            found.append((f"docs/{path.name}", f"{line_no}: {line.strip()}", claimed))
+                found.extend(cls._scan_for_stale_counts(path, f"docs/{path.name}", live))
+        site_root = SITE
+        if site_root.is_dir():
+            for path in sorted(site_root.glob("**/*.html")):
+                found.extend(cls._scan_for_stale_counts(path, f"site/{path.relative_to(site_root)}", live))
+            llms = site_root / "llms.txt"
+            if llms.is_file():
+                found.extend(cls._scan_for_stale_counts(llms, "site/llms.txt", live))
         return found
 
     def test_published_test_count_matches_live_discovery(self) -> None:
