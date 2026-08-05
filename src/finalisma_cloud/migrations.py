@@ -1,0 +1,178 @@
+"""Cloud-plane migrations — versioned, forward-only, idempotent.
+
+The hosted service adopts a design-partner's existing schema-v3 coordinator
+database in place. The cloud migration is PURELY ADDITIVE: it creates cloud-plane
+tables only and never touches coordinator tables (agent_credentials, tasks,
+sessions, session_events, room_*, ...). No credentials are fabricated.
+
+Rollback story: down-migrations are NOT provided (data-destructive). The
+documented rollback is a pre-upgrade backup of the state file, restored on
+failure. The backup IS the rollback.
+
+`apply_migrations` accepts anything with a `.state_path` (a FinalismaStore or a
+SqliteWalBackend) and operates on that path directly, so it upgrades a real v3
+coordinator database in place.
+
+Authoritative spec: docs/CLOUD_SPINE_DESIGN.md section 4.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import sqlite3
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+
+def utc_now_iso() -> str:
+    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+@dataclass
+class Migration:
+    migration_id: str
+    name: str
+    up_sql: str
+
+
+_CLOUD_TABLES_SQL = """
+CREATE TABLE IF NOT EXISTS cloud_tenants (
+    tenant_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    plan_id TEXT NOT NULL DEFAULT 'free',
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS cloud_tenant_rooms (
+    tenant_id TEXT NOT NULL,
+    room_id TEXT NOT NULL,
+    coordinator_db_path TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, room_id)
+);
+CREATE TABLE IF NOT EXISTS cloud_counters (
+    tenant_id TEXT NOT NULL,
+    counter TEXT NOT NULL,
+    value INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, counter)
+);
+CREATE TABLE IF NOT EXISTS cloud_room_counters (
+    tenant_id TEXT NOT NULL,
+    room_id TEXT NOT NULL,
+    counter TEXT NOT NULL,
+    value INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, room_id, counter)
+);
+CREATE TABLE IF NOT EXISTS cloud_rate_windows (
+    tenant_id TEXT NOT NULL,
+    room_id TEXT,
+    limit_key TEXT NOT NULL,
+    window_start REAL NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (tenant_id, room_id, limit_key, window_start)
+);
+CREATE TABLE IF NOT EXISTS cloud_outbox (
+    entry_id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    envelope_id TEXT NOT NULL,
+    recipient TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'queued'
+        CHECK(status IN ('queued','claimed','delivered','dead')),
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at REAL NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS cloud_audit (
+    audit_id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    object_id TEXT,
+    payload_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS cloud_event_mirror (
+    mirror_id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    room_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    event_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    migration_id TEXT PRIMARY KEY,
+    applied_at TEXT NOT NULL
+);
+"""
+
+MIGRATIONS: list[Migration] = [
+    Migration(
+        "cloud_001_init",
+        "cloud plane bootstrap",
+        _CLOUD_TABLES_SQL,
+    ),
+]
+
+
+def apply_migrations(store_or_backend: Any) -> None:
+    """Apply forward-only, idempotent cloud migrations to a state database.
+
+    ``store_or_backend`` is anything exposing ``.state_path`` (a
+    ``FinalismaStore`` or a ``SqliteWalBackend``). Migrations are tracked in
+    ``schema_migrations``; re-running is a no-op. Coordinator tables are never
+    altered.
+
+    When passed a ``FinalismaStore``, the migration uses the store's own pooled
+    connection lifecycle (via ``_transaction``) so no second raw connection is
+    opened against a WAL file — that avoided the Windows file-lock teardown
+    flake.
+    """
+    state_path = Path(store_or_backend.state_path).expanduser().resolve()
+
+    def _run(execute, executescript, commit, rollback) -> None:
+        executescript(
+            "CREATE TABLE IF NOT EXISTS schema_migrations (migration_id TEXT PRIMARY KEY, applied_at TEXT NOT NULL)"
+        )
+        for migration in MIGRATIONS:
+            applied = execute(
+                "SELECT 1 FROM schema_migrations WHERE migration_id = ?",
+                (migration.migration_id,),
+            ).fetchone()
+            if applied:
+                continue
+            try:
+                executescript(migration.up_sql)
+                execute(
+                    "INSERT INTO schema_migrations(migration_id, applied_at) VALUES (?, ?)",
+                    (migration.migration_id, utc_now_iso()),
+                )
+                commit()
+            except Exception:
+                rollback()
+                raise
+
+    # Prefer the store's own transaction if it exposes one (FinalismaStore).
+    # The store's own close() returns the DB to DELETE journal mode, so no
+    # journal-mode handling is done here — a separate connection would race
+    # the store's pool and leave a handle open on Windows.
+    store_txn = getattr(store_or_backend, "_transaction", None)
+    if callable(store_txn):
+        with store_txn() as conn:
+            _run(conn.execute, conn.executescript, conn.commit, conn.rollback)
+        return
+
+    # Fall back to a raw connection (SqliteWalBackend). Use DELETE journal mode
+    # for the in-place migration so no WAL -wal/-shm side-files are left behind
+    # (they lock the file on Windows teardown). The cloud backend flips to WAL
+    # on its own initialize().
+    connection = sqlite3.connect(state_path, timeout=15, isolation_level=None)
+    connection.row_factory = sqlite3.Row
+    try:
+        connection.execute("PRAGMA journal_mode = DELETE")
+        _run(connection.execute, connection.executescript, connection.commit, connection.rollback)
+    finally:
+        connection.close()
