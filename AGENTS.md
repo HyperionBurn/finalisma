@@ -103,18 +103,37 @@ Never do this:
 python scripts/finalisma-mcp.py --transport http --port 18787 &   # BLOCKS the tool call
 ```
 
-Do this — fully detached, output to a file, always with a hard timeout and always killed in the
-same step that started it:
+A `Start-Process` wrapper was tried and also stalled once, for reasons not reproduced in
+isolation. Do not spend a run debugging shell process management — **avoid the whole problem
+class instead.**
 
-```powershell
-$p = Start-Process -FilePath python -ArgumentList '-B','scripts/finalisma-mcp.py','--transport','http','--host','127.0.0.1','--port','18787' -RedirectStandardOutput 'C:/Users/Wasif/AppData/Local/Temp/opencode/srv.log' -RedirectStandardError 'C:/Users/Wasif/AppData/Local/Temp/opencode/srv.err' -PassThru -WindowStyle Hidden
-# ... drive the server, capture evidence ...
-Stop-Process -Id $p.Id -Force
+**Preferred: let a Python script own the child process.** One foreground command, deterministic
+cleanup, no detachment, no orphan risk:
+
+```python
+import subprocess, json, sys
+proc = subprocess.Popen(
+    [sys.executable, "-B", "scripts/finalisma-mcp.py"],       # stdio transport
+    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+)
+try:
+    proc.stdin.write(json.dumps(request) + "\n"); proc.stdin.flush()
+    line = proc.stdout.readline()                              # parse JSON-RPC reply
+finally:
+    proc.terminate()
+    proc.wait(timeout=10)
 ```
 
-Rules: bind to an explicit free port and check it first; write logs under
-`AppData/Local/Temp/opencode/`, never into the repo; wrap every foreground client call in
-`timeout`; and stop the process in the same step, even on failure. Never leave a listener behind.
+Run it as `timeout 120 python -B scripts/<driver>.py`. The `finally` block guarantees teardown
+even when an assertion fails, which a shell sequence does not.
+
+This is also the more faithful test: **stdio is MCP's primary transport** — it is what Claude
+Desktop, Claude Code and Cursor actually use — so driving the server over stdio validates the
+path real hosts take, while an HTTP server on a port does not.
+
+Rules that still apply: if you must bind a port, check it is free first; write scratch under
+`AppData/Local/Temp/opencode/`, never into the repo; wrap every call in `timeout`; and never
+leave a listener behind. Verify with `netstat` at the end of the step, not at the end of the run.
 
 ## Self-verification — verify by a different route than you built by
 
