@@ -1077,7 +1077,7 @@ class FinalismaStore:
                 other_scope = _parse_json(other["scope_json"], [])
                 if scope and other_scope and self._scope_conflicts(scope, other_scope):
                     raise FinalismaError("scope_lock_conflict", "Another active task owns an overlapping file scope", {"task_id": other["task_id"], "claimed_by": other["claimed_by"], "scope": other_scope})
-            token = secrets.randbits(63)
+            token = secrets.randbits(51)  # <= 2^51-1, inside JS safe-integer range (2^53-1)
             lease_until = _epoch() + lease_seconds
             updated = connection.execute(
                 "UPDATE tasks SET status = 'in_progress', claimed_by = ?, claimed_at = ?, lease_until = ?, fencing_token = ?, version = version + 1, updated_at = ? WHERE task_id = ? RETURNING *",

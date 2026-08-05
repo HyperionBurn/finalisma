@@ -38,8 +38,8 @@ class LaunchSurfaceTests(unittest.TestCase):
         self.assertEqual(len(re.findall(r"<h1[\s>]", html)), 1)
         self.assertIn("One incident. Two agents. One account of what happened.", html)
         self.assertIn("9 documented MCP paths", html)
-        self.assertIn("0 verified Finalisma host integrations", html)
-        self.assertIn("first proof pair: Codex + Claude Code", html)
+        self.assertIn("1 verified Finalisma host integration", html)
+        self.assertIn("next proof pair, Claude Code + Cursor", html)
         self.assertIn('type="application/ld+json"', html)
         self.assertIn('property="og:site_name" content="Finalisma"', html)
         self.assertIn('name="twitter:image" content="/assets/og-card.png"', html)
@@ -216,8 +216,8 @@ class LaunchSurfaceTests(unittest.TestCase):
 
     def test_compatibility_page_keeps_documented_and_verified_distinct(self) -> None:
         html = (SITE / "docs" / "compatibility.html").read_text(encoding="utf-8")
-        self.assertIn("9 documented-unverified", html)
-        self.assertIn("0 verified", html)
+        self.assertIn("8 documented-unverified", html)
+        self.assertIn("1 verified", html)
         self.assertIn("Documented is not verified.", html)
         for host in ("Codex", "ChatGPT", "Claude Code", "VS Code", "Cursor", "Gemini CLI", "OpenCode", "Zed", "Cline"):
             self.assertIn(host, html)

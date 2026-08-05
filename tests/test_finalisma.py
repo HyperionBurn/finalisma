@@ -110,6 +110,23 @@ class FinalismaStoreTests(unittest.TestCase):
         completed = self.store.complete_task("demo", "agent-b", claimed["task_id"], claimed["fencing_token"], "Artifact verified")
         self.assertEqual(completed["status"], "done")
 
+    def test_fencing_token_fits_javascript_safe_integer(self) -> None:
+        # Real MCP hosts (opencode, Claude Desktop, Cursor) are JavaScript/TypeScript
+        # clients. JSON integers above 2^53-1 lose precision in transit, which
+        # truncates the fencing token and causes every verify/complete to fail
+        # with stale_fencing_token. This was found by a real-host validation on
+        # 2026-08-05 (docs/INTEROP_VALIDATION_2026-08-05.md). Every issued token
+        # must stay within the JS safe-integer range.
+        max_safe = 2**53 - 1
+        for i in range(32):
+            with self.subTest(i=i):
+                scope = [f"p{i}.txt"]
+                created = self.store.create_task("demo", "agent-a", f"Token probe {i}", "probe", scope=scope, preferred_agent="agent-b")
+                claimed = self.store.claim_task("demo", "agent-b", created["task"]["task_id"])
+                token = claimed["fencing_token"]
+                self.assertLessEqual(token, max_safe, f"fencing token {token} exceeds JS safe integer {max_safe}")
+                self.assertGreater(token, 0)
+
     def test_message_idempotency_and_broadcast_ack(self) -> None:
         first = self.store.send_message("demo", "agent-a", "question", {"ask": "ready?"}, recipient_id="agent-b", idempotency_key="msg-1")
         repeated = self.store.send_message("demo", "agent-a", "question", {"ask": "different but ignored"}, recipient_id="agent-b", idempotency_key="msg-1")

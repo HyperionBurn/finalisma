@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="The Finalisma compatibility evidence ledger: nine documented MCP host paths and zero live Finalisma host-pair validations as of 30 July 2026.">
+  <meta name="description" content="The Finalisma compatibility evidence ledger: one verified host integration and eight documented MCP host paths as of 5 August 2026.">
   <title>Compatibility ledger · Finalisma</title>
   <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="../styles.css">
@@ -14,13 +14,15 @@
   <div class="announcement">Guide 04 · compatibility evidence <a href="index.html">All guides →</a></div>
   <header class="site-header"><a class="brand" href="../index.html"><span class="brand-mark" aria-hidden="true">f</span><span>finalisma</span></a><a class="button button-small" href="../index.html#cohort">Help validate a pair <span aria-hidden="true">↗</span></a></header>
   <main id="main" class="article-main">
-    <p class="article-kicker">Evidence snapshot · 30 July 2026</p>
+    <p class="article-kicker">Evidence snapshot · 5 August 2026</p>
     <h1>Documented is not verified.</h1>
-    <p class="article-dek">Official host documentation establishes nine plausible MCP connection paths. This repository currently contains zero fresh end-to-end Finalisma host validations.</p>
-    <div class="article-meta"><span>9 documented-unverified</span><span>0 verified</span><span>0 adapter-required</span><span>0 unsupported</span></div>
+    <p class="article-dek">Nine plausible MCP connection paths are documented. One is now verified with a captured host run; the other eight remain documented-unverified.</p>
+    <div class="article-meta"><span>1 verified</span><span>8 documented-unverified</span><span>0 adapter-required</span><span>0 unsupported</span></div>
     <div class="article-layout">
       <article>
         <p class="lead-paragraph">A host becomes verified only when the repository contains its version, redacted configuration, pairing and consent transcript, ordered reconnect, cancellation, evidence gate, and successful close.</p>
+        <h2>Verified host</h2>
+        <p><strong>OpenCode 1.18.13</strong> — verified 5 August 2026. Loaded finalisma as a <code>type: local</code> stdio MCP server from a project config; a headless agent run completed the full lifecycle (register ×2, pairing create/preview/consent-join, task create/claim/verify/complete). Validation exposed and fixed a JS-safe-integer fencing-token defect. Repository artifact: <code>docs/INTEROP_VALIDATION_2026-08-05.md</code> (in-repo, outside the site bundle).</p>
         <h2>Documented MCP paths</h2>
         <ol>
           <li><a href="https://developers.openai.com/codex/mcp/">OpenAI Codex local clients</a> — stdio and Streamable HTTP documented.</li>
@@ -29,21 +31,21 @@
           <li><a href="https://code.visualstudio.com/docs/agent-customization/mcp-servers">VS Code agent mode with GitHub Copilot</a> — stdio and HTTP documented.</li>
           <li><a href="https://cursor.com/docs/mcp.md">Cursor Agent</a> — stdio, SSE, and Streamable HTTP documented.</li>
           <li><a href="https://google-gemini.github.io/gemini-cli/docs/tools/mcp-server.html">Gemini CLI</a> — stdio, SSE, and Streamable HTTP documented.</li>
-          <li><a href="https://opencode.ai/v2/docs/mcp-servers">OpenCode v2</a> — stdio and Streamable HTTP documented.</li>
+          <li><a href="https://opencode.ai/v2/docs/mcp-servers">OpenCode v2</a> — stdio and Streamable HTTP documented; live 1.18.13 verified 2026-08-05.</li>
           <li><a href="https://zed.dev/docs/ai/mcp">Zed Agent</a> — local command and remote HTTP documented.</li>
           <li><a href="https://docs.cline.bot/mcp/mcp-overview">Cline</a> — stdio and remote HTTP documented.</li>
         </ol>
-        <div class="article-callout"><strong>First proof pair</strong><p>Codex + Claude Code is the proposed first validation pair because both document local stdio and remote HTTP paths. That is a test plan, not a completed integration claim.</p></div>
+        <div class="article-callout"><strong>Next proof pair</strong><p>Claude Code + Cursor is the proposed next validation pair — both document local stdio and remote HTTP paths. That is a test plan, not a completed integration claim.</p></div>
         <h2>Validation upgrade rule</h2>
         <p>Every status change must cite a fresh repository artifact with host versions, the actual connection surface, redacted setup, successful tool discovery, credential handling, full handoff lifecycle, reconnect, cancellation, and limitations.</p>
         <div class="article-next"><span>Run the test</span><a href="quickstart.html">Use the local proof checklist →</a></div>
       </article>
       <aside class="article-aside">
         <div class="aside-card"><span class="resource-tag">Status language</span><ul><li>Verified: transcript on file</li><li>Documented-unverified: host docs only</li><li>Adapter-required: direct path unavailable</li><li>Unsupported: required path absent</li></ul></div>
-        <div class="aside-card aside-card-dark"><span class="resource-tag">Live count</span><p>0 verified Finalisma host integrations.</p></div>
+        <div class="aside-card aside-card-dark"><span class="resource-tag">Live count</span><p>1 verified Finalisma host integration (OpenCode 1.18.13).</p></div>
       </aside>
     </div>
   </main>
-  <footer class="site-footer"><div class="footer-brand"><span class="brand-mark" aria-hidden="true">f</span><span>finalisma</span></div><p>Evidence snapshot · 30 July 2026.</p></footer>
+  <footer class="site-footer"><div class="footer-brand"><span class="brand-mark" aria-hidden="true">f</span><span>finalisma</span></div><p>Evidence snapshot · 5 August 2026.</p></footer>
 </body>
 </html>

@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
-  "generated_at": "2026-07-30T00:00:00+04:00",
-  "as_of": "2026-07-30",
+  "generated_at": "2026-08-05T00:00:00+04:00",
+  "as_of": "2026-08-05",
   "purpose": "Current official-document compatibility hypotheses for installing Finalisma as an MCP server in independent agent hosts.",
   "claim_boundary": "Documentation proves that each listed host exposes an MCP client surface. It does not prove that Finalisma has completed an end-to-end pairing, reconnect, cancellation, and verified-handoff run in that host.",
   "status_definitions": {
@@ -12,8 +12,8 @@
   },
   "summary": {
     "host_count": 9,
-    "verified": 0,
-    "documented-unverified": 9,
+    "verified": 1,
+    "documented-unverified": 8,
     "adapter-required": 0,
     "unsupported": 0
   },
@@ -127,15 +127,17 @@
       "surfaces": ["OpenCode TUI", "OpenCode CLI"],
       "official_docs": "https://opencode.ai/v2/docs/mcp-servers",
       "accessed_at": "2026-07-30",
-      "product_version_scope": "OpenCode v2 documentation; live v2 build not captured",
+      "product_version_scope": "opencode 1.18.13 verified 2026-08-05",
       "documented_transport_modes": ["stdio", "streamable-http"],
-      "configuration_surface": "mcp.servers in OpenCode v2 configuration or opencode2 mcp add",
+      "configuration_surface": "mcp.servers in OpenCode configuration (type local / type remote), or opencode mcp add",
       "documented_auth": ["environment variables", "headers", "OAuth with PKCE and discovery"],
       "finalisma_path": "Local server entry or remote Streamable HTTP entry",
-      "status": "documented-unverified",
-      "tested_in_this_repo": false,
-      "blocking_caveat": "The v2 configuration schema differs from older unversioned documentation, so installation instructions must be version-pinned.",
-      "next_verification": "Capture v2 config, /connect authentication if used, a two-host workflow, and permission behavior for Finalisma tools."
+      "status": "verified",
+      "tested_in_this_repo": true,
+      "validation_artifact": "docs/INTEROP_VALIDATION_2026-08-05.md; scripts/interop-validate.py",
+      "validation_detail": "opencode 1.18.13 loaded finalisma as a type:local stdio MCP server and a headless agent run completed the full lifecycle: register x2, pairing create/preview/consent-join, task create/claim/verify/complete. Initial run exposed a JS-safe-integer fencing-token defect (secrets.randbits(63) truncated by the JS transport); fixed to randbits(51) and re-validated green. See docs/INTEROP_VALIDATION_2026-08-05.md for the config file path and transcript.",
+      "blocking_caveat": "None observed for the stdio path. The v2 configuration schema differs from older unversioned documentation, so install instructions should stay version-pinned.",
+      "next_verification": "Reconnect behaviour, cancellation, and a second independent host (Claude Code or Cursor) remain unverified."
     },
     {
       "id": "zed-agent",
