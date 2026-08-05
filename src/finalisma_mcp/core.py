@@ -276,7 +276,13 @@ class FinalismaStore:
         subsequent operations. Closing in-flight connections matters on
         Windows: a checked-out connection left open keeps the SQLite file
         locked, which made tempdir teardown intermittently raise
-        PermissionError."""
+        PermissionError.
+
+        After closing all pooled/live connections, a fresh connection performs
+        a WAL checkpoint (TRUNCATE) so the -wal/-shm side files are folded into
+        the main database and their handles released. Checkpointing must happen
+        AFTER all other connections are closed — otherwise SQLite reports BUSY
+        and the side files linger, locking the file on Windows."""
         connections: list[sqlite3.Connection] = []
         with self._connection_pool_lock:
             if self._closed:
@@ -295,6 +301,35 @@ class FinalismaStore:
                 connection.close()
             except sqlite3.Error:
                 pass
+        # Drop references so the closed connection objects (and any lingering
+        # WAL -shm mapping on Windows) can be collected before we switch modes.
+        connections.clear()
+        # Windows holds WAL -shm mappings on the closed connection objects; a
+        # GC pass releases them deterministically so the DELETE-mode switch
+        # below can actually take the file and remove the side files.
+        import gc as _gc
+        _gc.collect()
+        # Fresh connection: checkpoint WAL now that no other handle is open.
+        try:
+            checkpoint_conn = sqlite3.connect(self.state_path, timeout=5, isolation_level=None)
+            try:
+                checkpoint_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            finally:
+                checkpoint_conn.close()
+        except sqlite3.Error:
+            pass
+        # Return the database to DELETE journal mode so no WAL -wal/-shm side
+        # files remain to lock the file on Windows teardown. A final connection
+        # forces the mode switch and folds any residual WAL into the main file.
+        try:
+            final_conn = sqlite3.connect(self.state_path, timeout=5, isolation_level=None)
+            try:
+                final_conn.execute("PRAGMA journal_mode = DELETE")
+                final_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            finally:
+                final_conn.close()
+        except sqlite3.Error:
+            pass
 
     def __enter__(self) -> FinalismaStore:
         return self

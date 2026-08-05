@@ -60,6 +60,12 @@ These were real defects and are all fixed. Listed so nobody spends a lane re-dis
 - Wave E Rooms are implemented (`src/finalisma_mcp/room.py`): one multi-use link admits N agents
   up to a cap, with ordered event log, per-member cursors, addressing (unicast/group/broadcast),
   and 12 `finalisma_room_*` tools. Design: `docs/ROOMS_DESIGN.md`.
+- Wave F Cloud Spine is implemented (`src/finalisma_cloud/`): a storage interface
+  (`StorageBackend` ABC) with a stdlib SQLite-WAL backend, structural tenancy at the storage
+  boundary (`TenantContext` guard, required `tenant_id`, `WHERE tenant_id = ?`), forward-only
+  idempotent migrations that upgrade a real v3 coordinator DB in place, plan-driven quotas and
+  rate limits, and real crash-kill durability tests. Design: `docs/CLOUD_SPINE_DESIGN.md`. The
+  coordinator plane (`finalisma_mcp`) is untouched and stays stdlib-only.
 
 ## The one open structural gap
 

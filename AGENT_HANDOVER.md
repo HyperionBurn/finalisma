@@ -150,6 +150,13 @@ Rules that must survive future edits:
 - `src/finalisma_sdk/` — official stdlib-only Python client (`FinalismaClient`):
   typed results, structured errors, token hygiene (never in repr/logs), exponential
   backoff retry with idempotency keys.
+- `src/finalisma_cloud/` — the Wave F hosted-service plane. `storage.py` defines the
+  `StorageBackend` ABC (transport-engine-agnostic) with a `SqliteWalBackend` (stdlib SQLite-WAL).
+  `tenancy.py` is structural isolation: `TenantContext.require_tenant()` guard + required
+  `tenant_id` on every storage method. `migrations.py` is forward-only/idempotent and upgrades a
+  real v3 coordinator DB in place (additive only, never touches agent_credentials).
+  `quotas.py`/`rate_limit.py` are plan-driven seams (Wave I adds billing). Design:
+  `docs/CLOUD_SPINE_DESIGN.md`. This plane MAY take pinned deps; v1 uses none (stdlib).
 - `scripts/finalisma-mcp.py` — no-install launcher that adds `src/` to the import
   path and starts the MCP server.
 - `scripts/finalisma-smoke.py` — real in-process protocol smoke: pairing preview,
@@ -465,6 +472,21 @@ will keep temporary SQLite files locked while pooled connections remain open.
   `actor_token` bound to a member; non-members get `member_required`, and cross-room access
   is refused. Ordered room events replay from per-member cursors with at-least-once delivery
   and monotonic MAX acks (`UNIQUE(room_id, seq)`, `room_cursors` PK `(room_id, agent_id)`).
+- **Cloud tenancy is structural, not a convention (Wave F).** Every `StorageBackend` method that
+  touches tenant data takes `tenant_id` as a required positional parameter (a missing one raises
+  `TypeError`), and the backend scopes every query `WHERE tenant_id = ?`. `TenantContext` is
+  constructed once per authenticated request and its `require_tenant()` rejects a wrong tenant
+  before any backend call. There is no cross-tenant read path and no `list_all_tenants`.
+  The negative test suite (`tests/test_tenancy_negative.py`) proves tenant B cannot read/list/
+  address/enumerate tenant A across rooms, events, counters, outbox, and audit.
+- **Cloud migrations are additive-only.** `apply_migrations` upgrades a real v3 coordinator DB in
+  place, creating `cloud_*` and `schema_migrations` tables only; `agent_credentials` is never
+  touched and no credentials are fabricated. Rollback is a pre-upgrade backup (no down-migrations).
+- **Cloud quotas/rate limits are plan-driven and atomic.** Limits resolve from the tenant's plan
+  (`PLANS`), never hardcoded; quota checks and mutations run in one transaction. Wave I swaps in
+  real billing without touching enforcement.
+- **Coordinator (`finalisma_mcp`) stays dependency-free forever.** The cloud plane is the only
+  place pinned dependencies may land, and v1 adds none (stdlib SQLite-WAL).
 - The current storage model is durable SQLite single-node preview. It is not yet a
   multi-instance, OAuth/OIDC, distributed-rate-limit, outbox-backed hosted service.
 - Model names are recorded provider routes. The host still owns credentials and
