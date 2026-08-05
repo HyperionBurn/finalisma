@@ -6,8 +6,9 @@ pairing + verified-handoff lifecycle AND the N-agent Room product claim, then
 tears the child down in a finally block.
 
 The SDK is the tier under test: three Python "hosts" each use FinalismaClient
-as their client over http://127.0.0.1:<port>/mcp. Room tools are reached via the
-SDK's private `_call("finalisma_room_*", ...)` — documented in the report.
+as their client over http://127.0.0.1:<port>/mcp. The driver uses ONLY public
+methods — the SDK's private escape-hatch dispatch is never used. Zero private
+dispatch calls is the acceptance criterion for the SDK-ROOMS wave.
 
 Run:  timeout 240 python -B scripts/interop-validate-sdk.py
 """
@@ -26,7 +27,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from finalisma_sdk import FinalismaClient, FinalismaError
+from finalisma_sdk import FinalismaClient, FinalismaError  # noqa: E402
 
 TEAM_ID = "demo"
 N_ROOM_AGENTS = 3
@@ -136,38 +137,18 @@ def main() -> int:
         join_token = pairing.join_token
         log(f"# pairing link created: pairing_id={pairing.pairing_id} token={_redact(join_token)}")
 
-        # The SDK's join_pairing() helper does not inject actor_token; drive the
-        # join through _call so the joining agent's credential is presented.
-        from urllib.parse import urlsplit, parse_qs
-        parsed = urlsplit(link)
-        fragment_token = parse_qs(parsed.fragment).get("token", [""])[0]
-
-        jr_b = clients["agent-b"]._call(
-            "finalisma_join_pairing",
-            token=fragment_token,
-            agent_id="agent-b",
-            name="agent-b",
-            role="generalist",
-            consent=True,
-        )
-        joined_state = jr_b.get("state")
+        # Public helper join_pairing() now injects the client's actor_token, so
+        # it succeeds on a coordinator that requires actor credentials.
+        jr_b = clients["agent-b"].join_pairing(link, consent=True)
+        joined_state = jr_b.state
         log(f"# agent-b joined pairing: state={joined_state}")
         check(joined_state in ("active", "open"), "pairing join state active/open")
 
         # A second pairing for the clean claim/verify handoff.
         pairing2 = clients["agent-a"].create_pairing_link(capabilities=["read", "comment"])
         link2 = pairing2.join_url
-        parsed2 = urlsplit(link2)
-        fragment_token2 = parse_qs(parsed2.fragment).get("token", [""])[0]
-        jr_b2 = clients["agent-b"]._call(
-            "finalisma_join_pairing",
-            token=fragment_token2,
-            agent_id="agent-b",
-            name="agent-b",
-            role="generalist",
-            consent=True,
-        )
-        check(jr_b2.get("state") in ("active", "open"), "pairing #2 join state active/open")
+        jr_b2 = clients["agent-b"].join_pairing(link2, consent=True)
+        check(jr_b2.state in ("active", "open"), "pairing #2 join state active/open")
 
         task_id = clients["agent-a"].create_task(
             scope=["handoff.txt"],
@@ -203,84 +184,47 @@ def main() -> int:
         room_started = time.monotonic()
         log("=== PART B: N-agent room (product claim) ===")
 
-        # Owner (agent-a) creates a room with cap >= 4 via SDK _call.
-        room = clients["agent-a"]._call(
-            "finalisma_room_create",
-            owner_agent_id="agent-a",
-            cap=4,
-            name="interop-sdk-room",
-        )
-        room_id = room["room_id"]
-        link_token = room["link_token"]
-        cap = room["cap"]
-        log(f"# room created: room_id={room_id} cap={cap} state={room.get('state')}")
-        check(room.get("state") == "forming", "room created in forming state")
+        # Owner (agent-a) creates a room with cap >= 4 via the public API.
+        room = clients["agent-a"].create_room(cap=4, name="interop-sdk-room")
+        room_id = room.room_id
+        link_token = room.link_token
+        cap = room.cap
+        log(f"# room created: room_id={room_id} cap={cap} state={room.state}")
+        check(room.state == "forming", "room created in forming state")
         check(cap >= 4, "room cap >= 4")
 
         # Owner is auto-joined as first member; agent-b and agent-c join via link.
         for name in ["agent-b", "agent-c"]:
-            jr = clients[name]._call(
-                "finalisma_room_join",
-                room_id=room_id,
-                link_token=link_token,
-                agent_id=name,
-                consent=True,
-                capabilities=["read"],
-            )
-            log(f"# {name} joined room: status={jr.get('status')} cursor={jr.get('cursor')}")
-            check(jr.get("status") == "active", f"{name} joined room active")
+            jr = clients[name].join_room(room_id, link_token, consent=True, capabilities=["read"])
+            log(f"# {name} joined room: status={jr.status} cursor={jr.cursor}")
+            check(jr.status == "active", f"{name} joined room active")
 
         # (1) All 3 are members.
-        info = clients["agent-a"]._call("finalisma_room_info", room_id=room_id)
-        member_ids = sorted(m["agent_id"] for m in info["members"])
-        log(f"# room info: state={info['state']} members={member_ids} count={info['member_count']}")
-        check(info["member_count"] == 3, "room has 3 members")
+        info = clients["agent-a"].room_info(room_id)
+        member_ids = sorted(m.agent_id for m in info.members)
+        log(f"# room info: state={info.state} members={member_ids} count={info.member_count}")
+        check(info.member_count == 3, "room has 3 members")
         check(member_ids == ["agent-a", "agent-b", "agent-c"], "member roster is {a,b,c}")
-        check(info["state"] == "active", "room state active after joins")
+        check(info.state == "active", "room state active after joins")
 
         # (2a) Unicast: A sends to B.
-        send_b = clients["agent-a"]._call(
-            "finalisma_room_send",
-            room_id=room_id,
-            sender_agent_id="agent-a",
-            target_spec="agent-b",
-            payload={"text": "unicast to B"},
-        )
-        receipts_unicast = send_b["receipts"]
-        log(f"# unicast A->B: receipts={[r['agent_id'] for r in receipts_unicast]} seq={send_b['seq']}")
+        send_b = clients["agent-a"].send(room_id, target="agent-b", payload={"text": "unicast to B"})
+        receipts_unicast = send_b.receipts
+        log(f"# unicast A->B: receipts={[r['agent_id'] for r in receipts_unicast]} seq={send_b.seq}")
         check(
             sorted(r["agent_id"] for r in receipts_unicast) == ["agent-b"],
             "unicast receipt targets exactly [agent-b]",
         )
         check(all(r["status"] == "queued" for r in receipts_unicast), "unicast receipts queued")
 
-        # (2b) Group: create group via room_groups, add B and C, send to group.
-        clients["agent-a"]._call(
-            "finalisma_room_groups",
-            room_id=room_id,
-            agent_id="agent-a",
-            group_name="builders",
-            action="add",
-            members=["agent-b", "agent-c"],
-        )
-        grp = clients["agent-a"]._call(
-            "finalisma_room_groups",
-            room_id=room_id,
-            agent_id="agent-a",
-            group_name="builders",
-            action="list",
-        )
-        log(f"# group 'builders' members={grp['members']}")
-        check(grp["members"] == ["agent-b", "agent-c"], "group builders = {b,c}")
+        # (2b) Group: add B and C, send to group.
+        clients["agent-a"].add_to_group(room_id, "builders", ["agent-b", "agent-c"])
+        grp_members = clients["agent-a"].group_members(room_id, "builders")
+        log(f"# group 'builders' members={grp_members}")
+        check(grp_members == ["agent-b", "agent-c"], "group builders = {b,c}")
 
-        send_grp = clients["agent-a"]._call(
-            "finalisma_room_send",
-            room_id=room_id,
-            sender_agent_id="agent-a",
-            target_spec="builders",
-            payload={"text": "group message"},
-        )
-        receipts_group = send_grp["receipts"]
+        send_grp = clients["agent-a"].send(room_id, target="builders", payload={"text": "group message"})
+        receipts_group = send_grp.receipts
         log(f"# group send: receipts={[r['agent_id'] for r in receipts_group]}")
         check(
             sorted(r["agent_id"] for r in receipts_group) == ["agent-b", "agent-c"],
@@ -288,14 +232,8 @@ def main() -> int:
         )
 
         # (2c) Broadcast "*" — receipts for the other two (exclude_sender default).
-        send_bc = clients["agent-a"]._call(
-            "finalisma_room_send",
-            room_id=room_id,
-            sender_agent_id="agent-a",
-            target_spec="*",
-            payload={"text": "broadcast"},
-        )
-        receipts_bc = send_bc["receipts"]
+        send_bc = clients["agent-a"].send(room_id, target="*", payload={"text": "broadcast"})
+        receipts_bc = send_bc.receipts
         log(f"# broadcast *: receipts={[r['agent_id'] for r in receipts_bc]}")
         check(
             sorted(r["agent_id"] for r in receipts_bc) == ["agent-b", "agent-c"],
@@ -303,43 +241,33 @@ def main() -> int:
         )
 
         # (3) Ordered event log + per-member cursor.
-        # Each agent polls from its own after_seq=0, acks, records last_ack_seq.
         cursors: dict[str, int] = {}
         for name in ["agent-a", "agent-b", "agent-c"]:
-            poll = clients[name]._call("finalisma_room_poll", room_id=room_id, agent_id=name, after_seq=0)
-            events = poll["events"]
-            seqs = [e["seq"] for e in events]
-            log(f"# {name} poll(0): {len(events)} events, seqs={seqs}, next_seq={poll['next_seq']}")
+            poll = clients[name].room_poll(room_id, after_seq=0)
+            events = poll.events
+            seqs = [e.seq for e in events]
+            log(f"# {name} poll(0): {len(events)} events, seqs={seqs}, next_seq={poll.next_seq}")
             check(seqs == sorted(seqs), f"{name} events returned in ascending seq order")
-            # No duplicates by seq.
             check(len(set(seqs)) == len(seqs), f"{name} no duplicate seqs in poll")
-            # Ack the head.
-            head = poll["cursor_head"]
-            acked = clients[name]._call("finalisma_room_ack", room_id=room_id, agent_id=name, seq=head)
-            cursors[name] = acked["last_ack_seq"]
-            log(f"# {name} ack to {head}: last_ack_seq={acked['last_ack_seq']}")
-            check(acked["last_ack_seq"] == head, f"{name} cursor advanced to {head}")
+            head = poll.cursor_head
+            acked = clients[name].room_ack(room_id, seq=head)
+            cursors[name] = acked
+            log(f"# {name} ack to {head}: last_ack_seq={acked}")
+            check(acked == head, f"{name} cursor advanced to {head}")
 
         # Reconnect: a fresh client with agent-b's identity+token (simulate disconnect).
         log("# reconnect: fresh client reusing agent-b identity + actor_token")
         reconnected_b = FinalismaClient(base_url, "agent-b", TEAM_ID, actor_token=tokens["agent-b"])
-        # Poll from agent-b's last_ack_seq → should get NO loss (everything already
-        # acked is skipped) but also prove full replay from seq 0 works.
-        replay_full = reconnected_b._call(
-            "finalisma_room_poll", room_id=room_id, agent_id="agent-b", after_seq=0,
-        )
-        replay_seqs = [e["seq"] for e in replay_full["events"]]
-        log(f"# reconnect poll(0): {len(replay_full['events'])} events, seqs={replay_seqs}")
+        replay_full = reconnected_b.room_poll(room_id, after_seq=0)
+        replay_seqs = [e.seq for e in replay_full.events]
+        log(f"# reconnect poll(0): {len(replay_full.events)} events, seqs={replay_seqs}")
         check(
             replay_seqs == sorted(set(replay_seqs)) and len(replay_seqs) == len(set(replay_seqs)),
             "reconnect replay: ordered, no duplicates",
         )
-        # Poll from last_ack_seq → empty (no loss, no dup of already-acked).
-        replay_cursor = reconnected_b._call(
-            "finalisma_room_poll", room_id=room_id, agent_id="agent-b", after_seq=cursors["agent-b"],
-        )
-        log(f"# reconnect poll(from cursor {cursors['agent-b']}): {len(replay_cursor['events'])} new events")
-        check(len(replay_cursor["events"]) == 0, "reconnect from cursor: no already-acked events replayed")
+        replay_cursor = reconnected_b.room_poll(room_id, after_seq=cursors["agent-b"])
+        log(f"# reconnect poll(from cursor {cursors['agent-b']}): {len(replay_cursor.events)} new events")
+        check(len(replay_cursor.events) == 0, "reconnect from cursor: no already-acked events replayed")
         reconnected_b.close()
 
         room_elapsed = time.monotonic() - room_started
@@ -353,7 +281,7 @@ def main() -> int:
         neg1_refused = False
         neg1_code = ""
         try:
-            clients["agent-outsider"]._call("finalisma_room_poll", room_id=room_id, agent_id="agent-outsider")
+            clients["agent-outsider"].room_poll(room_id, after_seq=0)
             log("  FAIL  outsider poll NOT refused")
         except FinalismaError as exc:
             neg1_refused = True
@@ -366,7 +294,7 @@ def main() -> int:
         neg1b_refused = False
         neg1b_code = ""
         try:
-            clients["agent-outsider"]._call("finalisma_room_info", room_id=room_id, agent_id="agent-outsider")
+            clients["agent-outsider"].room_info(room_id)
             log("  FAIL  outsider room_info NOT refused")
         except FinalismaError as exc:
             neg1b_refused = True
@@ -376,19 +304,12 @@ def main() -> int:
         check(neg1b_code == "member_required", f"outsider room_info error code == member_required (got {neg1b_code})")
 
         # (N2) Reuse room link under existing member agent-b with DIFFERENT actor_token → actor_auth_invalid.
-        # Build a bogus token that is valid-length but wrong for agent-b.
         bogus_token = "rm_" + secrets.token_urlsafe(32)
         neg2_refused = False
         neg2_code = ""
         try:
             impostor = FinalismaClient(base_url, "agent-b", TEAM_ID, actor_token=bogus_token)
-            impostor._call(
-                "finalisma_room_join",
-                room_id=room_id,
-                link_token=link_token,
-                agent_id="agent-b",
-                consent=True,
-            )
+            impostor.join_room(room_id, link_token, consent=True)
             log("  FAIL  actor-overwrite join NOT refused")
             impostor.close()
         except FinalismaError as exc:
@@ -403,23 +324,23 @@ def main() -> int:
         result = {
             "status": status,
             "transport": "http",
-            "sdk_tier": "finalisma_sdk.FinalismaClient over Streamable HTTP",
+            "sdk_tier": "finalisma_sdk.FinalismaClient over Streamable HTTP (public API only)",
             "protocol_version": proto.get("protocolVersion"),
             "server_info": proto.get("serverInfo"),
-            "pairing_join_state": jr_b2.get("state"),
+            "pairing_join_state": jr_b2.state,
             "task_status": completed.status,
             "evidence_passed": bool(verified.get("passed")),
             "room": {
                 "room_id": room_id,
                 "cap": cap,
-                "state": info["state"],
-                "member_count": info["member_count"],
+                "state": info.state,
+                "member_count": info.member_count,
                 "members": member_ids,
                 "unicast_receipts": [r["agent_id"] for r in receipts_unicast],
                 "group_receipts": [r["agent_id"] for r in receipts_group],
                 "broadcast_receipts": [r["agent_id"] for r in receipts_bc],
-                "reconnect_replay_events": len(replay_full["events"]),
-                "reconnect_from_cursor_events": len(replay_cursor["events"]),
+                "reconnect_replay_events": len(replay_full.events),
+                "reconnect_from_cursor_events": len(replay_cursor.events),
             },
             "negative": {
                 "outsider_poll_refused": neg1_refused,

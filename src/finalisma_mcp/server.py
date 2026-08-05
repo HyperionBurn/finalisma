@@ -1409,8 +1409,13 @@ class FinalismaDispatcher:
         owner = self._required(args, "owner_agent_id")
         cap = self._required(args, "cap")
         actor_token = args.get("actor_token")
-        # actor_token is optional on create: in trusted stdio mode the owner
-        # auto-joins; when supplied it is validated and stored bound to the owner.
+        # actor_token is optional on create in trusted stdio mode, but when the
+        # coordinator requires actor auth (e.g. --actor-auth auto over HTTP) the
+        # owner MUST prove a registered credential — otherwise anyone could
+        # fabricate a room owned by any agent_id. Validate when supplied.
+        if actor_token is not None:
+            with self.store._transaction() as conn:
+                self.store._authorize_actor(conn, team_id, owner, actor_token)
         actor_hash = self._room_actor_hash(actor_token) if actor_token is not None else ""
         return self._room_call(lambda: self.rooms.create_room(
             team_id=team_id,
