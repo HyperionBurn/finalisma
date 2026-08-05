@@ -124,10 +124,36 @@ Rules that must survive future edits:
 - `src/finalisma_mcp/__main__.py` — CLI entry point and actor-auth policy resolver:
   HTTP required / stdio trusted in `auto`, explicit loopback-only HTTP trust with a
   warning, and rejection of non-loopback trust.
+- `src/finalisma_mcp/tenancy.py` — org/membership boundary layer: org CRUD, member
+  roles, SHA-256 actor-key derivation, and scope enforcement (`assert_scope`). Mounted
+  behind `finalisma_org_*` MCP tools (2026-08-05).
+- `src/finalisma_mcp/roster.py` — N-way roster: create/join/leave, capabilities,
+  named groups, one-use roster links, `route_targets` expansion (agent / group /
+  `*` / list), and `build_envelope_v2`. Mounted behind `finalisma_roster_*` tools.
+- `src/finalisma_mcp/outbox.py` — durable per-recipient outbox: fan-out enqueue,
+  atomic claim, exponential backoff retry, DLQ, restart crash-recovery. Mounted
+  behind `finalisma_outbox_*` tools.
+- `src/finalisma_mcp/bridge.py` — universal adapters for non-MCP hosts:
+  `WebhookBridge` (HMAC-signed POST, fails closed without the real signing secret),
+  `PollingBridge` (at-most-once cursor delivery), `ClipboardBridge` (one-shot
+  bootstrap snippet). Mounted behind `finalisma_bridge_*` tools.
+- `src/finalisma_mcp/metrics_activation.py` — local-first activation funnel:
+  `link_created → link_previewed → link_accepted → first_task_claimed →
+  first_evidence_verified` with time-to-first-verified-handoff, retention, and
+  handoffs-per-workspace. Mounted behind `finalisma_metrics_*` tools. No external
+  analytics vendor, no PII.
+- `src/finalisma_sdk/` — official stdlib-only Python client (`FinalismaClient`):
+  typed results, structured errors, token hygiene (never in repr/logs), exponential
+  backoff retry with idempotency keys.
 - `scripts/finalisma-mcp.py` — no-install launcher that adds `src/` to the import
   path and starts the MCP server.
 - `scripts/finalisma-smoke.py` — real in-process protocol smoke: pairing preview,
   join, task claim, evidence verification, and completion.
+- `scripts/finalisma_performance_gate.py` — locked same-machine evaluator. Re-baselined
+  2026-08-05 after the harness gained roster/tenancy scenarios; original 1,265.771 ms
+  → 59.314 ms / 95.31% is preserved in the baseline `history` array and
+  `docs/PERFORMANCE.md`. A force re-capture is a regression guard (target 0), not an
+  improvement proof.
 - `.finalisma/state.db` — ignored project-local SQLite state currently present on
   this machine. Do not commit it. Do not delete it casually; it may contain local
   runtime state. The smoke script uses a temporary directory.
@@ -366,10 +392,12 @@ Codex runtime. Do not install browsers or add a Node package just to run the har
 
 The locked single-node evaluator is `scripts/finalisma_performance_gate.py`; its
 baseline and OMX ledger live under
-`.omx/goals/performance/single-node-coordinator-envelope/`. The verified result is
-1,265.771 ms -> 59.314 ms weighted median (95.31% faster), with matching semantic
-digests, all scenario p95 values improved, 65 tests passing, smoke passing, and no
-raw credential in evaluator output. Read `docs/PERFORMANCE.md` before changing the
+`.omx/goals/performance/single-node-coordinator-envelope/`. The gate was re-baselined
+2026-08-05 (see §3): the current weighted median is ~68.8 ms against the extended
+harness with matching semantic digests and a green regression gate; the original
+1,265.771 ms -> 59.314 ms (95.31%) figure is preserved in the baseline `history`
+array. The gate requires 226 tests passing, smoke passing, and no raw credential in
+evaluator output. Read `docs/PERFORMANCE.md` before changing the
 harness, baseline, connection pooling, routing query, or session cursor path.
 
 `FinalismaStore` now owns bounded read/write connection pools. Long-lived callers
@@ -401,6 +429,24 @@ will keep temporary SQLite files locked while pooled connections remain open.
   loopback-only and warns; non-loopback trust is rejected. A non-local bind also
   requires transport bearer auth. Read `docs/SECURITY_GATES.md` before treating it
   as hosted SaaS.
+- **Webhook signing fails closed.** `WebhookBridge.deliver` raises
+  `signing_secret_required` unless the caller supplies the real signing secret; the
+  stored SHA-256 hash is never used as a live HMAC key (HIGH-1 fix, 2026-08-05).
+- **SDK error bodies are redacted.** `FinalismaClient` never embeds a coordinator
+  response body into a raised exception — only `{status}` is attached, so a body that
+  echoes a token cannot land in caller logs (HIGH-2 fix, 2026-08-05).
+- **Bridge calls require actor auth.** Every `finalisma_bridge_*` tool validates the
+  caller's `actor_token` (`actor_auth_invalid` on failure); webhook secrets and
+  bootstrap nonces are stored hashed / one-use and never returned.
+- **Tenancy scope is negative-tested.** `finalisma_org_assert_scope` raises
+  `tenancy_scope_forbidden` for non-members and for cross-tenant key mismatches; org
+  isolation is enforced by negative integration tests.
+- **Outbox delivery is durable and idempotent.** Fan-out entries are keyed
+  `(envelope_id, team, recipient)`; crash recovery resets stranded `in_flight` rows;
+  DLQ holds entries past max attempts. No raw secret enters `payload_json`.
+- **Activation metrics carry no PII.** `finalisma_metrics_event` rejects PII-bearing
+  metadata keys at the top level; events carry team/agent ids and caller-controlled
+  metadata only.
 - The current storage model is durable SQLite single-node preview. It is not yet a
   multi-instance, OAuth/OIDC, distributed-rate-limit, outbox-backed hosted service.
 - Model names are recorded provider routes. The host still owns credentials and
