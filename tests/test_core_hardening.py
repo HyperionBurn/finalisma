@@ -93,5 +93,46 @@ class SessionReadNoWriteTest(unittest.TestCase):
             self.assertEqual(ctx.exception.code, "session_closed")
 
 
+class ConnectionCloseOnTeardownTest(unittest.TestCase):
+    """Regression: close() must close in-flight connections too.
+
+    Windows keeps a SQLite file locked while ANY connection to it is open.
+    The old close() only drained the idle pool, so a checked-out connection
+    (e.g. a thread mid-operation at teardown) left the file locked and
+    tempfile.cleanup() intermittently raised PermissionError — an errors=1
+    flake that passed on re-run. close() must force-close in-flight
+    connections as well.
+    """
+
+    def test_close_closes_in_flight_connection_allowing_tempdir_cleanup(self) -> None:
+        temp = tempfile.TemporaryDirectory()
+        root = Path(temp.name)
+        store = FinalismaStore(root / "state.db", root)
+        # Acquire a connection and deliberately NOT release it — simulates a
+        # thread holding a checked-out connection at teardown. Whether it came
+        # from the pool or was freshly created, close() must close it.
+        conn = store._acquire_connection()
+        conn.execute("SELECT 1").fetchone()
+        # close() must force-close the in-flight connection.
+        store.close()
+        # The SQLite file must now be removable on Windows (no open handle).
+        state_file = root / "state.db"
+        try:
+            state_file.unlink()
+        except PermissionError as exc:
+            self.fail(f"state.db still locked after close(): {exc}")
+        temp.cleanup()
+
+    def test_close_is_idempotent_and_clears_live_connections(self) -> None:
+        temp = tempfile.TemporaryDirectory()
+        root = Path(temp.name)
+        store = FinalismaStore(root / "state.db", root)
+        conn = store._acquire_connection()
+        store.close()
+        store.close()  # second close is a no-op
+        self.assertEqual(store._live_connections, set())
+        temp.cleanup()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -207,6 +207,7 @@ class FinalismaStore:
             False: queue.LifoQueue(maxsize=CONNECTION_POOL_SIZE),
             True: queue.LifoQueue(maxsize=CONNECTION_POOL_SIZE),
         }
+        self._live_connections: set[sqlite3.Connection] = set()
         self._connection_pool_lock = threading.Lock()
         self._closed = False
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -252,12 +253,16 @@ class FinalismaStore:
             if self._closed:
                 raise RuntimeError("FinalismaStore is closed")
             try:
-                return self._connection_pools[query_only].get_nowait()
+                connection = self._connection_pools[query_only].get_nowait()
             except queue.Empty:
-                return self._connect(query_only=query_only)
+                connection = self._connect(query_only=query_only)
+            # Track EVERY in-flight connection so close() can force-close it.
+            self._live_connections.add(connection)
+            return connection
 
     def _release_connection(self, connection: sqlite3.Connection, *, query_only: bool = False) -> None:
         with self._connection_pool_lock:
+            self._live_connections.discard(connection)
             if self._closed:
                 connection.close()
                 return
@@ -267,7 +272,11 @@ class FinalismaStore:
                 connection.close()
 
     def close(self) -> None:
-        """Close idle SQLite connections and reject subsequent operations."""
+        """Close every SQLite connection (idle and in-flight) and reject
+        subsequent operations. Closing in-flight connections matters on
+        Windows: a checked-out connection left open keeps the SQLite file
+        locked, which made tempdir teardown intermittently raise
+        PermissionError."""
         connections: list[sqlite3.Connection] = []
         with self._connection_pool_lock:
             if self._closed:
@@ -279,8 +288,13 @@ class FinalismaStore:
                         connections.append(pool.get_nowait())
                     except queue.Empty:
                         break
+            connections.extend(self._live_connections)
+            self._live_connections.clear()
         for connection in connections:
-            connection.close()
+            try:
+                connection.close()
+            except sqlite3.Error:
+                pass
 
     def __enter__(self) -> FinalismaStore:
         return self
