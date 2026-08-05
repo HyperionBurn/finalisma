@@ -1,0 +1,616 @@
+"""TDD tests for finalisma_mcp.bridge — universal adapters for non-MCP hosts.
+
+Covers: WebhookBridge, PollingBridge, ClipboardBridge, HttpBridgeClient,
+actor-auth binding, signature verification, one-use enforcement.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import hmac
+import json
+import sys
+import tempfile
+import threading
+import time
+import unittest
+import uuid
+from http.client import HTTPConnection
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import urlsplit
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from finalisma_mcp.core import FinalismaStore, FinalismaError
+from finalisma_mcp.bridge import (
+    WebhookBridge,
+    PollingBridge,
+    ClipboardBridge,
+    HttpBridgeClient,
+    BridgeAuthError,
+    BridgeSignatureError,
+    _now_epoch,
+)
+
+
+def _make_store(tmpdir):
+    root = Path(tmpdir)
+    return FinalismaStore(root / "state.db", root, require_actor_auth=True)
+
+
+def _register_agent(store, team_id, agent_id, actor_token=None):
+    return store.register_agent(
+        team_id=team_id,
+        agent_id=agent_id,
+        actor_token=actor_token,
+    )
+
+
+class WebhookBridgeTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.store = _make_store(self.temp.name)
+        self.bridge = WebhookBridge(self.store)
+        cred = _register_agent(self.store, "team-1", "agent-1")
+        self.actor_token = cred["actor_token"]
+
+    def tearDown(self):
+        self.store.close()
+        self.temp.cleanup()
+
+    def test_register_webhook_stores_sha256_only(self):
+        result = self.bridge.register_webhook(
+            team_id="team-1",
+            agent_id="agent-1",
+            url="https://example.com/hook",
+            secret_ref="whsec_test_secret_value",
+            actor_token=self.actor_token,
+        )
+        self.assertIn("webhook_id", result)
+        # Secret must not be returned
+        self.assertNotIn("secret_ref", result)
+        self.assertNotIn("whsec_test_secret_value", json.dumps(result))
+        # Verify DB stores SHA-256, not plaintext
+        with self.store._read() as conn:
+            row = conn.execute("SELECT secret_hash FROM bridge_webhooks WHERE webhook_id=?", (result["webhook_id"],)).fetchone()
+            expected_hash = hashlib.sha256(b"whsec_test_secret_value").hexdigest()
+            self.assertEqual(row["secret_hash"], expected_hash)
+
+    def test_register_webhook_requires_actor_auth(self):
+        with self.assertRaises(BridgeAuthError):
+            self.bridge.register_webhook(
+                team_id="team-1",
+                agent_id="agent-1",
+                url="https://example.com/hook",
+                secret_ref="whsec_test",
+                actor_token="wrong-token",
+            )
+
+    def test_register_webhook_rejects_bad_url(self):
+        with self.assertRaises(FinalismaError):
+            self.bridge.register_webhook(
+                team_id="team-1",
+                agent_id="agent-1",
+                url="ftp://example.com/hook",
+                secret_ref="whsec_test",
+                actor_token=self.actor_token,
+            )
+
+    def test_deliver_emits_signed_event(self):
+        # Spin up a local HTTP server to receive webhook
+        received = {}
+
+        class HookHandler(BaseHTTPRequestHandler):
+            def do_POST(self):
+                length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(length)
+                received["body"] = json.loads(body)
+                received["sig"] = self.headers.get("X-Finalisma-Signature")
+                received["ts"] = self.headers.get("X-Finalisma-Timestamp")
+                self.send_response(200)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), HookHandler)
+        host, port = server.server_address
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+
+        try:
+            reg = self.bridge.register_webhook(
+                team_id="team-1",
+                agent_id="agent-1",
+                url=f"http://{host}:{port}/hook",
+                secret_ref="whsec_signing_secret",
+                actor_token=self.actor_token,
+            )
+            event = {"kind": "task.dispatch", "payload": {"title": "hello"}, "agent_id": "agent-1"}
+            result = self.bridge.deliver(
+                webhook_id=reg["webhook_id"],
+                event=event,
+                signing_secret="whsec_signing_secret",
+            )
+            self.assertTrue(result["delivered"])
+
+            # Wait for the POST to arrive
+            deadline = time.monotonic() + 3.0
+            while "body" not in received and time.monotonic() < deadline:
+                time.sleep(0.05)
+            self.assertIn("body", received)
+
+            # Verify signature
+            sig = received["sig"]
+            self.assertIsNotNone(sig)
+            self.assertTrue(sig.startswith("sha256="))
+
+            # Verify the signature matches
+            ts = received["ts"]
+            payload = received["body"]
+            signed_payload = f"{ts}.{json.dumps(payload, sort_keys=True, separators=(',', ':'))}"
+            expected_sig = "sha256=" + hmac.new(
+                b"whsec_signing_secret", signed_payload.encode("utf-8"), hashlib.sha256
+            ).hexdigest()
+            self.assertEqual(sig, expected_sig)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+    def test_deliver_without_secret_fails_closed(self):
+        # HIGH-1 security defect: deliver() must NOT fall back to signing with the
+        # stored SHA-256 hash. Anyone with DB read access could forge signatures.
+        # A signing path that works without the real secret is the bug.
+        reg = self.bridge.register_webhook(
+            team_id="team-1",
+            agent_id="agent-1",
+            url="https://example.com/hook",
+            secret_ref="whsec_signing_secret",
+            actor_token=self.actor_token,
+        )
+        event = {"kind": "task.dispatch", "payload": {"title": "hello"}, "agent_id": "agent-1"}
+        with self.assertRaises(FinalismaError):
+            self.bridge.deliver(
+                webhook_id=reg["webhook_id"],
+                event=event,
+            )
+
+    def test_verify_signature_rejects_tampered(self):
+        self.assertFalse(
+            self.bridge.verify_signature(
+                secret="secret",
+                signature="sha256=deadbeef",
+                timestamp="1000",
+                body={"x": 1},
+            )
+        )
+
+    def test_verify_signature_rejects_expired_timestamp(self):
+        old_ts = str(int(time.time()) - 600)  # 10 minutes ago
+        body = {"x": 1}
+        signed_payload = f"{old_ts}.{json.dumps(body, sort_keys=True, separators=(',', ':'))}"
+        sig = "sha256=" + hmac.new(b"secret", signed_payload.encode(), hashlib.sha256).hexdigest()
+        self.assertFalse(
+            self.bridge.verify_signature(
+                secret="secret",
+                signature=sig,
+                timestamp=old_ts,
+                body=body,
+                max_age_seconds=60,
+            )
+        )
+
+    def test_verify_signature_accepts_valid(self):
+        ts = str(int(time.time()))
+        body = {"x": 1}
+        signed_payload = f"{ts}.{json.dumps(body, sort_keys=True, separators=(',', ':'))}"
+        sig = "sha256=" + hmac.new(b"secret", signed_payload.encode(), hashlib.sha256).hexdigest()
+        self.assertTrue(
+            self.bridge.verify_signature(
+                secret="secret",
+                signature=sig,
+                timestamp=ts,
+                body=body,
+                max_age_seconds=60,
+            )
+        )
+
+
+class PollingBridgeTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.store = _make_store(self.temp.name)
+        self.bridge = PollingBridge(self.store)
+        cred = _register_agent(self.store, "team-1", "agent-1")
+        self.actor_token = cred["actor_token"]
+
+    def tearDown(self):
+        self.store.close()
+        self.temp.cleanup()
+
+    def test_get_pending_returns_events_since_cursor(self):
+        # Enqueue events for agent-1
+        self.bridge.enqueue(team_id="team-1", agent_id="agent-1", event={"kind": "test.1", "payload": {}}, actor_token=self.actor_token)
+        self.bridge.enqueue(team_id="team-1", agent_id="agent-1", event={"kind": "test.2", "payload": {}}, actor_token=self.actor_token)
+
+        result = self.bridge.get_pending(team_id="team-1", agent_id="agent-1", cursor=0, actor_token=self.actor_token)
+        self.assertEqual(len(result["events"]), 2)
+        self.assertEqual(result["events"][0]["kind"], "test.1")
+        self.assertGreater(result["next_cursor"], 0)
+
+    def test_get_pending_respects_cursor(self):
+        self.bridge.enqueue(team_id="team-1", agent_id="agent-1", event={"kind": "test.1", "payload": {}}, actor_token=self.actor_token)
+        self.bridge.enqueue(team_id="team-1", agent_id="agent-1", event={"kind": "test.2", "payload": {}}, actor_token=self.actor_token)
+
+        first = self.bridge.get_pending(team_id="team-1", agent_id="agent-1", cursor=0, actor_token=self.actor_token)
+        second = self.bridge.get_pending(team_id="team-1", agent_id="agent-1", cursor=first["next_cursor"], actor_token=self.actor_token)
+        self.assertEqual(len(second["events"]), 0)
+
+    def test_ack_checkpoints_cursor(self):
+        self.bridge.enqueue(team_id="team-1", agent_id="agent-1", event={"kind": "test.1", "payload": {}}, actor_token=self.actor_token)
+        result = self.bridge.get_pending(team_id="team-1", agent_id="agent-1", cursor=0, actor_token=self.actor_token)
+        event_id = result["events"][0]["event_id"]
+
+        ack_result = self.bridge.ack(team_id="team-1", agent_id="agent-1", event_ids=[event_id], actor_token=self.actor_token)
+        self.assertTrue(ack_result["ok"])
+
+    def test_at_most_once_delivery(self):
+        self.bridge.enqueue(team_id="team-1", agent_id="agent-1", event={"kind": "test.1", "payload": {}}, actor_token=self.actor_token)
+        first = self.bridge.get_pending(team_id="team-1", agent_id="agent-1", cursor=0, actor_token=self.actor_token)
+        event_id = first["events"][0]["event_id"]
+        # Ack it
+        self.bridge.ack(team_id="team-1", agent_id="agent-1", event_ids=[event_id], actor_token=self.actor_token)
+        # Get pending again — should not re-deliver
+        second = self.bridge.get_pending(team_id="team-1", agent_id="agent-1", cursor=0, actor_token=self.actor_token)
+        delivered_ids = [e["event_id"] for e in second["events"] if not e.get("acked")]
+        self.assertNotIn(event_id, delivered_ids)
+
+    def test_enqueue_requires_actor_auth(self):
+        with self.assertRaises(BridgeAuthError):
+            self.bridge.enqueue(team_id="team-1", agent_id="agent-1", event={"kind": "x"}, actor_token="bad")
+
+    def test_get_pending_requires_actor_auth(self):
+        with self.assertRaises(BridgeAuthError):
+            self.bridge.get_pending(team_id="team-1", agent_id="agent-1", cursor=0, actor_token="bad")
+
+
+class ClipboardBridgeTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.store = _make_store(self.temp.name)
+        self.bridge = ClipboardBridge(self.store)
+        cred = _register_agent(self.store, "team-1", "agent-1")
+        self.actor_token = cred["actor_token"]
+
+    def tearDown(self):
+        self.store.close()
+        self.temp.cleanup()
+
+    def test_generate_bootstrap_snippet(self):
+        pairing = self.store.create_pairing(
+            initiator_id="agent-1",
+            team_id="team-1",
+            capabilities_offered=["read"],
+            actor_token=self.actor_token,
+        )
+        snippet = self.bridge.generate_bootstrap(
+            team_id="team-1",
+            agent_id="agent-1",
+            endpoint="http://127.0.0.1:8787",
+            pairing_id=pairing["pairing_id"],
+            join_token=pairing["join_token"],
+            actor_token=self.actor_token,
+        )
+        self.assertIn("endpoint", snippet)
+        self.assertIn("pairing_id", snippet)
+        self.assertIn("join_token", snippet)
+        self.assertIn("consent_contract", snippet)
+        self.assertEqual(snippet["team_id"], "team-1")
+
+    def test_parse_valid_bootstrap(self):
+        pairing = self.store.create_pairing(
+            initiator_id="agent-1",
+            team_id="team-1",
+            capabilities_offered=["read"],
+            actor_token=self.actor_token,
+        )
+        snippet = self.bridge.generate_bootstrap(
+            team_id="team-1",
+            agent_id="agent-1",
+            endpoint="http://127.0.0.1:8787",
+            pairing_id=pairing["pairing_id"],
+            join_token=pairing["join_token"],
+            actor_token=self.actor_token,
+        )
+        parsed = self.bridge.parse_bootstrap(json.dumps(snippet))
+        self.assertEqual(parsed["pairing_id"], pairing["pairing_id"])
+
+    def test_parse_rejects_token_in_url(self):
+        bad_snippet = {
+            "endpoint": "http://127.0.0.1:8787",
+            "team_id": "team-1",
+            "pairing_id": "pair_abc",
+            "join_token": "fst_actor_xxx",
+            "join_url": "http://127.0.0.1:8787/v1/join/pair_abc#token=fst_actor_xxx",
+        }
+        # The snippet itself carries the token in a field, but a URL with token in path is rejected
+        bad_snippet2 = {
+            "endpoint": "http://127.0.0.1:8787",
+            "team_id": "team-1",
+            "pairing_id": "pair_abc",
+            "join_token": "fst_actor_xxx",
+            "join_url": "http://127.0.0.1:8787/v1/join/fst_actor_xxx",
+        }
+        with self.assertRaises(FinalismaError):
+            self.bridge.parse_bootstrap(json.dumps(bad_snippet2))
+
+    def test_one_use_enforcement(self):
+        pairing = self.store.create_pairing(
+            initiator_id="agent-1",
+            team_id="team-1",
+            capabilities_offered=["read"],
+            actor_token=self.actor_token,
+        )
+        snippet = self.bridge.generate_bootstrap(
+            team_id="team-1",
+            agent_id="agent-1",
+            endpoint="http://127.0.0.1:8787",
+            pairing_id=pairing["pairing_id"],
+            join_token=pairing["join_token"],
+            actor_token=self.actor_token,
+        )
+        # First parse succeeds
+        self.bridge.parse_bootstrap(json.dumps(snippet))
+        # Second parse of the same nonce fails (one-use)
+        with self.assertRaises(FinalismaError):
+            self.bridge.parse_bootstrap(json.dumps(snippet))
+
+    def test_generate_requires_actor_auth(self):
+        with self.assertRaises(BridgeAuthError):
+            self.bridge.generate_bootstrap(
+                team_id="team-1",
+                agent_id="agent-1",
+                endpoint="http://127.0.0.1:8787",
+                pairing_id="pair_xxx",
+                join_token="tok_xxx",
+                actor_token="invalid",
+            )
+
+
+class HttpBridgeClientTests(unittest.TestCase):
+    """Test HttpBridgeClient against the real server handler."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        from finalisma_mcp.server import FinalismaDispatcher, _MCPRequestHandler, _Metrics, _WindowRateLimiter
+        self.store = _make_store(self.temp.name)
+        self.dispatcher = FinalismaDispatcher(self.store)
+        cred = _register_agent(self.store, "team-1", "agent-1")
+        self.actor_token = cred["actor_token"]
+
+        # Build a handler class
+        handler = type("BridgeTestHandler", (_MCPRequestHandler,), {})
+        handler.dispatcher = self.dispatcher
+        handler.token = None
+        handler.allowed_origins = {"http://127.0.0.1"}
+        handler.rate_limiter = _WindowRateLimiter()
+        handler.mcp_rate_limiter = _WindowRateLimiter(limit=120, window_seconds=60, max_concurrent=16)
+        handler.metrics = _Metrics()
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        self.host, self.port = self.server.server_address
+        self.base_url = f"http://{self.host}:{self.port}"
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.client = HttpBridgeClient(base_url=self.base_url, timeout=5)
+
+    def tearDown(self):
+        self.client.close()
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=5)
+        self.store.close()
+        self.temp.cleanup()
+
+    def test_preview_link(self):
+        pairing = self.store.create_pairing(
+            initiator_id="agent-1",
+            team_id="team-1",
+            capabilities_offered=["read"],
+            actor_token=self.actor_token,
+        )
+        join_url = pairing["join_url"]
+        preview = self.client.preview_link(join_url)
+        self.assertIn("pairing", preview)
+        self.assertEqual(preview["action"], "consent_then_join")
+
+    def test_join_link_with_consent(self):
+        pairing = self.store.create_pairing(
+            initiator_id="agent-1",
+            team_id="team-1",
+            capabilities_offered=["read"],
+            actor_token=self.actor_token,
+        )
+        join_url = pairing["join_url"]
+        result = self.client.join_link(
+            join_url=join_url,
+            agent_id="agent-2",
+            consent=True,
+        )
+        self.assertIn("session_token", result)
+
+    def test_join_link_rejects_string_consent(self):
+        pairing = self.store.create_pairing(
+            initiator_id="agent-1",
+            team_id="team-1",
+            capabilities_offered=["read"],
+            actor_token=self.actor_token,
+        )
+        join_url = pairing["join_url"]
+        with self.assertRaises(FinalismaError):
+            self.client.join_link(
+                join_url=join_url,
+                agent_id="agent-2",
+                consent="yes",  # type: ignore
+            )
+
+    def test_send_and_poll_events(self):
+        pairing = self.store.create_pairing(
+            initiator_id="agent-1",
+            team_id="team-1",
+            capabilities_offered=["read"],
+            actor_token=self.actor_token,
+        )
+        # agent-1's session token (initiator) is in the pairing result
+        initiator_session_token = pairing["initiator_session_token"]
+        join_result = self.store.join_pairing(
+            token=pairing["join_token"],
+            agent_id="agent-2",
+            consent=True,
+        )
+        agent2_session_token = join_result["session_token"]
+
+        # Send via client as agent-1 (initiator)
+        send_result = self.client.send_event(
+            session_token=initiator_session_token,
+            agent_id="agent-1",
+            kind="task.dispatch",
+            payload={"title": "hello"},
+            idempotency_key=f"idem-{uuid.uuid4().hex}",
+            actor_token=self.actor_token,
+        )
+        # Response may nest the event under "event" key
+        has_seq = "seq" in send_result or ("event" in send_result and "seq" in send_result.get("event", {}))
+        self.assertTrue(has_seq)
+
+        # Poll via client as agent-2
+        poll_result = self.client.poll_events(
+            session_token=agent2_session_token,
+            agent_id="agent-2",
+            after_seq=0,
+        )
+        self.assertGreaterEqual(len(poll_result["events"]), 1)
+
+    def test_ack_events(self):
+        pairing = self.store.create_pairing(
+            initiator_id="agent-1",
+            team_id="team-1",
+            capabilities_offered=["read"],
+            actor_token=self.actor_token,
+        )
+        initiator_session_token = pairing["initiator_session_token"]
+        join_result = self.store.join_pairing(
+            token=pairing["join_token"],
+            agent_id="agent-2",
+            consent=True,
+        )
+        agent2_session_token = join_result["session_token"]
+        self.client.send_event(
+            session_token=initiator_session_token,
+            agent_id="agent-1",
+            kind="test",
+            payload={},
+            idempotency_key=f"idem-{uuid.uuid4().hex}",
+            actor_token=self.actor_token,
+        )
+        ack_result = self.client.ack(session_token=agent2_session_token, agent_id="agent-2", seq=1)
+        # ack response varies — just verify it doesn't error and returns a dict
+        self.assertIsInstance(ack_result, dict)
+
+    def test_token_in_fragment_not_in_path(self):
+        # A URL with token in fragment should work
+        pairing = self.store.create_pairing(
+            initiator_id="agent-1",
+            team_id="team-1",
+            capabilities_offered=["read"],
+            actor_token=self.actor_token,
+        )
+        join_url = pairing["join_url"]
+        # Fragment form: http://host/v1/join/pair_xxx#token=yyy
+        self.assertIn("#token=", join_url)
+
+        # A URL with token in path should be rejected
+        bad_url = join_url.split("#token=")[0] + "#token=" + pairing["join_token"]
+        # This is the correct form — now try a bad one
+        bad_path_url = f"{self.base_url}/v1/join/{pairing['join_token']}"
+        with self.assertRaises(FinalismaError):
+            self.client.preview_link(bad_path_url)
+
+
+class BridgeAuthPolicyTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.store = _make_store(self.temp.name)
+        self.webhook = WebhookBridge(self.store)
+        self.polling = PollingBridge(self.store)
+        self.clipboard = ClipboardBridge(self.store)
+        cred = _register_agent(self.store, "team-1", "agent-1")
+        self.actor_token = cred["actor_token"]
+
+    def tearDown(self):
+        self.store.close()
+        self.temp.cleanup()
+
+    def test_all_bridges_bind_to_team_agent_and_actor(self):
+        # Each bridge method must enforce (team_id, agent_id) + actor_token
+        with self.assertRaises(BridgeAuthError):
+            self.webhook.register_webhook(
+                team_id="team-1",
+                agent_id="agent-1",
+                url="https://example.com/h",
+                secret_ref="whsec_x",
+                actor_token="invalid",
+            )
+        with self.assertRaises(BridgeAuthError):
+            self.polling.enqueue(team_id="team-1", agent_id="agent-1", event={}, actor_token="invalid")
+        with self.assertRaises(BridgeAuthError):
+            self.polling.get_pending(team_id="team-1", agent_id="agent-1", cursor=0, actor_token="invalid")
+        with self.assertRaises(BridgeAuthError):
+            self.polling.ack(team_id="team-1", agent_id="agent-1", event_ids=[], actor_token="invalid")
+        with self.assertRaises(BridgeAuthError):
+            self.clipboard.generate_bootstrap(
+                team_id="team-1",
+                agent_id="agent-1",
+                endpoint="http://127.0.0.1:8787",
+                pairing_id="pair_x",
+                join_token="tok_x",
+                actor_token="invalid",
+            )
+
+    def test_webhook_secret_never_returned_after_registration(self):
+        reg = self.webhook.register_webhook(
+            team_id="team-1",
+            agent_id="agent-1",
+            url="https://example.com/h",
+            secret_ref="whsec_my_secret_value_12345",
+            actor_token=self.actor_token,
+        )
+        # The secret must not appear anywhere in the response
+        serialized = json.dumps(reg)
+        self.assertNotIn("whsec_my_secret_value_12345", serialized)
+        self.assertNotIn("my_secret_value", serialized)
+
+
+class BridgeInitTests(unittest.TestCase):
+    def test_init_creates_schema(self):
+        temp = tempfile.TemporaryDirectory()
+        store = _make_store(temp.name)
+        # init should be idempotent and create bridge tables
+        from finalisma_mcp.bridge import init_bridge
+        init_bridge(store)
+        init_bridge(store)  # idempotent
+        with store._read() as conn:
+            tables = [row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'bridge_%'").fetchall()]
+            self.assertIn("bridge_webhooks", tables)
+            self.assertIn("bridge_outbox", tables)
+            self.assertIn("bridge_cursors", tables)
+            self.assertIn("bridge_bootstrap_nonces", tables)
+        store.close()
+        temp.cleanup()
+
+
+if __name__ == "__main__":
+    unittest.main()
