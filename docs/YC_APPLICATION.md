@@ -29,7 +29,7 @@ conversation or sharing provider credentials.
 - One-use pairing links with preview-before-consent.
 - Member-bound session credentials and replayable ordered events.
 - Scoped tasks, leases, fencing tokens, artifact hashes, and evidence gates.
-- 226 passing standard-library tests, including concurrency, restart, HTTP,
+- 227 passing standard-library tests, including concurrency, restart, HTTP,
   tenancy isolation, roster routing, durable outbox, bridge adapters, SDK
   flows, and cross-team boundary cases.
 - A locked same-machine coordinator benchmark with a re-baselined (2026-08-05)
@@ -40,12 +40,32 @@ conversation or sharing provider credentials.
 
 ## Who is using it?
 
-`[FILL: number of design-partner teams]` teams are using it for `[FILL:
-workflow]`. Median time from pairing link to first evidence-gated handoff is `[FILL]`.
-`[FILL]` workspaces completed a second handoff within four weeks.
+The product is **pre-design-partner and actively recruiting**. There are zero
+design-partner teams today, so there is no customer-reported workflow, no
+customer median time-to-first-handoff, and no four-week repeat rate. We will
+not state numbers we have not measured.
 
-Until those fields are real, say “we are recruiting design partners,” not
-“teams use Finalisma.”
+What we can state truthfully:
+
+- **Local protocol measurement, not customer data.** In a clean temp workspace
+  on one machine, the real stdio path from coordinator start to a verified,
+  evidence-gated handoff completed in **0.166 s** (measured 2026-08-05,
+  `docs/PAIRING_UX.md`). This is a single-machine local measurement, not a
+  customer median, and it does not include the human time to read docs,
+  paste commands, and approve a host's MCP prompt. Treat it as a lower bound on
+  the protocol, not an adoption signal.
+- **One real host validated.** The finalisma MCP server completed a full
+  two-agent handoff through a genuine MCP host — opencode 1.18.13 — from its
+  own config, with a captured transcript (`docs/INTEROP_VALIDATION_2026-08-05.md`).
+  That validation also found and fixed a real interop defect (fencing tokens
+  were outside JavaScript's safe-integer range, which broke verify/complete in
+  JS-based hosts). This is engineering evidence, not customer traction.
+
+The plan is to recruit a small cohort of teams already running two MCP-capable
+agent hosts, run their first three handoffs as concierge onboarding, and
+measure first-handoff time and second-weekly-handoff rates on real teams. Until
+those are real, the truthful statement is **"we are recruiting design
+partners,"** not "teams use Finalisma."
 
 ## Why now?
 
