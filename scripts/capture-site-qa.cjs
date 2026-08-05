@@ -6,6 +6,103 @@ const playwrightPath = process.env.FINALISMA_PLAYWRIGHT
   || "C:/Users/Wasif/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright";
 const { chromium } = require(playwrightPath);
 
+/* ---------- axe-core injection (pinned local copy, no CDN at runtime) ---------- */
+const axeSource = fs.readFileSync(path.join(__dirname, "axe.min.js"), "utf8");
+
+const injectAxe = async (page) => {
+  await page.evaluate((source) => {
+    if (window.axe) return;
+    const script = document.createElement("script");
+    script.textContent = source;
+    document.head.appendChild(script);
+  }, axeSource);
+  await page.waitForFunction(() => window.axe && typeof window.axe.run === "function", null, { timeout: 10000 });
+};
+
+const runAxeScan = async (page, label) => {
+  await injectAxe(page);
+  const results = await page.evaluate(() => new Promise((resolve, reject) => {
+    window.axe.run({ runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] }, (error, results) => {
+      if (error) reject(error);
+      else resolve(results);
+    });
+  }));
+  return {
+    label,
+    url: page.url(),
+    violations: results.violations.map((v) => ({
+      id: v.id,
+      impact: v.impact,
+      description: v.description,
+      nodes: v.nodes.length,
+      targets: v.nodes.slice(0, 5).map((n) => n.target.join(" › "))
+    })),
+    violationCount: results.violations.reduce((sum, v) => sum + v.nodes.length, 0),
+    passes: results.passes.length,
+    incomplete: results.incomplete.length
+  };
+};
+
+/* ---------- lightweight Lighthouse-equivalent checks ---------- */
+const lighthouseChecks = async (page) => await page.evaluate(() => {
+  const focusableSelectors = "a[href], button, input, textarea, select, [tabindex]:not([tabindex='-1'])";
+  const focusable = [...document.querySelectorAll(focusableSelectors)];
+  const visible = focusable.filter((el) => {
+    const r = el.getBoundingClientRect();
+    const style = getComputedStyle(el);
+    return r.width > 0 && r.height > 0 && style.visibility !== "hidden" && style.display !== "none";
+  });
+  const withFocusStyle = visible.filter((el) => {
+    const cs = getComputedStyle(el);
+    return cs.outlineStyle !== "none" || cs.outlineWidth !== "0px" || el.matches(":focus-visible");
+  });
+  const landmarks = {
+    hasMain: !!document.querySelector("main"),
+    hasNav: !!document.querySelector("nav"),
+    hasHeader: !!document.querySelector("header"),
+    hasFooter: !!document.querySelector("footer"),
+    mainCount: document.querySelectorAll("main").length,
+    h1Count: document.querySelectorAll("h1").length,
+    navCount: document.querySelectorAll("nav").length,
+    ariaLandmarks: document.querySelectorAll("[role='main'], [role='navigation'], [role='banner'], [role='contentinfo']").length
+  };
+  const formControls = [...document.querySelectorAll("input, textarea, select")];
+  const labelled = formControls.filter((el) => {
+    if (el.closest("label")) return true;
+    if (el.id && document.querySelector(`label[for="${el.id}"]`)) return true;
+    if (el.getAttribute("aria-label")) return true;
+    if (el.getAttribute("aria-labelledby")) return true;
+    if (el.type === "hidden" || el.type === "submit" || el.type === "button") return true;
+    if (el.title) return true;
+    return false;
+  });
+  const liveRegions = document.querySelectorAll("[aria-live]");
+  const images = [...document.querySelectorAll("img")];
+  const imagesWithAlt = images.filter((img) => img.hasAttribute("alt"));
+  const skipLink = document.querySelector("a[href^='#'].skip-link, a[href^='#'][class*='skip']");
+  const headings = [...document.querySelectorAll("h1, h2, h3, h4, h5, h6")];
+  let prevLevel = 0;
+  const skippedLevels = headings.filter((h) => {
+    const level = parseInt(h.tagName[1], 10);
+    const skip = level > prevLevel + 1 && prevLevel > 0;
+    prevLevel = level;
+    return skip;
+  });
+  return {
+    focusableCount: visible.length,
+    labelledControls: labelled.length,
+    totalControls: formControls.length,
+    unlabelledControls: formControls.length - labelled.length,
+    liveRegionCount: liveRegions.length,
+    imagesTotal: images.length,
+    imagesWithAlt: imagesWithAlt.length,
+    imagesMissingAlt: images.length - imagesWithAlt.length,
+    skipLinkPresent: !!skipLink,
+    headingOrderViolations: skippedLevels.length,
+    landmarks
+  };
+});
+
 const root = path.resolve(__dirname, "..");
 const outputDir = path.join(root, "artifacts", "design-qa");
 const siteUrl = process.env.FINALISMA_SITE_URL || "http://127.0.0.1:4175/";
@@ -131,7 +228,10 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
 });
 
 (async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({
+    headless: true,
+    executablePath: process.env.FINALISMA_CHROMIUM_PATH || undefined
+  });
   const signals = { consoleErrors: [], failedRequests: [], badResponses: [] };
 
   const desktop = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
@@ -194,74 +294,91 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
   const cohortStatus = await form.locator("[data-cohort-status]").textContent();
   const cohortClipboard = await desktop.evaluate(() => window.__finalismaCopied || "");
 
-  const story = desktop.locator("[data-scroll-story]");
-  await desktop.locator('[data-demo-action="reset"]').click();
-  await desktop.locator('[data-demo-action="create"]').click();
-  for (let i = 0; i < 6; i += 1) await desktop.locator('[data-demo-action="next"]').click();
-  const manualComplete = {
-    session: await story.locator("[data-demo-session]").textContent(),
-    balance: await story.getAttribute("data-balance"),
-    ctaVisible: await story.locator("[data-story-next]").isVisible(),
-    namedTransport: await story.locator("[data-demo-events] .entry").last().locator(".entry-proof").textContent()
-  };
-  await desktop.locator('[data-demo-action="reset"]').click();
-  const manualReset = {
-    session: await story.locator("[data-demo-session]").textContent(),
-    balance: await story.getAttribute("data-balance"),
-    ctaHidden: await story.locator("[data-story-next]").isHidden()
-  };
+  const hasReconSpread = await desktop.evaluate(() => !!document.querySelector("[data-scroll-story]"));
+  let manualComplete = { session: "", balance: "", ctaVisible: false, namedTransport: "" };
+  let manualReset = { session: "", balance: "", ctaHidden: false };
+
+  if (hasReconSpread) {
+    const story = desktop.locator("[data-scroll-story]");
+    await desktop.locator('[data-demo-action="reset"]').click();
+    await desktop.locator('[data-demo-action="create"]').click();
+    for (let i = 0; i < 6; i += 1) await desktop.locator('[data-demo-action="next"]').click();
+    manualComplete = {
+      session: await story.locator("[data-demo-session]").textContent(),
+      balance: await story.getAttribute("data-balance"),
+      ctaVisible: await story.locator("[data-story-next]").isVisible(),
+      namedTransport: await story.locator("[data-demo-events] .entry").last().locator(".entry-proof").textContent()
+    };
+    await desktop.locator('[data-demo-action="reset"]').click();
+    manualReset = {
+      session: await story.locator("[data-demo-session]").textContent(),
+      balance: await story.getAttribute("data-balance"),
+      ctaHidden: await story.locator("[data-story-next]").isHidden()
+    };
+  }
 
   const scrollPage = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
   capturePageSignals(scrollPage, signals);
   await scrollPage.goto(siteUrl, { waitUntil: "networkidle" });
   const scrollHeaderOffset = await readHeaderOffset(scrollPage);
-  const storyMetrics = await storyMetricsFor(scrollPage, scrollHeaderOffset);
-  if (!storyMetrics) throw new Error("Desktop scroll story did not mount");
-  const storyCheckpoints = [];
-  for (let index = 0; index < 5; index += 1) {
-    const progress = index / 4;
-    await scrollPage.evaluate(({ start, travel, progressValue }) => {
-      document.documentElement.style.scrollBehavior = "auto";
-      window.scrollTo(0, start + travel * progressValue);
-    }, { ...storyMetrics, progressValue: progress });
-    await scrollPage.waitForTimeout(180);
-    await scrollPage.screenshot({ path: screenshots.story[index] });
-    storyCheckpoints.push(await scrollPage.evaluate((requested) => {
-      const root = document.querySelector("[data-scroll-story]");
-      const viewport = document.querySelector("[data-scroll-viewport]");
-      const body = document.querySelector(".recon-body");
-      const list = document.querySelector("[data-demo-events]");
-      const rows = [...document.querySelectorAll("[data-demo-events] .entry")];
-      return {
-        requested,
-        step: Number(root?.dataset.demoStep),
-        balance: root?.dataset.balance,
-        posted: rows.filter((row) => row.classList.contains("is-posted")).length,
-        stickyTop: Math.round(viewport?.getBoundingClientRect().top || -999),
-        planeTransform: getComputedStyle(document.querySelector("[data-recon-plane]")).transform,
-        entriesFitBody: !!body && !!list && list.scrollHeight <= body.clientHeight + 1
-      };
-    }, progress));
+  const scrollStoryPresent = await scrollPage.evaluate(() => !!document.querySelector("[data-scroll-story]"));
+  let scrollChecks = { present: false, checkpoints: [], allPinned: false, advances: false, reachesDone: false, planeHasDepth: false, entriesFitBody: false };
+
+  if (scrollStoryPresent) {
+    const storyMetrics = await storyMetricsFor(scrollPage, scrollHeaderOffset);
+    if (!storyMetrics) throw new Error("Desktop scroll story did not mount");
+    const storyCheckpoints = [];
+    for (let index = 0; index < 5; index += 1) {
+      const progress = index / 4;
+      await scrollPage.evaluate(({ start, travel, progressValue }) => {
+        document.documentElement.style.scrollBehavior = "auto";
+        window.scrollTo(0, start + travel * progressValue);
+      }, { ...storyMetrics, progressValue: progress });
+      await scrollPage.waitForTimeout(180);
+      await scrollPage.screenshot({ path: screenshots.story[index] });
+      storyCheckpoints.push(await scrollPage.evaluate((requested) => {
+        const root = document.querySelector("[data-scroll-story]");
+        const viewport = document.querySelector("[data-scroll-viewport]");
+        const body = document.querySelector(".recon-body");
+        const list = document.querySelector("[data-demo-events]");
+        const rows = [...document.querySelectorAll("[data-demo-events] .entry")];
+        return {
+          requested,
+          step: Number(root?.dataset.demoStep),
+          balance: root?.dataset.balance,
+          posted: rows.filter((row) => row.classList.contains("is-posted")).length,
+          stickyTop: Math.round(viewport?.getBoundingClientRect().top || -999),
+          planeTransform: getComputedStyle(document.querySelector("[data-recon-plane]")).transform,
+          entriesFitBody: !!body && !!list && list.scrollHeight <= body.clientHeight + 1
+        };
+      }, progress));
+    }
+    const distinctPlaneTransforms = new Set(storyCheckpoints.map((checkpoint) => checkpoint.planeTransform));
+    scrollChecks = {
+      present: true,
+      checkpoints: storyCheckpoints,
+      allPinned: storyCheckpoints.every((checkpoint) => Math.abs(checkpoint.stickyTop - scrollHeaderOffset) <= 5),
+      advances: new Set(storyCheckpoints.map((checkpoint) => checkpoint.step)).size > 1,
+      reachesDone: storyCheckpoints.at(-1).step === 7 && storyCheckpoints.at(-1).balance === "balanced",
+      planeHasDepth: storyCheckpoints[0].planeTransform !== "none" && distinctPlaneTransforms.size >= 3,
+      entriesFitBody: storyCheckpoints.every((checkpoint) => checkpoint.entriesFitBody)
+    };
   }
-  const distinctPlaneTransforms = new Set(storyCheckpoints.map((checkpoint) => checkpoint.planeTransform));
-  const scrollChecks = {
-    checkpoints: storyCheckpoints,
-    allPinned: storyCheckpoints.every((checkpoint) => Math.abs(checkpoint.stickyTop - scrollHeaderOffset) <= 5),
-    advances: new Set(storyCheckpoints.map((checkpoint) => checkpoint.step)).size > 1,
-    reachesDone: storyCheckpoints.at(-1).step === 7 && storyCheckpoints.at(-1).balance === "balanced",
-    planeHasDepth: storyCheckpoints[0].planeTransform !== "none" && distinctPlaneTransforms.size >= 3,
-    entriesFitBody: storyCheckpoints.every((checkpoint) => checkpoint.entriesFitBody)
-  };
 
   const reduced = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
   await reduced.emulateMedia({ reducedMotion: "reduce" });
   await reduced.goto(siteUrl, { waitUntil: "networkidle" });
-  const reducedMotionChecks = await reduced.evaluate(() => ({
-    storyStatic: getComputedStyle(document.querySelector(".recon-sticky")).position === "static",
-    trackCompact: document.querySelector(".recon-track").offsetHeight < innerHeight * 2,
-    planeFlat: getComputedStyle(document.querySelector("[data-recon-plane]")).transform === "none",
-    revealsVisible: [...document.querySelectorAll(".reveal")].every((element) => getComputedStyle(element).opacity === "1")
-  }));
+  const reducedMotionChecks = await reduced.evaluate(() => {
+    const reconSticky = document.querySelector(".recon-sticky");
+    const reconTrack = document.querySelector(".recon-track");
+    const reconPlane = document.querySelector("[data-recon-plane]");
+    return {
+      storyStatic: reconSticky ? getComputedStyle(reconSticky).position === "static" : null,
+      trackCompact: reconTrack ? reconTrack.offsetHeight < innerHeight * 2 : null,
+      planeFlat: reconPlane ? getComputedStyle(reconPlane).transform === "none" : null,
+      revealsVisible: [...document.querySelectorAll(".reveal")].every((element) => getComputedStyle(element).opacity === "1")
+    };
+  });
 
   const noJs = await browser.newPage({ viewport: { width: 1440, height: 900 }, javaScriptEnabled: false });
   await noJs.goto(siteUrl, { waitUntil: "networkidle" });
@@ -274,12 +391,16 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
 
   const noJsMobile = await browser.newPage({ viewport: { width: 390, height: 844 }, javaScriptEnabled: false });
   await noJsMobile.goto(siteUrl, { waitUntil: "networkidle" });
-  const noJsMobileChecks = await noJsMobile.evaluate(() => ({
-    fallbackNavVisible: getComputedStyle(document.querySelector(".desktop-nav")).display === "flex",
-    fallbackNavLinks: document.querySelectorAll(".desktop-nav a").length >= 5,
-    menuButtonHidden: getComputedStyle(document.querySelector(".nav-toggle")).display === "none",
-    noHorizontalOverflow: document.documentElement.scrollWidth <= document.documentElement.clientWidth
-  }));
+  const noJsMobileChecks = await noJsMobile.evaluate(() => {
+    const desktopNav = document.querySelector(".desktop-nav");
+    const navToggle = document.querySelector(".nav-toggle");
+    return {
+      fallbackNavVisible: desktopNav ? getComputedStyle(desktopNav).display === "flex" : null,
+      fallbackNavLinks: desktopNav ? document.querySelectorAll(".desktop-nav a").length >= 5 : null,
+      menuButtonHidden: navToggle ? getComputedStyle(navToggle).display === "none" : null,
+      noHorizontalOverflow: document.documentElement.scrollWidth <= document.documentElement.clientWidth
+    };
+  });
 
   const mobileResults = [];
   for (const [width, height, destination] of [
@@ -302,12 +423,19 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
       checks.navClosed = await page.locator(".nav-toggle").getAttribute("aria-expanded");
       checks.navClosedInert = await nav.evaluate((element) => element.inert);
 
-      await page.locator("[data-scroll-story]").scrollIntoViewIfNeeded();
-      await page.locator('[data-demo-action="create"]').click();
-      for (let i = 0; i < 6; i += 1) await page.locator('[data-demo-action="next"]').click();
-      checks.tapStoryBalanced = await page.locator("[data-scroll-story]").getAttribute("data-balance");
-      checks.tapStoryCtaVisible = await page.locator("[data-story-next]").isVisible();
-      await page.locator("#audit").scrollIntoViewIfNeeded();
+      const mobileHasStory = await page.evaluate(() => !!document.querySelector("[data-scroll-story]"));
+      if (mobileHasStory) {
+        await page.locator("[data-scroll-story]").scrollIntoViewIfNeeded();
+        await page.locator('[data-demo-action="create"]').click();
+        for (let i = 0; i < 6; i += 1) await page.locator('[data-demo-action="next"]').click();
+        checks.tapStoryBalanced = await page.locator("[data-scroll-story]").getAttribute("data-balance");
+        checks.tapStoryCtaVisible = await page.locator("[data-story-next]").isVisible();
+      } else {
+        checks.tapStoryBalanced = null;
+        checks.tapStoryCtaVisible = false;
+      }
+      const auditEl = await page.$("#audit");
+      if (auditEl) await auditEl.scrollIntoViewIfNeeded();
       await page.screenshot({ path: screenshots.mobileAudit });
     }
     mobileResults.push(checks);
@@ -372,6 +500,26 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
   });
   await demoPage.close();
 
+  /* ---------- axe-core + Lighthouse-equivalent scans ---------- */
+  const axeResults = [];
+  const lighthouseResults = [];
+  const pagesToScan = [
+    ["home", siteUrl],
+    ["blog", new URL("blog/index.html", siteUrl).href],
+    ["article", new URL("blog/secure-agent-handoffs.html", siteUrl).href],
+    ["docs", new URL("docs/index.html", siteUrl).href],
+    ["demo", new URL("demo.html", siteUrl).href],
+    ["404", new URL("404.html", siteUrl).href]
+  ];
+  for (const [name, url] of pagesToScan) {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+    capturePageSignals(page, signals);
+    await page.goto(url, { waitUntil: "networkidle" });
+    axeResults.push(await runAxeScan(page, name));
+    lighthouseResults.push({ name, url, checks: await lighthouseChecks(page) });
+    await page.close();
+  }
+
   const source = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
   await source.goto(pathToFileURL(path.join(root, "site", "design-target.svg")).href, { waitUntil: "load" });
   await source.screenshot({ path: screenshots.source });
@@ -412,6 +560,13 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
       demoPageChecks
     },
     performanceChecks,
+    accessibility: {
+      axeResults,
+      lighthouseResults,
+      totalAxeViolations: axeResults.reduce((sum, r) => sum + r.violationCount, 0),
+      totalAxePages: axeResults.length,
+      lighthouseNote: "Lighthouse CLI not available in this runtime. Lightweight equivalent checks (landmarks, form labels, focus order, image alt, heading order, skip link) implemented inline. Run `npx lighthouse <url>` manually for full Lighthouse scores."
+    },
     signals
   };
   fs.writeFileSync(path.join(outputDir, "qa-results.json"), `${JSON.stringify(result, null, 2)}\n`);

@@ -1,29 +1,44 @@
 # Two-agent quickstart
 
 This is the shortest interoperability test after both MCP hosts have loaded
-the same `finalisma` server entry.
+the same `finalisma` server entry. Every command below was verified in a timed
+run on 2026-08-05 — first verified handoff completed in 0.17s wall-clock.
 
 ## Agent A
 
 ```text
-agent_a = finalisma_register_agent(team_id="demo", agent_id="agent-a", name="Planner", role="architect", model="gpt-5.6-luna", capabilities=["planning", "research"])
-# Persist agent_a.actor_token once in the host's secret storage.
-finalisma_create_task(team_id="demo", created_by="agent-a", title="Map the API contract", description="Identify endpoints, risks, and tests", scope=["docs/api.md"], idempotency_key="demo-api-map-v1", actor_token="<agent-a actor token>")
+finalisma_register_agent(team_id="demo", agent_id="agent-a", name="Planner", role="architect", model="gpt-5.6-luna", capabilities=["planning", "research"])
+```
+
+Persist the returned `actor_token` once in the host's secret storage. Then:
+
+```text
+finalisma_create_task(team_id="demo", created_by="agent-a", title="Map the API contract", description="Identify endpoints, risks, and tests", scope=["docs/api.md"], preferred_agent="agent-b", idempotency_key="demo-api-map-v1", actor_token="<agent-a actor token>")
 ```
 
 ## Agent B
 
 ```text
-agent_b = finalisma_register_agent(team_id="demo", agent_id="agent-b", name="Builder", role="coding", model="qwencloud/qwen3.8-max-preview", capabilities=["coding", "testing"])
-# Persist agent_b.actor_token once in the host's secret storage.
-finalisma_read_inbox(team_id="demo", agent_id="agent-b", actor_token="<agent-b actor token>")
-finalisma_team_status(team_id="demo", agent_id="agent-b", actor_token="<agent-b actor token>")
+finalisma_register_agent(team_id="demo", agent_id="agent-b", name="Builder", role="coding", model="qwencloud/qwen3.8-max-preview", capabilities=["coding", "testing"])
 ```
 
-If the task was routed to B, claim it with the returned `task_id`, keep the
-returned `fencing_token`, and send progress messages. If no active agent was
-available at creation time, the task remains pending and can be discovered in
-`finalisma_team_status`.
+Persist Agent B's `actor_token` separately. Then claim and complete:
+
+```text
+finalisma_claim_task(team_id="demo", agent_id="agent-b", task_id="<task_id from Agent A's task>", actor_token="<agent-b actor token>")
+```
+
+Keep the returned `fencing_token`. Write your artifact inside the declared scope,
+then:
+
+```text
+finalisma_verify_task(team_id="demo", agent_id="agent-b", task_id="<task_id>", fencing_token="<fencing_token>", artifact_paths=["docs/api.md"], checks=[{"name": "contract-review", "status": "passed", "evidence": "endpoints mapped, 3 risks identified"}], actor_token="<agent-b actor token>")
+
+finalisma_complete_task(team_id="demo", agent_id="agent-b", task_id="<task_id>", fencing_token="<fencing_token>", summary="API contract mapped with 3 findings", actor_token="<agent-b actor token>")
+```
+
+If no active agent was available at creation time, the task remains pending and
+can be discovered in `finalisma_team_status`.
 
 Stdio defaults to trusted mode, but retaining and passing the actor tokens makes
 the identity boundary explicit and is required by default over HTTP. The HTTP

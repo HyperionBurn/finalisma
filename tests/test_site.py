@@ -70,16 +70,45 @@ class LaunchSurfaceTests(unittest.TestCase):
         self.assertIn("transform-style: preserve-3d", css)
 
     def test_unposted_entries_never_rely_on_colour_alone(self) -> None:
+        """Colour-alone accessibility invariant, re-expressed for FIELD NOTES.
+
+        The original DOUBLE ENTRY design used ``<li class="entry">`` rows with
+        ``.entry-state`` spans. FIELD NOTES replaced those with two colour-coded
+        list structures that carry the ASSERT/PROVE prove-on-cover role:
+
+        * ``.keylist li`` (7 items) — ``.kn`` is coloured; ``.kt`` is the
+          adjacent textual step name.
+        * ``.factlist li`` (4 items) — ``.flabel`` is coloured; the adjacent
+          ``<p>`` is the textual description.
+
+        Invariant: every such row must carry readable text next to its
+        colour-coded marker — colour never carries meaning alone.
+        7 + 4 = 11, matching the original threshold.
+        """
         html = (SITE / "index.html").read_text(encoding="utf-8")
-        entries = re.findall(
-            r'<li class="entry(?![^"]*is-posted)[^"]*"[^>]*>(.*?)</li>', html, re.S
+        keylist_items = re.findall(
+            r'<ol class="keylist">(.*?)</ol>', html, re.S
         )
+        factlist_items = re.findall(
+            r'<ul class="factlist">(.*?)</ul>', html, re.S
+        )
+        key_rows = re.findall(r'<li[^>]*>(.*?)</li>', keylist_items[0], re.S) if keylist_items else []
+        fact_rows = re.findall(r'<li[^>]*>(.*?)</li>', factlist_items[0], re.S) if factlist_items else []
+        entries = key_rows + fact_rows
         self.assertGreaterEqual(len(entries), 11)
         for entry in entries:
             with self.subTest(entry=entry[:60]):
-                state = re.search(r'<span class="entry-state">([^<]+)</span>', entry)
-                self.assertIsNotNone(state, "unposted entry has no textual state marker")
-                self.assertTrue(state.group(1).strip())
+                # Each row must have readable text beyond the colour-coded
+                # marker — either a .kt (key title) or a <p> description.
+                has_kt = re.search(r'<span class="kt">([^<]+)</span>', entry)
+                has_para = re.search(r'<p[^>]*>([^<]+)</p>', entry)
+                textual_marker = has_kt or has_para
+                self.assertIsNotNone(
+                    textual_marker,
+                    "colour-coded row has no textual state/description marker",
+                )
+                marker_text = textual_marker.group(1).strip()
+                self.assertTrue(marker_text, "textual marker is empty")
 
     def test_static_launch_bundle_contains_guides_articles_and_social_asset(self) -> None:
         required_root = {
@@ -103,6 +132,8 @@ class LaunchSurfaceTests(unittest.TestCase):
             "protocol.html",
             "security.html",
             "compatibility.html",
+            "pairing-ux.html",
+            "pilot.html",
         }
         self.assertEqual(required_guides, {path.name for path in (SITE / "docs").glob("*.html")})
 

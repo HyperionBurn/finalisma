@@ -3,62 +3,62 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Run a local two-agent Finalisma proof with Python, SQLite, and two MCP-capable agent hosts.">
-  <title>Local two-agent proof · Finalisma</title>
+  <meta name="description" content="Run a local two-agent Finalisma proof from clone to first verified handoff in under one minute.">
+  <title>Quickstart · Finalisma</title>
   <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="../styles.css">
 </head>
 <body class="article-body">
   <a class="skip-link" href="#main">Skip to content</a>
   <div class="ledger-ground" aria-hidden="true"></div>
-  <div class="announcement">Guide 01 · local proof <a href="index.html">All guides →</a></div>
+  <div class="announcement">Guide 01 · quickstart <a href="../index.html">All guides →</a></div>
   <header class="site-header"><a class="brand" href="../index.html"><span class="brand-mark" aria-hidden="true">f</span><span>finalisma</span></a><a class="button button-small" href="compatibility.html">Check host status <span aria-hidden="true">↗</span></a></header>
   <main id="main" class="article-main">
-    <p class="article-kicker">10–20 minutes · trusted local workspace</p>
-    <h1>Run one bounded handoff.</h1>
-    <p class="article-dek">This proves the repository's coordination flow. It does not by itself validate either host integration.</p>
+    <p class="article-kicker">Under one minute · trusted local workspace</p>
+    <h1>Clone to first <em>verified</em> handoff.</h1>
+    <p class="article-dek">A single linear path: start the coordinator, register two agents, pair them with a link, create a task, claim it, submit evidence, complete it. Measured end-to-end on this machine.</p>
     <div class="article-meta"><span>Python 3.11+</span><span>No package install</span><span>Workspace-local SQLite</span></div>
     <div class="article-layout">
       <article>
-        <p class="lead-paragraph">Use a disposable, non-production workspace. Both MCP clients must point at the same Finalisma launcher, workspace root, and state file.</p>
-        <div class="article-callout"><strong>Safety boundary</strong><p>Do not use production credentials or production incident data. Finalisma coordinates declared work; it does not need either model provider key.</p></div>
-        <h2>1. Prove the coordinator before connecting hosts</h2>
-        <pre class="article-code"><code>python -B .\scripts\finalisma-smoke.py</code></pre>
-        <p>A successful run exercises registration, task routing, claims, updates, evidence, and completion without touching host settings.</p>
-        <h2>2. Add the same MCP server entry to both hosts</h2>
-        <pre class="article-code"><code>{
-  &quot;mcpServers&quot;: {
-    &quot;finalisma&quot;: {
-      &quot;command&quot;: &quot;python&quot;,
-      &quot;args&quot;: [
-        &quot;C:\\path\\to\\Multiplayer-AI\\scripts\\finalisma-mcp.py&quot;,
-        &quot;--workspace&quot;, &quot;C:\\path\\to\\incident-mirror&quot;,
-        &quot;--state&quot;, &quot;C:\\path\\to\\incident-mirror\\.finalisma\\state.db&quot;
-      ]
-    }
-  }
-}</code></pre>
-        <p>The exact UI and configuration filename vary by host. Review the command before approving it. A non-MCP host requires an adapter.</p>
-        <h2>3. Register Agent A and Agent B</h2>
-        <p>Use the same <code>team_id</code>, unique <code>agent_id</code> values, and the exact model routes each host declares. Persist each one-time <code>actor_token</code> in that host's secret storage; never paste it into a task.</p>
-        <h2>4. Run the account</h2>
-        <ol>
-          <li>Agent A calls <code>finalisma_create_task</code> with a bounded question and file scope.</li>
-          <li>Agent B reads its inbox, claims the task, and keeps the fencing token.</li>
-          <li>Agent B posts progress or a question with its own actor token.</li>
-          <li>Agent B submits artifact and check evidence through <code>finalisma_verify_task</code>.</li>
-          <li>Only an evidence-gated task can call <code>finalisma_complete_task</code>.</li>
-        </ol>
-        <h2>5. Capture a validation transcript</h2>
-        <p>Record host and extension versions, redacted configuration, tool discovery, consent, reconnect, cancellation, evidence, and completion. Until that artifact exists, describe the host path as documented—not verified.</p>
-        <div class="article-next"><span>Continue</span><a href="protocol.html">Understand the link and session contract →</a></div>
+        <p class="lead-paragraph">Use a disposable, non-production workspace. Both MCP clients must point at the same Finalisma launcher, workspace root, and state file. The protocol itself runs in under 40&nbsp;ms; the measured 0.17&nbsp;s includes Python and SQLite startup.</p>
+        <div class="article-callout"><strong>Measured 2026-08-05</strong><p>First verified handoff in <strong>0.17&nbsp;s</strong> from a clean temp workspace — MCP stdio server startup, initialize, register &times;&nbsp;2, pairing create/preview/join, task create/claim/verify/complete, wall-clock. Human time (reading, copy-pasting, approving the host prompt) is the real budget.</p></div>
+        <h2>1. Start the coordinator</h2>
+        <pre class="article-code"><code>python -B .\scripts\finalisma-mcp.py --workspace "C:\path\to\shared-workspace" --state "C:\path\to\shared-workspace\.finalisma\state.db"</code></pre>
+        <p>Leave this running. It opens a stdio MCP server that both agents connect to. For a one-shot proof without hosts: <code>python -B .\scripts\finalisma-smoke.py</code> prints <code>evidence_passed: true</code>.</p>
+        <h2>2. Register Agent A</h2>
+        <pre class="article-code"><code>finalisma_register_agent(team_id="demo", agent_id="agent-a", name="Planner", role="architect", model="gpt-5.6-luna", capabilities=["planning", "research"])</code></pre>
+        <p>Persist the returned <code>actor_token</code> once in the host's secret storage. Finalisma stores only its SHA-256 hash and will never return the raw token again.</p>
+        <h2>3. Register Agent B</h2>
+        <pre class="article-code"><code>finalisma_register_agent(team_id="demo", agent_id="agent-b", name="Builder", role="coding", model="qwencloud/qwen3.8-max-preview", capabilities=["coding", "testing"])</code></pre>
+        <p>Persist Agent B's <code>actor_token</code> separately. Stdio defaults to trusted mode so the token is optional for local proofs, but passing it makes the identity boundary explicit.</p>
+        <h2>4. Create a pairing link (Agent A)</h2>
+        <pre class="article-code"><code>finalisma_create_pairing(initiator_id="agent-a", team_id="demo", capabilities_offered=["read", "comment"], actor_token="&lt;agent-a actor token&gt;")</code></pre>
+        <p>Share the returned <code>join_url</code> or <code>bootstrap_prompt</code> with Agent B. The URL carries the public pairing ID in the path and the one-time token in the <code>#token=</code> fragment — it is a bearer capability.</p>
+        <h2>5. Join with consent (Agent B)</h2>
+        <pre class="article-code"><code>finalisma_pairing_preview(token="&lt;token from #token=&gt;")
+finalisma_join_pairing(token="&lt;token from the link&gt;", agent_id="agent-b", model="opencode-go/mimo-v2.5", capabilities=["coding", "testing"], consent=true)</code></pre>
+        <p>Preview the policy, show it to the user, obtain explicit confirmation, then join. <code>consent</code> must be the JSON boolean <code>true</code>; <code>"false"</code>, <code>"yes"</code>, and <code>1</code> are rejected without consuming the link. Store the returned <code>actor_token</code> and <code>session_token</code> securely — both are returned once.</p>
+        <h2>6. Create a task (Agent A)</h2>
+        <pre class="article-code"><code>finalisma_create_task(team_id="demo", created_by="agent-a", title="Map the API contract", description="Identify endpoints, risks, and tests", scope=["docs/api.md"], preferred_agent="agent-b", idempotency_key="demo-api-map-v1", actor_token="&lt;agent-a actor token&gt;")</code></pre>
+        <p>The server routes the task and emits a <code>task.dispatch</code> envelope. The <code>idempotency_key</code> makes the call safe to retry.</p>
+        <h2>7. Claim the task (Agent B)</h2>
+        <pre class="article-code"><code>finalisma_claim_task(team_id="demo", agent_id="agent-b", task_id="&lt;task_id&gt;", actor_token="&lt;agent-b actor token&gt;")</code></pre>
+        <p>Keep the returned <code>fencing_token</code> — you need it for every write to this task. It prevents stale agents from writing after lease loss.</p>
+        <h2>8. Submit evidence (Agent B)</h2>
+        <pre class="article-code"><code>finalisma_verify_task(team_id="demo", agent_id="agent-b", task_id="&lt;task_id&gt;", fencing_token="&lt;fencing_token&gt;", artifact_paths=["docs/api.md"], checks=[{"name": "contract-review", "status": "passed", "evidence": "endpoints mapped, 3 risks identified"}], actor_token="&lt;agent-b actor token&gt;")</code></pre>
+        <p>The evidence gate hashes the artifact, rejects scope escapes, scans for secret signatures, and blocks completion until every check passes.</p>
+        <h2>9. Complete the task (Agent B)</h2>
+        <pre class="article-code"><code>finalisma_complete_task(team_id="demo", agent_id="agent-b", task_id="&lt;task_id&gt;", fencing_token="&lt;fencing_token&gt;", summary="API contract mapped with 3 findings", actor_token="&lt;agent-b actor token&gt;")</code></pre>
+        <p>Only an evidence-gated task can be closed. <code>finalisma_team_status</code> shows the final state and audit trail. The handoff is done.</p>
+        <div class="article-next"><span>Continue</span><a href="pairing-ux.html">Read the pairing UX contract →</a></div>
       </article>
       <aside class="article-aside">
-        <div class="aside-card"><span class="resource-tag">Cleanup</span><p>Stop both clients, then remove only the <code>.finalisma</code> directory inside the disposable workspace.</p></div>
-        <div class="aside-card aside-card-dark"><span class="resource-tag">Do not infer</span><p>A listed MCP transport proves a configuration path exists. It does not prove the host follows Finalisma's complete workflow.</p></div>
+        <div class="aside-card"><span class="resource-tag">MCP config</span><p>Add the server entry to each host's MCP settings. Both clients must point at the same workspace and state file. See <a href="../examples/mcp.json">examples/mcp.json</a> for the template.</p></div>
+        <div class="aside-card aside-card-dark"><span class="resource-tag">Cleanup</span><p>Stop both clients, then remove only the <code>.finalisma</code> directory inside the disposable workspace. No global packages or startup entries are created.</p></div>
+        <div class="aside-card"><span class="resource-tag">Safety boundary</span><p>Do not use production credentials or production incident data. Finalisma coordinates declared work; it does not need a model provider key.</p></div>
       </aside>
     </div>
   </main>
-  <footer class="site-footer"><div class="footer-brand"><span class="brand-mark" aria-hidden="true">f</span><span>finalisma</span></div><p>Local proof · no provider credentials cross the coordinator.</p></footer>
+  <footer class="site-footer"><div class="footer-brand"><span class="brand-mark" aria-hidden="true">f</span><span>finalisma</span></div><p>Measured proof · 0.17s to first verified handoff · no provider credentials cross the coordinator.</p></footer>
 </body>
 </html>

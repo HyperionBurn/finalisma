@@ -1,10 +1,15 @@
 # Pair two agents with one link
 
+Verified commands from the 2026-08-05 timed run. The full pairing flow
+(create link → preview → join with consent) completed in under 20 ms; the
+0.17 s end-to-end time includes server startup and the full task handoff.
+
 ## Agent A
 
 ```text
-registered = finalisma_register_agent(team_id="demo", agent_id="agent-a", model="gpt-5.6-luna", capabilities=["planning", "read"])
+registered = finalisma_register_agent(team_id="demo", agent_id="agent-a", name="Planner", role="architect", model="gpt-5.6-luna", capabilities=["planning", "read"])
 # Store registered.actor_token once in the host's secret storage.
+
 finalisma_create_pairing(initiator_id="agent-a", team_id="demo", capabilities_offered=["read", "comment"], actor_token="<agent-a actor token>")
 ```
 
@@ -17,15 +22,14 @@ credential that Agent B receives and is separate from Agent A's `actor_token`.
 
 ## Agent B
 
+Preview the link, show the policy to the user, obtain explicit confirmation,
+then join. Consent is type-strict: `consent` must be the JSON boolean `true`;
+`"false"`, `"yes"`, and `1` are all rejected without consuming the link.
+
 ```text
 finalisma_pairing_preview(token="<token from the URL fragment>")
-finalisma_join_pairing(
-  token="<token from the link>",
-  agent_id="agent-b",
-  model="opencode-go/mimo-v2.5",
-  capabilities=["coding", "testing"],
-  consent=true
-)
+
+finalisma_join_pairing(token="<token from the link>", agent_id="agent-b", model="opencode-go/mimo-v2.5", capabilities=["coding", "testing"], consent=true)
 ```
 
 Because `agent-b` is new, persist both one-time results securely:

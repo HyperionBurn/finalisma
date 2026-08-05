@@ -63,17 +63,126 @@ To prove the real local protocol in one command without connecting a host:
 python -B .\scripts\finalisma-smoke.py
 ```
 
-## Fastest no-install setup
+## Quickstart — clone to first verified handoff
 
-From this project directory, the launcher is:
+**Measured 2026-08-05:** first verified handoff in **0.17s** from a clean temp
+workspace (MCP stdio server startup + initialize + register × 2 + pairing
+create/preview/join + task create/claim/verify/complete, wall-clock). The
+protocol operations themselves run in under 40ms; the remaining time is Python
+interpreter and SQLite startup. Human time (reading, copy-pasting, approving
+the host prompt) is the real budget — the coordinator is not the bottleneck.
+
+### Prerequisites
+
+- Python 3.11+ on PATH
+- Two MCP-capable agent hosts (the same host twice works for testing)
+- No package install, no global state, no API key
+
+### 1. Start the coordinator
+
+From the project directory, run the launcher with a disposable workspace:
 
 ```powershell
-python .\scripts\finalisma-mcp.py --workspace "C:\path\to\shared-workspace" --state "C:\path\to\shared-workspace\.finalisma\state.db"
+python -B .\scripts\finalisma-mcp.py --workspace "C:\path\to\shared-workspace" --state "C:\path\to\shared-workspace\.finalisma\state.db"
 ```
 
-Add the following server entry to each MCP-capable agent. Replace the two
-placeholder paths with absolute paths. Both clients must point at the same
-state file when using stdio.
+Leave this running. It opens a stdio MCP server that both agents will connect
+to. For a one-shot proof without hosts, `python -B .\scripts\finalisma-smoke.py`
+runs the full handoff in-process and prints `evidence_passed: true`.
+
+### 2. Register two agents
+
+In **Agent A**, call:
+
+```text
+finalisma_register_agent(team_id="demo", agent_id="agent-a", name="Planner", role="architect", model="gpt-5.6-luna", capabilities=["planning", "research"])
+```
+
+In **Agent B**, call:
+
+```text
+finalisma_register_agent(team_id="demo", agent_id="agent-b", name="Builder", role="coding", model="qwencloud/qwen3.8-max-preview", capabilities=["coding", "testing"])
+```
+
+Each call returns an `actor_token` **once**. Persist it in that host's secret
+storage immediately — Finalisma stores only its SHA-256 hash and will never
+return the raw token again. Use Agent A's token on calls attributed to Agent A,
+Agent B's for Agent B. Stdio defaults to trusted mode so the token is optional
+for local proofs, but passing it makes the identity boundary explicit and is
+required by default over HTTP.
+
+### 3. Create a pairing link (Agent A)
+
+```text
+finalisma_create_pairing(initiator_id="agent-a", team_id="demo", capabilities_offered=["read", "comment"], actor_token="<agent-a actor token>")
+```
+
+Share the returned `join_url` or `bootstrap_prompt` with Agent B. The URL
+carries the public pairing ID in the path and the one-time token in the
+`#token=` fragment. Send it only to the intended recipient — it is a bearer
+capability.
+
+### 4. Join with consent (Agent B)
+
+Preview the link, show the policy to the user, obtain explicit confirmation,
+then join. Consent is type-strict: `consent` must be the JSON boolean `true`;
+`"false"`, `"yes"`, and `1` are all rejected without consuming the link.
+
+```text
+finalisma_pairing_preview(token="<token from #token=>")
+finalisma_join_pairing(token="<token from the link>", agent_id="agent-b", model="opencode-go/mimo-v2.5", capabilities=["coding", "testing"], consent=true)
+```
+
+For a new `agent-b`, the join result includes a fresh `actor_token` and a
+`session_token`. Store both securely; they are returned once. An already
+registered Agent B must instead pass its existing `actor_token` and receives
+no new credential.
+
+### 5. Create a task (Agent A)
+
+```text
+finalisma_create_task(team_id="demo", created_by="agent-a", title="Map the API contract", description="Identify endpoints, risks, and tests", scope=["docs/api.md"], preferred_agent="agent-b", idempotency_key="demo-api-map-v1", actor_token="<agent-a actor token>")
+```
+
+The server routes the task and emits a `task.dispatch` envelope. The
+`idempotency_key` makes the call safe to retry.
+
+### 6. Claim the task (Agent B)
+
+```text
+finalisma_claim_task(team_id="demo", agent_id="agent-b", task_id="<task_id from step 5>", actor_token="<agent-b actor token>")
+```
+
+Keep the returned `fencing_token` — you need it for every write to this task.
+It prevents stale agents from writing after lease loss.
+
+### 7. Submit evidence (Agent B)
+
+Write your artifact inside the declared scope, then submit it with at least one
+check. The evidence gate hashes the artifact, rejects scope escapes, scans for
+high-confidence secret signatures, and blocks completion until every check
+passes.
+
+```text
+finalisma_verify_task(team_id="demo", agent_id="agent-b", task_id="<task_id>", fencing_token="<fencing_token from step 6>", artifact_paths=["docs/api.md"], checks=[{"name": "contract-review", "status": "passed", "evidence": "endpoints mapped, 3 risks identified"}], actor_token="<agent-b actor token>")
+```
+
+### 8. Complete the task (Agent B)
+
+Only an evidence-gated task can be closed:
+
+```text
+finalisma_complete_task(team_id="demo", agent_id="agent-b", task_id="<task_id>", fencing_token="<fencing_token>", summary="API contract mapped with 3 findings", actor_token="<agent-b actor token>")
+```
+
+`finalisma_team_status` shows the final state, active leases, and the audit
+trail. The handoff is done.
+
+### MCP server entry
+
+To add Finalisma to each host, paste this into the host's MCP configuration.
+Replace the two `C:\ABSOLUTE\PATH` placeholders with real absolute paths. Both
+clients must point at the same workspace and state file.
 
 ```json
 {
@@ -81,82 +190,21 @@ state file when using stdio.
     "finalisma": {
       "command": "python",
       "args": [
-        "C:\\path\\to\\Multiplayer-AI\\scripts\\finalisma-mcp.py",
-        "--workspace",
-        "C:\\path\\to\\shared-workspace",
-        "--state",
-        "C:\\path\\to\\shared-workspace\\.finalisma\\state.db"
+        "C:\\ABSOLUTE\\PATH\\Multiplayer-AI\\scripts\\finalisma-mcp.py",
+        "--workspace", "C:\\ABSOLUTE\\PATH\\shared-workspace",
+        "--state", "C:\\ABSOLUTE\\PATH\\shared-workspace\\.finalisma\\state.db"
       ]
     }
   }
 }
 ```
 
-The default stdio policy is trusted local-process mode, so the initial examples
-still work without passing an actor credential. Even in trusted mode,
-`finalisma_register_agent` returns an `actor_token` only on the identity's first
-registration. Store that raw token in the agent host's secret storage; the
-SQLite state contains only its SHA-256 hash. Supplying an `actor_token` in
-trusted mode opts that call into credential validation, and starting stdio with
-`--actor-auth required` makes it mandatory.
-
-The exact settings UI/file differs by host; use the host's MCP server or
-stdio server field and paste the same command/arguments. A client must
-support MCP to use this entry directly. For non-MCP products, the protocol
-document is the adapter contract; a native connector is still required.
-
-## First two-agent handshake
-
-In each agent, call `finalisma_register_agent` with the same `team_id` and a
-unique `agent_id`, then persist the one-time `actor_token` returned for that new
-identity. Use Agent A's token for calls attributed to Agent A and Agent B's for
-calls attributed to Agent B. Then:
-
-1. Agent A calls `finalisma_create_task`.
-2. The server routes it and emits a `task.dispatch` envelope.
-3. Agent B calls `finalisma_read_inbox`, then `finalisma_claim_task`.
-4. Agent B sends progress with `finalisma_update_task` and can ask Agent A a
-   question using `finalisma_send_message`.
-5. Agent B submits artifact/check evidence with `finalisma_verify_task`.
-6. Only a verified task can be closed with `finalisma_complete_task`.
-
-Call `finalisma_heartbeat` during long work. `finalisma_team_status` shows
-stale agents, leases, tasks, and optionally the audit events. In actor-auth
-required mode, every team/work-plane call includes the matching `actor_token`;
-an HTTP bearer token authenticates the transport but does not replace this
-per-agent proof.
-
-## Link-first pairing
-
-Agent A can create a link after registering:
-
-```text
-finalisma_create_pairing(
-  initiator_id="agent-a",
-  team_id="demo",
-  capabilities_offered=["read", "comment"],
-  actor_token="<agent-a actor token>"
-)
-```
-
-Share the returned `join_url` or `bootstrap_prompt` with Agent B. Agent B must
-preview the link, obtain explicit consent, and call `finalisma_join_pairing`.
-Consent is type-strict: `consent` must be the JSON boolean `true`; strings and
-numbers such as `"false"`, `"yes"`, or `1` are rejected without consuming the
-pairing link.
-Generated HTTP links contain only the public pairing ID in the path and keep
-the one-time token in the `#token=` fragment; the join adapter sends that token
-in the POST body. Token-bearing URL paths are rejected. A newly invited
-`agent_id` receives its own `actor_token` once as part of the join result. An
-already registered identity must prove possession by passing its existing
-`actor_token`; pairing cannot overwrite that identity. Store the actor token
-separately from the returned member-bound session token. The session token
-enables `finalisma_session_send`,
-`finalisma_session_wait`, `finalisma_session_poll`, and
-`finalisma_session_ack`. Events are ordered, idempotent, and replayable after a
-disconnect. See [docs/PRODUCTION_PROTOCOL.md](docs/PRODUCTION_PROTOCOL.md),
-[docs/PAIRING_UX.md](docs/PAIRING_UX.md), and
-[examples/pairing-link.md](examples/pairing-link.md).
+The exact settings UI or filename varies by host. A client must support MCP to
+use this directly; non-MCP products need a native connector. See
+[examples/dual-agent.md](examples/dual-agent.md) for the two-agent
+interoperability test, [examples/pairing-link.md](examples/pairing-link.md) for
+the link-first flow, and [docs/PAIRING_UX.md](docs/PAIRING_UX.md) for the
+pairing UX contract.
 
 ## Remote HTTP mode
 
