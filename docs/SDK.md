@@ -119,3 +119,147 @@ Server error codes are mapped to typed exceptions:
   full URL.
 - **No secrets in code**: use environment variables or a secret manager for
   tokens; never hard-code them.
+
+## Rooms — one link, N agents
+
+A **room** is a multi-member conversation: one multi-use link admits **N** agents
+(up to a cap), each with its own identity, an ordered event log, per-member
+cursors, and addressing by unicast, named group, or broadcast. A room survives
+disconnects — a member reconnects with the same `agent_id` + `actor_token` and
+resumes from its cursor with **no loss and no duplicates**.
+
+The snippet below is copy-paste-runnable against a coordinator already listening
+at `http://127.0.0.1:8787/mcp` (stdio spawn is one line — see the comment at the
+top). It uses **only** the public SDK API.
+
+```python
+# pragma: no cover — runnable quickstart, not part of the test suite.
+#
+# Spawn the coordinator in a separate terminal if it is not already running:
+#   python -B scripts/finalisma-mcp.py --transport http --port 8787
+#
+# Then run this file:
+#   python -B docs/rooms_quickstart.py
+
+from finalisma_sdk import FinalismaClient
+
+COORDINATOR = "http://127.0.0.1:8787/mcp"
+TEAM = "demo"
+
+# --- 1. Three agents register and persist their actor tokens ----------------
+a = FinalismaClient(COORDINATOR, "agent-a", TEAM)
+b = FinalismaClient(COORDINATOR, "agent-b", TEAM)
+c = FinalismaClient(COORDINATOR, "agent-c", TEAM)
+
+reg_a = a.register(name="A", role="coordinator", capabilities=["planning"])
+reg_b = b.register(name="B", role="builder", capabilities=["coding"])
+reg_c = c.register(name="C", role="builder", capabilities=["coding"])
+
+# actor_token is returned once on registration — persist it and feed it back
+# into the constructor on every future run (or via FINALISMA_ACTOR_TOKEN).
+a._actor_token = reg_a["actor_token"]
+b._actor_token = reg_b["actor_token"]
+c._actor_token = reg_c["actor_token"]
+
+# --- 2. agent-a creates a room with cap=4 -----------------------------------
+room = a.create_room(cap=4, name="planning", ttl_seconds=3600)
+room_id = room["room_id"]
+link_token = room["link_token"]          # multi-use; share out-of-band
+print(f"[a] created room {room_id} (cap {room['cap']})")
+
+# --- 3. all three join with the SAME link_token (consent is mandatory) -----
+# agent-a is already a member (owner auto-joins); re-join is idempotent.
+ja = a.join_room(room_id, link_token, consent=True, capabilities=["planning"])
+jb = b.join_room(room_id, link_token, consent=True, capabilities=["coding"])
+jc = c.join_room(room_id, link_token, consent=True, capabilities=["coding"])
+print(f"[a] join status={ja['status']}  [b]={jb['status']}  [c]={jc['status']}")
+
+# --- 4. addressing: unicast, group, broadcast ------------------------------
+# Unicast: a -> b
+send_uni = a.send(room_id, target="agent-b",
+                  payload={"text": "please start the API"},
+                  exclude_sender=True)
+print(f"[a] unicast -> b, seq={send_uni['seq']}")
+
+# Group: a addresses the "builders" group (b and c)
+a.add_to_group(room_id, "builders", ["agent-b", "agent-c"])
+send_grp = a.send(room_id, target="builders",
+                  payload={"text": "build the /health endpoint"})
+print(f"[a] group -> builders, seq={send_grp['seq']}")
+
+# broadcast: a -> every other member
+send_all = a.send(room_id, target="*",
+                  payload={"text": "sync at 14:00"})
+print(f"[a] broadcast '*', seq={send_all['seq']}")
+
+# --- 5. ordered poll from a per-member cursor ------------------------------
+poll_b = b.room_poll(room_id, after_seq=0)
+print(f"[b] poll got {len(poll_b['events'])} events, "
+      f"next_seq={poll_b['next_seq']}, has_more={poll_b['has_more']}")
+for ev in poll_b["events"]:
+    print(f"    seq={ev['seq']} kind={ev['kind']} origin={ev['origin_agent']}")
+
+# advance b's cursor — monotonic ack, replays are idempotent
+last = poll_b["events"][-1]["seq"]
+acked = b.room_ack(room_id, seq=last)
+print(f"[b] ack -> last_ack_seq={acked['last_ack_seq']}")
+
+# --- 6. RECONNECT: fresh client, same identity, no loss -------------------
+# agent-b's process crashes. A brand-new client constructed with the SAME
+# agent_id + actor_token resumes from the last ack and sees nothing twice.
+b2 = FinalismaClient(COORDINATOR, "agent-b", TEAM, actor_token=reg_b["actor_token"])
+resume = b2.room_poll(room_id)            # after_seq defaults to last_ack_seq
+print(f"[b'] reconnect poll got {len(resume['events'])} new events "
+      f"(last_ack_seq was {resume['last_ack_seq']})")
+assert resume["events"] == [] or resume["events"][0]["seq"] > acked["last_ack_seq"], \
+    "reconnect must not replay already-acked events"
+
+# --- 7. leave / close ------------------------------------------------------
+c.leave_room(room_id)
+print("[c] left")
+info = a.room_info(room_id)
+print(f"[a] room state={info['state']} members={info['member_count']}")
+closed = a.close_room(room_id)
+print(f"[a] closed -> state={closed['state']}")
+```
+
+### How join resumes (actor_token is the key)
+
+`join_room` binds the multi-use link to an **identity**: the first call for a
+given `agent_id` stores the `actor_token` hash; every later call for that same
+`agent_id` must present the **same** credential or the join is refused with
+`actor_auth_invalid`. A link can never overwrite an existing member. Because of
+this, a client must be constructed with its `actor_token` (returned by
+`register`, or passed via the `FINALISMA_ACTOR_TOKEN` env var) so that
+`join_room` and every subsequent room call authenticate as the right member —
+that is what makes the reconnect in step 6 resume from the correct cursor.
+
+### Room method table
+
+| SDK method | Wire tool | What it does |
+|---|---|---|
+| `create_room(cap, name, ttl_seconds)` | `finalisma_room_create` | Create a room; owner auto-joins; returns `room_id` + multi-use `link_token`. |
+| `join_room(room_id, link_token, consent, capabilities)` | `finalisma_room_join` | Join (or idempotent re-join) as this `agent_id`; `consent` must be `True`. |
+| `room_info(room_id)` | `finalisma_room_info` | Roster + state for this room (member-only). |
+| `roster(room_id)` | `finalisma_room_info` | Convenience alias returning the member list from `room_info`. |
+| `send(room_id, target, payload, exclude_sender)` | `finalisma_room_send` | Unicast (`agent_id`), group (name), or broadcast (`"*"`); returns `seq` + receipts. |
+| `add_to_group(room_id, group_name, members)` | `finalisma_room_groups` | Add members to a named group. |
+| `remove_from_group(room_id, group_name, members)` | `finalisma_room_groups` | Remove members from a named group. |
+| `group_members(room_id, group_name)` | `finalisma_room_groups` | List members of a named group. |
+| `room_poll(room_id, after_seq, limit)` | `finalisma_room_poll` | Ordered events after the cursor (default `last_ack_seq`); never deletes events. |
+| `room_ack(room_id, seq)` | `finalisma_room_ack` | Advance the per-member cursor monotonically. |
+| `room_heartbeat(room_id)` | `finalisma_room_heartbeat` | Refresh presence (`active` vs `stale`). |
+| `room_receipts(room_id, entry_ids)` | `finalisma_room_receipts` | Delivery status for previously sent envelopes. |
+| `leave_room(room_id)` | `finalisma_room_leave` | Emit `room.left` and mark the member `left`. |
+| `close_room(room_id)` | `finalisma_room_close` | Owner only; emits `room.closed`, invalidates all links. |
+| `revoke_link(room_id, link_id)` | `finalisma_room_revoke_link` | Owner only; revoke one link without closing the room. |
+
+### Honesty note
+
+The SDK room API maps directly onto the `finalisma_room_*` tools listed in
+`docs/ROOMS_DESIGN.md` §8. The private `_call` method remains available for
+calling any JSON-RPC tool directly, but it is **not needed for rooms** — every
+room operation above is a first-class typed method. Room events are delivered
+through `room_poll` (the room's own ordered log), **not** the two-party
+`session_poll`; the two surfaces serve different protocols and do not share
+state.
