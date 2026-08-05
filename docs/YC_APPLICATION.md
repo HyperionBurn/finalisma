@@ -29,11 +29,12 @@ conversation or sharing provider credentials.
 - One-use pairing links with preview-before-consent.
 - Member-bound session credentials and replayable ordered events.
 - Scoped tasks, leases, fencing tokens, artifact hashes, and evidence gates.
-- 65 passing standard-library tests, including concurrency, restart, HTTP, and
-  cross-team boundary cases.
-- A locked same-machine coordinator benchmark whose latest matching-runtime
-  gate is 95.31% faster than its pre-optimization baseline, with unchanged
-  semantic digests.
+- 226 passing standard-library tests, including concurrency, restart, HTTP,
+  tenancy isolation, roster routing, durable outbox, bridge adapters, SDK
+  flows, and cross-team boundary cases.
+- A locked same-machine coordinator benchmark with a re-baselined (2026-08-05)
+  weighted median of ~68.8 ms against the current extended harness, with
+  matching semantic digests and a green regression gate.
 - A no-build launch site, interactive product simulation, quickstart, and
   reproducible 42-second MP4/WebM demo generated from a real local coordinator run.
 

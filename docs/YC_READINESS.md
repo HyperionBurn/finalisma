@@ -20,19 +20,24 @@ blocked implementation that needs a second agent.
 
 ## Current diligence proof
 
-The repository currently demonstrates 65 passing standard-library tests,
+The repository currently demonstrates 226 passing standard-library tests,
 including concurrent one-use pairing, member-bound session credentials,
 ordered replay, restart durability, cross-team boundaries, workspace scope
-checks, secret detection, HTTP origin/rate-limit behavior, and MCP handshake
+checks, secret detection, HTTP origin/rate-limit behavior, tenancy isolation,
+roster routing, durable outbox, bridge adapters, SDK flows, and MCP handshake
 compatibility. A real launcher-level socket smoke test also passed health,
 MCP initialization, metrics, CORS preflight, and coordinator team scoping. The
 repository also contains a no-build landing page, deterministic browser demo,
 real protocol smoke runner, three focused articles, and launch drafts.
 
 A locked same-machine performance gate also exercises 32-agent routing,
-session relay, and full evidence-gated handoff scenarios. The 2026-07-30 pass reduced its
-seven-trial weighted median from 1,265.771 ms to 59.314 ms (95.31%) while
-preserving semantic digests and improving every scenario p95. This is strong
+session relay, and full evidence-gated handoff scenarios. The gate was
+re-baselined on 2026-08-05 against the current extended harness (which adds
+roster-routing and tenancy scenarios); the weighted median is ~68.8 ms with
+matching semantic digests and a green regression gate. The earlier published
+95.31% figure was measured against a 3-scenario harness that no longer exists
+and is preserved as provenance in docs/PERFORMANCE.md and the baseline
+`history` array; the numbers are not directly comparable. This is strong
 single-node engineering evidence, not a hosted-service latency claim.
 
 That is credible technical proof for a single-node prototype. It is not proof

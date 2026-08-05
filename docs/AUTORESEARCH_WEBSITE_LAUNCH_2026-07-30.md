@@ -99,9 +99,9 @@ Result: supported. A fresh local `FinalismaStore` run now produces a credential-
 - Recorded-proof page: [../artifacts/design-qa/implementation-demo-1440x900.png](../artifacts/design-qa/implementation-demo-1440x900.png)
 - Video build record: [../artifacts/design-qa/demo-video-results.json](../artifacts/design-qa/demo-video-results.json)
 - Deterministic critic: `python -B scripts/finalisma_website_critic.py`
-- Protocol and launch tests: `python -B -m unittest discover -s tests -v` -> 65 passing
+- Protocol and launch tests: `python -B -m unittest discover -s tests -v` -> 226 passing
 - Rendered browser gate: `node scripts/capture-site-qa.cjs` -> exit 0
-- Matching-runtime performance gate: 1,265.771ms -> 59.314ms weighted median, 95.31% faster, semantic digests unchanged
+- Matching-runtime performance gate: re-baselined 2026-08-05 to ~68.8ms weighted median against the current extended harness; earlier 1,265.771ms -> 59.314ms (95.31%) was measured against a 3-scenario harness that no longer exists — see docs/PERFORMANCE.md provenance
 - Native MiMo v2.5 production-web review: PASS, no P0/P1 local defect; domain-independent share metadata findings implemented
 
 ## External launch inputs

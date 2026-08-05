@@ -306,5 +306,61 @@ class LaunchSurfaceTests(unittest.TestCase):
             thread.join(timeout=5)
 
 
+class TestCountSyncTests(unittest.TestCase):
+    """Single source of truth for the published test count.
+
+    The number of passing tests is a measured fact that has drifted across
+    six files before. This test discovers the LIVE count from the test suite
+    and asserts it against every instance published in docs/ and site/, so
+    the number can no longer go stale silently.
+    """
+
+    # Files that are allowed to mention a count that is not the full suite.
+    # SECURITY_REVIEW reports targeted sub-run counts (e.g. "73 passing tests"
+    # for a specific subset), which are not claims about the whole suite.
+    _PROVENANCE_ONLY = {
+        "BASELINE_2026-08-05.md",
+        "PERFORMANCE.md",
+        "SECURITY_REVIEW_2026-08-05.md",
+    }
+
+    @classmethod
+    def _discover_live_count(cls) -> int:
+        """Count tests exactly as `unittest discover -s tests` would run them."""
+        suite = unittest.defaultTestLoader.discover(str(ROOT / "tests"), pattern="test*.py")
+        return suite.countTestCases()
+
+    @classmethod
+    def _published_instances(cls) -> list[tuple[str, str, int]]:
+        """Return (file, matched_line, claimed_count) for every published count."""
+        live = cls._discover_live_count()
+        found: list[tuple[str, str, int]] = []
+        docs_root = ROOT / "docs"
+        if docs_root.is_dir():
+            for path in sorted(docs_root.glob("*.md")):
+                if path.name in cls._PROVENANCE_ONLY:
+                    continue
+                for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                    for match in re.finditer(r"\b(\d{2,4})\s+(?:passing\s+)?standard-library tests\b", line, re.IGNORECASE):
+                        claimed = int(match.group(1))
+                        if claimed != live:
+                            found.append((f"docs/{path.name}", f"{line_no}: {line.strip()}", claimed))
+                    for match in re.finditer(r"\b(\d{2,4})\s+passing\s+tests?\b", line, re.IGNORECASE):
+                        claimed = int(match.group(1))
+                        if claimed != live:
+                            found.append((f"docs/{path.name}", f"{line_no}: {line.strip()}", claimed))
+        return found
+
+    def test_published_test_count_matches_live_discovery(self) -> None:
+        live = self._discover_live_count()
+        stale = self._published_instances()
+        self.assertGreater(live, 0, "live test discovery returned zero tests")
+        self.assertEqual(
+            stale,
+            [],
+            f"published test count differs from live discovery ({live}): {stale}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

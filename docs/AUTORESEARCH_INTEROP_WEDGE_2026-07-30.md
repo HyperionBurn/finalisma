@@ -45,7 +45,7 @@ The following semantic boundaries are non-negotiable:
 - A `verified` Finalisma task currently proves workspace containment, artifact hashing, secret-pattern screening, and recorded check assertions. The coordinator does not independently execute every submitted check, and an unauthenticated reviewer name is not independent attestation.
 - Audit rows are append-only through the application API, not tamper-evident against a machine owner who can edit the SQLite file.
 - Model catalog entries are host-recorded route labels. Finalisma does not authenticate to or launch those providers.
-- The 95.31% benchmark improvement is a same-machine, before/after SQLite hot-path result. It says nothing about model speed, network latency, horizontal scale, uptime, or demand.
+- The earlier 95.31% benchmark improvement was a same-machine, before/after SQLite hot-path result measured against a 3-scenario harness. The gate was re-baselined on 2026-08-05 (~68.8ms weighted median) against the current extended harness; see docs/PERFORMANCE.md. It says nothing about model speed, network latency, horizontal scale, uptime, or demand.
 
 ## Exactly one launch wedge
 

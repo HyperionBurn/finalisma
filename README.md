@@ -254,8 +254,9 @@ distributed rate limiting, and an outbox are required for that deployment tier.
 The single-node runtime uses bounded, thread-safe idle SQLite connection pools
 to avoid reopening the database for every handoff operation. Long-lived library
 callers should use `with FinalismaStore(...) as store:` or call `store.close()`
-during shutdown. The locked seven-trial evaluator currently records a 95.31%
-weighted-median improvement with unchanged semantic digests; methodology,
+during shutdown. The locked seven-trial evaluator (re-baselined 2026-08-05)
+records a ~68.8ms weighted median against the current extended harness with
+unchanged semantic digests; methodology,
 commands, and scope limits are in [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 ## Credential rotation and schema-v3 migration
