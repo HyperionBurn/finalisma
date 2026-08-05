@@ -9,3 +9,5 @@ __pycache__/
 *.db-shm
 *.db-wal
 .coverage
+.interop-test-workspace/
+*.log
