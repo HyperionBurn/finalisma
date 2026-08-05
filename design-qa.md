@@ -2,7 +2,7 @@
 
 ## Scope and source
 
-The source visual target is [site/design-target.svg](site/design-target.svg): the DOUBLE ENTRY ledger system, with one continuous 37/63 rule, bottle-green debit and credit surfaces, Archivo statements, IBM Plex Mono records, square controls, and red reserved for an unposted state.
+The source visual target is [site/design-target.svg](site/design-target.svg): the FIELD NOTES magazine system, with oxblood cover bands alternating with paper-stone article bands, Fraunces display serif with true italics, Big Shoulders Display labels, a 12-column grid, and ASSERT/PROVE colour roles. (The DOUBLE ENTRY ledger system is superseded and was deleted; see AGENT_HANDOVER.md §2.1.)
 
 The implementation under review is [site/index.html](site/index.html), the [recorded-proof watch page](site/demo.html), plus the self-contained guides, field notes, 404 page, license page, and reconciliation interaction. The conversion goal is one design-partner application for a non-production incident handoff—not a generic waitlist.
 

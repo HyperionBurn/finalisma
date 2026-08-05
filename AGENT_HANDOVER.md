@@ -49,78 +49,67 @@ demo survived that rebuild as the reconciliation spread in folio 03:
 This browser demo is deliberately labeled as a simulation. It is not proof that two
 real external hosts are already connected.
 
-### 2.1 The design — DOUBLE ENTRY
+### 2.1 The design — FIELD NOTES
 
-Two earlier design passes ("control-room broadsheet", cream + Instrument Serif) were
-**deleted**, not extended. The reason is recorded here so nobody restores them: serif
-type over warm paper is now the AI-industry house style — Claude, Perplexity, Runway
-and Manus have all converged on it, and the press calls it "tasteslop". Those passes
-were well-executed members of exactly that family. Adding more craft to them would
-have made the resemblance stronger, not weaker.
+The live design is **FIELD NOTES**: a magazine feature, not a landing template. The page
+alternates oxblood cover bands with paper-stone article bands, so it has rhythm down its length
+instead of one flat ground. Two roles are carried through the whole piece in colour and italic:
+**ASSERT** (crimson/coral) and **PROVE** (ochre). They appear in the headline, the sidebar, the
+figure and the diagram, and they never mean anything else.
 
-**The page is a ledger.** One hard vertical rule runs the full height of the document
-at 37%: left of it is *asserted*, right of it is *proved*. Ten sections became seven
-folios (`00 OPENING`, `01 THE UNPOSTED ACCOUNT`, `02 THE ENTRIES`,
-`03 RECONCILIATION`, `04 THE AUDIT`, `05 QUERIES`, `06 CLOSING THE BOOKS`). Both fake
-product mockups — the hero ledger card and the demo console window — are gone; they
-were the loudest generated-artifact tell on the page.
+**Superseded designs — do not restore any of them:** control-room broadsheet (deleted 2026-07-31)
+→ DOUBLE ENTRY ledger (deleted after FIELD NOTES shipped) → FIELD NOTES (current). DOUBLE ENTRY
+failed for reasons recorded in the `site/styles.css` header: body copy set in monospace (reads as
+terminal output), a label/value table as the core device (a spreadsheet, and the anatomy of a
+slide), a palette built only by subtraction, and two type sizes with a void between them. The
+serif is not an accident here — it is the point. **Never "fix" serif usage.**
 
 Load-bearing rules:
 
-- **The rule is painted once**, as a fixed backdrop (`.ledger-ground`, `z-index: -1`)
-  with `::before` for the credit paper and `::after` for the hairline. Drawing it
-  per-section is how gaps appear at section boundaries. Do not re-introduce that.
-- **Percentages must resolve against the same width.** `.ledger-ground`,
-  `.band`, `.folio`, `.entry`, `.totals`, `.query` and `.article-layout` all use
-  `var(--split) minmax(0, 1fr)` and carry **no horizontal padding** — padding goes on
-  their cells. That is what holds the rule and every column edge to 0.003px. Adding
-  padding to any of those elements silently breaks the alignment everywhere.
-- **`minmax(0, 1fr)`, never bare `1fr`.** A `1fr` track has an automatic min-content
-  floor, and the `white-space: nowrap` folio label will stretch the whole grid past
-  the viewport instead of overflowing it. This caused a 561px document on a 390px
-  screen once already.
-- **Red is red ink**, meaning an unposted entry — never emphasis. `--red` (3.24:1) is
-  restricted to rules and 24px+ marks; small red type uses `--red-text` (5.77:1).
-  **Every red row also carries the word for its state.** Two automated checks enforce
-  this: `test_unposted_entries_never_rely_on_colour_alone` and the harness's
-  `redIsNeverTheOnlyMarker`. Do not add a red row without a textual marker.
+- **12-column grid** (`--shell: 1320px`, `--gut`, `--pad` as clamp tokens). `.cover-grid`,
+  `.feature-grid`, `.spec-grid`, `.cohort-grid`, `.article-layout` all use
+  `repeat(12, 1fr)` with `minmax(0, 1fr)` semantics where content must not stretch the grid —
+  a `1fr` track has an automatic min-content floor that breaks the layout on narrow screens.
+- **No horizontal padding on any element that carries a grid column.** Padding goes on the
+  cells (`.cover-main`, `.spec-copy`, `.article-layout > article`, …). Adding padding to a
+  grid container silently breaks column alignment everywhere.
+- **Colour is never the only marker.** ASSERT red and PROVE ochre carry meaning, but every
+  colour-coded row also carries a word for its state. Two automated checks enforce this:
+  `test_unposted_entries_never_rely_on_colour_alone` and the harness's
+  `redIsNeverTheOnlyMarker`. Do not add a coloured row without a textual marker.
+- **The proof plate is fail-safe by default.** `.plate-stage` and `.plate-controls` are
+  `display: none` until `proof-engine.js` mounts and sets `.plate.is-ready`. Without
+  JavaScript — or with a broken engine — the reader gets the written sequence
+  (`.plate-static`) instead of a blank rectangle. Never invert this.
+- Everything is native CSS/JS. No package, no CDN, no GSAP, no Lenis. See `design-qa.md`.
 
-Everything is native CSS/JS. No package, no CDN, no GSAP, no Lenis. See `design-qa.md`
-for why each of those was considered and declined.
+### 2.2 The type system — two faces, three registers
 
-### 2.2 The type system — two faces, three registers, no serif
-
-The serif is gone. `site/assets/fonts/` holds **Archivo** (variable, `wght 100–900`,
-`font-stretch 62–125%`, SIL OFL, Omnibus-Type) and **IBM Plex Mono**.
+`site/assets/fonts/` holds three self-hosted OFL families (no CDN, no runtime network
+dependency):
 
 | Register | Face | Where it is allowed |
 | --- | --- | --- |
-| **Folio label** | Archivo `font-stretch: 68%`, `wght 700` | `.folio-label` only |
-| **Statement** | Archivo `font-stretch: 100%`, `wght 500` | `.statement`, h1/h2, article h1/h2, resource-card h3 |
-| **Entry** | IBM Plex Mono 400/500 | everything else — body, labels, entries, code, figures |
+| **Display / labels** | Big Shoulders Display (condensed grotesque, `wght 400–900`) | masthead, folio labels, kickers, small caps, figures, buttons. Never body copy. |
+| **Text / display serif** | Fraunces (variable `wght 300–900`, optical-size axis, true italic) | headline, standfirst, body copy, h1/h2, pullquotes, article text |
+| **Code / data** | `ui-monospace` stack | code blocks only |
+
+The headline is the point: Fraunces breaks roman into italic mid-phrase (`.headline .l2`,
+`.headline .l3`) to change voice, not just line. The two colour roles also travel as italic:
+`.term-assert`, `.term-prove`, `.kicker-prove`.
 
 Rules that must survive future edits:
 
-- **No serif, anywhere.** The harness reports `serifDeclarationsRemaining`, which must
-  stay `0`. Instrument Serif and Newsreader were deleted from the repository.
+- **Keep the webfonts local and the licences beside them.** `OFL-fraunces.txt` (and the
+  matching Big Shoulders licence) must stay in `site/assets/fonts/`; OFL redistribution
+  requires it. Do not move any family to a CDN.
 - **Glyph coverage is measured, not assumed.** `document.fonts.check()` reports family
-  availability, **not** glyph coverage, and it will lie about this. Compare rendered
-  advance widths against a bare generic instead. The latin subsets of *both* faces
-  stop short of `→` (U+2192), `↗` (U+2197) and `∞` (U+221E), so those three are
-  covered by `plex-mono-symbols.woff2` — a 1.4 KB glyph-exact subset scoped by
-  `unicode-range` and listed **first** in `--sans` and `--mono`. Archivo does carry
-  `↑ ↓ − ∕ — –`; it does not carry the three above.
-- **The folio label is ruled off the page.** `.folio-label::after` is a flexing
-  hairline that runs from the end of the words, across the vertical rule, and out
-  past the right edge. This makes the bleed the same structural move on every folio
-  rather than an accident of how long one title happens to be — sizing alone made
-  exactly one of seven labels bleed, which read as a bug.
-
-Latin payload is **121,120 bytes across four `woff2` files** (down from ~220 KB across
-six), all `font-display: swap`. There is no Plex Mono 700 — nothing resolves to it, and
-every heavy weight comes from Archivo's single variable file. Licences sit beside them
-as `OFL-archivo.txt` and `OFL-plex-mono.txt` — keep them there; OFL redistribution
-requires it.
+  availability, **not** glyph coverage, and it will lie about this. Compare rendered advance
+  widths against a bare generic instead.
+- **`--header-h` is the single source of truth** for the sticky masthead offset (currently
+  58px). It is read once in `app.js` and by the harness. Do not re-inline it.
+- **`overflow-x: clip`, never `overflow-x: hidden`** — `hidden` makes an ancestor a scroll
+  container and sticky positioning stops working in Chromium.
 
 ## 3. Repository map
 
@@ -275,32 +264,36 @@ real maintenance cost and the reason it is checked.
 
 ## 5. Native subagent model rules
 
-The user explicitly wants native Codex child agents for Qwen, LongCat, and Mimo. The
-current environment instructions define these exact model IDs:
+This environment is opencode, not Codex. There is no `multi_agent_v1__spawn_agent` /
+`multi_agent_v1__wait_agent`; those tools do not exist here and never will. The correct
+mechanism is the `task` tool with `subagent_type: "longcat-2.0"`, backed by the global agent
+definition `~/.config/opencode/agents/longcat-2.0.md`.
 
-```text
-qwencloud/qwen3.8-max-preview
-longcat/LongCat-2.0
-opencode-go/mimo-v2.5
-```
+Model-pinning lessons recorded 2026-08-05 (do not re-learn them the hard way):
 
-When a subagent is requested, use the native `multi_agent_v1__spawn_agent` tool with
-`agent_type: "default"` and a concrete bounded task, then wait using
-`multi_agent_v1__wait_agent` with the returned IDs. Do not infer availability from a
-stale tool description. Never silently substitute another model. If native spawning
-fails, report the exact backend error and distinguish model availability from
-orchestration-tool availability.
+- A subagent inherits the parent session's model unless its agent definition pins
+  `model: "provider/model-id"`. The global `longcat-2.0.md` agent pins
+  `model: LongCat/LongCat-2.0`.
+- opencode reads agent config at session start. It does **not** hot-reload mid-session.
+  After editing `opencode.json`/agent files you must restart the session for changes to take
+  effect.
+- Project-scoped config (`opencode.json` in a project root) only loads when the session is
+  rooted at that project. A session rooted at `C:\Users\Wasif` will not see worktree config.
+- Task-permission deny on an agent name removes it from the parent's task tool entirely but
+  still lets the user summon it via `@mention`. Use this for user-invocation-only lanes.
+- When a lane is requested, use the `task` tool with a concrete bounded task. If spawning
+  fails, report the exact backend error and distinguish model availability from
+  orchestration-tool availability. Never silently substitute another model.
 
-Historical note: on 2026-07-28, two native Qwen 3.8 Max xhigh implementation lanes
-were invoked for the scroll-story but stayed unresponsive and made no file changes.
-A LongCat-2.0 read-only review lane was also invoked and did not return a bounded
-report before shutdown. The current frontend was therefore completed and verified
-locally; do not claim that Qwen or LongCat authored or signed off this pass.
-
-For `DOCS-TRUTH-SYNC-009-SOL`, the native LongCat relaunch was rejected by the
-orchestration backend after the earlier lane only partially edited documentation. The
-user explicitly authorized Sol as final integrator. Do not attribute the completed
-documentation sync to LongCat or infer that the model itself is unavailable.
+Historical note: on 2026-07-28, two native Qwen 3.8 Max xhigh implementation lanes were
+invoked for the scroll-story but stayed unresponsive and made no file changes. A LongCat-2.0
+read-only review lane was also invoked and did not return a bounded report before shutdown.
+The current frontend was therefore completed and verified locally; do not claim that Qwen or
+LongCat authored or signed off this pass. For `DOCS-TRUTH-SYNC-009-SOL`, the native LongCat
+relaunch was rejected by the orchestration backend after the earlier lane only partially
+edited documentation. The user explicitly authorized Sol as final integrator. Do not
+attribute the completed documentation sync to LongCat or infer that the model itself is
+unavailable.
 
 ## 6. How to run it without installing anything
 
@@ -446,19 +439,27 @@ the rendered width and offender checks in future visual regression passes.
 
 ## 9. Workspace hygiene rules
 
-- Work only inside `C:\Users\Wasif\Documents\Multiplayer-AI`.
-- Use `apply_patch` for source edits. Do not use shell redirection or ad hoc file
+- Work only inside `C:\Users\Wasif\Documents\Multiplayer-AI-isolated` (branch `isolated`).
+  `C:\Users\Wasif\Documents\Multiplayer-AI` is a **separate worktree** on `master` with its
+  own uncommitted work; never read from or write to it.
+- Use the opencode `read`/`write`/`edit` tools for source changes. There is no `apply_patch`
+  tool in this environment (that is Codex). Do not use shell redirection or ad hoc file
   writers for code/doc changes.
-- Do not install globally, modify PATH/profile/registry, create services, or add
-  startup entries.
+- If your shell cwd is `C:\Users\Wasif`, every `bash` call must pass
+  `workdir = C:\Users\Wasif\Documents\Multiplayer-AI-isolated` and every file path must be
+  absolute under that worktree. Restarting opencode from inside the worktree fixes this
+  permanently.
+- Do not install globally, modify PATH/profile/registry, create services, or add startup
+  entries.
 - Do not add secrets to `.env`, shell profiles, logs, task payloads, MCP JSON, or git.
-- Do not delete anything outside this project. Inside the project, list generated
-  artifacts before cleaning them.
-- `.gitignore` already excludes Python caches, virtual environments, SQLite databases,
-  and `.finalisma/`. The working tree currently appears untracked wholesale; do not
-  use `git reset --hard`, `git checkout --`, or broad cleanup commands.
-- Generated QA screenshots under `artifacts/design-qa/` are intentional evidence,
-  not random cache. Remove only if the user explicitly wants the artifact set pruned.
+- Do not delete anything outside this project. Inside the project, list generated artifacts
+  before cleaning them.
+- Never `git add -A` — it is exactly what produced the broken initial snapshot (missing
+  `site/proof-engine.js` and `site/docs/managed-pilot.html`). Stage explicit paths. Do not
+  commit from a lane; the orchestrator commits, one commit per lane. Never run
+  `git reset --hard`, `git checkout --`, or `git clean` in either worktree.
+- Generated QA screenshots under `artifacts/design-qa/` are intentional evidence, not
+  random cache. Remove only if the user explicitly wants the artifact set pruned.
 
 ## 10. Definition of done for a future change
 
