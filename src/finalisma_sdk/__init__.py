@@ -13,6 +13,13 @@ from .client import (
     JoinResult,
     SessionEvent,
     CredentialRotation,
+    RoomResult,
+    RoomJoinResult,
+    RoomInfo,
+    RoomMember,
+    RoomEvent,
+    RoomPoll,
+    RoomSendResult,
 )
 
 __all__ = [
@@ -28,4 +35,11 @@ __all__ = [
     "JoinResult",
     "SessionEvent",
     "CredentialRotation",
+    "RoomResult",
+    "RoomJoinResult",
+    "RoomInfo",
+    "RoomMember",
+    "RoomEvent",
+    "RoomPoll",
+    "RoomSendResult",
 ]

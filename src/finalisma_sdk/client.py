@@ -68,6 +68,7 @@ _ERROR_MAP = {
     "task_not_found": NotFoundError,
     "message_not_found": NotFoundError,
     "agent_not_registered": NotFoundError,
+    "room_not_found": NotFoundError,
     "quality_gate_required": EvidenceError,
     "quality_gate_failed": EvidenceError,
     "pairing_expired": ConflictError,
@@ -78,6 +79,14 @@ _ERROR_MAP = {
     "stale_fencing_token": ConflictError,
     "lease_expired": ConflictError,
     "state_conflict": ConflictError,
+    "room_full": ConflictError,
+    "room_closed": ConflictError,
+    "link_revoked": ConflictError,
+    "link_expired": ConflictError,
+    "invalid_link": ConflictError,
+    "member_required": AuthError,
+    "owner_required": AuthError,
+    "invalid_cursor": ConflictError,
 }
 
 
@@ -146,6 +155,78 @@ class CredentialRotation:
     actor_token: str
     rotation_count: int
     bootstrapped: bool = False
+
+
+# ---------------------------------------------------------------------------
+# Room types (Wave SDK-ROOMS) — first-class room surface
+# ---------------------------------------------------------------------------
+
+@dataclass
+class RoomResult:
+    room_id: str
+    link_id: str
+    link_token: str
+    expires_at: float
+    cap: int
+    state: str
+    owner_agent_id: str
+
+
+@dataclass
+class RoomJoinResult:
+    room_id: str
+    agent_id: str
+    status: str
+    joined_at: str
+    cursor: int
+
+
+@dataclass
+class RoomMember:
+    agent_id: str
+    status: str
+    capabilities: list[str]
+    last_seen: float
+    joined_at: str
+
+
+@dataclass
+class RoomInfo:
+    room_id: str
+    state: str
+    cap: int
+    member_count: int
+    owner_agent_id: str
+    members: list[RoomMember]
+
+
+@dataclass
+class RoomEvent:
+    event_id: str
+    seq: int
+    origin_agent: str
+    kind: str
+    payload: Any
+    created_at: str
+
+
+@dataclass
+class RoomPoll:
+    room_id: str
+    state: str
+    events: list[RoomEvent]
+    next_seq: int
+    cursor_head: int
+    last_ack_seq: int
+    has_more: bool
+
+
+@dataclass
+class RoomSendResult:
+    room_id: str
+    seq: int
+    envelope: dict[str, Any]
+    receipts: list[dict[str, Any]]
 
 
 def _task_from_dict(d: dict[str, Any]) -> TaskResult:
@@ -405,7 +486,8 @@ class FinalismaClient:
         """Join a pairing given a full join_url (token in fragment).
 
         The SDK extracts the token from the URL fragment per protocol and sends
-        it in the JSON body.
+        it in the JSON body. The caller's actor_token is injected so the join
+        succeeds even when the coordinator requires actor credentials.
         """
         from urllib.parse import urlsplit, parse_qs
         parsed = urlsplit(link)
@@ -417,15 +499,18 @@ class FinalismaClient:
         if not token:
             raise FinalismaError("invalid_pairing_url", "Pairing URL must contain a #token= fragment")
         target_agent = agent_id or self.agent_id
+        params: dict[str, Any] = {
+            "token": token,
+            "agent_id": target_agent,
+            "name": target_agent,
+            "role": "generalist",
+            "consent": consent,
+        }
+        if self._actor_token:
+            params["actor_token"] = self._actor_token
         result = self._transport.call(
             "finalisma_join_pairing",
-            {
-                "token": token,
-                "agent_id": target_agent,
-                "name": target_agent,
-                "role": "generalist",
-                "consent": consent,
-            },
+            params,
         )
         return JoinResult(
             session_id=result["session_id"],
@@ -514,6 +599,255 @@ class FinalismaClient:
             if key not in envelope:
                 raise FinalismaError("invalid_envelope", f"Envelope must include '{key}'")
         return self._call("finalisma_send_message", **envelope)
+
+    # -- rooms (Wave SDK-ROOMS) ---------------------------------------------
+
+    def create_room(self, cap: int, name: str | None = None, ttl_seconds: int = 86400,
+                    **kwargs: Any) -> RoomResult:
+        """Create a Room. Returns a RoomResult with the one multi-use link.
+
+        The owner auto-joins as the first active member. `cap` is the maximum
+        number of members (>= 2). Extra wire args pass through to the tool.
+        """
+        result = self._call(
+            "finalisma_room_create",
+            owner_agent_id=kwargs.pop("owner_agent_id", self.agent_id),
+            cap=cap,
+            name=name,
+            ttl_seconds=ttl_seconds,
+            **kwargs,
+        )
+        return RoomResult(
+            room_id=result["room_id"],
+            link_id=result["link_id"],
+            link_token=result["link_token"],
+            expires_at=result["expires_at"],
+            cap=result["cap"],
+            state=result["state"],
+            owner_agent_id=result["owner_agent_id"],
+        )
+
+    def join_room(self, room_id: str, link_token: str, consent: bool = True,
+                  capabilities: list[str] | None = None, agent_id: str | None = None,
+                  **kwargs: Any) -> RoomJoinResult:
+        """Join a Room with its multi-use link. consent must be a literal
+        boolean True (the coordinator rejects strings). Returns a
+        RoomJoinResult bound to this client's identity (or `agent_id` if given).
+        """
+        result = self._call(
+            "finalisma_room_join",
+            room_id=room_id,
+            link_token=link_token,
+            agent_id=agent_id or self.agent_id,
+            consent=consent,
+            capabilities=capabilities,
+            **kwargs,
+        )
+        return RoomJoinResult(
+            room_id=result["room_id"],
+            agent_id=result["agent_id"],
+            status=result["status"],
+            joined_at=result["joined_at"],
+            cursor=result["cursor"],
+        )
+
+    def room_info(self, room_id: str, agent_id: str | None = None, **kwargs: Any) -> RoomInfo:
+        """Member-only view of a Room: state, cap, member count, roster, owner."""
+        result = self._call(
+            "finalisma_room_info",
+            room_id=room_id,
+            agent_id=agent_id or self.agent_id,
+            **kwargs,
+        )
+        members = [
+            RoomMember(
+                agent_id=m["agent_id"],
+                status=m["status"],
+                capabilities=m.get("capabilities", []),
+                last_seen=m["last_seen"],
+                joined_at=m["joined_at"],
+            )
+            for m in result.get("members", [])
+        ]
+        return RoomInfo(
+            room_id=result["room_id"],
+            state=result["state"],
+            cap=result["cap"],
+            member_count=result["member_count"],
+            owner_agent_id=result["owner_agent_id"],
+            members=members,
+        )
+
+    def roster(self, room_id: str, agent_id: str | None = None, **kwargs: Any) -> list[RoomMember]:
+        """Convenience: the member list from room_info."""
+        return self.room_info(room_id, agent_id=agent_id, **kwargs).members
+
+    def leave_room(self, room_id: str, agent_id: str | None = None, **kwargs: Any) -> dict[str, Any]:
+        """Leave a Room. The membership row is marked left; re-join reactivates."""
+        return self._call(
+            "finalisma_room_leave",
+            room_id=room_id,
+            agent_id=agent_id or self.agent_id,
+            **kwargs,
+        )
+
+    def close_room(self, room_id: str, owner_agent_id: str | None = None, **kwargs: Any) -> dict[str, Any]:
+        """Close a Room (owner only). Refuses joins and invalidates all links."""
+        return self._call(
+            "finalisma_room_close",
+            room_id=room_id,
+            owner_agent_id=owner_agent_id or self.agent_id,
+            **kwargs,
+        )
+
+    def revoke_link(self, room_id: str, link_id: str, owner_agent_id: str | None = None,
+                    **kwargs: Any) -> dict[str, Any]:
+        """Revoke a Room link (owner only) so it can admit no one."""
+        return self._call(
+            "finalisma_room_revoke_link",
+            room_id=room_id,
+            link_id=link_id,
+            owner_agent_id=owner_agent_id or self.agent_id,
+            **kwargs,
+        )
+
+    def send(self, room_id: str, target=None, payload: Any = None, exclude_sender: bool = True,
+             sender_agent_id: str | None = None, **kwargs: Any) -> RoomSendResult:
+        """Address one agent, a named group, or the whole room.
+
+        `target` is the coordinator's target_spec: an agent_id (str), a group
+        name (str), "*" for broadcast, or a list. The wire-level name
+        `target_spec` is also accepted for symmetry. For broadcast the sender
+        is excluded by default; pass exclude_sender=False to include it.
+        Returns a RoomSendResult with per-recipient delivery receipts.
+        """
+        target_spec = kwargs.pop("target_spec", target)
+        if target_spec is None:
+            raise FinalismaError("invalid_argument", "send requires a target (agent id, group, '*', or list)")
+        result = self._call(
+            "finalisma_room_send",
+            room_id=room_id,
+            sender_agent_id=sender_agent_id or self.agent_id,
+            target_spec=target_spec,
+            payload=payload,
+            exclude_sender=exclude_sender,
+            **kwargs,
+        )
+        return RoomSendResult(
+            room_id=result["room_id"],
+            seq=result["seq"],
+            envelope=result["envelope"],
+            receipts=result["receipts"],
+        )
+
+    def group_members(self, room_id: str, group_name: str, agent_id: str | None = None,
+                      **kwargs: Any) -> list[str]:
+        """List the members of a named group within a Room."""
+        kwargs.pop("action", None)  # this method always lists
+        result = self._call(
+            "finalisma_room_groups",
+            room_id=room_id,
+            group_name=group_name,
+            action="list",
+            agent_id=agent_id or self.agent_id,
+            **kwargs,
+        )
+        return result["members"]
+
+    def add_to_group(self, room_id: str, group_name: str, members: list[str],
+                     agent_id: str | None = None, **kwargs: Any) -> dict[str, Any]:
+        """Add members to a named group for group-addressable sends."""
+        return self._call(
+            "finalisma_room_groups",
+            room_id=room_id,
+            group_name=group_name,
+            action="add",
+            members=members,
+            agent_id=agent_id or self.agent_id,
+            **kwargs,
+        )
+
+    def remove_from_group(self, room_id: str, group_name: str, members: list[str],
+                          agent_id: str | None = None, **kwargs: Any) -> dict[str, Any]:
+        """Remove members from a named group."""
+        return self._call(
+            "finalisma_room_groups",
+            room_id=room_id,
+            group_name=group_name,
+            action="remove",
+            members=members,
+            agent_id=agent_id or self.agent_id,
+            **kwargs,
+        )
+
+    def room_poll(self, room_id: str, after_seq: int | None = None, limit: int = 100,
+                  agent_id: str | None = None, **kwargs: Any) -> RoomPoll:
+        """Replay ordered Room events from this member's cursor.
+
+        With after_seq None the coordinator starts from the member's last ack.
+        At-least-once; ack to advance this member's cursor.
+        """
+        result = self._call(
+            "finalisma_room_poll",
+            room_id=room_id,
+            after_seq=after_seq,
+            limit=limit,
+            agent_id=agent_id or self.agent_id,
+            **kwargs,
+        )
+        events = [
+            RoomEvent(
+                event_id=e["event_id"],
+                seq=e["seq"],
+                origin_agent=e["origin_agent"],
+                kind=e["kind"],
+                payload=e.get("payload"),
+                created_at=e.get("created_at", ""),
+            )
+            for e in result.get("events", [])
+        ]
+        return RoomPoll(
+            room_id=result["room_id"],
+            state=result["state"],
+            events=events,
+            next_seq=result["next_seq"],
+            cursor_head=result["cursor_head"],
+            last_ack_seq=result["last_ack_seq"],
+            has_more=result["has_more"],
+        )
+
+    def room_ack(self, room_id: str, seq: int, agent_id: str | None = None, **kwargs: Any) -> int:
+        """Advance this member's cursor to seq (monotonic MAX). Returns the
+        new last_ack_seq."""
+        result = self._call(
+            "finalisma_room_ack",
+            room_id=room_id,
+            seq=seq,
+            agent_id=agent_id or self.agent_id,
+            **kwargs,
+        )
+        return result["last_ack_seq"]
+
+    def room_heartbeat(self, room_id: str, agent_id: str | None = None, **kwargs: Any) -> dict[str, Any]:
+        """Refresh this member's presence in the Room."""
+        return self._call(
+            "finalisma_room_heartbeat",
+            room_id=room_id,
+            agent_id=agent_id or self.agent_id,
+            **kwargs,
+        )
+
+    def room_receipts(self, room_id: str, entry_ids: list[str], agent_id: str | None = None,
+                      **kwargs: Any) -> list[dict[str, Any]]:
+        """Query delivery-receipt status for outbox entry ids."""
+        result = self._call(
+            "finalisma_room_receipts",
+            room_id=room_id,
+            entry_ids=entry_ids,
+            agent_id=agent_id or self.agent_id,
+            **kwargs,
+        )
+        return result["receipts"]
 
     # -- sessions ------------------------------------------------------------
 

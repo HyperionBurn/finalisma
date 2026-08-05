@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="The Finalisma compatibility evidence ledger: one verified host integration and eight documented MCP host paths as of 5 August 2026.">
+  <meta name="description" content="The Finalisma compatibility evidence ledger: one verified host integration, four validated connection tiers, and eight documented MCP host paths as of 5 August 2026.">
   <title>Compatibility ledger · Finalisma</title>
   <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="../styles.css">
@@ -16,13 +16,22 @@
   <main id="main" class="article-main">
     <p class="article-kicker">Evidence snapshot · 5 August 2026</p>
     <h1>Documented is not verified.</h1>
-    <p class="article-dek">Nine plausible MCP connection paths are documented. One is now verified with a captured host run; the other eight remain documented-unverified.</p>
-    <div class="article-meta"><span>1 verified</span><span>8 documented-unverified</span><span>0 adapter-required</span><span>0 unsupported</span></div>
+    <p class="article-dek">Nine plausible MCP connection paths are documented. One host is verified, four connection tiers are validated with committed transcripts, and the remaining eight hosts stay documented-unverified.</p>
+    <div class="article-meta"><span>1 verified host</span><span>4 tiers validated</span><span>8 documented-unverified</span><span>0 unsupported</span></div>
     <div class="article-layout">
       <article>
-        <p class="lead-paragraph">A host becomes verified only when the repository contains its version, redacted configuration, pairing and consent transcript, ordered reconnect, cancellation, evidence gate, and successful close.</p>
+        <p class="lead-paragraph">A host becomes verified only when the repository contains its version, redacted configuration, pairing and consent transcript, ordered reconnect, cancellation, evidence gate, and successful close. A connection <strong>tier</strong> is validated when a committed transcript proves it works end to end against a real coordinator — even before any specific host product is configured.</p>
         <h2>Verified host</h2>
         <p><strong>OpenCode 1.18.13</strong> — verified 5 August 2026. Loaded finalisma as a <code>type: local</code> stdio MCP server from a project config; a headless agent run completed the full lifecycle (register ×2, pairing create/preview/consent-join, task create/claim/verify/complete). Validation exposed and fixed a JS-safe-integer fencing-token defect. Repository artifact: <code>docs/INTEROP_VALIDATION_2026-08-05.md</code> (in-repo, outside the site bundle).</p>
+        <h2>Validated connection tiers</h2>
+        <p>Four ways an agent reaches the coordinator. Three more now have committed transcripts; the stdio tier also has a real-host run.</p>
+        <ul>
+          <li><strong>MCP stdio</strong> — host-verified (OpenCode 1.18.13) + protocol driver. <code>docs/INTEROP_VALIDATION_2026-08-05.md</code>, <code>scripts/interop-validate.py</code>.</li>
+          <li><strong>MCP Streamable HTTP</strong> — protocol-validated over HTTP JSON-RPC: full two-agent verified handoff + negative pairing-link-reuse refusal. <code>docs/INTEROP_HTTP_2026-08-05.md</code>, <code>scripts/interop-validate-http.py</code>.</li>
+          <li><strong>Bridge adapters</strong> (webhook / polling / clipboard) — adapter-validated for hosts without MCP: HMAC-signed delivery, at-most-once polling, one-shot bootstrap, all negative refusals firing. <code>docs/INTEROP_BRIDGE_2026-08-05.md</code>, <code>scripts/interop-validate-bridge.py</code>.</li>
+          <li><strong>SDK</strong> — validated including the N-agent room path: 3 agents join one link, unicast/group/broadcast receipts, ordered replay with per-member cursors, reconnect with no loss/duplicates, member-only and identity refusals. <code>docs/INTEROP_SDK_2026-08-05.md</code>, <code>scripts/interop-validate-sdk.py</code>.</li>
+        </ul>
+        <p class="fig-note">Tier validation proves the wire path works; it does not claim a specific third-party host product (e.g. Slack webhook, Discord bot) integrates. That is future per-host work.</p>
         <h2>Documented MCP paths</h2>
         <ol>
           <li><a href="https://developers.openai.com/codex/mcp/">OpenAI Codex local clients</a> — stdio and Streamable HTTP documented.</li>
@@ -41,8 +50,8 @@
         <div class="article-next"><span>Run the test</span><a href="quickstart.html">Use the local proof checklist →</a></div>
       </article>
       <aside class="article-aside">
-        <div class="aside-card"><span class="resource-tag">Status language</span><ul><li>Verified: transcript on file</li><li>Documented-unverified: host docs only</li><li>Adapter-required: direct path unavailable</li><li>Unsupported: required path absent</li></ul></div>
-        <div class="aside-card aside-card-dark"><span class="resource-tag">Live count</span><p>1 verified Finalisma host integration (OpenCode 1.18.13).</p></div>
+        <div class="aside-card"><span class="resource-tag">Status language</span><ul><li>Verified: transcript on file (host run)</li><li>Tier-validated: transcript proves the connection path</li><li>Documented-unverified: host docs only</li><li>Adapter-required: direct path unavailable</li><li>Unsupported: required path absent</li></ul></div>
+        <div class="aside-card aside-card-dark"><span class="resource-tag">Live count</span><p>1 verified host (OpenCode 1.18.13) · 3 additional tiers validated (HTTP, bridge, SDK).</p></div>
       </aside>
     </div>
   </main>

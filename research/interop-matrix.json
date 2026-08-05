@@ -5,17 +5,24 @@
   "purpose": "Current official-document compatibility hypotheses for installing Finalisma as an MCP server in independent agent hosts.",
   "claim_boundary": "Documentation proves that each listed host exposes an MCP client surface. It does not prove that Finalisma has completed an end-to-end pairing, reconnect, cancellation, and verified-handoff run in that host.",
   "status_definitions": {
-    "verified": "A fresh end-to-end Finalisma host run is captured in this repository with version, configuration, transcript, and expected protocol assertions.",
+    "verified": "A fresh end-to-end Finalisma host run is captured in this repository with version, configuration, transcript, and expected protocol assertions. (Per-host status.)",
     "documented-unverified": "Current official host documentation describes a compatible MCP transport, but this repository has no fresh end-to-end host run.",
     "adapter-required": "The host cannot consume Finalisma directly through its documented MCP surface and needs a maintained adapter.",
-    "unsupported": "Current official evidence shows that the required connection path is unavailable."
+    "unsupported": "Current official evidence shows that the required connection path is unavailable.",
+    "tier-validated": "A committed transcript proves the CONNECTION TIER works end to end (protocol, adapter library, or SDK) against a real coordinator, even if no specific host product is configured. See summary.tier_transcripts."
   },
   "summary": {
     "host_count": 9,
     "verified": 1,
     "documented-unverified": 8,
     "adapter-required": 0,
-    "unsupported": 0
+    "unsupported": 0,
+    "tier_transcripts": {
+      "mcp_stdio": "verified — real host (opencode 1.18.13), docs/INTEROP_VALIDATION_2026-08-05.md",
+      "mcp_streamable_http": "validated — protocol tier, docs/INTEROP_HTTP_2026-08-05.md",
+      "bridge_adapters": "validated — adapter tier, docs/INTEROP_BRIDGE_2026-08-05.md",
+      "sdk": "validated — SDK tier incl. N-agent rooms, docs/INTEROP_SDK_2026-08-05.md"
+    }
   },
   "hosts": [
     {
