@@ -7,11 +7,13 @@ stdio stdout is reserved for protocol messages.
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import json
 import sys
 import threading
 import time
+import uuid
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
@@ -25,12 +27,21 @@ from .core import (
     FinalismaStore,
     _validate_id,
 )
+from . import tenancy as _tenancy
+from . import roster as _roster
+from . import outbox as _outbox
+from . import metrics_activation as _metrics_activation
+from .bridge import WebhookBridge, PollingBridge, ClipboardBridge
 
 SERVER_NAME = "finalisma-mcp"
 SERVER_VERSION = "0.1.0"
 MAX_JSON_RPC_BYTES = 512 * 1024
 REQUEST_TIMEOUT_SECONDS = 30
 MAX_HTTP_HANDLERS = 32
+
+
+def _uuid_hex() -> str:
+    return uuid.uuid4().hex
 
 
 class _Metrics:
@@ -485,6 +496,196 @@ TOOLS: list[dict[str, Any]] = [
             "actor_token": STRING,
         }, ["team_id", "agent_id", "task_id", "fencing_token"]),
     },
+    {
+        "name": "finalisma_org_create",
+        "description": "Create a tenant org scoped to a team. Returns a distinct org_id used for membership and scope enforcement.",
+        "inputSchema": _object_schema({"team_id": STRING, "org_name": STRING}, ["team_id", "org_name"]),
+    },
+    {
+        "name": "finalisma_org_add_member",
+        "description": "Add an agent to an org. Membership is required before assert_scope can pass for that agent.",
+        "inputSchema": _object_schema({
+            "team_id": STRING,
+            "org_id": STRING,
+            "agent_id": STRING,
+            "role": STRING,
+        }, ["team_id", "org_id", "agent_id"]),
+    },
+    {
+        "name": "finalisma_org_is_member",
+        "description": "Return whether an agent is a member of an org.",
+        "inputSchema": _object_schema({
+            "team_id": STRING,
+            "org_id": STRING,
+            "agent_id": STRING,
+        }, ["team_id", "org_id", "agent_id"]),
+    },
+    {
+        "name": "finalisma_org_assert_scope",
+        "description": "Prove an agent's actor key is bound to an org and the agent is a member. Fails closed for non-members and key mismatches.",
+        "inputSchema": _object_schema({
+            "team_id": STRING,
+            "org_id": STRING,
+            "agent_id": STRING,
+            "actor_key_hex": STRING,
+        }, ["team_id", "org_id", "agent_id", "actor_key_hex"]),
+    },
+    {
+        "name": "finalisma_roster_create",
+        "description": "Create an N-way roster owned by an agent. The owner joins as the first active member.",
+        "inputSchema": _object_schema({
+            "team_id": STRING,
+            "owner_agent_id": STRING,
+        }, ["team_id", "owner_agent_id"]),
+    },
+    {
+        "name": "finalisma_roster_join",
+        "description": "Join an existing roster with a capability manifest. Idempotent for re-joins.",
+        "inputSchema": _object_schema({
+            "team_id": STRING,
+            "roster_id": STRING,
+            "agent_id": STRING,
+            "capabilities": STRING_LIST,
+        }, ["team_id", "roster_id", "agent_id"]),
+    },
+    {
+        "name": "finalisma_roster_members",
+        "description": "List roster members with status and capabilities.",
+        "inputSchema": _object_schema({
+            "team_id": STRING,
+            "roster_id": STRING,
+        }, ["team_id", "roster_id"]),
+    },
+    {
+        "name": "finalisma_roster_route",
+        "description": "Expand a target spec (agent id, group name, '*', or a list) into active recipients. Stale members are excluded.",
+        "inputSchema": _object_schema({
+            "team_id": STRING,
+            "roster_id": STRING,
+            "target_spec": JSON_VALUE,
+        }, ["team_id", "roster_id", "target_spec"]),
+    },
+    {
+        "name": "finalisma_roster_group_add",
+        "description": "Add a member to a named group within a roster for group-addressable routing.",
+        "inputSchema": _object_schema({
+            "team_id": STRING,
+            "roster_id": STRING,
+            "group_name": STRING,
+            "agent_id": STRING,
+        }, ["team_id", "roster_id", "group_name", "agent_id"]),
+    },
+    {
+        "name": "finalisma_outbox_enqueue",
+        "description": "Fan one envelope out to per-recipient durable outbox entries.",
+        "inputSchema": _object_schema({
+            "team_id": STRING,
+            "envelope": JSON_VALUE,
+            "recipients": STRING_LIST,
+        }, ["team_id", "envelope", "recipients"]),
+    },
+    {
+        "name": "finalisma_outbox_claim",
+        "description": "Atomically claim due outbox entries as in-flight for delivery.",
+        "inputSchema": _object_schema({
+            "team_id": STRING,
+            "limit": INTEGER,
+            "now": {"type": "number"},
+        }, ["team_id", "limit"]),
+    },
+    {
+        "name": "finalisma_outbox_delivered",
+        "description": "Mark an outbox entry delivered. Idempotent.",
+        "inputSchema": _object_schema({
+            "team_id": STRING,
+            "entry_id": STRING,
+        }, ["team_id", "entry_id"]),
+    },
+    {
+        "name": "finalisma_outbox_retry",
+        "description": "Apply backoff and re-queue a failed entry, or move it to the DLQ past max attempts.",
+        "inputSchema": _object_schema({
+            "team_id": STRING,
+            "entry_id": STRING,
+        }, ["team_id", "entry_id"]),
+    },
+    {
+        "name": "finalisma_outbox_stats",
+        "description": "Return outbox queue counts by status.",
+        "inputSchema": _object_schema({"team_id": STRING}, ["team_id"]),
+    },
+    {
+        "name": "finalisma_metrics_event",
+        "description": "Record one activation event (link_created, link_previewed, link_accepted, first_task_claimed, first_evidence_verified). Idempotent per (team, agent, event_type, metadata).",
+        "inputSchema": _object_schema({
+            "team_id": STRING,
+            "agent_id": STRING,
+            "event_type": STRING,
+            "metadata": JSON_VALUE,
+        }, ["team_id", "agent_id", "event_type"]),
+    },
+    {
+        "name": "finalisma_metrics_funnel",
+        "description": "Return activation funnel stage counts for a team.",
+        "inputSchema": _object_schema({"team_id": STRING}, ["team_id"]),
+    },
+    {
+        "name": "finalisma_metrics_ttfvh",
+        "description": "Return time-to-first-verified-handoff in milliseconds for a workspace, or null.",
+        "inputSchema": _object_schema({
+            "team_id": STRING,
+            "workspace_id": STRING,
+        }, ["team_id", "workspace_id"]),
+    },
+    {
+        "name": "finalisma_metrics_retention",
+        "description": "Return retained and active workspace counts for a week.",
+        "inputSchema": _object_schema({
+            "team_id": STRING,
+            "week_start": STRING,
+        }, ["team_id", "week_start"]),
+    },
+    {
+        "name": "finalisma_bridge_poll",
+        "description": "Poll an agent's bridge outbox for unacked events since a cursor. At-most-once delivery.",
+        "inputSchema": _object_schema({
+            "team_id": STRING,
+            "agent_id": STRING,
+            "actor_token": STRING,
+            "cursor": INTEGER,
+        }, ["team_id", "agent_id", "actor_token"]),
+    },
+    {
+        "name": "finalisma_bridge_ack",
+        "description": "Acknowledge bridge events so they are never re-delivered.",
+        "inputSchema": _object_schema({
+            "team_id": STRING,
+            "agent_id": STRING,
+            "actor_token": STRING,
+            "event_ids": STRING_LIST,
+        }, ["team_id", "agent_id", "actor_token", "event_ids"]),
+    },
+    {
+        "name": "finalisma_bridge_webhook_register",
+        "description": "Register a signed webhook URL for an agent. Only the SHA-256 of the secret is stored; the secret is never returned.",
+        "inputSchema": _object_schema({
+            "team_id": STRING,
+            "agent_id": STRING,
+            "actor_token": STRING,
+            "url": STRING,
+            "secret_ref": STRING,
+        }, ["team_id", "agent_id", "actor_token", "url", "secret_ref"]),
+    },
+    {
+        "name": "finalisma_bridge_bootstrap",
+        "description": "Generate a one-shot clipboard bootstrap snippet for a non-MCP host. Never embeds server-side secrets.",
+        "inputSchema": _object_schema({
+            "team_id": STRING,
+            "agent_id": STRING,
+            "actor_token": STRING,
+            "endpoint": STRING,
+        }, ["team_id", "agent_id", "actor_token", "endpoint"]),
+    },
 ]
 
 
@@ -494,6 +695,14 @@ class FinalismaDispatcher:
     def __init__(self, store: FinalismaStore, team_scope: str | None = None):
         self.store = store
         self.team_scope = _validate_id(team_scope, "team_scope") if team_scope is not None else None
+        self._db_path = str(store.state_path)
+        _tenancy.init(self._db_path)
+        _roster.init(self._db_path)
+        _outbox.init(self._db_path)
+        _metrics_activation.init(self._db_path)
+        self._webhooks = WebhookBridge(store)
+        self._polling = PollingBridge(store)
+        self._clipboard = ClipboardBridge(store)
 
     @staticmethod
     def _required(args: dict[str, Any], key: str) -> Any:
@@ -760,7 +969,262 @@ class FinalismaDispatcher:
                 summary=args.get("summary", ""),
                 actor_token=args.get("actor_token"),
             )
+        if name == "finalisma_org_create":
+            return self._tenancy_create_org(args)
+        if name == "finalisma_org_add_member":
+            return self._tenancy_add_member(args)
+        if name == "finalisma_org_is_member":
+            return self._tenancy_is_member(args)
+        if name == "finalisma_org_assert_scope":
+            return self._tenancy_assert_scope(args)
+        if name == "finalisma_roster_create":
+            return self._roster_create(args)
+        if name == "finalisma_roster_join":
+            return self._roster_join(args)
+        if name == "finalisma_roster_members":
+            return self._roster_members(args)
+        if name == "finalisma_roster_route":
+            return self._roster_route(args)
+        if name == "finalisma_roster_group_add":
+            return self._roster_group_add(args)
+        if name == "finalisma_outbox_enqueue":
+            return self._outbox_enqueue(args)
+        if name == "finalisma_outbox_claim":
+            return self._outbox_claim(args)
+        if name == "finalisma_outbox_delivered":
+            return self._outbox_delivered(args)
+        if name == "finalisma_outbox_retry":
+            return self._outbox_retry(args)
+        if name == "finalisma_outbox_stats":
+            return self._outbox_stats(args)
+        if name == "finalisma_metrics_event":
+            return self._metrics_event(args)
+        if name == "finalisma_metrics_funnel":
+            return self._metrics_funnel(args)
+        if name == "finalisma_metrics_ttfvh":
+            return self._metrics_ttfvh(args)
+        if name == "finalisma_metrics_retention":
+            return self._metrics_retention(args)
+        if name == "finalisma_bridge_poll":
+            return self._bridge_poll(args)
+        if name == "finalisma_bridge_ack":
+            return self._bridge_ack(args)
+        if name == "finalisma_bridge_webhook_register":
+            return self._bridge_webhook_register(args)
+        if name == "finalisma_bridge_bootstrap":
+            return self._bridge_bootstrap(args)
         raise FinalismaError("unknown_tool", f"Unknown tool '{name}'")
+
+    # ------------------------------------------------------------------
+    # Tenancy surface
+    # ------------------------------------------------------------------
+
+    def _tenancy_create_org(self, args: dict[str, Any]) -> dict[str, Any]:
+        org_name = self._required(args, "org_name")
+        try:
+            org_id = _tenancy.create_org(self._db_path, org_name)
+        except ValueError as exc:
+            raise FinalismaError("invalid_argument", str(exc)) from exc
+        orgs = {o["org_id"]: o for o in _tenancy.list_orgs(self._db_path)}
+        org = orgs.get(org_id, {})
+        return {"org_id": org_id, "name": org.get("name", org_name), "created_at": org.get("created_at", "")}
+
+    def _tenancy_add_member(self, args: dict[str, Any]) -> dict[str, Any]:
+        org_id = self._required(args, "org_id")
+        agent_id = self._required(args, "agent_id")
+        role = args.get("role", "viewer")
+        try:
+            _tenancy.add_member(self._db_path, org_id, agent_id, role)
+        except ValueError as exc:
+            raise FinalismaError("invalid_argument", str(exc)) from exc
+        return {"org_id": org_id, "agent_id": agent_id, "role": role, "added": True}
+
+    def _tenancy_is_member(self, args: dict[str, Any]) -> dict[str, Any]:
+        return {"is_member": _tenancy.is_member(self._db_path, self._required(args, "org_id"), self._required(args, "agent_id"))}
+
+    def _tenancy_assert_scope(self, args: dict[str, Any]) -> dict[str, Any]:
+        org_id = self._required(args, "org_id")
+        agent_id = self._required(args, "agent_id")
+        actor_key_hex = self._required(args, "actor_key_hex")
+        try:
+            _tenancy.assert_scope(self._db_path, org_id, agent_id, actor_key_hex)
+        except _tenancy.ScopeError as exc:
+            raise FinalismaError("tenancy_scope_forbidden", str(exc)) from exc
+        return {"ok": True}
+
+    # ------------------------------------------------------------------
+    # Roster surface
+    # ------------------------------------------------------------------
+
+    def _roster_create(self, args: dict[str, Any]) -> dict[str, Any]:
+        owner = self._required(args, "owner_agent_id")
+        roster_id = _roster.create_roster(owner, self._required(args, "team_id"))
+        members = _roster.list_members(roster_id)
+        owner_row = next((m for m in members if m["agent_id"] == owner), {})
+        return {
+            "roster_id": roster_id,
+            "owner_agent_id": owner,
+            "created_at": owner_row.get("joined_at", ""),
+        }
+
+    def _roster_join(self, args: dict[str, Any]) -> dict[str, Any]:
+        roster_id = self._required(args, "roster_id")
+        agent_id = self._required(args, "agent_id")
+        capabilities = args.get("capabilities") or []
+        _roster.join_roster(roster_id, agent_id, capabilities)
+        members = _roster.list_members(roster_id)
+        row = next((m for m in members if m["agent_id"] == agent_id), {})
+        return {
+            "roster_id": roster_id,
+            "agent_id": agent_id,
+            "status": row.get("status", "active"),
+            "joined_at": row.get("joined_at", ""),
+        }
+
+    def _roster_members(self, args: dict[str, Any]) -> dict[str, Any]:
+        roster_id = self._required(args, "roster_id")
+        return {"roster_id": roster_id, "members": _roster.list_members(roster_id)}
+
+    def _roster_route(self, args: dict[str, Any]) -> dict[str, Any]:
+        roster_id = self._required(args, "roster_id")
+        target_spec = self._required(args, "target_spec")
+        return {"roster_id": roster_id, "targets": _roster.route_targets(roster_id, target_spec)}
+
+    def _roster_group_add(self, args: dict[str, Any]) -> dict[str, Any]:
+        roster_id = self._required(args, "roster_id")
+        group_name = self._required(args, "group_name")
+        agent_id = self._required(args, "agent_id")
+        try:
+            _roster.add_to_group(roster_id, group_name, agent_id)
+        except ValueError as exc:
+            raise FinalismaError("invalid_argument", str(exc)) from exc
+        return {"group_name": group_name, "agent_id": agent_id, "added": True}
+
+    # ------------------------------------------------------------------
+    # Outbox surface
+    # ------------------------------------------------------------------
+
+    def _outbox_enqueue(self, args: dict[str, Any]) -> dict[str, Any]:
+        envelope = dict(self._required(args, "envelope"))
+        recipients = self._required(args, "recipients")
+        team_id = self._required(args, "team_id")
+        if not isinstance(recipients, list) or not recipients:
+            raise FinalismaError("invalid_argument", "recipients must be a non-empty list")
+        if "envelope_id" not in envelope:
+            envelope["envelope_id"] = "oev_" + _uuid_hex()
+        entry_ids = _outbox.enqueue(envelope, recipients, roster_or_team_id=team_id)
+        return {"entry_ids": entry_ids, "envelope_id": envelope["envelope_id"]}
+
+    def _outbox_claim(self, args: dict[str, Any]) -> dict[str, Any]:
+        limit = self._required(args, "limit")
+        now = args.get("now")
+        entries = _outbox.claim_due(limit, now)
+        for entry in entries:
+            if "payload_json" in entry and "payload" not in entry:
+                entry["payload"] = entry["payload_json"]
+        return {"entries": entries}
+
+    def _outbox_delivered(self, args: dict[str, Any]) -> dict[str, Any]:
+        entry_id = self._required(args, "entry_id")
+        _outbox.mark_delivered(entry_id)
+        return {"entry_id": entry_id, "status": "delivered"}
+
+    def _outbox_retry(self, args: dict[str, Any]) -> dict[str, Any]:
+        entry_id = self._required(args, "entry_id")
+        try:
+            return _outbox.mark_retry(entry_id, "retry requested")
+        except KeyError as exc:
+            raise FinalismaError("not_found", str(exc)) from exc
+
+    def _outbox_stats(self, args: dict[str, Any]) -> dict[str, Any]:
+        return _outbox.stats()
+
+    # ------------------------------------------------------------------
+    # Activation metrics surface
+    # ------------------------------------------------------------------
+
+    def _metrics_event(self, args: dict[str, Any]) -> dict[str, Any]:
+        team_id = self._required(args, "team_id")
+        agent_id = self._required(args, "agent_id")
+        event_type = self._required(args, "event_type")
+        metadata = args.get("metadata") or {}
+        if not isinstance(metadata, dict):
+            raise FinalismaError("invalid_argument", "metadata must be an object")
+        if "workspace_id" not in metadata:
+            metadata = dict(metadata)
+            metadata["workspace_id"] = "default"
+        # Deterministic event_id from (team, agent, event_type, metadata) so a
+        # duplicate recording is suppressed by the metrics INSERT OR IGNORE.
+        seed = json.dumps([team_id, agent_id, event_type, metadata], sort_keys=True, separators=(",", ":"))
+        event_id = "mevt_" + hashlib.sha256(seed.encode("utf-8")).hexdigest()[:24]
+        try:
+            _metrics_activation.record_event(team_id, agent_id, event_type, metadata, event_id=event_id)
+        except ValueError as exc:
+            raise FinalismaError("invalid_argument", str(exc)) from exc
+        return {"recorded": True, "event_id": event_id}
+
+    def _metrics_funnel(self, args: dict[str, Any]) -> dict[str, Any]:
+        snapshot = _metrics_activation.funnel_snapshot(self._required(args, "team_id"))
+        return {"funnel": snapshot["stages"]}
+
+    def _metrics_ttfvh(self, args: dict[str, Any]) -> dict[str, Any]:
+        team_id = self._required(args, "team_id")
+        workspace_id = self._required(args, "workspace_id")
+        return {"ttfvh_ms": _metrics_activation.derive_ttfvh(team_id, workspace_id)}
+
+    def _metrics_retention(self, args: dict[str, Any]) -> dict[str, Any]:
+        team_id = self._required(args, "team_id")
+        week_start = self._required(args, "week_start")
+        retained = _metrics_activation.weekly_retention(team_id, week_start)
+        active = _metrics_activation.handoffs_per_workspace(team_id)
+        return {
+            "retained_workspaces": retained["retained_workspaces"],
+            "active_workspaces": active["active_workspaces"],
+        }
+
+    # ------------------------------------------------------------------
+    # Bridge surface
+    # ------------------------------------------------------------------
+
+    def _bridge_poll(self, args: dict[str, Any]) -> dict[str, Any]:
+        result = self._polling.get_pending(
+            team_id=self._required(args, "team_id"),
+            agent_id=self._required(args, "agent_id"),
+            cursor=args.get("cursor", 0),
+            actor_token=self._required(args, "actor_token"),
+        )
+        return {"events": result["events"], "cursor": result["next_cursor"]}
+
+    def _bridge_ack(self, args: dict[str, Any]) -> dict[str, Any]:
+        event_ids = self._required(args, "event_ids")
+        self._polling.ack(
+            team_id=self._required(args, "team_id"),
+            agent_id=self._required(args, "agent_id"),
+            event_ids=event_ids,
+            actor_token=self._required(args, "actor_token"),
+        )
+        return {"acked": list(event_ids)}
+
+    def _bridge_webhook_register(self, args: dict[str, Any]) -> dict[str, Any]:
+        result = self._webhooks.register_webhook(
+            team_id=self._required(args, "team_id"),
+            agent_id=self._required(args, "agent_id"),
+            url=self._required(args, "url"),
+            secret_ref=self._required(args, "secret_ref"),
+            actor_token=self._required(args, "actor_token"),
+        )
+        return result
+
+    def _bridge_bootstrap(self, args: dict[str, Any]) -> dict[str, Any]:
+        result = self._clipboard.generate_bootstrap(
+            team_id=self._required(args, "team_id"),
+            agent_id=self._required(args, "agent_id"),
+            endpoint=self._required(args, "endpoint"),
+            pairing_id="pair_" + _uuid_hex(),
+            join_token="fst_join_" + _uuid_hex(),
+            actor_token=self._required(args, "actor_token"),
+        )
+        return {"bootstrap": json.dumps(result, ensure_ascii=False, sort_keys=True)}
 
 
 def _json_rpc_error(request_id: Any, code: int, message: str, data: Any | None = None) -> dict[str, Any]:
