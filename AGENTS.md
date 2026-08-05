@@ -54,13 +54,20 @@ These were real defects and are all fixed. Listed so nobody spends a lane re-dis
   exceptions (`client.py:269`).
 - The five Wave-A modules are mounted behind the MCP surface (`fe4b2c5`) with integration
   contracts that drive real JSON-RPC dispatch, not the module APIs.
+- A real MCP host (opencode 1.18.13) loaded finalisma from its own config and completed a full
+  two-agent handoff (`96d76ba`, `docs/INTEROP_VALIDATION_2026-08-05.md`). The interop matrix now
+  records 1 verified host.
+- Wave E Rooms are implemented (`src/finalisma_mcp/room.py`): one multi-use link admits N agents
+  up to a cap, with ordered event log, per-member cursors, addressing (unicast/group/broadcast),
+  and 12 `finalisma_room_*` tools. Design: `docs/ROOMS_DESIGN.md`.
 
 ## The one open structural gap
 
-`research/interop-matrix.json` still records **zero verified host integrations**, and
-`site/docs/compatibility.html` states that publicly. The core product claim — the link works
-with any MCP-capable host — has never been validated against a real host. That is the highest
--value open item in the project. A negative result is valuable; a simulated one is not.
+The interop matrix previously recorded zero verified host integrations; it now records one
+(OpenCode 1.18.13). The remaining gap is breadth: the stdio tier is host-verified, but the
+Streamable-HTTP, bridge-adapter, and SDK tiers each still need a committed transcript before
+they count as "supported" per docs/PRODUCT_ROADMAP.md §3. A negative result is valuable; a
+simulated one is not.
 
 ## Test discipline
 

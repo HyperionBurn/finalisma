@@ -31,6 +31,7 @@ from . import tenancy as _tenancy
 from . import roster as _roster
 from . import outbox as _outbox
 from . import metrics_activation as _metrics_activation
+from .room import RoomStore, RoomError
 from .bridge import WebhookBridge, PollingBridge, ClipboardBridge
 
 SERVER_NAME = "finalisma-mcp"
@@ -686,6 +687,142 @@ TOOLS: list[dict[str, Any]] = [
             "endpoint": STRING,
         }, ["team_id", "agent_id", "actor_token", "endpoint"]),
     },
+    {
+        "name": "finalisma_room_create",
+        "description": "Create a Room: one multi-use link admits up to cap agents. The owner auto-joins as the first active member.",
+        "inputSchema": _object_schema({
+            "team_id": STRING,
+            "owner_agent_id": STRING,
+            "cap": INTEGER,
+            "name": STRING,
+            "ttl_seconds": INTEGER,
+            "actor_token": STRING,
+        }, ["team_id", "owner_agent_id", "cap", "actor_token"]),
+    },
+    {
+        "name": "finalisma_room_join",
+        "description": "Join a Room with a multi-use link, explicit consent (literal boolean true), and an actor credential. The link admits new identities up to the cap; it cannot overwrite an existing member identity.",
+        "inputSchema": _object_schema({
+            "team_id": STRING,
+            "room_id": STRING,
+            "link_token": STRING,
+            "agent_id": STRING,
+            "consent": BOOLEAN,
+            "capabilities": STRING_LIST,
+            "actor_token": STRING,
+        }, ["team_id", "room_id", "link_token", "agent_id", "consent", "actor_token"]),
+    },
+    {
+        "name": "finalisma_room_info",
+        "description": "Member-only view of a Room: state, cap, member count, roster with presence, owner.",
+        "inputSchema": _object_schema({
+            "team_id": STRING,
+            "room_id": STRING,
+            "agent_id": STRING,
+            "actor_token": STRING,
+        }, ["team_id", "room_id", "agent_id", "actor_token"]),
+    },
+    {
+        "name": "finalisma_room_leave",
+        "description": "A member leaves the Room. The membership row is marked left; re-join reactivates it.",
+        "inputSchema": _object_schema({
+            "team_id": STRING,
+            "room_id": STRING,
+            "agent_id": STRING,
+            "actor_token": STRING,
+        }, ["team_id", "room_id", "agent_id", "actor_token"]),
+    },
+    {
+        "name": "finalisma_room_close",
+        "description": "Owner-only: close the Room, refuse joins and new sends, and invalidate all links.",
+        "inputSchema": _object_schema({
+            "team_id": STRING,
+            "room_id": STRING,
+            "owner_agent_id": STRING,
+            "actor_token": STRING,
+        }, ["team_id", "room_id", "owner_agent_id", "actor_token"]),
+    },
+    {
+        "name": "finalisma_room_send",
+        "description": "Address one agent, a named group, or the whole room with a payload, returning durable per-recipient delivery receipts.",
+        "inputSchema": _object_schema({
+            "team_id": STRING,
+            "room_id": STRING,
+            "sender_agent_id": STRING,
+            "target_spec": JSON_VALUE,
+            "payload": JSON_VALUE,
+            "exclude_sender": BOOLEAN,
+            "actor_token": STRING,
+        }, ["team_id", "room_id", "sender_agent_id", "target_spec", "payload", "actor_token"]),
+    },
+    {
+        "name": "finalisma_room_poll",
+        "description": "Replay ordered Room events from a per-member cursor. At-least-once; consumers ack to advance their own cursor.",
+        "inputSchema": _object_schema({
+            "team_id": STRING,
+            "room_id": STRING,
+            "agent_id": STRING,
+            "after_seq": INTEGER,
+            "limit": INTEGER,
+            "actor_token": STRING,
+        }, ["team_id", "room_id", "agent_id", "actor_token"]),
+    },
+    {
+        "name": "finalisma_room_ack",
+        "description": "Advance this member's cursor to seq (monotonic MAX). Events below the cursor are never re-delivered.",
+        "inputSchema": _object_schema({
+            "team_id": STRING,
+            "room_id": STRING,
+            "agent_id": STRING,
+            "seq": INTEGER,
+            "actor_token": STRING,
+        }, ["team_id", "room_id", "agent_id", "seq", "actor_token"]),
+    },
+    {
+        "name": "finalisma_room_heartbeat",
+        "description": "Refresh a member's presence (last_seen).",
+        "inputSchema": _object_schema({
+            "team_id": STRING,
+            "room_id": STRING,
+            "agent_id": STRING,
+            "actor_token": STRING,
+        }, ["team_id", "room_id", "agent_id", "actor_token"]),
+    },
+    {
+        "name": "finalisma_room_groups",
+        "description": "Add members to / remove from / list a named group for group-addressable sends.",
+        "inputSchema": _object_schema({
+            "team_id": STRING,
+            "room_id": STRING,
+            "agent_id": STRING,
+            "group_name": STRING,
+            "action": STRING,
+            "members": STRING_LIST,
+            "actor_token": STRING,
+        }, ["team_id", "room_id", "agent_id", "group_name", "action", "actor_token"]),
+    },
+    {
+        "name": "finalisma_room_receipts",
+        "description": "Member-only: query delivery-receipt status for outbox entry ids.",
+        "inputSchema": _object_schema({
+            "team_id": STRING,
+            "room_id": STRING,
+            "agent_id": STRING,
+            "entry_ids": STRING_LIST,
+            "actor_token": STRING,
+        }, ["team_id", "room_id", "agent_id", "entry_ids", "actor_token"]),
+    },
+    {
+        "name": "finalisma_room_revoke_link",
+        "description": "Owner-only: revoke a Room link so it can admit no one.",
+        "inputSchema": _object_schema({
+            "team_id": STRING,
+            "room_id": STRING,
+            "owner_agent_id": STRING,
+            "link_id": STRING,
+            "actor_token": STRING,
+        }, ["team_id", "room_id", "owner_agent_id", "link_id", "actor_token"]),
+    },
 ]
 
 
@@ -700,6 +837,7 @@ class FinalismaDispatcher:
         _roster.init(self._db_path)
         _outbox.init(self._db_path)
         _metrics_activation.init(self._db_path)
+        self.rooms = RoomStore(self._db_path)
         self._webhooks = WebhookBridge(store)
         self._polling = PollingBridge(store)
         self._clipboard = ClipboardBridge(store)
@@ -1013,6 +1151,30 @@ class FinalismaDispatcher:
             return self._bridge_webhook_register(args)
         if name == "finalisma_bridge_bootstrap":
             return self._bridge_bootstrap(args)
+        if name == "finalisma_room_create":
+            return self._room_create(args)
+        if name == "finalisma_room_join":
+            return self._room_join(args)
+        if name == "finalisma_room_info":
+            return self._room_info(args)
+        if name == "finalisma_room_leave":
+            return self._room_leave(args)
+        if name == "finalisma_room_close":
+            return self._room_close(args)
+        if name == "finalisma_room_send":
+            return self._room_send(args)
+        if name == "finalisma_room_poll":
+            return self._room_poll(args)
+        if name == "finalisma_room_ack":
+            return self._room_ack(args)
+        if name == "finalisma_room_heartbeat":
+            return self._room_heartbeat(args)
+        if name == "finalisma_room_groups":
+            return self._room_groups(args)
+        if name == "finalisma_room_receipts":
+            return self._room_receipts(args)
+        if name == "finalisma_room_revoke_link":
+            return self._room_revoke_link(args)
         raise FinalismaError("unknown_tool", f"Unknown tool '{name}'")
 
     # ------------------------------------------------------------------
@@ -1225,6 +1387,144 @@ class FinalismaDispatcher:
             actor_token=self._required(args, "actor_token"),
         )
         return {"bootstrap": json.dumps(result, ensure_ascii=False, sort_keys=True)}
+
+    # ------------------------------------------------------------------
+    # Room surface (Wave E)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _room_actor_hash(actor_token: str) -> str:
+        if not isinstance(actor_token, str) or len(actor_token) < 16:
+            raise FinalismaError("actor_auth_invalid", "Actor token is invalid")
+        return hashlib.sha256(actor_token.encode("utf-8")).hexdigest()
+
+    def _room_call(self, fn):
+        try:
+            return fn()
+        except RoomError as exc:
+            raise FinalismaError(exc.code, exc.message) from exc
+
+    def _room_create(self, args: dict[str, Any]) -> dict[str, Any]:
+        team_id = self._required(args, "team_id")
+        owner = self._required(args, "owner_agent_id")
+        cap = self._required(args, "cap")
+        actor_token = args.get("actor_token")
+        # actor_token is optional on create: in trusted stdio mode the owner
+        # auto-joins; when supplied it is validated and stored bound to the owner.
+        actor_hash = self._room_actor_hash(actor_token) if actor_token is not None else ""
+        return self._room_call(lambda: self.rooms.create_room(
+            team_id=team_id,
+            owner_agent_id=owner,
+            cap=cap,
+            actor_token_hash=actor_hash,
+            name=args.get("name"),
+            ttl_seconds=args.get("ttl_seconds", 86400),
+        ))
+
+    def _room_join(self, args: dict[str, Any]) -> dict[str, Any]:
+        actor_token = self._required(args, "actor_token")
+        actor_hash = self._room_actor_hash(actor_token)
+        return self._room_call(lambda: self.rooms.join_room(
+            team_id=self._required(args, "team_id"),
+            room_id=self._required(args, "room_id"),
+            link_token=self._required(args, "link_token"),
+            agent_id=self._required(args, "agent_id"),
+            consent=args.get("consent"),
+            capabilities=args.get("capabilities") or [],
+            actor_token=actor_token,
+            actor_token_hash=actor_hash,
+        ))
+
+    def _room_info(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self._room_call(lambda: self.rooms.room_info(
+            team_id=self._required(args, "team_id"),
+            room_id=self._required(args, "room_id"),
+            agent_id=self._required(args, "agent_id"),
+            actor_token=self._required(args, "actor_token"),
+        ))
+
+    def _room_leave(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self._room_call(lambda: self.rooms.leave_room(
+            team_id=self._required(args, "team_id"),
+            room_id=self._required(args, "room_id"),
+            agent_id=self._required(args, "agent_id"),
+            actor_token=self._required(args, "actor_token"),
+        ))
+
+    def _room_close(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self._room_call(lambda: self.rooms.close_room(
+            team_id=self._required(args, "team_id"),
+            room_id=self._required(args, "room_id"),
+            caller_agent_id=self._required(args, "owner_agent_id"),
+            actor_token=self._required(args, "actor_token"),
+        ))
+
+    def _room_send(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self._room_call(lambda: self.rooms.room_send(
+            team_id=self._required(args, "team_id"),
+            room_id=self._required(args, "room_id"),
+            sender_agent_id=self._required(args, "sender_agent_id"),
+            target_spec=self._required(args, "target_spec"),
+            payload=self._required(args, "payload"),
+            actor_token=self._required(args, "actor_token"),
+            exclude_sender=bool(args.get("exclude_sender", True)),
+        ))
+
+    def _room_poll(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self._room_call(lambda: self.rooms.poll(
+            team_id=self._required(args, "team_id"),
+            room_id=self._required(args, "room_id"),
+            agent_id=self._required(args, "agent_id"),
+            actor_token=self._required(args, "actor_token"),
+            after_seq=args.get("after_seq"),
+            limit=args.get("limit", 100),
+        ))
+
+    def _room_ack(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self._room_call(lambda: self.rooms.ack(
+            team_id=self._required(args, "team_id"),
+            room_id=self._required(args, "room_id"),
+            agent_id=self._required(args, "agent_id"),
+            seq=self._required(args, "seq"),
+            actor_token=self._required(args, "actor_token"),
+        ))
+
+    def _room_heartbeat(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self._room_call(lambda: self.rooms.heartbeat(
+            team_id=self._required(args, "team_id"),
+            room_id=self._required(args, "room_id"),
+            agent_id=self._required(args, "agent_id"),
+            actor_token=self._required(args, "actor_token"),
+        ))
+
+    def _room_groups(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self._room_call(lambda: self.rooms.groups(
+            team_id=self._required(args, "team_id"),
+            room_id=self._required(args, "room_id"),
+            agent_id=self._required(args, "agent_id"),
+            group_name=self._required(args, "group_name"),
+            action=self._required(args, "action"),
+            actor_token=self._required(args, "actor_token"),
+            members=args.get("members"),
+        ))
+
+    def _room_receipts(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self._room_call(lambda: self.rooms.receipts(
+            team_id=self._required(args, "team_id"),
+            room_id=self._required(args, "room_id"),
+            agent_id=self._required(args, "agent_id"),
+            entry_ids=self._required(args, "entry_ids"),
+            actor_token=self._required(args, "actor_token"),
+        ))
+
+    def _room_revoke_link(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self._room_call(lambda: self.rooms.revoke_link(
+            team_id=self._required(args, "team_id"),
+            room_id=self._required(args, "room_id"),
+            owner_agent_id=self._required(args, "owner_agent_id"),
+            link_id=self._required(args, "link_id"),
+            actor_token=self._required(args, "actor_token"),
+        ))
 
 
 def _json_rpc_error(request_id: Any, code: int, message: str, data: Any | None = None) -> dict[str, Any]:

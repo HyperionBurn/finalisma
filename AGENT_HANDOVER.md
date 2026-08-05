@@ -142,6 +142,11 @@ Rules that must survive future edits:
   first_evidence_verified` with time-to-first-verified-handoff, retention, and
   handoffs-per-workspace. Mounted behind `finalisma_metrics_*` tools. No external
   analytics vendor, no PII.
+- `src/finalisma_mcp/room.py` — the Wave E Room product object: one multi-use link admits
+  N agents (bounded by a cap) with preview-before-consent; ordered event log with per-member
+  cursors; addressing (unicast / group / broadcast) with durable outbox delivery receipts;
+  presence from heartbeats. Composes `roster`/`outbox`/`core`; owns `room_*` tables. Mounted
+  behind 12 `finalisma_room_*` tools. Design: `docs/ROOMS_DESIGN.md`.
 - `src/finalisma_sdk/` — official stdlib-only Python client (`FinalismaClient`):
   typed results, structured errors, token hygiene (never in repr/logs), exponential
   backoff retry with idempotency keys.
@@ -447,6 +452,19 @@ will keep temporary SQLite files locked while pooled connections remain open.
 - **Activation metrics carry no PII.** `finalisma_metrics_event` rejects PII-bearing
   metadata keys at the top level; events carry team/agent ids and caller-controlled
   metadata only.
+- **Room links are multi-use up to a cap — governed, not anonymous.** A room link
+  (`room_links`) admits N agents up to the room cap; a leaked link grants at most `cap`
+  attributable memberships, never read access by itself. Compensating controls (Wave E,
+  `docs/ROOMS_DESIGN.md` §3): per-join consent must be the literal boolean `true`
+  (`consent_required` otherwise); every join binds an `agent_id` + actor credential and the
+  link cannot overwrite an existing identity (`actor_auth_invalid`); cap enforcement is
+  atomic under `BEGIN IMMEDIATE` (`room_full`); expiry (`link_expired`) and revocation
+  (`link_revoked`) are checked on every join; only the SHA-256 of the link token is stored.
+  The existing one-use two-party pairing link is unchanged — rooms are additive.
+- **Room reads and mutations are member-only.** Every `finalisma_room_*` tool requires an
+  `actor_token` bound to a member; non-members get `member_required`, and cross-room access
+  is refused. Ordered room events replay from per-member cursors with at-least-once delivery
+  and monotonic MAX acks (`UNIQUE(room_id, seq)`, `room_cursors` PK `(room_id, agent_id)`).
 - The current storage model is durable SQLite single-node preview. It is not yet a
   multi-instance, OAuth/OIDC, distributed-rate-limit, outbox-backed hosted service.
 - Model names are recorded provider routes. The host still owns credentials and

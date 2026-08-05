@@ -388,3 +388,17 @@ def _get_entry(entry_id: str) -> dict[str, Any] | None:
         if row is None:
             return None
         return _row_to_dict(row)
+
+
+def get_entry(entry_id: str) -> dict[str, Any] | None:
+    """Fetch one outbox entry as a dict with ``payload`` mapped in.
+
+    Returns ``None`` if the entry does not exist. Additive read surface used by
+    the room receipts tool; does not change delivery semantics.
+    """
+    row = _get_entry(entry_id)
+    if row is None:
+        return None
+    if "payload_json" in row and "payload" not in row:
+        row["payload"] = row["payload_json"]
+    return row
