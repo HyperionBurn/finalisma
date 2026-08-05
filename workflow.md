@@ -144,17 +144,18 @@ Status: **CONFIRMED** (reproduced) · **DISPROVEN** (tested, false — kept so n
 
 | # | Failure | Root cause | Fix | Status |
 | --- | --- | --- | --- | --- |
-| 7.1 | Tool call never returns after starting a server | A bash call waits for **every descendant holding the pipe**; a server never exits | Python driver owns the child via `subprocess.Popen`, teardown in `finally`, run under `timeout` | CONFIRMED ×3 |
-| 7.2 | Process lingers after the loop exits | `opencode run ... \| tail` — `tail` waits for EOF | Redirect to a file, never pipe | CONFIRMED ×2 |
+| 7.1 | Tool call never returns after starting a server | A bash call waits for **every descendant holding the pipe**; a server never exits | Python driver owns the child via `subprocess.Popen`, teardown in `finally`, run under `timeout` | SUPERSEDED BY 7.12 |
+| 7.2 | Process lingers after the loop exits | `opencode run ... \| tail` — `tail` waits for EOF | Redirect to a file, never pipe | SUPERSEDED BY 7.12 |
 | 7.3 | 30+ min of work lost, unstaged | Commits batched to the end of a long run | Commit per step | CONFIRMED ×2 |
 | 7.4 | Modules pass their own tests but ship nothing | Unit tests hit the Python API; nothing imported the module | Integration tests through the real MCP surface | CONFIRMED |
 | 7.5 | Broken snapshot committed | `git add -A` against a mid-edit tree | Explicit paths only | CONFIRMED |
 | 7.6 | New session returns empty, `finish=unknown`, 0 tokens | `small_model` routes to a credit-exhausted provider; touched at session setup | `--fork` an existing working session | CONFIRMED |
-| 7.7 | `Start-Process -WindowStyle Hidden` + redirects hangs | — | — | **DISPROVEN** — tested both variants, returned in seconds. Real cause unknown; avoid the class (7.1) rather than debug it |
+| 7.7 | `Start-Process -WindowStyle Hidden` + redirects hangs | — | — | **SUPERSEDED BY 7.12** — was a plausible but wrong theory; avoid the class (7.12) rather than debug it |
 | 7.8 | Suite fails ~1-in-N, passes on re-run | `close()` only closed **idle** pooled connections; in-flight ones kept the SQLite file locked on Windows | Track live connections, close all | CONFIRMED — was a real production shutdown bug |
 | 7.9 | Guidance outlives the code | Docs edited in a different commit from the code | Same commit, always | CONFIRMED |
 | 7.10 | Perf gate red under machine load | Contention, not code | Do **not** re-baseline to force green; report honestly | OPEN |
-| 7.11 | Run hangs AFTER completing and committing its work | Hang is a transport/pipe artifact at teardown, not lost work | Per-step commits make the hang harmless — nothing is lost; on resume, verify HEAD and continue | CONFIRMED ×4 |
+| 7.11 | Run hangs AFTER completing and committing its work | Transport/pipe artifact at teardown (earlier theory) | Per-step commits make the hang harmless — nothing is lost | SUPERSEDED BY 7.12 |
+| 7.12 | Run hangs with no error, work already committed | A malformed path resolved OUTSIDE the project (e.g. `C:\Users\Documents\...` missing the `Wasif` segment); `external_directory` is `ask`, and a non-interactive run has no approver → waits forever | Always build absolute paths from the literal string `C:\Users\Wasif\Documents\Multiplayer-AI-isolated`; never assemble a path by concatenation that could drop a segment; run with `--auto` so prompts cannot block | **CONFIRMED** — supersedes 7.1, 7.2, 7.7 |
 
 ---
 
