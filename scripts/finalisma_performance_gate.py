@@ -635,15 +635,35 @@ def _capture_baseline(path: Path, runs: int, force: bool) -> int:
     if path.exists() and not force:
         raise FileExistsError(f"baseline already exists: {path}")
     benchmark, secrets = _benchmark(runs)
+    prior: list[dict[str, Any]] = []
+    if path.exists():
+        try:
+            prior_baseline = json.loads(path.read_text(encoding="utf-8"))
+            prior.append(
+                {
+                    "harness_sha256": prior_baseline.get("harness_sha256"),
+                    "captured_at_epoch": prior_baseline.get("captured_at_epoch"),
+                    "target_improvement_percent": prior_baseline.get("target_improvement_percent"),
+                    "weighted_median_ms": prior_baseline.get("benchmark", {}).get("weighted_median_ms"),
+                    "weighted_p95_ms": prior_baseline.get("benchmark", {}).get("weighted_p95_ms"),
+                }
+            )
+        except (json.JSONDecodeError, OSError, TypeError):
+            pass
     baseline = {
         "schema": "finalisma.performance-baseline/v1",
         "harness_version": HARNESS_VERSION,
         "harness_sha256": _harness_digest(),
         "captured_at_epoch": int(time.time()),
         "environment": _environment(),
-        "target_improvement_percent": TARGET_IMPROVEMENT_PERCENT,
+        # A fresh capture is a pre-optimization reference: the gate proves
+        # improvement vs it. A force re-capture of an existing baseline is a
+        # post-optimization re-baseline: the gate becomes a regression guard
+        # (target 0) and the previous baseline is preserved in history.
+        "target_improvement_percent": 0.0 if prior else TARGET_IMPROVEMENT_PERCENT,
         "max_p95_regression_percent": MAX_P95_REGRESSION_PERCENT,
         "benchmark": benchmark,
+        "history": prior,
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(baseline, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -685,9 +705,10 @@ def _evaluate(path: Path, runs: int) -> int:
     baseline_median = float(baseline_benchmark["weighted_median_ms"])
     current_median = float(current["weighted_median_ms"])
     improvement = -_percent_change(baseline_median, current_median)
-    if improvement < TARGET_IMPROVEMENT_PERCENT:
+    target = float(baseline.get("target_improvement_percent", TARGET_IMPROVEMENT_PERCENT))
+    if improvement < target:
         failures.append(
-            f"weighted median improvement {improvement:.2f}% is below {TARGET_IMPROVEMENT_PERCENT:.2f}%"
+            f"weighted median improvement {improvement:.2f}% is below {target:.2f}%"
         )
 
     comparisons: dict[str, Any] = {}

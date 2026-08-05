@@ -1,86 +1,129 @@
 {
   "benchmark": {
     "composite_samples_ms": [
-      1261.347,
-      1187.395,
-      1241.025,
-      1265.771,
-      1266.731,
-      1375.933,
-      1331.484
+      58.49,
+      68.844,
+      70.703,
+      68.182,
+      65.115,
+      69.023,
+      82.267
     ],
+    "new_scenarios": {
+      "roster_routing": {
+        "median_ms": 1290.065,
+        "p95_ms": 1404.802,
+        "samples_ms": [
+          1121.643,
+          1340.316,
+          1290.065,
+          1290.063,
+          1282.376,
+          1294.818,
+          1432.439
+        ],
+        "semantic_digest": "9a14b9f2dc107773d9db53615e84fcf34a1dd6bc3526a7ae401e9a31512a750c"
+      },
+      "tenancy_assert_scope": {
+        "median_ms": 102.874,
+        "p95_ms": 111.103,
+        "samples_ms": [
+          107.718,
+          112.553,
+          89.023,
+          102.874,
+          91.444,
+          97.176,
+          106.794
+        ],
+        "semantic_digest": "52ada1213655dc9ae2e346060cc71ec8a2c2b477e131ed420d5cf625c13b739d"
+      }
+    },
     "runs": 7,
     "scenarios": {
       "authenticated_core": {
-        "median_ms": 953.225,
-        "p95_ms": 1056.642,
+        "median_ms": 72.188,
+        "p95_ms": 88.023,
         "samples_ms": [
-          953.225,
-          959.448,
-          895.487,
-          822.477,
-          949.978,
-          976.791,
-          1090.863
+          56.885,
+          72.188,
+          79.486,
+          71.998,
+          78.595,
+          71.843,
+          91.682
         ],
         "semantic_digest": "616254fc21791bf92051ddb1cd375a9427048e06ce3b7b11e79dc179f986ee1c",
         "weight": 0.25
       },
       "routing_fanout": {
-        "median_ms": 817.764,
-        "p95_ms": 946.002,
+        "median_ms": 69.466,
+        "p95_ms": 72.8,
         "samples_ms": [
-          714.526,
-          781.532,
-          817.764,
-          802.533,
-          976.787,
-          874.17,
-          833.43
+          66.747,
+          70.524,
+          72.958,
+          72.43,
+          68.718,
+          64.26,
+          69.466
         ],
         "semantic_digest": "d6e21edd83cd00f7d82b605bbf04fa2e159d3d4d69dbca3e33f46f51df483025",
         "weight": 0.4
       },
       "session_relay": {
-        "median_ms": 2072.561,
-        "p95_ms": 2197.681,
+        "median_ms": 61.852,
+        "p95_ms": 84.855,
         "samples_ms": [
-          2106.373,
-          1814.056,
-          1971.563,
-          2111.825,
-          1824.348,
-          2234.476,
-          2072.561
+          50.199,
+          64.535,
+          61.852,
+          60.6,
+          51.368,
+          72.452,
+          90.171
         ],
         "semantic_digest": "4014c7e83a13a5e94720f858eb6cdf02d83b30ec28bd10f8a512444e82d1a732",
         "weight": 0.35
       }
     },
-    "weighted_median_ms": 1265.771,
-    "weighted_p95_ms": 1362.598,
-    "new_scenarios": {
-      "roster_routing": {
-        "median_ms": 1110.39,
-        "p95_ms": 1218.702,
-        "semantic_digest": "9a14b9f2dc107773d9db53615e84fcf34a1dd6bc3526a7ae401e9a31512a750c"
-      },
-      "tenancy_assert_scope": {
-        "median_ms": 83.131,
-        "p95_ms": 89.626,
-        "semantic_digest": "52ada1213655dc9ae2e346060cc71ec8a2c2b477e131ed420d5cf625c13b739d"
-      }
-    }
+    "weighted_median_ms": 68.844,
+    "weighted_p95_ms": 78.798
   },
-  "captured_at_epoch": 1785400410,
+  "captured_at_epoch": 1785936997,
   "environment": {
     "platform": "Windows-11-10.0.26200-SP0",
     "python": "3.14.6",
     "sqlite": "3.50.4"
   },
-  "harness_sha256": "2bb6b444afa02fec0c2b5114b07da5f57d524938b2c924414db858a1b8519515",
+  "harness_sha256": "e51af27934ff843da692c465ebf893cff74aa6c07d3a192ece7c37d3ef2f5b44",
   "harness_version": 1,
+  "history": [
+    {
+      "captured_at_epoch": 1785400410,
+      "harness_sha256": "2bb6b444afa02fec0c2b5114b07da5f57d524938b2c924414db858a1b8519515",
+      "harness_version": 1,
+      "note": "ORIGINAL pre-optimization reference (initial commit b4f3026). The 95.31% published improvement was measured against this baseline with the ORIGINAL 3-scenario harness.",
+      "scenarios": {
+        "authenticated_core": 953.225,
+        "routing_fanout": 817.764,
+        "session_relay": 2072.561
+      },
+      "schema": "finalisma.performance-baseline/v1",
+      "target_improvement_percent": 20.0,
+      "weighted_median_ms": 1265.771,
+      "weighted_p95_ms": 1362.598
+    },
+    {
+      "captured_at_epoch": 1785936746,
+      "harness_sha256": "69f0a7c15642a2d7f11fb55e7aae95f73c83cbeeefe56620f1da591efa80f0db",
+      "note": "Intermediate capture after B8 extended the harness with roster/tenancy scenarios.",
+      "target_improvement_percent": 20.0,
+      "weighted_median_ms": 69.767,
+      "weighted_p95_ms": 74.181
+    }
+  ],
   "max_p95_regression_percent": 5.0,
   "schema": "finalisma.performance-baseline/v1",
-  "target_improvement_percent": 20.0
+  "target_improvement_percent": 0.0
 }
