@@ -1,0 +1,217 @@
+{
+  "siteUrl": "http://127.0.0.1:4175/",
+  "viewport": {
+    "desktop": "1440x900",
+    "mobile": [
+      "390x844",
+      "390x667",
+      "320x568"
+    ]
+  },
+  "screenshots": {
+    "source": "artifacts\\design-qa\\source-design-target-1440x900.png",
+    "desktop": "artifacts\\design-qa\\implementation-desktop-1440x900.png",
+    "mobile": "artifacts\\design-qa\\implementation-mobile-390x844.png",
+    "mobileShort": "artifacts\\design-qa\\implementation-mobile-short-390x667.png",
+    "mobileNarrow": "artifacts\\design-qa\\implementation-mobile-narrow-320x568.png",
+    "mobileAudit": "artifacts\\design-qa\\implementation-mobile-audit-390x844.png",
+    "guides": "artifacts\\design-qa\\implementation-guides-1440x900.png",
+    "blog": "artifacts\\design-qa\\implementation-blog-1440x900.png",
+    "demo": "artifacts\\design-qa\\implementation-demo-1440x900.png",
+    "comparison": "artifacts\\design-qa\\comparison-desktop-1440x900.png",
+    "og": "site\\assets\\og-card.png",
+    "story": [
+      "artifacts\\design-qa\\implementation-story-0pct-1440x900.png",
+      "artifacts\\design-qa\\implementation-story-25pct-1440x900.png",
+      "artifacts\\design-qa\\implementation-story-50pct-1440x900.png",
+      "artifacts\\design-qa\\implementation-story-75pct-1440x900.png",
+      "artifacts\\design-qa\\implementation-story-100pct-1440x900.png"
+    ]
+  },
+  "topLevelChecks": {
+    "title": "Finalisma — evidence-backed cross-host incident handoffs",
+    "oneH1": true,
+    "initialStoryCtaHidden": true,
+    "ruleFixed": true,
+    "ruleWidth": 1,
+    "ruleLeft": 532.797,
+    "maxRuleDrift": 0.0031249999999545253,
+    "unpostedCount": 11,
+    "allUnpostedLabelled": true,
+    "thirdParty": [],
+    "linksWithNoName": 0,
+    "formLabels": true,
+    "htmlHasJsClass": true
+  },
+  "interactions": {
+    "copyStatus": "Configuration copied to clipboard.",
+    "cohortStatus": "Application copied. Paste it into the channel that brought you here.",
+    "cohortApplicationPrepared": true,
+    "manualComplete": {
+      "session": "closed on evidence",
+      "balance": "balanced",
+      "ctaVisible": true,
+      "namedTransport": "MCP stdio / Streamable HTTP"
+    },
+    "manualReset": {
+      "session": "unopened",
+      "balance": "open",
+      "ctaHidden": true
+    },
+    "scrollChecks": {
+      "checkpoints": [
+        {
+          "requested": 0,
+          "step": 0,
+          "balance": "open",
+          "posted": 0,
+          "stickyTop": 64,
+          "planeTransform": "matrix3d(0.999048, -0.00342234, 0.0434849, 0, 0, 0.996917, 0.0784591, 0, -0.0436194, -0.0783844, 0.995968, 0, 1.39582, 2.5083, -31.871, 1)",
+          "entriesFitBody": true
+        },
+        {
+          "requested": 0.25,
+          "step": 2,
+          "balance": "open",
+          "posted": 2,
+          "stickyTop": 64,
+          "planeTransform": "matrix3d(0.99986, -0.000695757, 0.0167399, 0, 0, 0.999137, 0.0415269, 0, -0.0167544, -0.0415211, 0.998997, 0, 0.189324, 0.469188, -11.2887, 1)",
+          "entriesFitBody": true
+        },
+        {
+          "requested": 0.5,
+          "step": 4,
+          "balance": "open",
+          "posted": 4,
+          "stickyTop": 64,
+          "planeTransform": "matrix3d(1, 1.29458e-05, -0.000872568, 0, 0, 0.99989, 0.0148348, 0, 0.000872665, -0.0148347, 0.99989, 0, 0.00174533, -0.0296695, 1.99978, 1)",
+          "entriesFitBody": true
+        },
+        {
+          "requested": 0.75,
+          "step": 5,
+          "balance": "open",
+          "posted": 5,
+          "stickyTop": 64,
+          "planeTransform": "matrix3d(0.999987, 1.1484e-05, -0.00506142, 0, 0, 0.999997, 0.00226893, 0, 0.00506143, -0.0022689, 0.999985, 0, 0.0237887, -0.0106638, 4.69993, 1)",
+          "entriesFitBody": true
+        },
+        {
+          "requested": 1,
+          "step": 7,
+          "balance": "balanced",
+          "posted": 7,
+          "stickyTop": 64,
+          "planeTransform": "matrix(1, 0, 0, 1, 0, 0)",
+          "entriesFitBody": true
+        }
+      ],
+      "allPinned": true,
+      "advances": true,
+      "reachesDone": true,
+      "planeHasDepth": true,
+      "entriesFitBody": true
+    },
+    "reducedMotionChecks": {
+      "storyStatic": true,
+      "trackCompact": true,
+      "planeFlat": true,
+      "revealsVisible": true
+    },
+    "noJsChecks": {
+      "revealsVisible": true,
+      "typeVisible": true,
+      "headlineVisible": true,
+      "noJsClass": true
+    },
+    "noJsMobileChecks": {
+      "fallbackNavVisible": true,
+      "fallbackNavLinks": true,
+      "menuButtonHidden": true,
+      "noHorizontalOverflow": true
+    },
+    "mobileResults": [
+      {
+        "viewport": "390x844",
+        "documentWidth": 390,
+        "viewportWidth": 390,
+        "offenders": [],
+        "storyStatic": true,
+        "storyTrackCompact": true,
+        "storyContentVisible": true,
+        "planeFlat": true,
+        "openingPrimaryCtaInFirstFold": true,
+        "navInitiallyInert": true,
+        "navOpen": "true",
+        "navOpenInert": false,
+        "navClosed": "false",
+        "navClosedInert": true,
+        "tapStoryBalanced": "balanced",
+        "tapStoryCtaVisible": true
+      },
+      {
+        "viewport": "390x667",
+        "documentWidth": 390,
+        "viewportWidth": 390,
+        "offenders": [],
+        "storyStatic": true,
+        "storyTrackCompact": true,
+        "storyContentVisible": true,
+        "planeFlat": true,
+        "openingPrimaryCtaInFirstFold": true
+      },
+      {
+        "viewport": "320x568",
+        "documentWidth": 320,
+        "viewportWidth": 320,
+        "offenders": [],
+        "storyStatic": true,
+        "storyTrackCompact": true,
+        "storyContentVisible": true,
+        "planeFlat": true,
+        "openingPrimaryCtaInFirstFold": true
+      }
+    ],
+    "supportingPageChecks": {
+      "guides": {
+        "oneH1": true,
+        "requiredText": true,
+        "noHorizontalOverflow": true
+      },
+      "blog": {
+        "oneH1": true,
+        "requiredText": true,
+        "noHorizontalOverflow": true
+      }
+    },
+    "demoPageChecks": {
+      "oneH1": true,
+      "boundaryVisible": true,
+      "controls": true,
+      "duration": 43.04,
+      "durationExpected": true,
+      "dimensionsExpected": true,
+      "sourceTypes": [
+        "video/mp4",
+        "video/webm"
+      ],
+      "hasMp4AndWebm": true,
+      "hasEnglishCaptions": true,
+      "posterSet": true,
+      "noHorizontalOverflow": true
+    }
+  },
+  "performanceChecks": {
+    "cls": 0.00002570802455739883,
+    "lcp": 224,
+    "longTasks": [],
+    "resourceCount": 6,
+    "transferBytes": 184382,
+    "domNodes": 411
+  },
+  "signals": {
+    "consoleErrors": [],
+    "failedRequests": [],
+    "badResponses": []
+  }
+}

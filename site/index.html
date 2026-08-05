@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#23120E">
+  <meta name="description" content="Finalisma is a coordination MCP server for verified agent handoffs. When an on-call coding agent runs out of context, it hands a scoped incident task to a second MCP-capable host with declared scope, recorded consent, a fencing lease, and gated evidence.">
+  <meta property="og:site_name" content="Finalisma">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Finalisma — the handoff nobody wrote down">
+  <meta property="og:description" content="One incident. Two agents. One account of what happened.">
+  <meta property="og:image" content="/assets/og-card.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="/assets/og-card.png">
+  <title>Finalisma — one incident, two agents, one account</title>
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="manifest" href="site.webmanifest">
+  <link rel="stylesheet" href="styles.css">
+  <script>document.documentElement.classList.add('js');</script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Finalisma",
+    "applicationCategory": "DeveloperApplication",
+    "description": "A coordination MCP server for scoped, consented, evidence-gated handoffs between MCP-capable AI agent hosts.",
+    "operatingSystem": "Cross-platform",
+    "softwareVersion": "0.1.0",
+    "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}
+  }
+  </script>
+</head>
+<body>
+
+<a class="skip-link" href="#main">Skip to the story</a>
+<div class="progress-rail" aria-hidden="true"><i data-progress></i></div>
+<div class="grain" aria-hidden="true"></div>
+
+<header class="masthead on-cover" id="top">
+  <a class="masthead-brand plain" href="/"><span>FINALISMA</span><em>Field Notes</em></a>
+  <nav class="masthead-nav" aria-label="Primary">
+    <a href="#unposted">Problem</a>
+    <a href="#entries">How it works</a>
+    <a href="/demo.html">Watch demo</a>
+    <a href="#reconciliation">Interactive</a>
+    <a href="#audit">Compatibility</a>
+    <a href="#queries">FAQ</a>
+  </nav>
+  <a class="masthead-cta" href="#cohort">Check cohort fit<span class="chev chev-down" aria-hidden="true"></span></a>
+  <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="mobile-nav" aria-label="Open menu"><span></span></button>
+</header>
+
+<div class="mobile-nav on-cover" id="mobile-nav" aria-hidden="true">
+  <div class="mobile-nav-top">
+    <span class="masthead-brand"><span>FINALISMA</span><em>Field Notes</em></span>
+    <button class="mobile-close" type="button" aria-label="Close menu">&times;</button>
+  </div>
+  <a class="mobile-link" href="#unposted">Problem</a>
+  <a class="mobile-link" href="#entries">How it works</a>
+  <a class="mobile-link" href="/demo.html">Watch demo</a>
+  <a class="mobile-link" href="#reconciliation">Interactive</a>
+  <a class="mobile-link" href="#audit">Compatibility</a>
+  <a class="mobile-link" href="#queries">FAQ</a>
+  <a class="btn btn-solid" href="#cohort">Check cohort fit</a>
+</div>
+
+<!-- ============================== COVER ============================== -->
+<section class="cover on-cover" id="opening" aria-label="Cover">
+  <div class="cover-grid">
+    <div class="cover-main">
+      <p class="kicker reveal">Agent infrastructure — incident triage &amp; review</p>
+      <!-- aria-label carries the sentence unbroken; the spans only split it
+           typographically, so the accessible name is not fragmented. -->
+      <h1 class="headline reveal" aria-label="One incident. Two agents. One account of what happened.">One incident. Two agents.<span class="l2">One account of what happened.</span></h1>
+      <p class="standfirst reveal">When an on-call coding agent runs out of context, the fix still has to move to whichever agent can ship it — and today that crossing usually happens by hand, in a pasted prompt nobody writes down.</p>
+      <p class="byline reveal"><b>Reported from the incident queue</b><span>Design-partner preview</span><span>Interop profile 0.1</span></p>
+      <div class="cover-actions reveal">
+        <a class="btn btn-solid" href="/demo.html">Watch the 42-second proof<span class="chev" aria-hidden="true"></span></a>
+        <a class="btn" href="#reconciliation">Run it yourself<span class="chev chev-down" aria-hidden="true"></span></a>
+      </div>
+    </div>
+    <aside class="cover-rail reveal" aria-label="In this dispatch">
+      <p class="rail-title">In this dispatch</p>
+      <div class="rail-item">
+        <span class="rail-num">01</span>
+        <p><a href="#unposted">The unposted account</a> — everything a pasted prompt carries across and nobody records.</p>
+      </div>
+      <div class="rail-item">
+        <span class="rail-num">02</span>
+        <p><a href="#entries">Fig. 1</a> — seven checkpoints between a finding and a fix, and the stale claim that fails at the gate.</p>
+      </div>
+      <div class="rail-item">
+        <span class="rail-num">03</span>
+        <p><a href="#audit">The honest boundary</a> — a single-node preview, deliberately not sold as more.</p>
+      </div>
+    </aside>
+  </div>
+  <div class="ticker">
+    <div class="ticker-inner">
+      <span>MCP server, not another agent host</span>
+      <span>stdio or authenticated Streamable HTTP</span>
+      <span>Python standard library + SQLite</span>
+      <span>no provider credentials stored</span>
+    </div>
+  </div>
+</section>
+
+<!-- ========================= THE UNPOSTED ACCOUNT ========================= -->
+<main class="feature" id="main">
+  <p class="folio-line" id="unposted"><span>Finalisma Field Notes</span><span>01 — The unposted account</span></p>
+
+  <div class="feature-grid">
+    <div class="lede-1">
+      <div class="body-copy">
+        <p>Finalisma is a coordinator for verified agent handoffs, a fittingly dry name for a genuinely unglamorous problem. Two AI agents keep one account of a single piece of work. One agent <span class="term-assert">asserts</span> — usually a coding agent that has run out of context, opening a scoped task and declaring exactly which files sit inside it. The other <span class="term-prove">proves</span> — it previews the policy it is being asked to work under, consents to that policy on the record, and claims the task under a lease carrying a fencing token, so a slow or stale claim cannot quietly overwrite a newer one.</p>
+        <p>Today, most teams skip all of that machinery and move the work by hand: a prompt, a file list, half a page of reasoning pasted into a second chat window, and a result copied back the same way it arrived.</p>
+      </div>
+    </div>
+
+    <aside class="sidebar on-cover" aria-label="At a glance">
+      <div class="factbox">
+        <p class="factbox-title">At a glance</p>
+        <div class="factbox-stat">
+          <b>0</b>
+          <span>Provider credentials ever stored by Finalisma — every model key stays with the host that owns it.</span>
+        </div>
+        <ul class="factlist">
+          <li>
+            <span class="flabel">Transport</span>
+            <p>stdio for a local pairing, or authenticated Streamable HTTP for a shared network.</p>
+          </li>
+          <li>
+            <span class="flabel">Runtime</span>
+            <p>Python standard library and SQLite. Nothing else to install, nothing else to trust.</p>
+          </li>
+          <li>
+            <span class="flabel">Completion gate</span>
+            <p>Blocks until every submitted check passes — artifacts hashed, paths checked, secrets scanned.</p>
+          </li>
+          <li>
+            <span class="flabel">Event log</span>
+            <p>Totally ordered, idempotent, and replayable from the last cursor after a reconnect.</p>
+          </li>
+        </ul>
+        <a class="factbox-link" href="#entries">See the full sequence in Fig. 1<span class="chev" aria-hidden="true"></span></a>
+      </div>
+    </aside>
+
+    <div class="pullquote-row">
+      <blockquote class="pullquote">
+        <p>There is no way, after the fact, to check whether what came back is the thing that was actually asked for — only two chat transcripts that rarely agree with each other.</p>
+        <cite>On the unposted handoff</cite>
+      </blockquote>
+    </div>
+
+    <div class="lede-2">
+      <div class="body-copy">
+        <div class="callout">
+          <p class="callout-label">The honest boundary</p>
+          <p>This preview is not hosted, multi-tenant software. What runs today is a durable single-node coordinator built on the Python standard library and SQLite — enough for a design-partner pilot on a trusted network, not for public multi-tenant scale. Serving many tenants honestly still needs OAuth or OIDC, shared storage, distributed rate limits, and the operational controls hosted products are usually expected to have already.</p>
+        </div>
+        <p>The first account this is built for is an incident under triage. An on-call agent has findings and no authority to ship the fix; the agent that could review and merge it has no reliable channel for receiving those findings. MCP is the tool protocol your hosts already speak; Finalisma adds the scoped handoff and the evidence gate on top of it, as an MCP server rather than a third agent competing for the job.</p>
+        <p>Finalisma never chooses a model and never executes a command it finds inside a message payload. What actually crosses the wire is narrower and more boring than a whole session: <mark>a scoped task, a recorded consent, a lease, and the evidence that the work underneath it was actually done</mark>. None of it requires either agent to take the other's word for anything — only a coordinator neither one controls, keeping a record both of them can be held to.</p>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- ================================ FIG. 1 ================================ -->
+<section class="figure on-cover" id="entries" aria-labelledby="fig-1-title">
+  <div class="figure-inner">
+    <div class="figure-head">
+      <p class="kicker kicker-prove">Fig. 1</p>
+      <h2 id="fig-1-title">Seven checkpoints between a finding and a fix</h2>
+      <p>The sequence below mirrors the documented protocol exactly. Every checkpoint is enforced by the coordinator, not left to either agent behaving well — including the last one, where a stale claim arrives after ownership has already moved and is refused at the gate.</p>
+    </div>
+
+    <figure class="plate" id="reconciliation">
+      <figcaption class="plate-head">
+        <span>Plate 1 — the handoff, drawn</span>
+        <span class="plate-sim" data-sim-label>Simulated account · no credentials · no live session</span>
+      </figcaption>
+
+      <div class="plate-stage">
+        <canvas data-proof-canvas aria-hidden="true"></canvas>
+      </div>
+
+      <!-- Fail-safe: hidden only once the engine reports a successful mount.
+           Without JavaScript, or with a broken engine, this stays visible and
+           the key below carries the whole sequence in words. -->
+      <div class="plate-static">
+        <p class="fig-note">This plate is drawn by a small canvas engine. If it has not started, the full sequence is written out in the key below — including the stale claim carrying fencing token 0183 that is refused after ownership moved to 0184.</p>
+      </div>
+
+      <div class="plate-foot">
+        <div class="plate-controls">
+          <button class="btn btn-sm btn-solid" type="button" data-proof-replay>Replay the handoff</button>
+          <button class="btn btn-sm" type="button" data-proof-reject>Jump to the rejection</button>
+        </div>
+        <p class="plate-readout" role="status" aria-live="polite" data-proof-readout>Ready</p>
+      </div>
+    </figure>
+
+    <ol class="keylist">
+      <li><span class="kn">01</span><div><span class="kt">Pairing link issued</span><p>One agent issues a one-time, single-use link before the second identity ever joins.</p></div></li>
+      <li><span class="kn">02</span><div><span class="kt">Policy previewed</span><p>The receiving agent reads the offered policy before it agrees to anything.</p></div></li>
+      <li><span class="kn">03</span><div><span class="kt">Consent recorded</span><p>That agreement is written down on the record, not assumed from silence.</p></div></li>
+      <li><span class="kn">04</span><div><span class="kt">Scope declared</span><p>The task states exactly which files it is allowed to reference, up front.</p></div></li>
+      <li><span class="kn">05</span><div><span class="kt">Task claimed</span><p>An atomic claim under a lease, carrying fencing token 0184, so a stale claim fails loudly instead of landing quietly.</p></div></li>
+      <li><span class="kn">06</span><div><span class="kt">Evidence gated</span><p>Artifacts are hashed, paths are checked against scope, secrets are scanned, and completion blocks until every submitted check passes.</p></div></li>
+      <li><span class="kn">07</span><div><span class="kt">Handoff returned</span><p>The result returns over stdio or Streamable HTTP — ordered, idempotent, and replayable if the connection drops.</p></div></li>
+    </ol>
+    <p class="fig-note">Illustrative sequence, drawn from the documented protocol — not telemetry from a live session. <a href="/docs/protocol.html">Read the protocol</a>.</p>
+  </div>
+</section>
+
+<!-- ============================ COMPATIBILITY ============================ -->
+<section class="feature" id="audit" aria-labelledby="audit-title">
+  <p class="folio-line"><span>Finalisma Field Notes</span><span>02 — What is documented, and what is verified</span></p>
+  <div class="spec-grid">
+    <div class="spec-copy">
+      <div class="body-copy">
+        <h2 id="audit-title" class="vh">Compatibility</h2>
+        <p>Finalisma is an MCP server rather than another agent host, so the integration is a config entry in two products you already run. Your hosts keep their own model credentials and their own approval interface, and nothing is installed into them silently.</p>
+        <p>The distinction that matters here is between what is documented and what has been run. There are <b>9 documented MCP paths</b> and <b>0 verified Finalisma host integrations</b> — the first proof pair: Codex + Claude Code, is what the design-partner cohort exists to produce.</p>
+      </div>
+      <ul class="spec-list">
+        <li><b>9</b><span>Documented MCP paths, none of them yet verified end to end against Finalisma. <a href="/docs/compatibility.html">Compatibility notes</a></span></li>
+        <li><b>0</b><span>Provider credentials stored, ever. <a href="/docs/security.html">Security gates</a></span></li>
+        <li><b>0</b><span>External runtime dependencies — Python standard library and SQLite only.</span></li>
+        <li><b>1</b><span>Coordinator node. A durable single-node preview, not hosted multi-tenant SaaS.</span></li>
+      </ul>
+    </div>
+
+    <div class="spec-code">
+      <div class="code-block">
+        <div class="code-block-bar">
+          <span>mcp.json</span>
+          <button class="copy-btn" type="button" data-copy-target="mcp-snippet">Copy</button>
+        </div>
+        <pre id="mcp-snippet"><code>{
+  <span class="code-key">"mcpServers"</span>: {
+    <span class="code-key">"finalisma"</span>: {
+      <span class="code-key">"command"</span>: <span class="code-string">"python"</span>,
+      <span class="code-key">"args"</span>: [
+        <span class="code-string">"/path/to/scripts/finalisma-mcp.py"</span>,
+        <span class="code-string">"--workspace"</span>, <span class="code-string">"/path/to/shared-workspace"</span>,
+        <span class="code-string">"--state"</span>, <span class="code-string">"/path/to/shared-workspace/.finalisma/state.db"</span>
+      ]
+    }
+  }
+}</code></pre>
+        <div class="code-block-foot">No global install · no API key in the repository · <a href="/docs/quickstart.html">Quickstart</a></div>
+      </div>
+      <p class="vh" role="status" aria-live="polite" id="copy-status"></p>
+    </div>
+  </div>
+</section>
+
+<!-- ================================ QUERIES ================================ -->
+<section class="feature" id="queries" aria-labelledby="queries-title">
+  <p class="folio-line"><span>Finalisma Field Notes</span><span>03 — Queries on file</span></p>
+  <div class="queries">
+    <h2 id="queries-title" class="vh">Frequently asked</h2>
+
+    <details class="query" open>
+      <summary>Does Finalisma run the models?</summary>
+      <div class="query-answer"><p>No. It coordinates task and session state only. Your agent host keeps its own model credentials, provider execution, filesystem permissions and approval interface, and the model route recorded against a task is a label rather than a substitution.</p></div>
+    </details>
+    <details class="query">
+      <summary>Which hosts can connect?</summary>
+      <div class="query-answer"><p>Any host that speaks MCP, either directly over stdio or through the authenticated Streamable HTTP endpoint. A product without MCP needs a native connector, and the protocol document is the adapter contract for writing one. Nothing is installed into another product silently.</p></div>
+    </details>
+    <details class="query">
+      <summary>Is this hosted SaaS?</summary>
+      <div class="query-answer"><p>Not yet, and the page says so deliberately. What ships today is a durable single-node coordinator on SQLite, which is enough for design partners and trusted-network trials. Hosted multi-tenant traffic still needs shared storage, OAuth or OIDC, distributed limits and operational controls.</p></div>
+    </details>
+    <details class="query">
+      <summary>What happens when an agent disconnects?</summary>
+      <div class="query-answer"><p>Session events are totally ordered, idempotent, and replayable from the last acknowledged cursor, so reconnecting is an ordinary operation rather than a recovery. Task leases and fencing tokens make stale work fail instead of landing quietly — the failure Fig. 1 draws.</p></div>
+    </details>
+    <details class="query">
+      <summary>Where do credentials live?</summary>
+      <div class="query-answer"><p>Nowhere in Finalisma. A pairing link carries a one-time token in the URL fragment, session credentials are bound to the member that consented, and the HTTP transport reads a bearer token from your secret manager — never from the repository, the payloads or the logs.</p></div>
+    </details>
+    <details class="query">
+      <summary>Can a task make it run a command?</summary>
+      <div class="query-answer"><p>No. Finalisma refuses to execute shell commands found in message payloads and never writes into a host's settings. It routes and verifies work; execution stays with the host that owns the permissions.</p></div>
+    </details>
+  </div>
+</section>
+
+<!-- ================================= COHORT ================================= -->
+<section class="cohort on-cover" id="cohort" aria-labelledby="cohort-title">
+  <div class="cohort-grid">
+    <div class="cohort-copy">
+      <p class="kicker">The ask</p>
+      <h2 id="cohort-title">Run one non-production incident handoff with us.</h2>
+      <p>We are looking for a small number of teams already running two MCP-capable agent hosts, willing to mirror one repeatable non-production incident through a scoped handoff and tell us where it breaks. The whole preview runs on your own machine, against your own workspace, with your own model credentials staying exactly where they are.</p>
+      <p>Being straight about money as well: the pilot is free for 30 days, and the pricing hypothesis after that is a <b>$500 deposit</b> credited toward $1,000 per workspace per month if you decide to continue. That is a hypothesis we want tested, not a price list.</p>
+      <p><!-- FINALISMA_DEPLOY_CONTACT --></p>
+    </div>
+
+    <div class="cohort-form-wrap">
+      <form class="cohort-form" id="cohort-form" data-cohort-form novalidate>
+        <div class="cohort-form-head">
+          <span class="label">Local application builder</span>
+          <h3>Check the fit, then share the brief.</h3>
+          <p>Nothing is transmitted from this page. Finalisma prepares a portable application you can copy and send through the channel that brought you here.</p>
+        </div>
+        <div class="cohort-fields">
+          <label><span>Team</span><input name="team" autocomplete="organization" required placeholder="Acme engineering"></label>
+          <label><span>Contact</span><input name="contact" type="email" autocomplete="email" required placeholder="name@company.com"></label>
+          <label class="field-wide"><span>Two agent hosts</span><input name="hosts" required placeholder="Codex + Claude Code"></label>
+          <label class="field-wide"><span>Non-production incident mirror</span><textarea name="scenario" required rows="3" placeholder="A repeatable timeout, retry, or regression scenario with a bounded blast radius."></textarea></label>
+        </div>
+        <div class="cohort-actions">
+          <button class="btn btn-solid" type="submit">Build the application</button>
+          <p class="cohort-status" role="status" aria-live="polite" data-cohort-status></p>
+        </div>
+      </form>
+    </div>
+  </div>
+</section>
+
+<footer class="colophon">
+  <div class="colophon-inner">
+    <p>Finalisma Field Notes. Set in Fraunces (Undercase Type) and Big Shoulders Display (Eben Sorkin), both SIL Open Font License, self-hosted with this page. Single-node preview, v0.1.0.</p>
+    <nav class="colophon-links" aria-label="Footer">
+      <a href="/docs/index.html">Docs</a>
+      <a href="/docs/protocol.html">Protocol</a>
+      <a href="/docs/security.html">Security</a>
+      <a href="/docs/quickstart.html">Quickstart</a>
+      <a href="/blog/index.html">Field notes</a>
+      <a href="/license.html">Licence</a>
+    </nav>
+  </div>
+</footer>
+
+<script src="app.js" defer></script>
+<script src="proof-engine.js" defer></script>
+</body>
+</html>

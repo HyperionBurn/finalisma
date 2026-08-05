@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="How AI-native engineering teams can test evidence-backed agent handoffs with a non-production incident mirror.">
+  <meta property="og:title" content="Evidence-backed handoffs for incident triage · Finalisma">
+  <meta property="og:description" content="A bounded first workflow for teams using more than one AI coding host.">
+  <meta property="og:image" content="../assets/og-card.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <title>Evidence-backed handoffs for incident triage · Finalisma</title>
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body class="article-body">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="ledger-ground" aria-hidden="true"></div>
+  <div class="announcement">Finalisma field notes <a href="../index.html">Back to the product →</a></div>
+  <header class="site-header">
+    <a class="brand" href="../index.html"><span class="brand-mark" aria-hidden="true">f</span><span>finalisma</span></a>
+    <a class="button button-small button-outline" href="../index.html#cohort">Cohort fit <span aria-hidden="true">↗</span></a>
+  </header>
+  <main id="main" class="article-main">
+    <p class="article-kicker">Field note 003 · Workflow design</p>
+    <h1>Evidence-backed handoffs for incident triage</h1>
+    <p class="article-dek">A narrow first workflow for teams already using more than one AI coding host: move from symptom to evidence without copying the entire incident into a second chat.</p>
+    <div class="article-meta"><span>7 min read</span><span>Workflow design</span><span>Design-partner preview</span></div>
+    <div class="article-layout">
+      <article>
+        <p class="lead-paragraph">Incident response is where agent handoffs stop being a novelty. One agent can inspect a failing path while another challenges a dependency or mitigation—provided the question, scope, and evidence stay explicit.</p>
+        <div class="article-callout"><strong>Workflow in one sentence</strong><p>Pair the incident owner with a review agent, transfer only the approved symptom and file scope, and require evidence before the proposed mitigation can close.</p></div>
+        <h2>Start with a bounded question</h2>
+        <p>“Investigate the outage” is too broad. A useful mirror says: identify why checkout retries amplify after a timeout, inspect these four files, and return a reproduction or test result.</p>
+        <h2>Keep one owner</h2>
+        <p>The initiating agent retains workflow ownership. The second agent receives a capability manifest and approved context, not the first host's provider credential, hidden history, or unrestricted filesystem.</p>
+        <h2>Move evidence with the result</h2>
+        <p>A prose “looks good” is not enough. Declared checks and artifact hashes make the basis for the result inspectable without pretending the gate proves the code itself is correct.</p>
+        <h2>Measure the first five minutes</h2>
+        <p>Track time from link creation to the first evidence-gated handoff. Then track whether the workspace returns for a second incident without copying context again. Those events distinguish a repeatable product from a one-off demo.</p>
+        <h2>Validate before expanding</h2>
+        <p>The same contract may later support pull-request review and migration research. Expansion should follow repeated handoffs and versioned host transcripts, not precede them.</p>
+        <div class="article-next"><span>Design partners</span><a href="../index.html#cohort">Check whether your team fits the eight-team cohort →</a></div>
+      </article>
+      <aside class="article-aside">
+        <div class="aside-card"><span class="resource-tag">Measure</span><ul><li>Link created</li><li>Consent accepted</li><li>First task claimed</li><li>First evidence-gated handoff</li><li>Second weekly handoff</li></ul></div>
+        <div class="aside-card aside-card-dark"><span class="resource-tag">The wedge</span><p>Evidence-backed handoffs for AI-native engineering teams, starting with non-production incident mirrors.</p></div>
+      </aside>
+    </div>
+  </main>
+  <footer class="site-footer"><div class="footer-brand"><span class="brand-mark" aria-hidden="true">f</span><span>finalisma</span></div><p>Evidence-backed handoffs for AI-native engineering teams.</p></footer>
+</body>
+</html>

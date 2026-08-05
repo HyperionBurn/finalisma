@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Run a local two-agent Finalisma proof with Python, SQLite, and two MCP-capable agent hosts.">
+  <title>Local two-agent proof · Finalisma</title>
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body class="article-body">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="ledger-ground" aria-hidden="true"></div>
+  <div class="announcement">Guide 01 · local proof <a href="index.html">All guides →</a></div>
+  <header class="site-header"><a class="brand" href="../index.html"><span class="brand-mark" aria-hidden="true">f</span><span>finalisma</span></a><a class="button button-small" href="compatibility.html">Check host status <span aria-hidden="true">↗</span></a></header>
+  <main id="main" class="article-main">
+    <p class="article-kicker">10–20 minutes · trusted local workspace</p>
+    <h1>Run one bounded handoff.</h1>
+    <p class="article-dek">This proves the repository's coordination flow. It does not by itself validate either host integration.</p>
+    <div class="article-meta"><span>Python 3.11+</span><span>No package install</span><span>Workspace-local SQLite</span></div>
+    <div class="article-layout">
+      <article>
+        <p class="lead-paragraph">Use a disposable, non-production workspace. Both MCP clients must point at the same Finalisma launcher, workspace root, and state file.</p>
+        <div class="article-callout"><strong>Safety boundary</strong><p>Do not use production credentials or production incident data. Finalisma coordinates declared work; it does not need either model provider key.</p></div>
+        <h2>1. Prove the coordinator before connecting hosts</h2>
+        <pre class="article-code"><code>python -B .\scripts\finalisma-smoke.py</code></pre>
+        <p>A successful run exercises registration, task routing, claims, updates, evidence, and completion without touching host settings.</p>
+        <h2>2. Add the same MCP server entry to both hosts</h2>
+        <pre class="article-code"><code>{
+  &quot;mcpServers&quot;: {
+    &quot;finalisma&quot;: {
+      &quot;command&quot;: &quot;python&quot;,
+      &quot;args&quot;: [
+        &quot;C:\\path\\to\\Multiplayer-AI\\scripts\\finalisma-mcp.py&quot;,
+        &quot;--workspace&quot;, &quot;C:\\path\\to\\incident-mirror&quot;,
+        &quot;--state&quot;, &quot;C:\\path\\to\\incident-mirror\\.finalisma\\state.db&quot;
+      ]
+    }
+  }
+}</code></pre>
+        <p>The exact UI and configuration filename vary by host. Review the command before approving it. A non-MCP host requires an adapter.</p>
+        <h2>3. Register Agent A and Agent B</h2>
+        <p>Use the same <code>team_id</code>, unique <code>agent_id</code> values, and the exact model routes each host declares. Persist each one-time <code>actor_token</code> in that host's secret storage; never paste it into a task.</p>
+        <h2>4. Run the account</h2>
+        <ol>
+          <li>Agent A calls <code>finalisma_create_task</code> with a bounded question and file scope.</li>
+          <li>Agent B reads its inbox, claims the task, and keeps the fencing token.</li>
+          <li>Agent B posts progress or a question with its own actor token.</li>
+          <li>Agent B submits artifact and check evidence through <code>finalisma_verify_task</code>.</li>
+          <li>Only an evidence-gated task can call <code>finalisma_complete_task</code>.</li>
+        </ol>
+        <h2>5. Capture a validation transcript</h2>
+        <p>Record host and extension versions, redacted configuration, tool discovery, consent, reconnect, cancellation, evidence, and completion. Until that artifact exists, describe the host path as documented—not verified.</p>
+        <div class="article-next"><span>Continue</span><a href="protocol.html">Understand the link and session contract →</a></div>
+      </article>
+      <aside class="article-aside">
+        <div class="aside-card"><span class="resource-tag">Cleanup</span><p>Stop both clients, then remove only the <code>.finalisma</code> directory inside the disposable workspace.</p></div>
+        <div class="aside-card aside-card-dark"><span class="resource-tag">Do not infer</span><p>A listed MCP transport proves a configuration path exists. It does not prove the host follows Finalisma's complete workflow.</p></div>
+      </aside>
+    </div>
+  </main>
+  <footer class="site-footer"><div class="footer-brand"><span class="brand-mark" aria-hidden="true">f</span><span>finalisma</span></div><p>Local proof · no provider credentials cross the coordinator.</p></footer>
+</body>
+</html>

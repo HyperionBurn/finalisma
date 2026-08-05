@@ -1,0 +1,13 @@
+{
+  "goal": {
+    "threadId": "019fa7a8-630d-7ad2-ab9b-3408066b8dfc",
+    "objective": "Measure and improve Finalisma's realistic single-node coordination envelope, reducing weighted median coordinator wall time by at least 20 percent while preserving protocol semantics, security boundaries, and product behavior.",
+    "status": "complete",
+    "tokensUsed": 319491,
+    "timeUsedSeconds": 2737,
+    "createdAt": 1785399978,
+    "updatedAt": 1785402716
+  },
+  "remainingTokens": null,
+  "snapshotSource": "Authoritative update_goal completion result; the required follow-up get_goal call immediately returned goal null."
+}

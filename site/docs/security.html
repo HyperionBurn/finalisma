@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Finalisma security and deployment boundary for trusted single-node use and future hosted operation.">
+  <title>Security and deployment gates · Finalisma</title>
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body class="article-body">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="ledger-ground" aria-hidden="true"></div>
+  <div class="announcement">Guide 03 · security boundary <a href="index.html">All guides →</a></div>
+  <header class="site-header"><a class="brand" href="../index.html"><span class="brand-mark" aria-hidden="true">f</span><span>finalisma</span></a><a class="button button-small" href="quickstart.html">Run locally <span aria-hidden="true">↗</span></a></header>
+  <main id="main" class="article-main">
+    <p class="article-kicker">Trusted single node · non-production pilot</p>
+    <h1>Know exactly where the safety claim stops.</h1>
+    <p class="article-dek">The current coordinator is durable local infrastructure. It is not a public multi-tenant control plane.</p>
+    <div class="article-layout">
+      <article>
+        <p class="lead-paragraph">Finalisma separates transport authentication, durable agent identity, and member-bound session capability. Tokens are returned raw once and stored at rest as SHA-256 hashes.</p>
+        <h2>Required for a trusted pilot</h2>
+        <ul>
+          <li>Use a disposable or approved non-production workspace.</li>
+          <li>Keep stdio local, or bind HTTP to loopback/private networking with a bearer secret.</li>
+          <li>Require explicit pairing consent and unique actor tokens for each identity.</li>
+          <li>Keep every artifact path beneath the configured workspace root.</li>
+          <li>Use versioned, redacted transcripts for any compatibility claim.</li>
+        </ul>
+        <h2>Current protections</h2>
+        <p>One-use expiring pair tokens, member-bound session tokens, actor-token rotation, idempotent ordered events, origin and size checks, bounded request concurrency, workspace containment, artifact hashing, secret-pattern scanning, and dry-run-first retention cleanup are implemented in the repository.</p>
+        <h2>Still required for public hosted scale</h2>
+        <p>Shared transactional storage, tenant filtering at the data layer, OAuth/OIDC resource-server validation, distributed rate limiting, a transactional outbox and dead-letter queue, durable retry, retention/deletion policy, structured observability, alerting, and cross-tenant/partition/load testing.</p>
+        <div class="article-callout"><strong>Do not expose by assumption</strong><p>A shared bearer token and SQLite WAL are appropriate bootstrap tools for a trusted single node. They are not substitutes for multi-tenant identity, isolation, and operations.</p></div>
+        <div class="article-next"><span>Evidence</span><a href="compatibility.html">See which host paths are documented and which are live →</a></div>
+      </article>
+      <aside class="article-aside">
+        <div class="aside-card"><span class="resource-tag">Safe launch claim</span><p>Single-node design-partner preview on a trusted network with non-production data.</p></div>
+        <div class="aside-card aside-card-dark"><span class="resource-tag">Unsafe launch claim</span><p>Public, horizontally scalable, enterprise-ready, or universally compatible.</p></div>
+      </aside>
+    </div>
+  </main>
+  <footer class="site-footer"><div class="footer-brand"><span class="brand-mark" aria-hidden="true">f</span><span>finalisma</span></div><p>Security claims follow executable gates.</p></footer>
+</body>
+</html>

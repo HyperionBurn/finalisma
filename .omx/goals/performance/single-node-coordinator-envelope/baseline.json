@@ -1,0 +1,74 @@
+{
+  "benchmark": {
+    "composite_samples_ms": [
+      1261.347,
+      1187.395,
+      1241.025,
+      1265.771,
+      1266.731,
+      1375.933,
+      1331.484
+    ],
+    "runs": 7,
+    "scenarios": {
+      "authenticated_core": {
+        "median_ms": 953.225,
+        "p95_ms": 1056.642,
+        "samples_ms": [
+          953.225,
+          959.448,
+          895.487,
+          822.477,
+          949.978,
+          976.791,
+          1090.863
+        ],
+        "semantic_digest": "616254fc21791bf92051ddb1cd375a9427048e06ce3b7b11e79dc179f986ee1c",
+        "weight": 0.25
+      },
+      "routing_fanout": {
+        "median_ms": 817.764,
+        "p95_ms": 946.002,
+        "samples_ms": [
+          714.526,
+          781.532,
+          817.764,
+          802.533,
+          976.787,
+          874.17,
+          833.43
+        ],
+        "semantic_digest": "d6e21edd83cd00f7d82b605bbf04fa2e159d3d4d69dbca3e33f46f51df483025",
+        "weight": 0.4
+      },
+      "session_relay": {
+        "median_ms": 2072.561,
+        "p95_ms": 2197.681,
+        "samples_ms": [
+          2106.373,
+          1814.056,
+          1971.563,
+          2111.825,
+          1824.348,
+          2234.476,
+          2072.561
+        ],
+        "semantic_digest": "4014c7e83a13a5e94720f858eb6cdf02d83b30ec28bd10f8a512444e82d1a732",
+        "weight": 0.35
+      }
+    },
+    "weighted_median_ms": 1265.771,
+    "weighted_p95_ms": 1362.598
+  },
+  "captured_at_epoch": 1785400410,
+  "environment": {
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.14.6",
+    "sqlite": "3.50.4"
+  },
+  "harness_sha256": "2bb6b444afa02fec0c2b5114b07da5f57d524938b2c924414db858a1b8519515",
+  "harness_version": 1,
+  "max_p95_regression_percent": 5.0,
+  "schema": "finalisma.performance-baseline/v1",
+  "target_improvement_percent": 20.0
+}

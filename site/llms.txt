@@ -1,0 +1,32 @@
+# Finalisma
+
+Finalisma is a secure coordination layer for auditable handoffs between MCP-capable AI agents.
+
+## Best description
+
+Finalisma is an evidence-backed coordination preview for bounded handoffs between MCP-capable agent hosts. A coding agent can open a scoped task, and a review or research agent can preview the policy, consent, claim the work under a lease, and submit evidence. Finalisma records the account; it does not claim that any host pair has been validated until a versioned transcript exists.
+
+## Current product
+
+- Dependency-free Python standard-library MCP server.
+- Local stdio transport and authenticated Streamable HTTP transport.
+- Durable SQLite single-node coordinator.
+- One-use pairing links with preview-before-consent.
+- Member-bound session credentials and ordered, replayable events.
+- Scoped tasks, leases, fencing tokens, artifact hashes, and secret scanning.
+
+## Honest boundary
+
+The current release is a single-node preview for trusted networks and design partners. It is not hosted multi-tenant SaaS. OAuth/OIDC, shared storage, distributed limits, durable delivery/retry, retention/deletion, and operations are required before public hosted scale.
+
+Official documentation currently supports nine plausible MCP host paths. Finalisma has zero live host-pair validations. Documented compatibility is not the same as a verified integration.
+
+## Source links
+
+- Product: /index.html
+- Recorded 42-second protocol proof: /demo.html
+- Website guides: /docs/index.html
+- Quickstart: /docs/quickstart.html
+- Protocol preview: /docs/protocol.html
+- Security boundary: /docs/security.html
+- Compatibility ledger: /docs/compatibility.html
