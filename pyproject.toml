@@ -17,6 +17,7 @@ finalisma-mcp = "finalisma_mcp.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["finalisma_mcp*", "finalisma_sdk*"]
 
 [tool.finalisma]
 protocol = "finalisma.a2a/1.0"
