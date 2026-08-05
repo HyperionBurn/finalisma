@@ -17,7 +17,20 @@ multi-tenant SaaS needs shared storage, real auth, billing, and a web app. Those
 | Plane | Package | Promise | Dependencies |
 | --- | --- | --- | --- |
 | **Coordinator** (self-hosted, embedded in agent hosts) | `src/finalisma_mcp/` | Stays **stdlib-only, SQLite, zero deps**. This is a genuine differentiator and it now has a real MCP host validation behind it. | none, ever |
-| **Cloud** (the hosted product) | `src/finalisma_cloud/` | Multi-tenant, Postgres, OIDC, billing, dashboard, real-time relay. | allowed, pinned |
+| **Cloud** (the hosted product) | `src/finalisma_cloud/` | Multi-tenant, **SQLite-WAL for v1** (Postgres later, driven by measured load), OIDC, billing, dashboard, real-time relay. | allowed, pinned |
+
+> **2026-08-05 decision (Wave F) — v1 hosted runs on SQLite-WAL, single instance.**
+> Supersedes the earlier "Multi-tenant, Postgres" wording for the v1 milestone only.
+> Rationale recorded here so it is not relitigated: the target machine has no Docker,
+> no psql, and no Postgres driver, and installing a database server would violate the
+> workspace rule against global installs. More importantly, Postgres is not required to
+> ship v1 — SQLite in WAL mode supports many concurrent readers with one writer, which
+> comfortably covers a design-partner-scale hosted service. Postgres becomes a **scale
+> decision driven by measured load**, not an upfront tax. The hard requirement this
+> decision places on the code: the storage layer MUST sit behind an explicit interface
+> (`src/finalisma_cloud/` persistence protocol/ABC) so a Postgres backend can be added
+> later without touching business logic. Tenancy, migrations, quotas, and crash-durability
+> are enforced in Wave F regardless of the storage engine.
 
 The coordinator is the protocol engine and stays pure. The cloud plane wraps it as a hosted
 service. A customer can self-host the coordinator for free, or use the hosted product. That is
@@ -107,7 +120,7 @@ Each wave ends green: full suite, smoke, perf gate, and committed per step.
 | Wave | Outcome |
 | --- | --- |
 | **E — Rooms** | Room object over roster/outbox: N-agent multi-use links, presence, addressing, reconnect. Coordinator plane, still stdlib-only. |
-| **F — Cloud spine** | `finalisma_cloud`: Postgres store behind the same interface, tenancy enforced, migrations, distributed rate limits. |
+| **F — Cloud spine** | `finalisma_cloud`: storage interface (SQLite-WAL backend now, Postgres later), tenancy enforced at the storage boundary, migrations, quotas/rate limits, crash durability. |
 | **G — Identity** | Email + OIDC auth, orgs, roles, invites, sessions, rotation. |
 | **H — Web app** | Dashboard: rooms, live stream, audit, connect-an-agent, member management. |
 | **I — Billing** | Plans, metering, checkout, limits enforced server-side. |
