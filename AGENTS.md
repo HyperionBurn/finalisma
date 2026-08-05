@@ -37,21 +37,30 @@ damage if followed:
 `minmax(0, 1fr)` never bare `1fr`; no horizontal padding on any element carrying the split; never
 reveal with `clip-path` on an IntersectionObserver target; `overflow-x: clip` not `hidden`.
 
-## Known-broken state on this branch
+## Resolved — do not re-investigate
 
-The initial commit `b4f3026` was made with `git add -A` against a mid-edit working tree and
-missed two files that `site/index.html` links to:
+These were real defects and are all fixed. Listed so nobody spends a lane re-discovering them.
 
-- `site/proof-engine.js`
-- `site/docs/managed-pilot.html`
+- `b4f3026` was committed with `git add -A` against a mid-edit tree and missed
+  `site/proof-engine.js` (restored, `7c95cba`). `site/docs/managed-pilot.html` was an
+  unreferenced draft superseded by `site/docs/pilot.html` and was deleted.
+- The three `test_site.py` failures were genuine defects, not stale tests: the missing
+  `[hidden] { display: none !important; }` progressive-enhancement rule, the colour-alone
+  accessibility invariant, and dangling internal links. All fixed in code, assertions kept.
+- `site/docs/pairing-ux.html` did not exist and was authored rather than the link being deleted.
+- The credential-rotation defect (a rotated actor token still authenticated) is fixed.
+- Two HIGH security findings are fixed: the `WebhookBridge` stored-hash-as-HMAC-key fallback now
+  fails closed (`bridge.py:226`), and the SDK no longer leaks coordinator response bodies into
+  exceptions (`client.py:269`).
+- The five Wave-A modules are mounted behind the MCP surface (`fe4b2c5`) with integration
+  contracts that drive real JSON-RPC dispatch, not the module APIs.
 
-Both exist in the master worktree; neither is on this branch. The site bundle has real 404s.
-This is why `test_static_internal_content_links_resolve_inside_site_bundle` fails.
+## The one open structural gap
 
-Three `test_site.py` failures predate this session's work. **None of them are stale tests.** All
-three are genuine defects — a missing `[hidden] { display: none !important; }` rule that is
-load-bearing for progressive enhancement, the colour-alone accessibility invariant, and the
-dangling links above. Fix the code, not the assertions.
+`research/interop-matrix.json` still records **zero verified host integrations**, and
+`site/docs/compatibility.html` states that publicly. The core product claim — the link works
+with any MCP-capable host — has never been validated against a real host. That is the highest
+-value open item in the project. A negative result is valuable; a simulated one is not.
 
 ## Test discipline
 
@@ -61,9 +70,14 @@ dangling links above. Fix the code, not the assertions.
 - No mocks for the SQLite layer. This project tests against real storage.
 - Baseline for comparison: `docs/BASELINE_2026-08-05.md` (create it if absent — pin commit, test
   count, and exact failing test names before starting a wave).
-- The test count is published as a measured fact in `site/index.html`, `tests/test_site.py`,
-  `docs/PERFORMANCE.md`, `docs/YC_APPLICATION.md`, `docs/YC_READINESS.md`, and two audit docs.
-  It currently says 65 and is wrong. Fix it once, at the end of a wave, from one measured run.
+- The published test count is now guarded automatically by
+  `tests/test_site.py::TestCountSyncTests`, which discovers the live count with the same loader
+  and pattern as `unittest discover -s tests` and fails if any instance in `docs/`, `site/**.html`
+  or `site/llms.txt` disagrees. If you add or remove tests, that guard will tell you what to
+  update. Do not hand-maintain the number.
+- No performance figure may appear in `docs/` or `site/` that was not measured against the
+  current harness. `docs/PERFORMANCE.md` holds the provenance. Dated audit documents keep their
+  historical figures with a superseded-by note — annotate history, never rewrite it.
 
 ## Constraints that are product promises, not preferences
 
@@ -76,6 +90,64 @@ Report truthfully — this repo's entire positioning is "evidence-backed", so a 
 claim is a product bug. Never state a number you did not measure this session. Never report a
 lane complete on the lane's own say-so; verify with a command and paste the output. Always state
 what you could not finish.
+
+## Long-running processes — read before starting a server
+
+This environment has hung three times on this exact mistake. A `bash` tool call does not return
+until **every** descendant holding the pipe has exited, so starting a server the normal way
+blocks the tool call forever and the whole run stalls with no error.
+
+Never do this:
+
+```bash
+python scripts/finalisma-mcp.py --transport http --port 18787 &   # BLOCKS the tool call
+```
+
+Do this — fully detached, output to a file, always with a hard timeout and always killed in the
+same step that started it:
+
+```powershell
+$p = Start-Process -FilePath python -ArgumentList '-B','scripts/finalisma-mcp.py','--transport','http','--host','127.0.0.1','--port','18787' -RedirectStandardOutput 'C:/Users/Wasif/AppData/Local/Temp/opencode/srv.log' -RedirectStandardError 'C:/Users/Wasif/AppData/Local/Temp/opencode/srv.err' -PassThru -WindowStyle Hidden
+# ... drive the server, capture evidence ...
+Stop-Process -Id $p.Id -Force
+```
+
+Rules: bind to an explicit free port and check it first; write logs under
+`AppData/Local/Temp/opencode/`, never into the repo; wrap every foreground client call in
+`timeout`; and stop the process in the same step, even on failure. Never leave a listener behind.
+
+## Self-verification — verify by a different route than you built by
+
+A claim checked the same way it was written is not checked. When you assert something works,
+confirm it by an independent route:
+
+- Wrote a guard? Feed it a value you know is wrong and prove it *fails*. A guard never seen red
+  is not known to guard anything.
+- Claim a module is reachable? Call it through the outermost real surface, not its Python API.
+- Claim a doc is accurate? Grep the tree for contradicting instances rather than re-reading your
+  own edit.
+- Docstrings are claims. If a docstring says it covers X and Y, the code must cover X and Y —
+  that exact mismatch shipped once already in `TestCountSyncTests`.
+
+## Failure modes already seen in this project
+
+1. **Blocking on a background process** — see above. Cost two stalled runs.
+2. **Dying with work uncommitted** — two runs ended after 30+ minutes with everything unstaged.
+   Commit each step as it completes. Never batch commits to the end of a long run.
+3. **`git add -A`** — produced the broken `b4f3026` snapshot. Always stage explicit paths.
+4. **Stale guidance outbliving the code** — `AGENT_HANDOVER.md` described a deleted design for
+   weeks. When you change something this file or the handover describes, update it in the same
+   commit.
+
+## Skills
+
+The user maintains a large skill library at `C:\Users\Wasif\.agents\skills\`. Skills are
+instructions, not magic — load the ones relevant to the step you are on and follow them. Useful
+here: `agent-orchestrator` (scan → match → orchestrate before fanning out lanes),
+`test-driven-development`, `invariant-guard`, `anti-sycophancy` and `dos-verify-done-claims`
+(before writing any completion report), `find-bugs` and `production-code-audit` (review),
+`e2e-testing` and `debugging-toolkit` (host validation), `pitch-psychologist`,
+`objection-preemptor` and `clarity-gate` (investor-facing copy). Say which you loaded.
 
 ## Verification commands
 
