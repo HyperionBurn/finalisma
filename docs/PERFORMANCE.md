@@ -66,9 +66,39 @@ Long-lived callers should use `with FinalismaStore(...) as store:` or call
 `store.close()` during shutdown. The CLI, smoke flow, pruning utility, and test
 harnesses exercise this lifecycle.
 
+## Wave A hot-path scenarios (roster, tenancy)
+
+Wave A added `roster.py` (N-way roster routing) and `tenancy.py` (org scope
+enforcement) to the hot path. These modules are **not yet mounted into
+core/server** (S5 wiring follows this gate), so the scenarios below run
+through the module APIs directly (`RosterStore` / `tenancy` module
+functions) against their own SQLite tables. This boundary is intentional:
+the locked single-node composite above is untouched, and these measurements
+establish the per-call cost that S5 must budget for.
+
+Measured on the same Windows development host, seven-trial medians:
+
+| scenario | median (ms) | p95 (ms) | digest |
+| --- | --- | --- | --- |
+| `roster_routing` (64-member roster, 200 × 4 route_targets calls) | 1110.39 | 1218.702 | `9a14b9f2…` |
+| `tenancy_assert_scope` (300 × 3 calls, pass + fail paths) | 83.131 | 89.626 | `52ada121…` |
+
+Per-call cost: `route_targets` ≈ **1.39 ms/call** (material — exceeds the
+1 ms/op threshold); `assert_scope` ≈ **0.09 ms/call** (not material).
+
+**Recommendation for S5 wiring:** `route_targets` opens its own transaction
+and runs three queries per call (active members, group map, then expansion).
+At 1.39 ms/call it is the single most expensive new path. S5 should (a)
+batch roster fan-out so one `route_targets` call serves a whole envelope
+rather than one per recipient, and (b) consider reusing the core store's
+connection pool instead of opening a fresh connection per call. The
+`assert_scope` cost is negligible and needs no mitigation.
+
 ## Boundary
 
 This gate proves the dependency-free single-node coordinator. It does not prove
 hosted multi-tenant scale, cross-region latency, or multi-instance database
 semantics. Those still require shared transactional storage, OAuth/OIDC, tenant
 isolation, distributed rate limits, an outbox, and dedicated load/failure tests.
+The Wave A hot-path scenarios measure module-level APIs only; they do not
+exercise the wired S5 request path, which will have additional overhead.

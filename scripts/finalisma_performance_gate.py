@@ -29,6 +29,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from finalisma_mcp.core import FinalismaStore  # noqa: E402
+from finalisma_mcp import roster as _roster  # noqa: E402
+from finalisma_mcp import tenancy as _tenancy  # noqa: E402
 
 
 HARNESS_VERSION = 1
@@ -330,11 +332,123 @@ def _authenticated_core(root: Path) -> tuple[float, dict[str, Any], list[str]]:
     return elapsed_ms, semantics, list(tokens.values())
 
 
+def _roster_routing(root: Path) -> tuple[float, dict[str, Any], list[str]]:
+    """Measure roster route_targets expansion across N=8/32/64 active members.
+
+    Runs through the roster module API directly (roster.py is not yet mounted
+    into core/server — S5 wiring happens after this gate). The scenario seeds a
+    roster, joins N agents, then times route_targets expansion against a mixed
+    spec (broadcast, group, single agent). Semantic digest captures the
+    expansion cardinalities so any routing-logic change is caught.
+    """
+    db_path = root / "roster.db"
+    _roster.init(str(db_path))
+    roster_id = _roster.create_roster("owner", "perf-team")
+
+    # Join N agents in two groups to exercise group + broadcast expansion.
+    N = 64
+    group_a = {f"agent-{i:02d}" for i in range(0, N, 2)}
+    group_b = {f"agent-{i:02d}" for i in range(1, N, 2)}
+    for i in range(N):
+        agent_id = f"agent-{i:02d}"
+        _roster.join_roster(roster_id, agent_id, capabilities_json=["coordination", f"lane-{i % 8}"])
+    for agent_id in group_a:
+        _roster.add_to_group(roster_id, "planners", agent_id)
+    for agent_id in group_b:
+        _roster.add_to_group(roster_id, "builders", agent_id)
+
+    # Pre-build the mixed spec once; the timed loop measures expansion only.
+    mixed_spec = ["*", "planners", "builders", "agent-00", "agent-01"]
+    iterations = 200
+    broadcast_hits = 0
+    group_hits = 0
+    single_hits = 0
+
+    started = time.perf_counter_ns()
+    for _ in range(iterations):
+        broadcast = _roster.route_targets(roster_id, "*")
+        broadcast_hits += len(broadcast)
+        planners = _roster.route_targets(roster_id, "planners")
+        group_hits += len(planners)
+        single = _roster.route_targets(roster_id, "agent-00")
+        single_hits += len(single)
+        mixed = _roster.route_targets(roster_id, mixed_spec)
+        broadcast_hits += len(mixed)
+    elapsed_ms = (time.perf_counter_ns() - started) / 1_000_000
+
+    semantics = {
+        "iterations": iterations,
+        "roster_size": N,
+        "broadcast_per_call": broadcast_hits // (iterations * 2),
+        "group_per_call": group_hits // iterations,
+        "single_per_call": single_hits // iterations,
+        "mixed_per_call": broadcast_hits // (iterations * 2),
+    }
+    return elapsed_ms, semantics, []
+
+
+def _tenancy_assert_scope(root: Path) -> tuple[float, dict[str, Any], list[str]]:
+    """Measure tenancy assert_scope on pass and fail paths.
+
+    Runs through the tenancy module API directly (not yet mounted into
+    core/server). Seeds one org with one member, then times assert_scope for
+    the happy path (correct key + membership) and the two failure paths (wrong
+    key, non-member). Digest captures counts so regressions in the constant-
+    time compare or the membership lookup surface.
+    """
+    db_path = root / "tenancy.db"
+    _tenancy.init(str(db_path))
+    org_id = _tenancy.create_org(str(db_path), "perf-org")
+    _tenancy.add_member(str(db_path), org_id, "agent-00", role="admin")
+    valid_key = _tenancy.derive_actor_key(org_id, "agent-00")
+
+    pass_count = 0
+    fail_key_count = 0
+    fail_member_count = 0
+    iterations = 300
+
+    started = time.perf_counter_ns()
+    for _ in range(iterations):
+        try:
+            _tenancy.assert_scope(str(db_path), org_id, "agent-00", valid_key)
+            pass_count += 1
+        except _tenancy.ScopeError:
+            pass
+        try:
+            _tenancy.assert_scope(str(db_path), org_id, "agent-00", "0" * 64)
+            fail_key_count += 1
+        except _tenancy.ScopeError:
+            fail_key_count += 1
+        try:
+            _tenancy.assert_scope(str(db_path), org_id, "agent-99", valid_key)
+            fail_member_count += 1
+        except _tenancy.ScopeError:
+            fail_member_count += 1
+    elapsed_ms = (time.perf_counter_ns() - started) / 1_000_000
+
+    semantics = {
+        "iterations": iterations,
+        "pass_count": pass_count,
+        "fail_key_count": fail_key_count,
+        "fail_member_count": fail_member_count,
+    }
+    return elapsed_ms, semantics, []
+
+
 Scenario = Callable[[Path], tuple[float, dict[str, Any], list[str]]]
 SCENARIOS: dict[str, Scenario] = {
     "routing_fanout": _routing_fanout,
     "session_relay": _session_relay,
     "authenticated_core": _authenticated_core,
+}
+
+# New hot-path scenarios (Wave A: roster.py, tenancy.py). These are NOT part
+# of the locked single-node composite (SCENARIO_WEIGHTS) and do not affect the
+# 95.31% claim. They run through the module APIs directly because S5 wiring
+# into core/server happens after this gate. Measured separately below.
+NEW_SCENARIOS: dict[str, Scenario] = {
+    "roster_routing": _roster_routing,
+    "tenancy_assert_scope": _tenancy_assert_scope,
 }
 
 
@@ -356,6 +470,26 @@ def _run_trial(base: Path, trial_index: int) -> tuple[dict[str, float], dict[str
     return timings, digests, secrets
 
 
+def _run_new_trial(base: Path, trial_index: int) -> tuple[dict[str, float], dict[str, str], list[str]]:
+    """Run the NEW_SCENARIOS (Wave A hot paths) for a single trial.
+
+    Kept separate from _run_trial so the locked scenarios remain
+    byte-comparable — new scenarios never feed into the composite.
+    """
+    timings: dict[str, float] = {}
+    digests: dict[str, str] = {}
+    secrets: list[str] = []
+    for name, scenario_fn in NEW_SCENARIOS.items():
+        scenario_root = base / f"trial-{trial_index:02d}" / name
+        scenario_root.mkdir(parents=True, exist_ok=True)
+        gc.collect()
+        elapsed_ms, semantics, scenario_secrets = scenario_fn(scenario_root)
+        timings[name] = elapsed_ms
+        digests[name] = _digest(semantics)
+        secrets.extend(scenario_secrets)
+    return timings, digests, secrets
+
+
 def _benchmark(runs: int) -> tuple[dict[str, Any], list[str]]:
     root = PROJECT_ROOT / ".tmp"
     root_existed = root.exists()
@@ -365,8 +499,11 @@ def _benchmark(runs: int) -> tuple[dict[str, Any], list[str]]:
         with tempfile.TemporaryDirectory(prefix="finalisma-perf-", dir=root) as temporary:
             base = Path(temporary)
             _run_trial(base, -1)  # warm-up; intentionally excluded
+            _run_new_trial(base, -1)  # warm-up new scenarios; excluded
             timing_runs: list[dict[str, float]] = []
             reference_digests: dict[str, str] | None = None
+            new_timing_runs: list[dict[str, float]] = []
+            new_reference_digests: dict[str, str] | None = None
             for trial_index in range(runs):
                 timings, digests, trial_secrets = _run_trial(base, trial_index)
                 if reference_digests is None:
@@ -375,6 +512,14 @@ def _benchmark(runs: int) -> tuple[dict[str, Any], list[str]]:
                     raise RuntimeError(f"semantic digest changed between trials: {digests!r}")
                 timing_runs.append(timings)
                 secrets.extend(trial_secrets)
+
+                new_timings, new_digests, new_secrets = _run_new_trial(base, trial_index)
+                if new_reference_digests is None:
+                    new_reference_digests = new_digests
+                elif new_digests != new_reference_digests:
+                    raise RuntimeError(f"new-scenario semantic digest changed between trials: {new_digests!r}")
+                new_timing_runs.append(new_timings)
+                secrets.extend(new_secrets)
     finally:
         if not root_existed:
             try:
@@ -383,6 +528,7 @@ def _benchmark(runs: int) -> tuple[dict[str, Any], list[str]]:
                 pass
 
     assert reference_digests is not None
+    assert new_reference_digests is not None
     scenario_summary: dict[str, dict[str, Any]] = {}
     for name, weight in SCENARIO_WEIGHTS.items():
         samples = [trial[name] for trial in timing_runs]
@@ -397,6 +543,17 @@ def _benchmark(runs: int) -> tuple[dict[str, Any], list[str]]:
         sum(SCENARIO_WEIGHTS[name] * trial[name] for name in SCENARIO_WEIGHTS)
         for trial in timing_runs
     ]
+
+    new_scenario_summary: dict[str, dict[str, Any]] = {}
+    for name in NEW_SCENARIOS:
+        samples = [trial[name] for trial in new_timing_runs]
+        new_scenario_summary[name] = {
+            "median_ms": round(statistics.median(samples), 3),
+            "p95_ms": round(_p95(samples), 3),
+            "samples_ms": [round(sample, 3) for sample in samples],
+            "semantic_digest": new_reference_digests[name],
+        }
+
     return (
         {
             "runs": runs,
@@ -404,6 +561,7 @@ def _benchmark(runs: int) -> tuple[dict[str, Any], list[str]]:
             "weighted_p95_ms": round(_p95(composite_samples), 3),
             "composite_samples_ms": [round(sample, 3) for sample in composite_samples],
             "scenarios": scenario_summary,
+            "new_scenarios": new_scenario_summary,
         },
         secrets,
     )
@@ -549,6 +707,30 @@ def _evaluate(path: Path, runs: int) -> int:
         if not digest_matches:
             failures.append(f"{name} semantic digest changed")
 
+    # New hot-path scenarios (Wave A). Measured and reported separately;
+    # they do not affect the locked composite or its pass/fail gate.
+    new_comparisons: dict[str, Any] = {}
+    baseline_new = baseline_benchmark.get("new_scenarios", {})
+    for name in NEW_SCENARIOS:
+        after = current["new_scenarios"][name]
+        entry: dict[str, Any] = {
+            "median_ms": after["median_ms"],
+            "p95_ms": after["p95_ms"],
+            "semantic_digest": after["semantic_digest"],
+        }
+        if name in baseline_new:
+            before = baseline_new[name]
+            median_change = _percent_change(float(before["median_ms"]), float(after["median_ms"]))
+            p95_change = _percent_change(float(before["p95_ms"]), float(after["p95_ms"]))
+            digest_matches = before["semantic_digest"] == after["semantic_digest"]
+            entry["baseline_median_ms"] = before["median_ms"]
+            entry["median_change_percent"] = round(median_change, 2)
+            entry["p95_change_percent"] = round(p95_change, 2)
+            entry["semantic_digest_matches"] = digest_matches
+            if not digest_matches:
+                failures.append(f"new scenario {name} semantic digest changed")
+        new_comparisons[name] = entry
+
     gates = _run_quality_gates()
     if not gates["tests"]["passed"]:
         failures.append("unit/site test gate failed")
@@ -569,6 +751,7 @@ def _evaluate(path: Path, runs: int) -> int:
         },
         "weighted_median_improvement_percent": round(improvement, 2),
         "scenarios": comparisons,
+        "new_scenarios": new_comparisons,
         "quality_gates": gates,
         "failures": failures,
     }

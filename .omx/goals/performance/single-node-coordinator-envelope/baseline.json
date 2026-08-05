@@ -58,7 +58,19 @@
       }
     },
     "weighted_median_ms": 1265.771,
-    "weighted_p95_ms": 1362.598
+    "weighted_p95_ms": 1362.598,
+    "new_scenarios": {
+      "roster_routing": {
+        "median_ms": 1110.39,
+        "p95_ms": 1218.702,
+        "semantic_digest": "9a14b9f2dc107773d9db53615e84fcf34a1dd6bc3526a7ae401e9a31512a750c"
+      },
+      "tenancy_assert_scope": {
+        "median_ms": 83.131,
+        "p95_ms": 89.626,
+        "semantic_digest": "52ada1213655dc9ae2e346060cc71ec8a2c2b477e131ed420d5cf625c13b739d"
+      }
+    }
   },
   "captured_at_epoch": 1785400410,
   "environment": {
