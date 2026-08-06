@@ -32,7 +32,7 @@ class QuietSiteHandler(SimpleHTTPRequestHandler):
             "/404.html",
             "/license.html",
             "/site.webmanifest",
-        } or route.startswith(("/assets/", "/blog/", "/docs/")):
+        } or route.startswith(("/assets/", "/blog/", "/docs/", "/_astro/")):
             relative = Path("site") / route.lstrip("/")
             allowed_root = root / "site"
         else:
@@ -64,7 +64,7 @@ class QuietSiteHandler(SimpleHTTPRequestHandler):
 
     def end_headers(self) -> None:
         route = urlsplit(self.path).path
-        if route.startswith("/assets/") or route in {"/styles.css", "/app.js"}:
+        if route.startswith(("/assets/", "/_astro/")) or route in {"/styles.css", "/app.js"}:
             self.send_header("Cache-Control", "public, max-age=3600")
         else:
             self.send_header("Cache-Control", "no-store")
