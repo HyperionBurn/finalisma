@@ -1,0 +1,78 @@
+---
+/**
+ * Header.astro — Sticky top nav with brand, section links, CTA, mobile toggle.
+ */
+---
+
+<header class="site-header" data-header>
+  <a class="brand" href="/">FINALISMA</a>
+  <nav class="nav-links" aria-label="Primary">
+    <a href="#problem">Problem</a>
+    <a href="#how">How it works</a>
+    <a href="#demo">Live demo</a>
+    <a href="#connect">Connect</a>
+    <a href="#pricing">Pricing</a>
+  </nav>
+  <a class="btn btn-accent" href="#pricing">Start free pilot</a>
+  <button class="nav-toggle" aria-expanded="false" aria-controls="mobile-nav" aria-label="Open menu">
+    <span></span>
+    <span></span>
+    <span></span>
+  </button>
+</header>
+
+<!-- Mobile nav -->
+<div class="mobile-nav" id="mobile-nav" aria-hidden="true" data-mobile-nav>
+  <button class="mobile-close" aria-label="Close menu">&times;</button>
+  <nav aria-label="Mobile">
+    <a href="#problem">Problem</a>
+    <a href="#how">How it works</a>
+    <a href="#demo">Live demo</a>
+    <a href="#connect">Connect</a>
+    <a href="#pricing">Pricing</a>
+    <a class="btn btn-accent" href="#pricing">Start free pilot</a>
+  </nav>
+</div>
+
+<script>
+  // Mobile nav toggle
+  (function () {
+    const toggle = document.querySelector('.nav-toggle');
+    const mobileNav = document.getElementById('mobile-nav');
+    const closeBtn = document.querySelector('.mobile-close');
+
+    function openNav() {
+      if (!mobileNav || !toggle) return;
+      mobileNav.classList.add('is-open');
+      mobileNav.setAttribute('aria-hidden', 'false');
+      toggle.setAttribute('aria-expanded', 'true');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeNav() {
+      if (!mobileNav || !toggle) return;
+      mobileNav.classList.remove('is-open');
+      mobileNav.setAttribute('aria-hidden', 'true');
+      toggle.setAttribute('aria-expanded', 'false');
+      document.body.style.overflow = '';
+    }
+
+    toggle?.addEventListener('click', () => {
+      const isOpen = toggle.getAttribute('aria-expanded') === 'true';
+      if (isOpen) closeNav();
+      else openNav();
+    });
+
+    closeBtn?.addEventListener('click', closeNav);
+
+    // Close on anchor click
+    mobileNav?.querySelectorAll('a').forEach((a) => {
+      a.addEventListener('click', closeNav);
+    });
+
+    // Close on Escape
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeNav();
+    });
+  })();
+</script>

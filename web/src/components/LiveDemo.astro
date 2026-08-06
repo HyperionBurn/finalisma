@@ -1,0 +1,140 @@
+---
+/**
+ * LiveDemo.astro — Terminal output, generated link, gate refusal.
+ * Seeded with REAL first lines from the protocol. No JS = static and readable.
+ */
+
+// Build the terminal text as a string to avoid Astro expression parsing issues
+const terminalLines = [
+  '$ python -B scripts/finalisma-mcp.py --transport stdio --team-id demo',
+  'finalisma-mcp/0.1.0 ready · 58 tools · protocol 2025-11-25',
+  '',
+  '> finalisma_register_agent(team_id="demo", agent_id="agent-a", role="architect")',
+  '  → {"agent_id": "agent-a", "status": "active", "actor_token": "fst_***"}',
+  '',
+  '> finalisma_room_create(team_id="demo", cap=4)',
+  '  → {"room_id": "room_8cc840e0fd9044b7ab2154af9e9c1222", "state": "forming"}',
+  '',
+  '> finalisma_room_join(room_id="room_8cc840e0fd9044b7ab2154af9e9c1222", agent_id="agent-a", consent=True)',
+  '  → {"status": "active", "cursor": 0}',
+  '',
+  '> finalisma_room_join(room_id="room_8cc840e0fd9044b7ab2154af9e9c1222", agent_id="agent-b", consent=True)',
+  '  → {"status": "active", "cursor": 0}',
+  '',
+  '> finalisma_claim_task(team_id="demo", agent_id="agent-b", task_id="task_44ce51e8c40e456a8d638e9f4b8c18c1")',
+  '  → {"status": "in_progress", "fencing_token": 1812495659374878}',
+  '',
+  '> finalisma_verify_task(task_id="...", fencing_token=1812495659374878, files=["handoff.txt"])',
+  '  → {"passed": true, "task_status": "verified"}',
+  '',
+  '> finalisma_claim_task(team_id="demo", agent_id="agent-a", task_id="task_44ce51e8c40e456a8d638e9f4b8c18c1", fencing_token=0)',
+  '  → <span class="terminal__refuse">REFUSED: stale fencing token</span>',
+];
+
+const terminalText = terminalLines.join('\n');
+---
+
+<section class="section demo" id="demo" aria-labelledby="demo-title" data-reveal-section>
+  <div class="section-shell">
+    <div class="section-head">
+      <p class="kicker reveal">Live demo</p>
+      <h2 id="demo-title" class="reveal">See it run.</h2>
+      <p class="section-lede reveal">
+        A real coordinator run — simulated here, with real protocol strings.
+        Watch the room form, agents join, and the evidence gate refuse stale work.
+      </p>
+    </div>
+
+    <div class="demo-shell" data-demo-shell>
+      <pre class="terminal" data-terminal role="log" aria-live="polite"><code set:html={terminalText}></code></pre>
+
+      <div class="demo-output">
+        <div class="link-out" data-link-output>
+          <span class="link-out__label">Room link</span>
+          <code class="link-out__code" data-generated-link>finalisma.test/r/room_8cc840e0fd9044b7ab2154af9e9c1222</code>
+          <button class="btn btn-sm" data-copy="link" type="button">Copy link</button>
+        </div>
+        <div class="gate" data-gate>
+          <span class="gate-label">Evidence gate</span>
+          <span class="gate-state" data-gate-state>armed</span>
+          <button class="btn btn-sm btn-ghost" data-trigger-refusal type="button">Trigger refusal</button>
+        </div>
+        <div class="copy-status" aria-live="polite" data-copy-status></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  // Copy to clipboard + gate trigger
+  (function () {
+    const copyBtn = document.querySelector('[data-copy="link"]');
+    const codeEl = document.querySelector('[data-generated-link]');
+    const statusEl = document.querySelector('[data-copy-status]');
+    const gateState = document.querySelector('[data-gate-state]');
+    const gateEl = document.querySelector('[data-gate]');
+    const triggerBtn = document.querySelector('[data-trigger-refusal]');
+
+    function setStatus(msg) {
+      if (statusEl) statusEl.textContent = msg;
+    }
+
+    async function copyText(text) {
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(text);
+          setStatus('Copied to clipboard.');
+          return;
+        }
+      } catch {}
+      // Fallback
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        setStatus('Copied to clipboard.');
+      } catch {
+        setStatus('Copy failed — select and copy manually.');
+      }
+    }
+
+    copyBtn?.addEventListener('click', () => {
+      const text = codeEl?.textContent?.trim() || '';
+      copyText(text);
+      copyBtn.classList.add('is-copied');
+      setTimeout(() => copyBtn.classList.remove('is-copied'), 1500);
+    });
+
+    function fireRefusal() {
+      if (gateState) {
+        gateState.textContent = 'REFUSED: stale fencing token';
+        gateState.setAttribute('data-state', 'refuse');
+      }
+      if (gateEl) {
+        gateEl.classList.add('is-refusing');
+        setTimeout(() => gateEl.classList.remove('is-refusing'), 600);
+      }
+      setStatus('Gate refused: stale fencing token.');
+      // Reset after delay
+      setTimeout(() => {
+        if (gateState) {
+          gateState.textContent = 'armed';
+          gateState.removeAttribute('data-state');
+        }
+      }, 3000);
+    }
+
+    triggerBtn?.addEventListener('click', () => {
+      if ((window as any).FinalismaScene?.fireGateRefusal) {
+        (window as any).FinalismaScene.fireGateRefusal();
+      } else {
+        fireRefusal();
+      }
+    });
+  })();
+</script>

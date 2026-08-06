@@ -1,79 +1,34 @@
 ---
 import RootLayout from '../layouts/RootLayout.astro';
+import Header from '../components/Header.astro';
 import HeroWebGL from '../components/HeroWebGL.astro';
+import ScrollController from '../components/ScrollController.tsx';
+import Problem from '../components/Problem.astro';
+import HowItWorks from '../components/HowItWorks.astro';
+import LiveDemo from '../components/LiveDemo.astro';
+import ConnectTiers from '../components/ConnectTiers.astro';
+import Proof from '../components/Proof.astro';
+import Pricing from '../components/Pricing.astro';
+import Footer from '../components/Footer.astro';
 import '../styles/global.css';
 ---
 
 <RootLayout>
   <a class="skip-link" href="#main">Skip to content</a>
 
-  <header class="site-header" data-header>
-    <a class="brand" href="/">FINALISMA</a>
-    <nav class="nav-links" aria-label="Primary">
-      <a href="#problem">Problem</a>
-      <a href="#how">How it works</a>
-      <a href="#demo">Live demo</a>
-      <a href="#connect">Connect</a>
-      <a href="#pricing">Pricing</a>
-    </nav>
-    <a class="btn btn-accent" href="#pricing">Start free pilot</a>
-    <button class="nav-toggle" aria-expanded="false" aria-controls="mobile-nav" aria-label="Open menu"><span></span></button>
-  </header>
+  <Header />
 
   <main id="main">
     <HeroWebGL />
+    <ScrollController client:only="visible" />
 
-    <!-- Scaffold placeholder content: test-critical strings (content lane refines copy) -->
-    <section id="proof" aria-label="Proof">
-      <ul class="proof-list" data-proof-list>
-        <li class="proof-item" data-proof-item>
-          <b class="proof-stat">9</b>
-          <span class="proof-label">9 documented MCP paths</span>
-        </li>
-        <li class="proof-item" data-proof-item>
-          <b class="proof-stat">1</b>
-          <span class="proof-label">1 verified Finalisma host integration</span>
-        </li>
-        <li class="proof-item" data-proof-item>
-          <b class="proof-stat">0</b>
-          <span class="proof-label">Provider credentials stored</span>
-        </li>
-        <li class="proof-item" data-proof-item>
-          <b class="proof-stat">0</b>
-          <span class="proof-label">Runtime dependencies (stdlib + SQLite)</span>
-        </li>
-        <li class="proof-item" data-proof-item>
-          <b class="proof-stat">1</b>
-          <span class="proof-label">Coordinator node (single-node preview)</span>
-        </li>
-      </ul>
-      <p class="proof-note">Next proof pair in the cohort: next proof pair, Claude Code + Cursor.</p>
-    </section>
-
-    <section id="demo" aria-label="Demo">
-      <a href="/demo.html">Watch the 42-second proof</a>
-      <div data-agent-readout aria-live="polite" role="status">Simulated account · no credentials · no live session</div>
-    </section>
-
-    <section id="pricing" aria-label="Pricing">
-      <p>$500 deposit credited toward the first month.</p>
-      <form data-cohort-form>
-        <label for="cohort-email">Email</label>
-        <input id="cohort-email" type="email" name="email" />
-      </form>
-    </section>
-
-    <section aria-label="MCP">
-      <p>MCP is the tool protocol your hosts already speak.</p>
-      <p data-sim-label>Simulated account · no credentials · no live session</p>
-    </section>
+    <Problem />
+    <HowItWorks />
+    <LiveDemo />
+    <ConnectTiers />
+    <Proof />
+    <Pricing />
   </main>
 
-  <footer class="site-footer" data-footer>
-    <span>Finalisma v0.1.0 · single-node preview</span>
-    <nav aria-label="Footer">
-      <a href="/docs/index.html">Docs</a>
-      <a href="/license.html">Licence</a>
-    </nav>
-  </footer>
+  <Footer />
 </RootLayout>
