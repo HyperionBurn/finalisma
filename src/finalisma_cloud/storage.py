@@ -50,6 +50,16 @@ class StorageTransaction(ABC):
     def rollback(self) -> None:
         ...
 
+    def executescript(self, sql: str) -> None:
+        """Run a multi-statement SQL script in this transaction.
+
+        SQLite's ``executescript`` implicitly commits any open transaction
+        first, so this is only used for schema bootstrap DDL (migrations,
+        test fixtures) — never for transactional business logic. Defaults to
+        unsupported; the SQLite backend implements it.
+        """
+        raise NotImplementedError("executescript not supported by this backend")
+
 
 class StorageBackend(ABC):
     """Transport-engine-agnostic persistence interface.
@@ -291,12 +301,33 @@ class SqliteWalBackend(StorageBackend):
             yield _SqliteTransaction(connection)
 
     def create_tenant(self, tenant_id: str, name: str, plan_id: str = "free") -> None:
+        self._ensure_cloud_schema()
         with self._transaction() as conn:
             conn.execute(
                 "INSERT INTO cloud_tenants(tenant_id, name, plan_id, created_at) VALUES (?, ?, ?, ?) "
                 "ON CONFLICT(tenant_id) DO NOTHING",
                 (tenant_id, name, plan_id, utc_now_iso()),
             )
+
+    def _ensure_cloud_schema(self) -> None:
+        """Idempotent base-schema bootstrap for a not-yet-initialized backend.
+
+        ``initialize()`` is normally called by the test seam. A caller that
+        reaches the backend directly (e.g. ``create_tenant`` as the first
+        operation on a fresh file) must not explode on a missing table.
+        """
+        try:
+            connection = self._connect(query_only=True)
+            try:
+                row = connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='cloud_tenants'"
+                ).fetchone()
+            finally:
+                connection.close()
+        except sqlite3.Error:
+            row = None
+        if row is None:
+            self.initialize()
 
     def get_tenant(self, tenant_id: str) -> dict[str, Any] | None:
         with self._connect(query_only=True) as conn:
@@ -500,3 +531,6 @@ class _SqliteTransaction(StorageTransaction):
 
     def rollback(self) -> None:
         self._conn.rollback()
+
+    def executescript(self, sql: str) -> None:
+        self._conn.executescript(sql)
