@@ -9,7 +9,7 @@
 
 ## 1. Framework decision
 
-**stdlib `http.server.ThreadingHTTPServer` + a hand-rolled router.** One line: the project's "dependency-free" promise is a product claim on the website, a framework would violate it for a surface that is pure request→HTML→response with no streaming-SSE requirement (event polling is client-side JS), so stdlib is honestly sufficient.
+**stdlib `http.server.ThreadingHTTPServer` + a hand-rolled router.** One line: stdlib `http.server` is sufficient for a surface that is pure request→HTML→response with no streaming-SSE requirement (event polling is client-side JS), so no framework dependency is honestly required.
 
 - No SPA, no build step, no bundler, no npm, no framework dependency.
 - Routes dispatch via a method+path match table (see §3) on a single `BaseHTTPRequestHandler` subclass.

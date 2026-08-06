@@ -35,7 +35,7 @@ conversation or sharing provider credentials.
 - A locked same-machine coordinator benchmark with a re-baselined (2026-08-05)
   weighted median of ~68.8 ms against the current extended harness, with
   matching semantic digests and a green regression gate.
-- A no-build launch site, interactive product simulation, quickstart, and
+- A static marketing site (Astro-built) and a dependency-free coordinator. The coordinator is Python stdlib-only, SQLite, no CDN. An interactive product simulation, quickstart, and
   reproducible 42-second MP4/WebM demo generated from a real local coordinator run.
 
 ## Who is using it?

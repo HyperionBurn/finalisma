@@ -27,7 +27,7 @@ checks, secret detection, HTTP origin/rate-limit behavior, tenancy isolation,
 roster routing, durable outbox, bridge adapters, SDK flows, and MCP handshake
 compatibility. A real launcher-level socket smoke test also passed health,
 MCP initialization, metrics, CORS preflight, and coordinator team scoping. The
-repository also contains a no-build landing page, deterministic browser demo,
+repository also contains a static marketing site (Astro-built from `web/`) and a dependency-free coordinator. A deterministic browser demo,
 real protocol smoke runner, three focused articles, and launch drafts.
 
 A locked same-machine performance gate also exercises 32-agent routing,

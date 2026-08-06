@@ -43,7 +43,7 @@ message payloads and it does not silently start or substitute model providers.
 
 ## Launch surface
 
-The repository includes a no-build landing page, deterministic pairing demo,
+The repository includes a static marketing site (built with Astro from `web/`) and a dependency-free coordinator. The coordinator you run is Python stdlib-only, SQLite, no CDN — that promise is unchanged. A deterministic pairing demo,
 three focused articles, and a launch kit for design partners, Product Hunt,
 and YC. Serve it locally with:
 

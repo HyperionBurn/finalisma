@@ -9,7 +9,7 @@ This document is the definition of done. Every wave is measured against it.
 
 ## 1. The architectural decision (settled — do not relitigate)
 
-The repository promises "dependency-free, Python stdlib only, SQLite, no CDN." A hosted
+The COORDINATOR plane promises "dependency-free, Python stdlib only, SQLite, no CDN." The marketing site is a separately built static bundle (Astro + R3F). A hosted
 multi-tenant SaaS needs shared storage, real auth, billing, and a web app. Those conflict.
 
 **Resolution — two planes.**
