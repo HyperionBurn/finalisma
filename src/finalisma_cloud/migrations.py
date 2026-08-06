@@ -189,8 +189,7 @@ CREATE TABLE IF NOT EXISTS cloud_identity_outbox (
     subject TEXT NOT NULL,
     body TEXT NOT NULL,
     created_at TEXT NOT NULL,
-    dispatched_at REAL,
-    FOREIGN KEY(tenant_id) REFERENCES cloud_tenants(tenant_id)
+    dispatched_at REAL
 );
 """
 
