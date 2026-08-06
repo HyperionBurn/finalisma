@@ -342,6 +342,73 @@ class LaunchSurfaceTests(unittest.TestCase):
             server.server_close()
             thread.join(timeout=5)
 
+    def test_server_serves_what_the_bundle_contains(self) -> None:
+        """The server must SERVE every asset the built index.html references.
+
+        This closes the class of bug where files exist on disk and the HTML
+        links them, but the server's route allowlist refuses them — producing
+        a 200 HTML page that renders unstyled/unhydrated in production while
+        the file-existence tests stay green. We start the REAL server, GET /,
+        parse the stylesheet link and every script/component URL out of the
+        returned HTML, and fetch each one over HTTP.
+        """
+        handler = lambda *args, **kwargs: QuietSiteHandler(*args, directory=str(ROOT), **kwargs)
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            host, port = server.server_address
+
+            def get_raw(path: str) -> tuple[int, bytes, dict[str, str]]:
+                connection = HTTPConnection(host, port, timeout=10)
+                connection.request("GET", path)
+                response = connection.getresponse()
+                body = response.read()
+                headers = {k.lower(): v for k, v in response.getheaders()}
+                status = response.status
+                connection.close()
+                return status, body, headers
+
+            status, home_body, _ = get_raw("/")
+            self.assertEqual(status, 200)
+            home = home_body.decode("utf-8", errors="replace")
+
+            # Every stylesheet the page links.
+            stylesheets = re.findall(r'<link[^>]*rel=["\']stylesheet["\'][^>]*href=["\']([^"\']+)["\']', home)
+            stylesheets += re.findall(r'<link[^>]*href=["\']([^"\']+\.css)["\'][^>]*rel=["\']stylesheet["\']', home)
+            self.assertTrue(stylesheets, "built index.html must link at least one stylesheet")
+            for href in dict.fromkeys(stylesheets):
+                with self.subTest(asset=href):
+                    status, body, headers = get_raw(href)
+                    self.assertEqual(status, 200, f"stylesheet {href} refused by server")
+                    content_type = headers.get("content-type", "")
+                    self.assertTrue(
+                        content_type.startswith("text/css"),
+                        f"stylesheet {href} served as {content_type!r}",
+                    )
+                    self.assertGreater(len(body), 100, f"stylesheet {href} is empty")
+
+            # Every module script the page references — inline scripts have no
+            # src, but Astro islands reference /_astro/*.js via component-url
+            # and renderer-url attributes.
+            script_urls = re.findall(r'src=["\']([^"\']+\.js)["\']', home)
+            script_urls += re.findall(r'(?:component-url|renderer-url)=["\']([^"\']+\.js)["\']', home)
+            self.assertTrue(script_urls, "built index.html must reference at least one JS module")
+            for url in dict.fromkeys(script_urls):
+                with self.subTest(asset=url):
+                    status, body, headers = get_raw(url)
+                    self.assertEqual(status, 200, f"script {url} refused by server")
+                    content_type = headers.get("content-type", "")
+                    self.assertTrue(
+                        content_type.startswith("text/javascript") or content_type.startswith("application/javascript"),
+                        f"script {url} served as {content_type!r}",
+                    )
+                    self.assertGreater(len(body), 50, f"script {url} is empty")
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
 
 class TestCountSyncTests(unittest.TestCase):
     """Single source of truth for the published test count.
