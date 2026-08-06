@@ -36,7 +36,9 @@ class LaunchSurfaceTests(unittest.TestCase):
     def test_landing_page_has_truthful_semantic_launch_surface(self) -> None:
         html = (SITE / "index.html").read_text(encoding="utf-8")
         self.assertEqual(len(re.findall(r"<h1[\s>]", html)), 1)
-        self.assertIn("One incident. Two agents. One account of what happened.", html)
+        # Wave D3 replacement invariant: the headline now reflects the product
+        # (one link admits many agents), not the old two-party "incident" framing.
+        self.assertIn("One link. Many agents. All governed.", html)
         self.assertIn("9 documented MCP paths", html)
         self.assertIn("1 verified Finalisma host integration", html)
         self.assertIn("next proof pair, Claude Code + Cursor", html)
@@ -59,50 +61,85 @@ class LaunchSurfaceTests(unittest.TestCase):
 
     def test_progressive_enhancement_and_gated_story_cta(self) -> None:
         html = (SITE / "index.html").read_text(encoding="utf-8")
-        css = (SITE / "styles.css").read_text(encoding="utf-8")
-        self.assertIn("document.documentElement.classList.add('js')", html)
-        self.assertIn("[hidden] { display: none !important; }", css)
-        self.assertIn(".reveal { opacity: 1; transform: none; }", css)
-        self.assertIn(".js .reveal", css)
-        self.assertRegex(html, r"data-story-next[^>]*hidden")
-        self.assertIn("data-recon-plane", html)
-        self.assertIn("perspective: 1500px", css)
-        self.assertIn("transform-style: preserve-3d", css)
+        # The marketing page's real CSS is the Astro-built bundle that index.html
+        # links; `site/styles.css` is the preserved legacy file still used by the
+        # guide/blog pages. Assert the progressive-enhancement rules against the
+        # stylesheet the page ACTUALLY loads.
+        match = re.search(r'<link rel="stylesheet" href="([^"]+\.css)">', html)
+        assert match, "built index.html must link its stylesheet"
+        css_path = (SITE / match.group(1).lstrip("/")).resolve()
+        self.assertTrue(css_path.is_relative_to(SITE.resolve()), f"css escapes site: {css_path}")
+        css = css_path.read_text(encoding="utf-8")
+        # Astro minifies the inline classList script (single vs double quotes).
+        self.assertRegex(html, r"classList\.add\(['\"]js['\"]\)")
+        # Tailwind 4 may emit the modernized selector
+        # `[hidden]:where(:not([hidden=until-found]))` and minify the rules.
+        self.assertRegex(
+            css,
+            r"\[hidden\][^{]*\{[^}]*display:\s*none[^}]*\}",
+        )
+        self.assertRegex(css, r"display:\s*none!important|display:\s*none\s+!important")
+        # Progressive enhancement invariant: .reveal is visible by default
+        # (no-JS / reduced-motion) and only gated under `.js`.
+        self.assertRegex(css, r"\.reveal\{opacity:\s*1[^}]*transform:\s*none")
+        self.assertRegex(css, r"\.js \.reveal")
+        self.assertRegex(css, r"\.js \.reveal\.in\{opacity:\s*1[^}]*transform:\s*none")
+        # Wave D3 replacement invariant: the JS-gated hero canvas is always
+        # mounted server-side and carries a ≥5-row text fallback, so no-JS and
+        # screen readers see the full event sequence (old `data-story-next`
+        # gated-CTA + `data-recon-plane` hooks are gone).
+        self.assertIn("data-agent-canvas", html)
+        fallback = re.search(r'<ol[^>]*data-agent-events-fallback[^>]*>(.*?)</ol>', html, re.S)
+        self.assertIsNotNone(fallback, "hero must render a text-alternative event list")
+        self.assertGreaterEqual(len(re.findall(r"<li", fallback.group(1))), 5)
+        self.assertIn("aria-live", html)
+
+    def test_marketing_site_does_not_claim_dependency_free_website(self) -> None:
+        """The marketing site is built with a toolchain (Astro/R3F/npm).
+
+        It must NOT claim to be 'no-build', 'dependency-free', or 'no CDN' as a
+        website property. The dependency-free promise applies to the COORDINATOR
+        only, and where it appears on the site it must be scoped as such.
+        """
+        html = (SITE / "index.html").read_text(encoding="utf-8")
+        lowered = html.lower()
+        self.assertNotIn("no build step", lowered)
+        self.assertNotIn("no-build landing page", lowered)
+        self.assertNotIn("dependency-free website", lowered)
+        self.assertNotIn("dependency-free site", lowered)
+        self.assertNotIn("no cdn", lowered)
+        # If a dependency-free claim appears, it must be scoped to the coordinator.
+        if "dependency-free" in lowered:
+            self.assertIn("coordinator", lowered)
 
     def test_unposted_entries_never_rely_on_colour_alone(self) -> None:
-        """Colour-alone accessibility invariant, re-expressed for FIELD NOTES.
+        """Colour-alone accessibility invariant, re-expressed for Wave D3.
 
-        The original DOUBLE ENTRY design used ``<li class="entry">`` rows with
-        ``.entry-state`` spans. FIELD NOTES replaced those with two colour-coded
-        list structures that carry the ASSERT/PROVE prove-on-cover role:
+        The DOUBLE ENTRY design used ``<li class="entry">`` rows with
+        ``.entry-state`` spans; FIELD NOTES used ``.keylist``/``.factlist`` rows.
+        Wave D3 replaced those with two colour-coded structures that carry the
+        ASSERT/PROVE semantic roles:
 
-        * ``.keylist li`` (7 items) — ``.kn`` is coloured; ``.kt`` is the
-          adjacent textual step name.
-        * ``.factlist li`` (4 items) — ``.flabel`` is coloured; the adjacent
-          ``<p>`` is the textual description.
+        * ``[data-proof-item]`` (5 items) — ``.proof-stat`` is coloured; the
+          adjacent ``.proof-label`` is the textual claim.
+        * ``[data-step]`` (4 items) — ``.step-num`` is coloured; the adjacent
+          ``<h3>`` is the textual step name.
 
         Invariant: every such row must carry readable text next to its
         colour-coded marker — colour never carries meaning alone.
-        7 + 4 = 11, matching the original threshold.
+        5 + 4 = 9 rows (threshold adjusted from 11 to the V2 structure's count;
+        the invariant intent is unchanged).
         """
         html = (SITE / "index.html").read_text(encoding="utf-8")
-        keylist_items = re.findall(
-            r'<ol class="keylist">(.*?)</ol>', html, re.S
-        )
-        factlist_items = re.findall(
-            r'<ul class="factlist">(.*?)</ul>', html, re.S
-        )
-        key_rows = re.findall(r'<li[^>]*>(.*?)</li>', keylist_items[0], re.S) if keylist_items else []
-        fact_rows = re.findall(r'<li[^>]*>(.*?)</li>', factlist_items[0], re.S) if factlist_items else []
-        entries = key_rows + fact_rows
-        self.assertGreaterEqual(len(entries), 11)
+        proof_items = re.findall(r'<li[^>]*data-proof-item[^>]*>(.*?)</li>', html, re.S)
+        steps = re.findall(r'<li[^>]*data-step[^>]*>(.*?)</li>', html, re.S)
+        entries = proof_items + steps
+        self.assertGreaterEqual(len(entries), 9)
         for entry in entries:
             with self.subTest(entry=entry[:60]):
-                # Each row must have readable text beyond the colour-coded
-                # marker — either a .kt (key title) or a <p> description.
-                has_kt = re.search(r'<span class="kt">([^<]+)</span>', entry)
-                has_para = re.search(r'<p[^>]*>([^<]+)</p>', entry)
-                textual_marker = has_kt or has_para
+                has_label = re.search(r'class="proof-label"[^>]*>([^<]+)</span>', entry)
+                has_heading = re.search(r'<h3[^>]*>([^<]+)</h3>', entry)
+                textual_marker = has_label or has_heading
                 self.assertIsNotNone(
                     textual_marker,
                     "colour-coded row has no textual state/description marker",
@@ -270,7 +307,7 @@ class LaunchSurfaceTests(unittest.TestCase):
 
             status, home, _ = get("/")
             self.assertEqual(status, 200)
-            self.assertIn("One incident. Two agents.", home)
+            self.assertIn("One link. Many agents.", home)
 
             status, guide, _ = get("/docs/compatibility.html")
             self.assertEqual(status, 200)
