@@ -1,0 +1,414 @@
+---
+/**
+ * HeroWebGL.astro — Server-rendered hero markup + R3F island mount.
+ * Renders full hero copy, static poster SVG, seed events, and the canvas wrap.
+ * The R3F island is mounted via client:only="visible".
+ */
+import SceneCanvas from './scene/SceneCanvas.tsx';
+
+const seedEvents = [
+  { seq: '001', kind: 'join', agent: 'agent-a', msg: 'joined the room' },
+  { seq: '002', kind: 'join', agent: 'agent-b', msg: 'joined the room' },
+  { seq: '003', kind: 'assert', agent: 'agent-a', msg: 'asserted scope: handoff.txt' },
+  { seq: '004', kind: 'prove', agent: 'agent-b', msg: 'claimed task (fencing 1812495659374878)' },
+  { seq: '005', kind: 'refuse', agent: 'agent-a', msg: 'stale_fencing_token (refused)' },
+];
+
+const beatCaptions = [
+  'One link.',
+  'Many agents join.',
+  'They all communicate.',
+  'The gate refuses stale work.',
+  'Evidence recorded.',
+  'Connect your agent.',
+];
+---
+
+<section class="hero" id="hero" aria-label="Finalisma — live product preview">
+  <div class="hero-copy">
+    <p class="kicker reveal">Agent coordination · evidence-gated</p>
+    <h1 class="headline reveal" aria-label="One link. Many agents. All governed.">
+      One link.<span class="accent">Many agents.</span><span class="accent-2">All governed.</span>
+    </h1>
+    <p class="lede reveal">Open one room, share it with every agent on the task, and they all communicate — with ordered delivery, scoped consent, and an evidence gate that refuses stale or out-of-scope work. Play it live below.</p>
+    <div class="hero-ctas reveal">
+      <a class="btn btn-accent" href="#connect">Connect an agent</a>
+      <a class="btn btn-ghost" href="#pricing">Start free pilot</a>
+    </div>
+    <ul class="hero-stats" data-stat-strip>
+      <li><b data-count-to="9">0</b><span>Documented MCP paths</span></li>
+      <li><b>1</b><span>Verified host (OpenCode 1.18.13)</span></li>
+      <li><b>0</b><span>Provider credentials stored</span></li>
+    </ul>
+  </div>
+
+  <div class="hero-canvas" data-agent-canvas-wrap>
+    <!-- Static poster SVG (always rendered, shown if WebGL fails) -->
+    <div class="canvas-poster" data-agent-poster aria-hidden="false">
+      <svg viewBox="0 0 600 400" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;">
+        <rect width="600" height="400" fill="#0E0F12"/>
+        <!-- Room node (center) -->
+        <rect x="270" y="170" width="60" height="60" rx="8" fill="#5B3DF0" opacity="0.8"/>
+        <text x="300" y="205" text-anchor="middle" fill="#F2F3F5" font-size="12" font-family="monospace">ROOM</text>
+        <!-- Agent nodes -->
+        <rect x="100" y="120" width="40" height="40" rx="6" fill="#F4756B" opacity="0.8"/>
+        <text x="120" y="145" text-anchor="middle" fill="#0E0F12" font-size="11" font-family="monospace">A</text>
+        <rect x="80" y="240" width="40" height="40" rx="6" fill="#E0B34A" opacity="0.8"/>
+        <text x="100" y="265" text-anchor="middle" fill="#0E0F12" font-size="11" font-family="monospace">B</text>
+        <rect x="40" y="160" width="40" height="40" rx="6" fill="#5B3DF0" opacity="0.8"/>
+        <text x="60" y="185" text-anchor="middle" fill="#F2F3F5" font-size="11" font-family="monospace">C</text>
+        <rect x="140" y="60" width="40" height="40" rx="6" fill="#5B3DF0" opacity="0.8"/>
+        <text x="160" y="85" text-anchor="middle" fill="#F2F3F5" font-size="11" font-family="monospace">D</text>
+        <rect x="50" y="280" width="40" height="40" rx="6" fill="#F4756B" opacity="0.8"/>
+        <text x="70" y="305" text-anchor="middle" fill="#0E0F12" font-size="11" font-family="monospace">E</text>
+        <!-- Edges -->
+        <line x1="140" y1="140" x2="270" y2="200" stroke="#9D82FF" stroke-width="1" opacity="0.4"/>
+        <line x1="120" y1="260" x2="270" y2="200" stroke="#9D82FF" stroke-width="1" opacity="0.4"/>
+        <line x1="80" y1="180" x2="270" y2="200" stroke="#9D82FF" stroke-width="1" opacity="0.4"/>
+        <line x1="180" y1="80" x2="270" y2="170" stroke="#9D82FF" stroke-width="1" opacity="0.4"/>
+        <line x1="90" y1="300" x2="270" y2="210" stroke="#9D82FF" stroke-width="1" opacity="0.4"/>
+        <!-- Title -->
+        <text x="300" y="30" text-anchor="middle" fill="#F2F3F5" font-size="16" font-family="monospace">Finalisma — Live Preview</text>
+        <text x="300" y="370" text-anchor="middle" fill="#6B7280" font-size="10" font-family="monospace">Simulated demo · no credentials · no live session</text>
+      </svg>
+    </div>
+
+    <!-- R3F island (client:only) -->
+    <SceneCanvas client:only="visible" />
+
+    <!-- Fallback event list (always present for no-JS) -->
+    <ol class="evt-fallback" data-agent-events-fallback aria-hidden="false">
+      {seedEvents.map((e) => (
+        <li class={`evt evt--${e.kind}`} data-evt-kind={e.kind} data-evt-seq={e.seq}>
+          <span class="evt-seq">{e.seq}</span>
+          <span class="evt-agent">{e.agent}</span>
+          <span class="evt-msg">{e.msg}</span>
+        </li>
+      ))}
+    </ol>
+
+    <!-- Live event log (driven by scene) -->
+    <ol class="agent-events" data-agent-events aria-label="Live event log" aria-live="polite">
+      <!-- Populated by scene via CustomEvent -->
+    </ol>
+
+    <!-- Readout -->
+    <div class="canvas-readout" role="status" aria-live="polite" data-agent-readout>
+      Simulated demo · no credentials · no live session
+    </div>
+
+    <!-- Beat caption -->
+    <div class="beat-caption" data-beat-caption>One link.</div>
+
+    <!-- Gate -->
+    <div class="gate" data-gate>
+      <span class="gate-label">Evidence gate</span>
+      <span class="gate-state" data-gate-state>armed</span>
+    </div>
+  </div>
+</section>
+
+<style>
+  .hero {
+    position: relative;
+    min-height: 100vh;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+    padding: 6rem 2rem 2rem;
+    background: var(--color-ink);
+    color: var(--color-text-inv);
+  }
+  .hero-copy {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 1.25rem;
+  }
+  .kicker {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--color-accent-dark);
+    font-weight: 700;
+  }
+  .headline {
+    font-size: clamp(2.5rem, 6.5vw, 5.5rem);
+    font-weight: 800;
+    line-height: 0.95;
+    letter-spacing: -0.02em;
+    margin: 0;
+  }
+  .accent { color: var(--color-accent-dark); }
+  .accent-2 { color: var(--color-text-inv); }
+  .lede {
+    font-size: clamp(1.1rem, 2vw, 1.5rem);
+    line-height: 1.5;
+    color: var(--color-text-muted-inv);
+    max-width: 30ch;
+  }
+  .hero-ctas {
+    display: flex;
+    gap: 1rem;
+    margin-top: 0.5rem;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.75rem 1.5rem;
+    border-radius: 6px;
+    font-weight: 600;
+    text-decoration: none;
+    font-size: 0.95rem;
+    transition: transform 0.15s, background 0.15s;
+  }
+  .btn-accent {
+    background: var(--color-accent);
+    color: var(--color-accent-ink);
+  }
+  .btn-accent:hover {
+    background: var(--color-accent-2);
+    transform: translateY(-1px);
+  }
+  .btn-ghost {
+    background: transparent;
+    color: var(--color-text-inv);
+    border: 1px solid var(--color-hairline-inv);
+  }
+  .btn-ghost:hover {
+    border-color: var(--color-accent-dark);
+    color: var(--color-accent-dark);
+  }
+  .hero-stats {
+    display: flex;
+    gap: 2rem;
+    list-style: none;
+    padding: 0;
+    margin: 1.5rem 0 0;
+  }
+  .hero-stats li {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .hero-stats b {
+    font-size: clamp(1.5rem, 4vw, 2.5rem);
+    font-weight: 800;
+    color: var(--color-text-inv);
+  }
+  .hero-stats span {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--color-text-muted-inv);
+  }
+  .hero-canvas {
+    position: relative;
+    min-height: 500px;
+    border-radius: 16px;
+    overflow: hidden;
+    background: var(--color-ink-2);
+    border: 1px solid var(--color-hairline-inv);
+  }
+  .canvas-poster {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+  }
+  .canvas-readout {
+    position: absolute;
+    bottom: 0.75rem;
+    left: 0.75rem;
+    font-size: 0.7rem;
+    color: var(--color-text-muted-inv);
+    font-family: var(--font-mono);
+    z-index: 10;
+  }
+  .beat-caption {
+    position: absolute;
+    top: 0.75rem;
+    left: 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--color-accent-dark);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    z-index: 10;
+  }
+  .gate {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    font-size: 0.7rem;
+    font-family: var(--font-mono);
+    z-index: 10;
+  }
+  .gate-label {
+    color: var(--color-text-muted-inv);
+  }
+  .gate-state {
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    background: rgba(74, 222, 128, 0.15);
+    color: var(--color-success);
+    font-weight: 600;
+  }
+  .gate-state[data-state="refuse"],
+  .gate.is-refusing .gate-state {
+    background: rgba(248, 113, 113, 0.2);
+    color: var(--color-refuse);
+  }
+  .agent-events {
+    position: absolute;
+    bottom: 2.5rem;
+    left: 0.75rem;
+    right: 0.75rem;
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    z-index: 10;
+    max-height: 200px;
+    overflow-y: auto;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+  }
+  .evt-fallback {
+    position: absolute;
+    bottom: 2.5rem;
+    left: 0.75rem;
+    right: 0.75rem;
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    z-index: 9;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+  }
+  .evt {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.2rem 0;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity 0.2s, transform 0.2s;
+  }
+  .evt.in {
+    opacity: 1;
+    transform: none;
+  }
+  .evt-seq {
+    color: var(--color-text-muted-inv);
+    min-width: 2rem;
+  }
+  .evt-agent {
+    color: var(--color-accent-dark);
+    min-width: 4rem;
+  }
+  .evt-msg {
+    color: var(--color-text-inv);
+  }
+  .evt--refuse .evt-msg { color: var(--color-refuse); }
+  .evt--assert .evt-msg { color: var(--color-assert); }
+  .evt--prove .evt-msg { color: var(--color-prove); }
+  .evt--join .evt-msg { color: var(--color-success); }
+
+  @media (max-width: 768px) {
+    .hero {
+      grid-template-columns: 1fr;
+      padding: 5rem 1rem 1rem;
+    }
+    .hero-canvas {
+      min-height: 400px;
+    }
+  }
+</style>
+
+<script>
+  // DOM bridge listener — subscribes to agent-event CustomEvents
+  // and updates the event log, gate state, beat caption, readout.
+  (function () {
+    const eventsList = document.querySelector('[data-agent-events]');
+    const fallbackList = document.querySelector('[data-agent-events-fallback]');
+    const gateState = document.querySelector('[data-gate-state]');
+    const gateEl = document.querySelector('[data-gate]');
+    const beatCaption = document.querySelector('[data-beat-caption]');
+    const readout = document.querySelector('[data-agent-readout]');
+
+    const beatCaptions = [
+      'One link.',
+      'Many agents join.',
+      'They all communicate.',
+      'The gate refuses stale work.',
+      'Evidence recorded.',
+      'Connect your agent.',
+    ];
+
+    let seqCounter = 6; // After seed events
+
+    function appendEvent(kind, agent, msg, seq) {
+      if (!eventsList) return;
+      const li = document.createElement('li');
+      li.className = 'evt evt--' + kind;
+      li.setAttribute('data-evt-kind', kind);
+      li.setAttribute('data-evt-seq', String(seq || seqCounter));
+      li.innerHTML =
+        '<span class="evt-seq">' + String(seq || seqCounter).padStart(3, '0') + '</span>' +
+        '<span class="evt-agent">' + agent + '</span>' +
+        '<span class="evt-msg">' + msg + '</span>';
+      eventsList.appendChild(li);
+      // Trigger animation
+      requestAnimationFrame(() => li.classList.add('in'));
+
+      // Mirror to fallback
+      if (fallbackList) {
+        const fbLi = li.cloneNode(true);
+        fbLi.classList.add('in');
+        fallbackList.appendChild(fbLi);
+      }
+
+      // Limit visible rows
+      while (eventsList.children.length > 12) {
+        eventsList.removeChild(eventsList.firstChild);
+      }
+    }
+
+    window.addEventListener('agent-event', function (e) {
+      const detail = e.detail;
+      if (!detail) return;
+
+      if (detail.kind === 'refuse') {
+        appendEvent('refuse', detail.agent, detail.msg, detail.seq);
+        // Update gate state
+        if (gateState) {
+          gateState.textContent = 'REFUSED: stale fencing token';
+          gateState.setAttribute('data-state', 'refuse');
+        }
+        if (gateEl) {
+          gateEl.classList.add('is-refusing');
+          setTimeout(() => gateEl.classList.remove('is-refusing'), 600);
+        }
+        if (readout) readout.textContent = 'REFUSED: stale fencing token';
+      } else if (detail.kind === 'beat') {
+        if (beatCaption && beatCaptions[detail.beat - 1]) {
+          beatCaption.textContent = beatCaptions[detail.beat - 1];
+        }
+        if (readout) readout.textContent = detail.msg || 'Simulated demo · no credentials · no live session';
+      } else {
+        appendEvent(detail.kind, detail.agent, detail.msg, detail.seq);
+      }
+    });
+
+    // Click gate to trigger refusal
+    if (gateEl) {
+      gateEl.addEventListener('click', function () {
+        if (window.FinalismaScene && typeof window.FinalismaScene.fireGateRefusal === 'function') {
+          window.FinalismaScene.fireGateRefusal();
+        }
+      });
+      gateEl.style.cursor = 'pointer';
+    }
+  })();
+</script>

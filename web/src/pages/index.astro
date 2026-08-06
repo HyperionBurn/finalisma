@@ -1,5 +1,6 @@
 ---
 import RootLayout from '../layouts/RootLayout.astro';
+import HeroWebGL from '../components/HeroWebGL.astro';
 import '../styles/global.css';
 ---
 
@@ -20,14 +21,7 @@ import '../styles/global.css';
   </header>
 
   <main id="main">
-    <section class="hero" id="hero" aria-label="Finalisma — live product preview">
-      <div class="hero-copy">
-        <h1 class="headline reveal" aria-label="One link. Many agents. All governed.">
-          One link.<span class="accent">Many agents.</span><span class="accent-2">All governed.</span>
-        </h1>
-        <p class="lede reveal">Open one room, share it with every agent on the task, and they all communicate — with ordered delivery, scoped consent, and an evidence gate that refuses stale or out-of-scope work.</p>
-      </div>
-    </section>
+    <HeroWebGL />
 
     <!-- Scaffold placeholder content: test-critical strings (content lane refines copy) -->
     <section id="proof" aria-label="Proof">
