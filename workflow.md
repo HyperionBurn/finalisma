@@ -153,7 +153,7 @@ Status: **CONFIRMED** (reproduced) · **DISPROVEN** (tested, false — kept so n
 | 7.7 | `Start-Process -WindowStyle Hidden` + redirects hangs | — | — | **SUPERSEDED BY 7.12** — was a plausible but wrong theory; avoid the class (7.12) rather than debug it |
 | 7.8 | Suite fails ~1-in-N, passes on re-run | `close()` only closed **idle** pooled connections; in-flight ones kept the SQLite file locked on Windows | Track live connections, close all | CONFIRMED — was a real production shutdown bug |
 | 7.9 | Guidance outlives the code | Docs edited in a different commit from the code | Same commit, always | CONFIRMED |
-| 7.10 | Perf gate red under machine load | Contention, not code | Do **not** re-baseline to force green; report honestly | OPEN |
+| 7.10 | Perf gate red under machine load | Contention, not code | Do **not** re-baseline to force green; report honestly | OPEN — reproduced again Wave G (2026-08-06: weighted_median_improvement_percent -74.63, but `semantic_digest_matches: true` for all three scenarios; 390 tests + smoke green) |
 | 7.11 | Run hangs AFTER completing and committing its work | Transport/pipe artifact at teardown (earlier theory) | Per-step commits make the hang harmless — nothing is lost | SUPERSEDED BY 7.12 |
 | 7.12 | Run hangs with no error, work already committed | A malformed path resolved OUTSIDE the project (e.g. `C:\Users\Documents\...` missing the `Wasif` segment); `external_directory` is `ask`, and a non-interactive run has no approver → waits forever | Always build absolute paths from the literal string `C:\Users\Wasif\Documents\Multiplayer-AI-isolated`; never assemble a path by concatenation that could drop a segment; run with `--auto` so prompts cannot block | **CONFIRMED** — supersedes 7.1, 7.2, 7.7 |
 

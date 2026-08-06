@@ -66,6 +66,16 @@ These were real defects and are all fixed. Listed so nobody spends a lane re-dis
   idempotent migrations that upgrade a real v3 coordinator DB in place, plan-driven quotas and
   rate limits, and real crash-kill durability tests. Design: `docs/CLOUD_SPINE_DESIGN.md`. The
   coordinator plane (`finalisma_mcp`) is untouched and stays stdlib-only.
+- Wave G Identity is implemented (`src/finalisma_cloud/identity/`): accounts (scrypt, per-user
+  salt, constant-time compare, timing-invariant unknown-email auth), sessions (opaque `fss_`
+  tokens, SHA-256 at rest, rotation on role change, revoke/revoke-all), orgs (owner/admin/member,
+  org IS a tenant), invites (expiring single-use role-scoped `fiv_` tokens, email-locked, no
+  self-escalation), delivered through a pluggable `Mailer` with `LocalOutboxMailer` writing to
+  disk. Role enforcement is defence in depth: `SessionContext.require_role` at the service layer
+  PLUS `context.require_db_role` re-deriving the actor's role from `cloud_identity_members`
+  (layer 2), so a hand-forged SessionContext still cannot act above its DB role. Migrations
+  `cloud_002..cloud_006` are appended to the existing registry. 58 integration tests drive the
+  real API. Design: `docs/IDENTITY_DESIGN.md`.
 
 ## The one open structural gap
 

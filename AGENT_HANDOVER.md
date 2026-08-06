@@ -157,6 +157,17 @@ Rules that must survive future edits:
   real v3 coordinator DB in place (additive only, never touches agent_credentials).
   `quotas.py`/`rate_limit.py` are plan-driven seams (Wave I adds billing). Design:
   `docs/CLOUD_SPINE_DESIGN.md`. This plane MAY take pinned deps; v1 uses none (stdlib).
+- `src/finalisma_cloud/identity/` — the Wave G identity plane (stdlib only). `accounts.py`
+  (scrypt password hashing, per-user salt, constant-time compare, timing-invariant unknown-email
+  auth, single-use verify/reset tokens), `sessions.py` (opaque `fss_` tokens, SHA-256 at rest,
+  expiry, revoke / revoke-all, rotation on role change), `orgs.py` (membership + owner/admin/member;
+  org IS a tenant — no second boundary), `invites.py` (expiring single-use role-scoped `fiv_` tokens,
+  email-locked, no self-escalation), `mailer.py` (`Mailer` ABC + `LocalOutboxMailer` → outbox table),
+  `tokens.py` (AuthError + CSPRNG token gen/hash), `context.py` (`SessionContext.require_role` =
+  layer 1; `require_db_role` re-derives the actor's role from `cloud_identity_members` = layer 2,
+  so a forged SessionContext still cannot act above its DB role). Migrations `cloud_002..cloud_006`
+  add accounts/sessions/members/invites/outbox. 58 Wave G integration tests drive the real API.
+  Design: `docs/IDENTITY_DESIGN.md`.
 - `scripts/finalisma-mcp.py` — no-install launcher that adds `src/` to the import
   path and starts the MCP server.
 - `scripts/finalisma-smoke.py` — real in-process protocol smoke: pairing preview,
@@ -485,6 +496,25 @@ will keep temporary SQLite files locked while pooled connections remain open.
 - **Cloud quotas/rate limits are plan-driven and atomic.** Limits resolve from the tenant's plan
   (`PLANS`), never hardcoded; quota checks and mutations run in one transaction. Wave I swaps in
   real billing without touching enforcement.
+- **Identity secrets are hashed, never stored/logged (Wave G).** Passwords are scrypt-hashed with a
+  per-user 32-byte salt and compared with `hmac.compare_digest`; session (`fss_`), verification
+  (`fvt_`), reset (`frt_`), and invite (`fiv_`) tokens are CSPRNG-generated, returned once, and only
+  their SHA-256 digests are persisted. Unknown-email auth runs the same scrypt cost against a dummy
+  hash (no timing-based enumeration); reset revokes ALL of the account's sessions in the same
+  transaction. There are zero `print`/`logging` calls in the identity plane, and errors/responses
+  never carry a raw secret (`tests/test_identity_negatives.py` #26-#28 assert this).
+- **Roles are enforced with defence in depth (Wave G).** Layer 1: `SessionContext.require_role` at
+  the service boundary (role comes from the DB-issued session, never an argument). Layer 2:
+  `context.require_db_role` re-derives the actor's role from `cloud_identity_members` inside each
+  gated orgs/invites operation, so a hand-forged `SessionContext(role="owner")` is still refused
+  (proven by `tests/test_identity_invites.py::test_fabricated_ctx_role_cannot_create_invite`).
+  Service methods take `ctx` as a required positional arg and raise `TypeError` for a non-context
+  value — there is no `role` parameter to fabricate.
+- **Invites are single-use, role-scoped, and cannot self-escalate (Wave G).** An invite's granted
+  role is EXACTLY the invite row's role (`admin`/`member`, never `owner`); the accepter never
+  supplies a role. Wrong email → `invite_mismatch`, double redeem → `invite_consumed` (atomic
+  conditional UPDATE), expired/unknown → `invite_expired` (uniform, not a token oracle). The
+  membership lands in the invite's own tenant — no cross-org redirect.
 - **Coordinator (`finalisma_mcp`) stays dependency-free forever.** The cloud plane is the only
   place pinned dependencies may land, and v1 adds none (stdlib SQLite-WAL).
 - The current storage model is durable SQLite single-node preview. It is not yet a

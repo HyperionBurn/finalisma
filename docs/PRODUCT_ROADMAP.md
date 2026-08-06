@@ -87,7 +87,7 @@ The goal is complete only when **every** line is true and independently verified
 
 ### Hosted service
 - [ ] Multi-tenant isolation with a negative test proving tenant B cannot read tenant A.
-- [ ] Shared transactional storage (Postgres), migrations, and a documented backup/restore.
+- [ ] Shared transactional storage, migrations, and a documented backup/restore. (2026-08-05 Wave F decision: v1 runs **SQLite-WAL**, single instance — superseding the earlier "Postgres" wording for the v1 milestone; Postgres is a later scale decision behind the same `StorageBackend` ABC. See §1 and the annotation at the top of this file.)
 - [ ] Real auth: email + OIDC, sessions, revocation, credential rotation.
 - [ ] Multi-instance safe: distributed rate limits, no single-node assumptions.
 - [ ] Durable delivery under crash; DLQ recovery proven by a kill-mid-flight test.
