@@ -3,6 +3,7 @@ import RootLayout from '../layouts/RootLayout.astro';
 import Header from '../components/Header.astro';
 import HeroWebGL from '../components/HeroWebGL.astro';
 import ScrollController from '../components/ScrollController.tsx';
+import Marquee from '../components/Marquee.astro';
 import Problem from '../components/Problem.astro';
 import HowItWorks from '../components/HowItWorks.astro';
 import LiveDemo from '../components/LiveDemo.astro';
@@ -22,6 +23,7 @@ import '../styles/global.css';
     <HeroWebGL />
     <ScrollController client:only="visible" />
 
+    <Marquee />
     <Problem />
     <HowItWorks />
     <LiveDemo />

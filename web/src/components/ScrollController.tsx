@@ -4,6 +4,13 @@ import { useEffect, useRef } from 'react';
  * ScrollController.tsx — client:only="visible" island.
  * Instantiates Lenis + GSAP ScrollTrigger, drives the WebGL scene,
  * updates beat captions, colour-temperature shifts, and section reveals.
+ *
+ * Choreography (maps scroll → six beats):
+ *   - Hero is pinned while Beat 1→2 plays (canvas in view as headline resolves).
+ *   - On unpin, camera journey continues in scroll-space through subsequent sections.
+ *   - Each beat threshold fires: caption update + colour-temp shift + scene event.
+ *   - Beat 4 (The Gate) fires a refusal that HOLDS for the beat extent.
+ *   - Beat 6 (Land) transitions page to light theme for pricing/proof.
  */
 
 const BEAT_THRESHOLDS = [0.0, 0.12, 0.3, 0.5, 0.66, 0.82, 1.0];
@@ -35,15 +42,85 @@ export default function ScrollController() {
     let lenisInstance: any = null;
     let gsapMod: any;
     let ScrollTrigger: any;
-    let rafId: number | null = null;
 
     const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
     const reducedMotion = mediaQuery.matches;
 
+    // ── Helper: determine beat from progress ──
+    function beatFromProgress(p: number): number {
+      for (let i = BEAT_THRESHOLDS.length - 2; i >= 0; i--) {
+        if (p >= BEAT_THRESHOLDS[i]) return i + 1;
+      }
+      return 1;
+    }
+
+    // ── Helper: update beat caption + data attr + colour temp ──
+    function applyBeat(beat: number) {
+      const beatCaption = document.querySelector('[data-beat-caption]');
+      if (beatCaption) {
+        beatCaption.textContent = BEAT_CAPTIONS[beat - 1] || BEAT_CAPTIONS[0];
+      }
+      document.documentElement.dataset.beat = String(beat);
+
+      const temp = BEAT_TEMPS[beat];
+      if (temp) {
+        const rootEl = document.documentElement;
+        rootEl.style.setProperty('--bg-temp', temp.bg);
+        rootEl.style.setProperty('--light-tint', temp.tint);
+        rootEl.setAttribute('data-theme', temp.theme === 'light' ? 'light' : 'dark');
+      }
+    }
+
+    // ── Helper: drive scene ──
+    function driveScene(progress: number) {
+      if ((window as any).FinalismaScene?.setProgress) {
+        (window as any).FinalismaScene.setProgress(progress);
+      }
+    }
+
+    // ── Helper: fire beat events (scene + DOM) ──
+    function fireBeatEvent(beat: number, fromScroll: boolean) {
+      // Dispatch agent-event CustomEvent for DOM listeners
+      if (typeof window !== 'undefined') {
+        if (beat === 4) {
+          // The Gate — fire refusal (holds for beat extent via ScrollTrigger onLeave)
+          if ((window as any).FinalismaScene?.fireGateRefusal) {
+            (window as any).FinalismaScene.fireGateRefusal();
+          } else {
+            window.dispatchEvent(new CustomEvent('agent-event', {
+              detail: { kind: 'refuse', seq: Date.now(), agent: 'agent-a', msg: 'stale_fencing_token (refused)' },
+            }));
+          }
+        } else if (fromScroll) {
+          const msgs: Record<number, string> = {
+            2: 'Many agents join the room',
+            3: 'Messages travel the edges',
+            5: 'Evidence recorded',
+            6: 'Connect your agent',
+          };
+          if (msgs[beat]) {
+            window.dispatchEvent(new CustomEvent('agent-event', {
+              detail: { kind: 'beat', beat, msg: msgs[beat] },
+            }));
+          }
+        }
+      }
+    }
+
+    // ── Reduced-motion path ──
+    if (reducedMotion) {
+      driveScene(1);
+      applyBeat(6);
+      document.querySelectorAll('.reveal').forEach((el) => el.classList.add('in'));
+      document.querySelectorAll('[data-step]').forEach((el) => el.classList.add('step--active'));
+      document.querySelectorAll('[data-proof-item]').forEach((el) => el.classList.add('proof-item--visible'));
+      return () => { cancelled = true; };
+    }
+
+    // ── Full-motion init ──
     async function init() {
       if (cancelled) return;
 
-      // Dynamic imports for client-only
       const Lenis = (await import('lenis')).default;
       gsapMod = await import('gsap');
       const ST = await import('gsap/ScrollTrigger');
@@ -69,74 +146,91 @@ export default function ScrollController() {
       gsap.ticker.add((time: number) => lenisInstance.raf(time * 1000));
       gsap.ticker.lagSmoothing(0);
 
-      // Get DOM elements
-      const root = document.documentElement;
-      const beatCaption = document.querySelector('[data-beat-caption]');
-      const rootEl = document.querySelector(':root') as HTMLElement;
-
-      let lastBeat = 1;
-
-      // Helper: update beat caption + data attr
-      function updateBeat(beat: number) {
-        if (beat === lastBeat) return;
-        lastBeat = beat;
-        if (beatCaption) {
-          beatCaption.textContent = BEAT_CAPTIONS[beat - 1] || BEAT_CAPTIONS[0];
-        }
-        root.dataset.beat = String(beat);
-
-        // Colour temperature shift
-        const temp = BEAT_TEMPS[beat];
-        if (temp && rootEl) {
-          rootEl.style.setProperty('--bg-temp', temp.bg);
-          rootEl.style.setProperty('--light-tint', temp.tint);
-          if (temp.theme === 'light') {
-            root.setAttribute('data-theme', 'light');
-          } else {
-            root.setAttribute('data-theme', 'dark');
-          }
-        }
-      }
-
-      // Helper: drive scene
-      function driveScene(progress: number) {
-        if ((window as any).FinalismaScene?.setProgress) {
-          (window as any).FinalismaScene.setProgress(progress);
-        }
-        // Determine beat from progress
-        for (let i = BEAT_THRESHOLDS.length - 2; i >= 0; i--) {
-          if (progress >= BEAT_THRESHOLDS[i]) {
-            updateBeat(i + 1);
-            break;
-          }
-        }
-      }
-
-      // ScrollTrigger for full-page progress
+      // ── Full-page ScrollTrigger: scroll → normalized progress ──
+      // This is the master driver: maps total scroll progress to 0..1 for the scene.
       ScrollTrigger.create({
         trigger: 'body',
         start: 'top top',
         end: 'bottom bottom',
         onUpdate: (self: any) => {
-          driveScene(self.progress);
+          const p = self.progress;
+          driveScene(p);
+          const beat = beatFromProgress(p);
+          applyBeat(beat);
         },
       });
 
-      // Hero pinned state — canvas stays in view while headline scrolls
+      // ── HERO PIN: canvas stays in view while Beat 1→2 plays ──
+      // Pin the hero for the first portion so the WebGL canvas remains visible
+      // as the headline/beats resolve, then release so subsequent sections scroll naturally.
       const heroEl = document.querySelector('.hero');
       if (heroEl) {
-        ScrollTrigger.create({
+        const pinT = ScrollTrigger.create({
           trigger: '.hero',
           start: 'top top',
-          end: '+=12%',
-          pin: false, // Hero is full viewport; natural scroll
-          onEnter: () => driveScene(0),
+          end: '+=200%', // pin for 2 viewport-heights of scroll
+          pin: true,
+          pinSpacing: true,
+          anticipatePin: 1,
+          onEnter: () => {
+            driveScene(0);
+            applyBeat(1);
+          },
+          onLeaveBack: () => {
+            driveScene(0);
+            applyBeat(1);
+          },
         });
+        triggersRef.current.push(pinT);
       }
 
-      // Section reveals via ScrollTrigger (not IO for main choreography)
+      // ── Beat threshold triggers — fire scene events at each beat boundary ──
+      // Beat thresholds (progress values where each beat begins)
+      const beatThresholds = [0.12, 0.30, 0.50, 0.66, 0.82];
+      beatThresholds.forEach((threshold, idx) => {
+        const beatNum = idx + 2; // beats 2..6
+        // Create a scroll trigger at the beat's progress position
+        // We use the document body and compute scroll position from progress
+        const t = ScrollTrigger.create({
+          trigger: 'body',
+          start: 'top top',
+          end: 'bottom bottom',
+          onUpdate: (self: any) => {
+            if (self.progress >= threshold && self._lastFiredBeat !== beatNum) {
+              self._lastFiredBeat = beatNum;
+              fireBeatEvent(beatNum, true);
+            }
+          },
+        });
+        triggersRef.current.push(t);
+      });
+
+      // ── Beat 4 (The Gate) refusal HOLD ──
+      // Fire refusal reliably when entering Beat 4, and HOLD the colour shift
+      // for the extent of the beat (progress 0.50 → 0.66).
+      const gateTrigger = ScrollTrigger.create({
+        trigger: 'body',
+        start: 'top top',
+        end: 'bottom bottom',
+        onUpdate: (self: any) => {
+          const p = self.progress;
+          if (p >= 0.50 && p < 0.66) {
+            // Within the Gate beat — ensure refusal is active
+            if (!self._gateFired) {
+              self._gateFired = true;
+              fireBeatEvent(4, true);
+            }
+          } else if (p >= 0.66) {
+            // Past the Gate — reset so it can re-fire on scroll-back
+            self._gateFired = false;
+          }
+        },
+      });
+      triggersRef.current.push(gateTrigger);
+
+      // ── Section reveals via ScrollTrigger ──
       const sections = document.querySelectorAll('[data-reveal-section]');
-      sections.forEach((section: any, idx: number) => {
+      sections.forEach((section) => {
         const children = section.querySelectorAll('.reveal');
         if (children.length > 0) {
           const t = ScrollTrigger.create({
@@ -145,31 +239,24 @@ export default function ScrollController() {
             end: 'top 40%',
             onEnter: () => {
               children.forEach((el: Element, i: number) => {
-                setTimeout(() => {
-                  el.classList.add('in');
-                }, i * 80);
+                setTimeout(() => el.classList.add('in'), i * 80);
               });
             },
             onLeaveBack: () => {
               if (reducedMotion) return;
-              children.forEach((el: Element) => {
-                el.classList.remove('in');
-              });
+              children.forEach((el: Element) => el.classList.remove('in'));
             },
           });
           triggersRef.current.push(t);
         }
       });
 
-      // Step animations for HowItWorks
-      const steps = document.querySelectorAll('[data-step]');
-      steps.forEach((step: any, idx: number) => {
+      // ── Step animations for HowItWorks ──
+      document.querySelectorAll('[data-step]').forEach((step) => {
         const t = ScrollTrigger.create({
           trigger: step,
           start: 'top 80%',
-          onEnter: () => {
-            step.classList.add('step--active');
-          },
+          onEnter: () => step.classList.add('step--active'),
           onLeaveBack: () => {
             if (!reducedMotion) step.classList.remove('step--active');
           },
@@ -177,15 +264,12 @@ export default function ScrollController() {
         triggersRef.current.push(t);
       });
 
-      // Proof items stagger
-      const proofItems = document.querySelectorAll('[data-proof-item]');
-      proofItems.forEach((item: any, idx: number) => {
+      // ── Proof items stagger ──
+      document.querySelectorAll('[data-proof-item]').forEach((item) => {
         const t = ScrollTrigger.create({
           trigger: item,
           start: 'top 85%',
-          onEnter: () => {
-            item.classList.add('proof-item--visible');
-          },
+          onEnter: () => item.classList.add('proof-item--visible'),
           onLeaveBack: () => {
             if (!reducedMotion) item.classList.remove('proof-item--visible');
           },
@@ -193,34 +277,20 @@ export default function ScrollController() {
         triggersRef.current.push(t);
       });
 
-      // Initial state
+      // ── Initial state ──
       driveScene(0);
-      updateBeat(1);
+      applyBeat(1);
 
-      // The hero is above the fold and must be VISIBLE immediately — its
-      // `.reveal` elements are not scroll-gated (the hero has no
-      // data-reveal-section), so force `.in` on mount with a short stagger.
-      // This is the design rule: the initial state is visible, animation
-      // enhances from there — never the reverse.
+      // Hero reveals forced visible on mount (truthful initial state)
       const heroReveals = document.querySelectorAll('.hero .reveal');
       heroReveals.forEach((el: Element, i: number) => {
-        setTimeout(() => {
-          el.classList.add('in');
-        }, 60 + i * 90);
+        setTimeout(() => el.classList.add('in'), 60 + i * 90);
       });
-      // Truthful-first counters: the correct figure is rendered in the HTML.
-      // A count-up animation would have to start at 0 (wrong) and is
-      // therefore prohibited by the "truthful initial state" rule. Instead a
-      // brief scale pop enhances the numbers for motion-allowed users without
-      // ever displaying an incorrect value; reduced-motion users keep the
-      // static correct figure.
-      if (!reducedMotion) {
-        document.querySelectorAll('[data-count-to]').forEach((el: Element, i: number) => {
-          setTimeout(() => el.classList.add('stat-pop'), 300 + i * 80);
-        });
-      }
-      // Belt-and-braces: a hard timeout guarantees the hero is never left
-      // invisible even if the RAF/scroll machinery stalls.
+      // Stat pop — guard for zero [data-count-to] elements (stat strip may be deleted by another lane)
+      document.querySelectorAll('[data-count-to]').forEach((el: Element, i: number) => {
+        setTimeout(() => el.classList.add('stat-pop'), 300 + i * 80);
+      });
+      // Belt-and-braces hard timeout
       setTimeout(() => {
         if (!cancelled) {
           document.querySelectorAll('.hero .reveal').forEach((el) => el.classList.add('in'));
@@ -228,52 +298,18 @@ export default function ScrollController() {
       }, 1200);
     }
 
-    if (reducedMotion) {
-      // Reduced motion: skip Lenis + ScrollTrigger animations, render static
-      // Just drive scene to final state
-      if ((window as any).FinalismaScene?.setProgress) {
-        (window as any).FinalismaScene.setProgress(1);
-      }
-      // Make all reveals visible immediately
-      document.querySelectorAll('.reveal').forEach((el) => {
-        el.classList.add('in');
-      });
-      document.querySelectorAll('[data-step]').forEach((el) => {
-        el.classList.add('step--active');
-      });
-      document.querySelectorAll('[data-proof-item]').forEach((el) => {
-        el.classList.add('proof-item--visible');
-      });
-      // Set beat caption to final
-      const beatCaption = document.querySelector('[data-beat-caption]');
-      if (beatCaption) beatCaption.textContent = BEAT_CAPTIONS[BEAT_CAPTIONS.length - 1];
-      document.documentElement.dataset.beat = '6';
-      const rootEl = document.querySelector(':root') as HTMLElement;
-      if (rootEl) {
-        rootEl.style.setProperty('--bg-temp', '#F7F8FA');
-        rootEl.style.setProperty('--light-tint', 'warm-light');
-      }
-      document.documentElement.setAttribute('data-theme', 'light');
-    } else {
-      init();
-    }
+    init();
 
     return () => {
       cancelled = true;
-      // Kill ScrollTriggers
       triggersRef.current.forEach((t) => t.kill());
       triggersRef.current = [];
-      // Destroy Lenis
       if (lenisRef.current) {
         lenisRef.current.destroy();
         lenisRef.current = null;
       }
-      // Remove gsap ticker
-      if (typeof window !== 'undefined') {
-        // gsap.ticker is global; we added to it
-      }
     };
   }, []);
 
-  return null; // This is a logic-only island, no DOM output
+  return null; // Logic-only island, no DOM output
 }

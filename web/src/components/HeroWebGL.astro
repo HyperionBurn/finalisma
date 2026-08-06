@@ -1,6 +1,7 @@
 ---
 /**
  * HeroWebGL.astro — Server-rendered hero markup + R3F island mount.
+ * Full-bleed WebGL canvas behind floating hero copy.
  * Renders full hero copy, static poster SVG, seed events, and the canvas wrap.
  * The R3F island is mounted via client:only="visible".
  */
@@ -25,31 +26,11 @@ const beatCaptions = [
 ---
 
 <section class="hero" id="hero" aria-label="Finalisma — live product preview">
-  <div class="hero-copy">
-    <p class="kicker reveal">Agent coordination · evidence-gated</p>
-    <h1 class="headline reveal" aria-label="One link. Many agents. All governed.">
-      One link.<span class="accent">Many agents.</span><span class="accent-2">All governed.</span>
-    </h1>
-    <p class="lede reveal">Open one room, share it with every agent on the task, and they all communicate — with ordered delivery, scoped consent, and an evidence gate that refuses stale or out-of-scope work. Play it live below.</p>
-    <div class="hero-ctas reveal">
-      <a class="btn btn-accent" href="#connect">Connect an agent</a>
-      <a class="btn btn-ghost" href="/demo.html">Watch the 42-second proof</a>
-    </div>
-    <ul class="hero-stats" data-stat-strip>
-      <!-- Initial state is the TRUTHFUL, VISIBLE value. The count-up animation
-           (enhancement only) runs from a lower value to this target on mount
-           for motion-allowed users; reduced-motion and no-JS users see the
-           correct figure immediately. Never the reverse. -->
-      <li><b data-count-to="9">9</b><span>9 documented MCP paths</span></li>
-      <li><b>1</b><span>1 verified Finalisma host integration</span></li>
-      <li><b>0</b><span>Provider credentials stored</span></li>
-    </ul>
-  </div>
-
+  <!-- Full-bleed WebGL canvas layer (z-index 0) -->
   <div class="hero-canvas" data-agent-canvas-wrap>
     <!-- Static poster SVG (always rendered, shown if WebGL fails) -->
     <div class="canvas-poster" data-agent-poster aria-hidden="false">
-      <svg viewBox="0 0 600 400" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;">
+      <svg viewBox="0 0 600 400" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;display:block;">
         <rect width="600" height="400" fill="#0E0F12"/>
         <!-- Room node (center) -->
         <rect x="270" y="170" width="60" height="60" rx="8" fill="#5B3DF0" opacity="0.8"/>
@@ -110,24 +91,61 @@ const beatCaptions = [
       <span class="gate-state" data-gate-state>armed</span>
     </div>
   </div>
+
+  <!-- Floating hero copy on top of the canvas (z-index 1) -->
+  <div class="hero-copy">
+    <p class="kicker reveal">Agent coordination · evidence-gated</p>
+    <div class="status-pill reveal" data-gate-status-pill>
+      <span class="status-dot" aria-hidden="true"></span>
+      Evidence gate · armed
+    </div>
+    <h1 class="headline reveal" aria-label="One link. Many agents. All governed.">
+      One link.<span class="accent">Many agents.</span><span class="accent-2">All governed.</span>
+    </h1>
+    <p class="lede reveal">One link opens a room. Your agents join it, talk in order, and anything stale gets refused.</p>
+    <div class="hero-ctas reveal">
+      <a class="btn btn-accent" href="#connect">Connect an agent</a>
+      <a class="btn btn-ghost" href="/demo.html">Watch the 42-second proof</a>
+    </div>
+  </div>
 </section>
 
 <style>
   .hero {
     position: relative;
     min-height: 100vh;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 2rem;
+    width: 100%;
     padding: 6rem 2rem 2rem;
     background: var(--color-ink);
     color: var(--color-text-inv);
+    overflow: hidden;
   }
+  /* Full-bleed canvas layer behind everything */
+  .hero-canvas {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    min-height: 520px;
+    width: 100%;
+    height: 100%;
+    background: var(--color-ink-2);
+  }
+  /* Floating copy on top of the canvas */
   .hero-copy {
+    position: relative;
+    z-index: 1;
     display: flex;
     flex-direction: column;
     justify-content: center;
     gap: 1.25rem;
+    max-width: 38ch;
+    padding: 2rem 0;
+    pointer-events: none;
+  }
+  /* Re-enable pointer events on interactive copy elements */
+  .hero-copy a,
+  .hero-copy button {
+    pointer-events: auto;
   }
   .kicker {
     font-size: 0.75rem;
@@ -135,6 +153,35 @@ const beatCaptions = [
     letter-spacing: 0.14em;
     color: var(--color-accent-dark);
     font-weight: 700;
+  }
+  /* Status pill — live status announcement above the headline */
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.7rem;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--color-success);
+    background: rgba(74, 222, 128, 0.10);
+    border: 1px solid rgba(74, 222, 128, 0.25);
+    border-radius: 999px;
+    padding: 0.3rem 0.75rem;
+    align-self: flex-start;
+  }
+  .status-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--color-success);
+    box-shadow: 0 0 6px var(--color-success);
+    animation: status-pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes status-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.45; transform: scale(0.78); }
   }
   .headline {
     font-size: clamp(2.5rem, 6.5vw, 5.5rem);
@@ -183,37 +230,6 @@ const beatCaptions = [
     border-color: var(--color-accent-dark);
     color: var(--color-accent-dark);
   }
-  .hero-stats {
-    display: flex;
-    gap: 2rem;
-    list-style: none;
-    padding: 0;
-    margin: 1.5rem 0 0;
-  }
-  .hero-stats li {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-  }
-  .hero-stats b {
-    font-size: clamp(1.5rem, 4vw, 2.5rem);
-    font-weight: 800;
-    color: var(--color-text-inv);
-  }
-  .hero-stats span {
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: var(--color-text-muted-inv);
-  }
-  .hero-canvas {
-    position: relative;
-    min-height: 500px;
-    border-radius: 16px;
-    overflow: hidden;
-    background: var(--color-ink-2);
-    border: 1px solid var(--color-hairline-inv);
-  }
   .canvas-poster {
     position: absolute;
     inset: 0;
@@ -227,6 +243,7 @@ const beatCaptions = [
     color: var(--color-text-muted-inv);
     font-family: var(--font-mono);
     z-index: 10;
+    pointer-events: none;
   }
   .beat-caption {
     position: absolute;
@@ -238,6 +255,7 @@ const beatCaptions = [
     text-transform: uppercase;
     letter-spacing: 0.1em;
     z-index: 10;
+    pointer-events: none;
   }
   .gate {
     position: absolute;
@@ -278,6 +296,7 @@ const beatCaptions = [
     overflow-y: auto;
     font-family: var(--font-mono);
     font-size: 0.7rem;
+    pointer-events: none;
   }
   .evt-fallback {
     position: absolute;
@@ -290,6 +309,7 @@ const beatCaptions = [
     z-index: 9;
     font-family: var(--font-mono);
     font-size: 0.7rem;
+    pointer-events: none;
   }
   .evt {
     display: flex;
@@ -321,11 +341,22 @@ const beatCaptions = [
 
   @media (max-width: 768px) {
     .hero {
-      grid-template-columns: 1fr;
       padding: 5rem 1rem 1rem;
+      min-height: 90vh;
     }
     .hero-canvas {
       min-height: 400px;
+    }
+    .hero-copy {
+      max-width: 100%;
+      gap: 1rem;
+    }
+  }
+
+  /* Reduced motion: disable the status-pulse animation */
+  @media (prefers-reduced-motion: reduce) {
+    .status-dot {
+      animation: none;
     }
   }
 </style>

@@ -88,8 +88,6 @@ check(blog.length >= 4, `site/blog/ has >= 4 articles (found ${blog.length})`);
 console.log('[verify-preservation] checking built index.html test strings...');
 const html = fs.readFileSync(path.join(SITE, 'index.html'), 'utf-8');
 const requiredStrings = [
-  '9 documented MCP paths',
-  '1 verified Finalisma host integration',
   'next proof pair, Claude Code + Cursor',
   'MCP is the tool protocol',
   'single-node',
@@ -100,6 +98,8 @@ const requiredStrings = [
   'aria-live="polite"',
   'data-sim-label',
   'Simulated account · no credentials · no live session',
+  'Documented MCP paths',
+  'Verified host (OpenCode 1.18.13)',
 ];
 for (const s of requiredStrings) {
   check(html.includes(s), `index.html contains "${s}"`);

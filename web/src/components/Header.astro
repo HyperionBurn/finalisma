@@ -1,6 +1,7 @@
 ---
 /**
- * Header.astro — Sticky top nav with brand, section links, CTA, mobile toggle.
+ * Header.astro — Floating pill nav with brand, section links, CTA, mobile toggle.
+ * Liquid-glass surface: translucent blur + gradient border.
  */
 ---
 
@@ -37,6 +38,7 @@
 <script>
   // Mobile nav toggle
   (function () {
+    const header = document.querySelector('[data-header]');
     const toggle = document.querySelector('.nav-toggle');
     const mobileNav = document.getElementById('mobile-nav');
     const closeBtn = document.querySelector('.mobile-close');
@@ -74,5 +76,25 @@
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') closeNav();
     });
+
+    // Add is-scrolled class for enhanced glass on scroll
+    let ticking = false;
+    function updateHeaderState() {
+      if (header) {
+        if (window.scrollY > 20) {
+          header.classList.add('is-scrolled');
+        } else {
+          header.classList.remove('is-scrolled');
+        }
+      }
+      ticking = false;
+    }
+    window.addEventListener('scroll', () => {
+      if (!ticking) {
+        requestAnimationFrame(updateHeaderState);
+        ticking = true;
+      }
+    }, { passive: true });
+    updateHeaderState();
   })();
 </script>

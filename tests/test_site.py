@@ -39,8 +39,13 @@ class LaunchSurfaceTests(unittest.TestCase):
         # Wave D3 replacement invariant: the headline now reflects the product
         # (one link admits many agents), not the old two-party "incident" framing.
         self.assertIn("One link. Many agents. All governed.", html)
-        self.assertIn("9 documented MCP paths", html)
-        self.assertIn("1 verified Finalisma host integration", html)
+        # Wave-D3 motion rebuild (founder brief): the jargon stat strip was
+        # DELETED from the hero above the fold. The measured facts survive
+        # below the fold in the Proof section — that is the justified
+        # replacement assertion, not a deletion of the truthfulness intent.
+        self.assertNotIn("data-stat-strip", html)
+        self.assertIn("Documented MCP paths", html)
+        self.assertIn("Verified host (OpenCode 1.18.13)", html)
         self.assertIn("next proof pair, Claude Code + Cursor", html)
         self.assertIn('type="application/ld+json"', html)
         self.assertIn('property="og:site_name" content="Finalisma"', html)

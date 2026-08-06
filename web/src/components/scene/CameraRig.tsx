@@ -1,48 +1,54 @@
-import { useRef, useMemo } from 'react';
+import { useRef, useMemo, useEffect } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useProgress, useRefusalFlash } from './useSceneStore';
 
 /**
  * CameraRig.tsx — Reads normalized scroll progress and drives camera along a CatmullRomCurve3.
- * 12 position keyframes (2 per beat) from plan §4.
+ * 12 position keyframes (2 per beat) from plan §4, followed EXACTLY:
+ *   Beat1 Wide  z=14        → z=14
+ *   Beat2 Approach (0,0.5,11) → (0,0,9)
+ *   Beat3 Inside  (0,0,6)    → (0,0,4)
+ *   Beat4 Gate    (0,0,4)    → (0,0.2,3.5)
+ *   Beat5 Pull    (0,0.2,3.5)→ (0,0,7)
+ *   Beat6 Land    (0,0,7)    → (0,0,9)
  */
 
-// Camera position keyframes: 2 per beat (entry + exit)
+// Camera position keyframes: 2 per beat (entry + exit) — MUST match §4 exactly
 const CAMERA_KEYFRAMES: [number, number, number][] = [
-  // Beat 1 Wide: pull back so the whole graph (room core + 5 agents) frames
-  [0, 0.3, 20],
-  [0, 0.5, 18],
+  // Beat 1 Wide — entry + exit both wide at z=14
+  [0, 0, 14],
+  [0, 0, 14],
   // Beat 2 Approach: (0,0.5,11) → (0,0,9)
-  [0, 0.5, 14],
-  [0, 0, 12],
-  // Beat 3 Inside: (0,0,6) → (0,0,4)
-  [0, 0, 8],
-  [0, 0, 6],
-  // Beat 4 The Gate: (0,0,4) → (0,0.2,3.5)
-  [0, 0.2, 5],
-  [0, 0.2, 4.5],
-  // Beat 5 Pull back: (0,0.2,3.5) → (0,0,7)
-  [0, 0.1, 7],
+  [0, 0.5, 11],
   [0, 0, 9],
+  // Beat 3 Inside: (0,0,6) → (0,0,4)
+  [0, 0, 6],
+  [0, 0, 4],
+  // Beat 4 The Gate: (0,0,4) → (0,0.2,3.5)
+  [0, 0, 4],
+  [0, 0.2, 3.5],
+  // Beat 5 Pull back: (0,0.2,3.5) → (0,0,7)
+  [0, 0.2, 3.5],
+  [0, 0, 7],
   // Beat 6 Land: (0,0,7) → (0,0,9)
-  [0, 0, 10],
-  [0, 0, 11],
+  [0, 0, 7],
+  [0, 0, 9],
 ];
 
-// Target keyframes (simpler — slight upward drift at Gate)
+// Target keyframes — slight upward drift at the Gate (beat 4)
 const TARGET_KEYFRAMES: [number, number, number][] = [
   [0, 0, 0],
-  [0, 0.1, 0],
-  [0, 0.2, 0],
+  [0, 0, 0],
+  [0, 0, 0],
+  [0, 0, 0],
+  [0, 0, 0],
+  [0, 0, 0],
+  [0, 0, 0],
+  [0, 0.2, 0], // Gate: look slightly up
   [0, 0.1, 0],
   [0, 0, 0],
   [0, 0, 0],
-  [0, 0.1, 0],
-  [0, 0.2, 0],
-  [0, 0.3, 0],
-  [0, 0.2, 0],
-  [0, 0.1, 0],
   [0, 0, 0],
 ];
 
@@ -62,13 +68,16 @@ export default function CameraRig() {
     return new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.5);
   }, []);
 
-  // Pointer parallax (throttled)
-  if (typeof window !== 'undefined') {
-    window.addEventListener('pointermove', (e) => {
+  // Pointer parallax (throttled, registered once)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onPointerMove = (e: PointerEvent) => {
       pointerOffset.current.x = (e.clientX / window.innerWidth - 0.5) * 0.3;
       pointerOffset.current.y = (e.clientY / window.innerHeight - 0.5) * 0.3;
-    }, { passive: true });
-  }
+    };
+    window.addEventListener('pointermove', onPointerMove, { passive: true });
+    return () => window.removeEventListener('pointermove', onPointerMove);
+  }, []);
 
   useFrame(() => {
     const t = Math.max(0, Math.min(1, progress));

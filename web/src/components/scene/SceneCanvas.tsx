@@ -43,6 +43,34 @@ function FrameTimer() {
   return null;
 }
 
+// Scene group that applies a subtle pointer-reactive drift on top of the
+// CameraRig's own parallax. This makes the whole graph feel alive even
+// before the camera path kicks in.
+function SceneGroup({ children }: { children: React.ReactNode }) {
+  const groupRef = useRef<THREE.Group>(null);
+  const pointer = useRef({ x: 0, y: 0 });
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('pointermove', (e) => {
+      pointer.current.x = (e.clientX / window.innerWidth - 0.5);
+      pointer.current.y = (e.clientY / window.innerHeight - 0.5);
+    }, { passive: true });
+  }
+
+  useFrame((_, delta) => {
+    if (!groupRef.current || sceneActions.getState().reducedMotion) return;
+    // Subtle counter-drift: the graph leans slightly toward the pointer.
+    const targetX = pointer.current.x * 0.25;
+    const targetY = -pointer.current.y * 0.25;
+    groupRef.current.position.x += (targetX - groupRef.current.position.x) * Math.min(1, delta * 2);
+    groupRef.current.position.y += (targetY - groupRef.current.position.y) * Math.min(1, delta * 2);
+    // Gentle continuous yaw so the scene never looks frozen.
+    groupRef.current.rotation.y += delta * 0.04;
+  });
+
+  return <group ref={groupRef}>{children}</group>;
+}
+
 function SceneContent() {
   const tier = useTier();
 
@@ -54,10 +82,12 @@ function SceneContent() {
       />
       <AdaptiveDpr pixelated />
       <CameraRig />
-      <RoomCore />
-      <AgentNodes />
-      <EdgeLines />
-      <MessageParticles />
+      <SceneGroup>
+        <RoomCore />
+        <AgentNodes />
+        <EdgeLines />
+        <MessageParticles />
+      </SceneGroup>
       <FrameTimer />
 
       {/* Lighting */}
@@ -69,8 +99,8 @@ function SceneContent() {
       {tier !== 'low' && (
         <EffectComposer>
           <Bloom
-            luminanceThreshold={0.6}
-            intensity={tier === 'medium' ? 0.4 : 0.6}
+            luminanceThreshold={0.35}
+            intensity={tier === 'medium' ? 0.6 : 0.8}
             mipmapBlur
           />
           <Vignette eskil={false} offset={0.3} darkness={0.7} />

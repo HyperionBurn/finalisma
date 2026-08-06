@@ -1,24 +1,25 @@
-import { useRef, useMemo, useEffect } from 'react';
+import { useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { createNodeMaterial } from './shaders/nodeMaterial';
-import { useProgress, useBeat, useRefusalFlash } from './useSceneStore';
+import { useProgress, useRefusalFlash, sceneActions } from './useSceneStore';
 
 /**
- * AgentNodes.tsx — 5 instanced agent nodes arranged in an arc.
- * Scale-in on arcs during Beat 2. Per-instance colour (role tint).
+ * AgentNodes.tsx — 5 instanced agent nodes orbiting the room core.
+ * Continuous orbital motion + idle bob + presence pulse. Always visible
+ * at progress 0 (truthful initial state); animation only enhances.
  */
 
 const AGENT_COUNT = 5;
 const AGENT_LABELS = ['A', 'B', 'C', 'D', 'E'];
 
-// Arc positions around the room
-const AGENT_POSITIONS: [number, number, number][] = [
-  [-3.2, 0.8, -0.3],
-  [-2.6, -1.2, 0.4],
-  [-4.0, 0.1, -0.8],
-  [-2.4, 1.4, 0.6],
-  [-4.2, -0.7, 0.1],
+// Orbit radii / heights / phases — each agent gets its own track
+const AGENT_ORBITS = [
+  { radius: 3.2, height: 0.8, phase: 0.0, speed: 0.28 },
+  { radius: 2.6, height: -1.2, phase: 1.6, speed: 0.22 },
+  { radius: 4.0, height: 0.1, phase: 3.2, speed: 0.18 },
+  { radius: 2.4, height: 1.4, phase: 4.8, speed: 0.24 },
+  { radius: 4.2, height: -0.7, phase: 5.6, speed: 0.20 },
 ];
 
 // Role tints: A=assert, B=prove, C=accent, D=accent, E=assert
@@ -33,14 +34,15 @@ const AGENT_COLORS: [number, number, number][] = [
 export default function AgentNodes() {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const progress = useProgress();
-  const beat = useBeat();
   const refusalFlash = useRefusalFlash();
+  // reduced-motion is read via getState() inside useFrame to avoid
+  // re-render churn on every frame (the store mutates refusalFlash often).
 
   const material = useMemo(() => createNodeMaterial(), []);
   const dummy = useMemo(() => new THREE.Object3D(), []);
 
   // Instance attributes
-  const { geometry, instanceColor, phaseOffset, refused } = useMemo(() => {
+  const { geometry, phaseOffset } = useMemo(() => {
     const geo = new THREE.BoxGeometry(0.9, 0.9, 0.9, 2, 2, 2);
 
     const colors = new Float32Array(AGENT_COUNT * 3);
@@ -51,7 +53,7 @@ export default function AgentNodes() {
       colors[i * 3] = AGENT_COLORS[i][0];
       colors[i * 3 + 1] = AGENT_COLORS[i][1];
       colors[i * 3 + 2] = AGENT_COLORS[i][2];
-      phases[i] = i * 0.8; // 0, 0.8, 1.6, 2.4, 3.2
+      phases[i] = AGENT_ORBITS[i].phase;
       refusedArr[i] = 0;
     }
 
@@ -63,38 +65,47 @@ export default function AgentNodes() {
     geo.setAttribute('phaseOffset', ph);
     geo.setAttribute('refused', ref);
 
-    return { geometry: geo, instanceColor: instColor, phaseOffset: ph, refused: ref };
+    return { geometry: geo, phaseOffset: ph };
   }, []);
 
-  // Scale-in animation: agents arrive during Beat 2 (progress 0.12 → 0.30).
-  // RULE: the initial state must be the truthful, visible state. Agents are
-  // ALWAYS visible; the arrival is a subtle scale-pop enhancement, never a
-  // scale-from-zero reveal (which would hide them for non-scrolling visitors).
   useFrame((state) => {
     if (!meshRef.current) return;
     const mat = meshRef.current.material as THREE.ShaderMaterial;
     mat.uniforms.uTime.value = state.clock.elapsedTime;
+    // Boost pulse visibility
+    mat.uniforms.uPulse.value = 1.0;
 
     const t = progress;
+    const time = state.clock.elapsedTime;
 
     for (let i = 0; i < AGENT_COUNT; i++) {
-      // Subtle arrival pop: start visible, briefly oversettle to full size.
-      const arrivalStart = 0.12 + i * 0.03;
-      const arrivalEnd = 0.20 + i * 0.02;
+      const orbit = AGENT_ORBITS[i];
+
+      // Continuous orbital angle — always moving (idle). Under reduced
+      // motion we freeze at the phase angle so the frame is static.
+      const angle = sceneActions.getState().reducedMotion ? orbit.phase : orbit.phase + time * orbit.speed;
+
+      // Orbit radius grows slightly with progress (graph "opens up")
+      const r = orbit.radius * (0.85 + Math.min(t, 1) * 0.15);
+
+      const x = Math.cos(angle) * r;
+      const z = Math.sin(angle) * r;
+      // Idle bob — subtle vertical oscillation
+      const bob = sceneActions.getState().reducedMotion ? 0 : Math.sin(time * 1.5 + i * 1.2) * 0.08;
+      const y = orbit.height + bob;
+
+      // Arrival pop enhancement (after the node is already visible)
       let scale = 1.0;
-      if (t > arrivalStart && t < arrivalEnd) {
-        const st = (t - arrivalStart) / (arrivalEnd - arrivalStart);
-        scale = Math.min(1, st * 1.2);
+      if (t > 0 && !sceneActions.getState().reducedMotion) {
+        const arrivalStart = 0.12 + i * 0.03;
+        const arrivalEnd = 0.20 + i * 0.02;
+        if (t > arrivalStart && t < arrivalEnd) {
+          const st = (t - arrivalStart) / (arrivalEnd - arrivalStart);
+          scale = 1.0 + Math.sin(st * Math.PI) * 0.15; // oversettle pop
+        }
       }
 
-      // Idle bob
-      const bob = Math.sin(state.clock.elapsedTime * 1.5 + i * 1.2) * 0.05;
-
-      dummy.position.set(
-        AGENT_POSITIONS[i][0],
-        AGENT_POSITIONS[i][1] + bob,
-        AGENT_POSITIONS[i][2]
-      );
+      dummy.position.set(x, y, z);
       dummy.scale.setScalar(scale);
       dummy.updateMatrix();
       meshRef.current.setMatrixAt(i, dummy.matrix);
