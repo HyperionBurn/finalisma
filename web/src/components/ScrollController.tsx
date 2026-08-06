@@ -208,6 +208,17 @@ export default function ScrollController() {
           el.classList.add('in');
         }, 60 + i * 90);
       });
+      // Truthful-first counters: the correct figure is rendered in the HTML.
+      // A count-up animation would have to start at 0 (wrong) and is
+      // therefore prohibited by the "truthful initial state" rule. Instead a
+      // brief scale pop enhances the numbers for motion-allowed users without
+      // ever displaying an incorrect value; reduced-motion users keep the
+      // static correct figure.
+      if (!reducedMotion) {
+        document.querySelectorAll('[data-count-to]').forEach((el: Element, i: number) => {
+          setTimeout(() => el.classList.add('stat-pop'), 300 + i * 80);
+        });
+      }
       // Belt-and-braces: a hard timeout guarantees the hero is never left
       // invisible even if the RAF/scroll machinery stalls.
       setTimeout(() => {

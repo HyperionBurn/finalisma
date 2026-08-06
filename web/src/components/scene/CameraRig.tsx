@@ -10,24 +10,24 @@ import { useProgress, useRefusalFlash } from './useSceneStore';
 
 // Camera position keyframes: 2 per beat (entry + exit)
 const CAMERA_KEYFRAMES: [number, number, number][] = [
-  // Beat 1 Wide: (0,0,14)
-  [0, 0, 14],
-  [0, 0.2, 13.5],
+  // Beat 1 Wide: pull back so the whole graph (room core + 5 agents) frames
+  [0, 0.3, 20],
+  [0, 0.5, 18],
   // Beat 2 Approach: (0,0.5,11) → (0,0,9)
-  [0, 0.5, 11],
-  [0, 0, 9],
+  [0, 0.5, 14],
+  [0, 0, 12],
   // Beat 3 Inside: (0,0,6) → (0,0,4)
-  [0, 0, 6],
-  [0, 0, 4],
-  // Beat 4 The Gate: (0,0,4) → (0,0.2,3.5)
-  [0, 0.2, 3.8],
-  [0, 0.2, 3.5],
-  // Beat 5 Pull back: (0,0.2,3.5) → (0,0,7)
-  [0, 0.1, 5],
-  [0, 0, 7],
-  // Beat 6 Land: (0,0,7) → (0,0,9)
   [0, 0, 8],
+  [0, 0, 6],
+  // Beat 4 The Gate: (0,0,4) → (0,0.2,3.5)
+  [0, 0.2, 5],
+  [0, 0.2, 4.5],
+  // Beat 5 Pull back: (0,0.2,3.5) → (0,0,7)
+  [0, 0.1, 7],
   [0, 0, 9],
+  // Beat 6 Land: (0,0,7) → (0,0,9)
+  [0, 0, 10],
+  [0, 0, 11],
 ];
 
 // Target keyframes (simpler — slight upward drift at Gate)

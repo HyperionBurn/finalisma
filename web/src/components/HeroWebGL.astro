@@ -36,7 +36,11 @@ const beatCaptions = [
       <a class="btn btn-ghost" href="/demo.html">Watch the 42-second proof</a>
     </div>
     <ul class="hero-stats" data-stat-strip>
-      <li><b data-count-to="9">0</b><span>9 documented MCP paths</span></li>
+      <!-- Initial state is the TRUTHFUL, VISIBLE value. The count-up animation
+           (enhancement only) runs from a lower value to this target on mount
+           for motion-allowed users; reduced-motion and no-JS users see the
+           correct figure immediately. Never the reverse. -->
+      <li><b data-count-to="9">9</b><span>9 documented MCP paths</span></li>
       <li><b>1</b><span>1 verified Finalisma host integration</span></li>
       <li><b>0</b><span>Provider credentials stored</span></li>
     </ul>

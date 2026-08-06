@@ -57,13 +57,14 @@
 }
 
 @layer base {
-  /* Self-hosted fonts — resolve to restored site/assets/fonts/ */
+  /* Self-hosted fonts — root-relative so they resolve against site/ no
+     matter where the built stylesheet lands (/_astro/index.<hash>.css). */
   @font-face {
     font-family: 'Archivo';
     font-style: normal;
     font-weight: 100 900;
     font-display: swap;
-    src: url('assets/fonts/archivo-var-latin.woff2') format('woff2');
+    src: url('/assets/fonts/archivo-var-latin.woff2') format('woff2');
   }
 
   @font-face {
@@ -71,7 +72,7 @@
     font-style: normal;
     font-weight: 400;
     font-display: swap;
-    src: url('assets/fonts/plex-mono-400-latin.woff2') format('woff2');
+    src: url('/assets/fonts/plex-mono-400-latin.woff2') format('woff2');
   }
 
   @font-face {
@@ -79,7 +80,7 @@
     font-style: normal;
     font-weight: 500;
     font-display: swap;
-    src: url('assets/fonts/plex-mono-500-latin.woff2') format('woff2');
+    src: url('/assets/fonts/plex-mono-500-latin.woff2') format('woff2');
   }
 
   /* Progressive-enhancement rules (test-critical) */
@@ -87,6 +88,16 @@
   .reveal { opacity: 1; transform: none; }
   .js .reveal { opacity: 0; transform: translateY(18px); transition: opacity .6s var(--ease-out), transform .6s var(--ease-out); }
   .js .reveal.in { opacity: 1; transform: none; }
+
+  /* Truthful-first stat counter: correct value rendered in HTML; a brief
+     scale pop enhances for motion-allowed users without ever showing a wrong
+     number. Reduced-motion users keep the static figure. */
+  @keyframes stat-pop {
+    0% { transform: scale(1); }
+    45% { transform: scale(1.12); }
+    100% { transform: scale(1); }
+  }
+  .stat-pop { animation: stat-pop var(--dur-mid) var(--ease-snap); }
 }
 
 /* ============================================================

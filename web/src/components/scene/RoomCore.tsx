@@ -18,7 +18,7 @@ export default function RoomCore() {
 
   const geometry = useMemo(() => {
     // Rounded box approximation — use a box with bevel via segments
-    const geo = new THREE.BoxGeometry(1.2, 1.2, 1.2, 4, 4, 4);
+    const geo = new THREE.BoxGeometry(0.7, 0.7, 0.7, 4, 4, 4);
     return geo;
   }, []);
 

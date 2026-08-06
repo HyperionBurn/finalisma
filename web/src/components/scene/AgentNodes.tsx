@@ -14,11 +14,11 @@ const AGENT_LABELS = ['A', 'B', 'C', 'D', 'E'];
 
 // Arc positions around the room
 const AGENT_POSITIONS: [number, number, number][] = [
-  [-2.5, 0.5, -0.5],
-  [-2.0, -0.8, 0.3],
-  [-3.0, 0.0, -1.0],
-  [-1.8, 1.0, 0.5],
-  [-3.2, -0.5, 0.0],
+  [-3.2, 0.8, -0.3],
+  [-2.6, -1.2, 0.4],
+  [-4.0, 0.1, -0.8],
+  [-2.4, 1.4, 0.6],
+  [-4.2, -0.7, 0.1],
 ];
 
 // Role tints: A=assert, B=prove, C=accent, D=accent, E=assert
@@ -41,7 +41,7 @@ export default function AgentNodes() {
 
   // Instance attributes
   const { geometry, instanceColor, phaseOffset, refused } = useMemo(() => {
-    const geo = new THREE.BoxGeometry(0.5, 0.5, 0.5, 2, 2, 2);
+    const geo = new THREE.BoxGeometry(0.9, 0.9, 0.9, 2, 2, 2);
 
     const colors = new Float32Array(AGENT_COUNT * 3);
     const phases = new Float32Array(AGENT_COUNT);
@@ -66,7 +66,10 @@ export default function AgentNodes() {
     return { geometry: geo, instanceColor: instColor, phaseOffset: ph, refused: ref };
   }, []);
 
-  // Scale-in animation: agents arrive during Beat 2 (progress 0.12 → 0.30)
+  // Scale-in animation: agents arrive during Beat 2 (progress 0.12 → 0.30).
+  // RULE: the initial state must be the truthful, visible state. Agents are
+  // ALWAYS visible; the arrival is a subtle scale-pop enhancement, never a
+  // scale-from-zero reveal (which would hide them for non-scrolling visitors).
   useFrame((state) => {
     if (!meshRef.current) return;
     const mat = meshRef.current.material as THREE.ShaderMaterial;
@@ -75,17 +78,13 @@ export default function AgentNodes() {
     const t = progress;
 
     for (let i = 0; i < AGENT_COUNT; i++) {
-      // Each agent arrives at slightly different time
+      // Subtle arrival pop: start visible, briefly oversettle to full size.
       const arrivalStart = 0.12 + i * 0.03;
       const arrivalEnd = 0.20 + i * 0.02;
       let scale = 1.0;
-      if (t < arrivalStart) {
-        scale = 0.0;
-      } else if (t < arrivalEnd) {
+      if (t > arrivalStart && t < arrivalEnd) {
         const st = (t - arrivalStart) / (arrivalEnd - arrivalStart);
         scale = Math.min(1, st * 1.2);
-      } else {
-        scale = 1.0;
       }
 
       // Idle bob

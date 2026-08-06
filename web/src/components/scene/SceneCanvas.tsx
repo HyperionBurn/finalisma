@@ -124,7 +124,7 @@ export default function SceneCanvas() {
   return (
     <Canvas
       dpr={[1, 2]}
-      gl={{ antialias: true, alpha: true, powerPreference: 'high-performance' }}
+      gl={{ antialias: true, alpha: true, powerPreference: 'high-performance', preserveDrawingBuffer: true }}
       camera={{ position: [0, 0, 14], fov: 50, near: 0.1, far: 100 }}
       style={{ width: '100%', height: '100%', display: 'block' }}
       data-agent-canvas
