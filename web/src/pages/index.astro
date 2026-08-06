@@ -1,0 +1,85 @@
+---
+import RootLayout from '../layouts/RootLayout.astro';
+import '../styles/global.css';
+---
+
+<RootLayout>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header" data-header>
+    <a class="brand" href="/">FINALISMA</a>
+    <nav class="nav-links" aria-label="Primary">
+      <a href="#problem">Problem</a>
+      <a href="#how">How it works</a>
+      <a href="#demo">Live demo</a>
+      <a href="#connect">Connect</a>
+      <a href="#pricing">Pricing</a>
+    </nav>
+    <a class="btn btn-accent" href="#pricing">Start free pilot</a>
+    <button class="nav-toggle" aria-expanded="false" aria-controls="mobile-nav" aria-label="Open menu"><span></span></button>
+  </header>
+
+  <main id="main">
+    <section class="hero" id="hero" aria-label="Finalisma — live product preview">
+      <div class="hero-copy">
+        <h1 class="headline reveal" aria-label="One link. Many agents. All governed.">
+          One link.<span class="accent">Many agents.</span><span class="accent-2">All governed.</span>
+        </h1>
+        <p class="lede reveal">Open one room, share it with every agent on the task, and they all communicate — with ordered delivery, scoped consent, and an evidence gate that refuses stale or out-of-scope work.</p>
+      </div>
+    </section>
+
+    <!-- Scaffold placeholder content: test-critical strings (content lane refines copy) -->
+    <section id="proof" aria-label="Proof">
+      <ul class="proof-list" data-proof-list>
+        <li class="proof-item" data-proof-item>
+          <b class="proof-stat">9</b>
+          <span class="proof-label">9 documented MCP paths</span>
+        </li>
+        <li class="proof-item" data-proof-item>
+          <b class="proof-stat">1</b>
+          <span class="proof-label">1 verified Finalisma host integration</span>
+        </li>
+        <li class="proof-item" data-proof-item>
+          <b class="proof-stat">0</b>
+          <span class="proof-label">Provider credentials stored</span>
+        </li>
+        <li class="proof-item" data-proof-item>
+          <b class="proof-stat">0</b>
+          <span class="proof-label">Runtime dependencies (stdlib + SQLite)</span>
+        </li>
+        <li class="proof-item" data-proof-item>
+          <b class="proof-stat">1</b>
+          <span class="proof-label">Coordinator node (single-node preview)</span>
+        </li>
+      </ul>
+      <p class="proof-note">Next proof pair in the cohort: next proof pair, Claude Code + Cursor.</p>
+    </section>
+
+    <section id="demo" aria-label="Demo">
+      <a href="/demo.html">Watch the 42-second proof</a>
+      <div data-agent-readout aria-live="polite" role="status">Simulated account · no credentials · no live session</div>
+    </section>
+
+    <section id="pricing" aria-label="Pricing">
+      <p>$500 deposit credited toward the first month.</p>
+      <form data-cohort-form>
+        <label for="cohort-email">Email</label>
+        <input id="cohort-email" type="email" name="email" />
+      </form>
+    </section>
+
+    <section aria-label="MCP">
+      <p>MCP is the tool protocol your hosts already speak.</p>
+      <p data-sim-label>Simulated account · no credentials · no live session</p>
+    </section>
+  </main>
+
+  <footer class="site-footer" data-footer>
+    <span>Finalisma v0.1.0 · single-node preview</span>
+    <nav aria-label="Footer">
+      <a href="/docs/index.html">Docs</a>
+      <a href="/license.html">Licence</a>
+    </nav>
+  </footer>
+</RootLayout>
