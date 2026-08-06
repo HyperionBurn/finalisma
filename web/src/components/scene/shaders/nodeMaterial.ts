@@ -41,25 +41,25 @@ export const nodeFragmentShader = /* glsl */ `
   varying float vRefused;
 
   void main() {
-    // Fresnel rim
-    float fresnel = pow(1.0 - max(dot(vNormal, vViewDir), 0.0), 2.5);
+    // Fresnel rim — tighter exponent for a sharper glow edge on spheres
+    float fresnel = pow(1.0 - max(dot(vNormal, vViewDir), 0.0), 3.0);
 
     // Presence pulse — 2.4s cycle, per-instance phase
     float t = (uTime + vPhase) / 2.4;
     float pulse = 0.5 + 0.5 * sin(t * 6.28318);
 
-    // Base colour with pulse brightening
-    vec3 base = vInstanceColor * (0.7 + 0.3 * pulse * uPulse);
+    // Emissive base — bright core that reads as a glowing orb
+    vec3 base = vInstanceColor * (1.0 + 0.4 * pulse * uPulse);
 
-    // Rim glow
-    vec3 rim = vInstanceColor * fresnel * 1.4;
+    // Strong rim glow — the halo around each sphere
+    vec3 rim = vInstanceColor * fresnel * 2.2;
 
     // Refusal flash — overrides to refuse red
-    vec3 refuseCol = vec3(0.973, 0.443, 0.443); // #F87171
+    vec3 refuseCol = vec3(1.0, 0.302, 0.302); // #FF4D4D
     float flash = vRefused * (0.6 + 0.4 * sin(uTime * 12.0));
-    vec3 color = mix(base + rim, refuseCol + rim * 0.5, flash);
+    vec3 color = mix(base + rim, refuseCol + rim * 0.6, flash);
 
-    float alpha = 0.85 + fresnel * 0.15;
+    float alpha = 0.9 + fresnel * 0.1;
 
     gl_FragColor = vec4(color, alpha);
   }

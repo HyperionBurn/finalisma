@@ -45,13 +45,16 @@ class LaunchSurfaceTests(unittest.TestCase):
         # replacement assertion, not a deletion of the truthfulness intent.
         self.assertNotIn("data-stat-strip", html)
         # VANGUARD spec (founder): the "documented MCP paths" phrase is banned
-        # everywhere. The truthful below-the-fold proof section now carries
-        # "MCP — the open protocol" with stat 1. That is the justified
-        # replacement assertion, not a deletion of the truthfulness intent.
+        # everywhere. Founder-feedback wave: the entire Proof section was
+        # removed ("nobody includes proof other than AI"). The honest labels
+        # that remain are the MCP-protocol marquee + its disclaimer and the
+        # hero's simulated-demo readout. Those are the justified replacement
+        # assertions, not a deletion of the truthfulness intent.
         self.assertNotIn("documented MCP paths", html.lower())
-        self.assertIn("MCP — the open protocol", html)
-        self.assertIn("Verified host (OpenCode 1.18.13)", html)
-        self.assertIn("next proof pair, Claude Code + Cursor", html)
+        self.assertNotIn("Proof, not promises", html)
+        self.assertNotIn('data-proof-item', html)
+        self.assertIn("Speaks MCP", html)
+        self.assertIn("MCP is a public protocol; these names identify the hosts that speak it", html)
         self.assertIn('type="application/ld+json"', html)
         self.assertIn('property="og:site_name" content="Finalisma"', html)
         self.assertIn('name="twitter:image" content="/assets/og-card.png"', html)
@@ -61,8 +64,8 @@ class LaunchSurfaceTests(unittest.TestCase):
         self.assertIn("MCP is the tool protocol", html)
         self.assertIn("single-node", html.lower())
         self.assertIn("data-cohort-form", html)
-        self.assertIn("Watch the 42-second proof", html)
-        self.assertIn('href="/demo.html"', html)
+        self.assertIn("See how it works", html)
+        self.assertIn('href="#how-it-works"', html)
         self.assertIn("$500 deposit", html)
         self.assertNotIn("verified agent handoff layer", html.lower())
         self.assertNotIn("Finalisma A2A Standard", html)
@@ -123,33 +126,39 @@ class LaunchSurfaceTests(unittest.TestCase):
             self.assertIn("coordinator", lowered)
 
     def test_unposted_entries_never_rely_on_colour_alone(self) -> None:
-        """Colour-alone accessibility invariant, re-expressed for Wave D3.
+        """Colour-alone accessibility invariant, re-expressed for the VANGUARD
+        rebuild.
 
         The DOUBLE ENTRY design used ``<li class="entry">`` rows with
-        ``.entry-state`` spans; FIELD NOTES used ``.keylist``/``.factlist`` rows.
-        Wave D3 replaced those with two colour-coded structures that carry the
-        ASSERT/PROVE semantic roles:
+        ``.entry-state`` spans; FIELD NOTES used ``.keylist``/``.factlist``
+        rows; Wave D3 used ``[data-proof-item]`` + ``[data-step]``. The founder
+        then removed the Proof section entirely ("nobody includes proof other
+        than AI"). The colour-coded structures that REMAIN on the page are:
 
-        * ``[data-proof-item]`` (5 items) — ``.proof-stat`` is coloured; the
-          adjacent ``.proof-label`` is the textual claim.
         * ``[data-step]`` (4 items) — ``.step-num`` is coloured; the adjacent
           ``<h3>`` is the textual step name.
+        * ``[data-agent-events-fallback]`` (5+ items) — each ``<li>`` is
+          colour-coded by ``data-evt-kind`` (join/assert/prove/refuse) and
+          carries text in ``.evt-msg`` (and ``.evt-agent`` / ``.evt-seq``).
 
-        Invariant: every such row must carry readable text next to its
-        colour-coded marker — colour never carries meaning alone.
-        5 + 4 = 9 rows (threshold adjusted from 11 to the V2 structure's count;
-        the invariant intent is unchanged).
+        Invariant: every colour-coded row must carry readable text next to its
+        colour marker — colour never carries meaning alone.
+        4 + 5 = 9 rows (threshold preserved from the V2 structure's count; the
+        invariant intent is unchanged).
         """
         html = (SITE / "index.html").read_text(encoding="utf-8")
-        proof_items = re.findall(r'<li[^>]*data-proof-item[^>]*>(.*?)</li>', html, re.S)
         steps = re.findall(r'<li[^>]*data-step[^>]*>(.*?)</li>', html, re.S)
-        entries = proof_items + steps
+        fallback = re.search(r'<ol[^>]*data-agent-events-fallback[^>]*>(.*?)</ol>', html, re.S)
+        self.assertIsNotNone(fallback, "hero must render a text-alternative event list")
+        event_rows = re.findall(r'<li[^>]*data-evt-kind[^>]*>(.*?)</li>', fallback.group(1), re.S)
+        self.assertGreaterEqual(len(event_rows), 5, "event fallback must carry >= 5 colour-coded rows")
+        entries = steps + event_rows
         self.assertGreaterEqual(len(entries), 9)
         for entry in entries:
             with self.subTest(entry=entry[:60]):
-                has_label = re.search(r'class="proof-label"[^>]*>([^<]+)</span>', entry)
                 has_heading = re.search(r'<h3[^>]*>([^<]+)</h3>', entry)
-                textual_marker = has_label or has_heading
+                has_evt_msg = re.search(r'class="evt-msg"[^>]*>([^<]+)</span>', entry)
+                textual_marker = has_heading or has_evt_msg
                 self.assertIsNotNone(
                     textual_marker,
                     "colour-coded row has no textual state/description marker",

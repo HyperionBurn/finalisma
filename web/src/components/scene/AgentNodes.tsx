@@ -8,42 +8,45 @@ import { useProgress, useRefusalFlash, sceneActions } from './useSceneStore';
  * AgentNodes.tsx — 5 instanced agent nodes orbiting the room core.
  * Continuous orbital motion + idle bob + presence pulse. Always visible
  * at progress 0 (truthful initial state); animation only enhances.
+ *
+ * SCALED UP: larger nodes, wider orbits, faster perceptible motion.
  */
 
 const AGENT_COUNT = 5;
 const AGENT_LABELS = ['A', 'B', 'C', 'D', 'E'];
 
 // Orbit radii / heights / phases — each agent gets its own track
+// WIDER radii so the graph fills the full-bleed frame
 const AGENT_ORBITS = [
-  { radius: 3.2, height: 0.8, phase: 0.0, speed: 0.28 },
-  { radius: 2.6, height: -1.2, phase: 1.6, speed: 0.22 },
-  { radius: 4.0, height: 0.1, phase: 3.2, speed: 0.18 },
-  { radius: 2.4, height: 1.4, phase: 4.8, speed: 0.24 },
-  { radius: 4.2, height: -0.7, phase: 5.6, speed: 0.20 },
+  { radius: 4.8, height: 1.2, phase: 0.0, speed: 0.42 },
+  { radius: 3.9, height: -1.8, phase: 1.6, speed: 0.34 },
+  { radius: 6.0, height: 0.2, phase: 3.2, speed: 0.28 },
+  { radius: 3.6, height: 2.1, phase: 4.8, speed: 0.38 },
+  { radius: 6.3, height: -1.0, phase: 5.6, speed: 0.30 },
 ];
 
-// Role tints: A=assert, B=prove, C=accent, D=accent, E=assert
+// Role tints — system palette only:
+// A = violet #7C5CFF, B = cyan #46E0FF, C = green #38E8A0, D = indigo, E = violet
 const AGENT_COLORS: [number, number, number][] = [
-  [0.957, 0.459, 0.420], // assert #F4756B
-  [0.878, 0.702, 0.290], // prove #E0B34A
-  [0.357, 0.239, 0.941], // accent #5B3DF0
-  [0.357, 0.239, 0.941], // accent
-  [0.957, 0.459, 0.420], // assert
+  [0.486, 0.361, 1.000], // violet #7C5CFF
+  [0.275, 0.878, 1.000], // cyan #46E0FF
+  [0.220, 0.910, 0.627], // green #38E8A0
+  [0.357, 0.239, 0.941], // indigo #5B3DF0
+  [0.486, 0.361, 1.000], // violet #7C5CFF
 ];
 
 export default function AgentNodes() {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const progress = useProgress();
   const refusalFlash = useRefusalFlash();
-  // reduced-motion is read via getState() inside useFrame to avoid
-  // re-render churn on every frame (the store mutates refusalFlash often).
 
   const material = useMemo(() => createNodeMaterial(), []);
   const dummy = useMemo(() => new THREE.Object3D(), []);
 
   // Instance attributes
   const { geometry, phaseOffset } = useMemo(() => {
-    const geo = new THREE.BoxGeometry(0.9, 0.9, 0.9, 2, 2, 2);
+    // Glowing spheres — high-segment sphereGeometry for smooth silhouettes
+    const geo = new THREE.SphereGeometry(0.85, 32, 32);
 
     const colors = new Float32Array(AGENT_COUNT * 3);
     const phases = new Float32Array(AGENT_COUNT);
@@ -91,7 +94,7 @@ export default function AgentNodes() {
       const x = Math.cos(angle) * r;
       const z = Math.sin(angle) * r;
       // Idle bob — subtle vertical oscillation
-      const bob = sceneActions.getState().reducedMotion ? 0 : Math.sin(time * 1.5 + i * 1.2) * 0.08;
+      const bob = sceneActions.getState().reducedMotion ? 0 : Math.sin(time * 1.5 + i * 1.2) * 0.12;
       const y = orbit.height + bob;
 
       // Arrival pop enhancement (after the node is already visible)

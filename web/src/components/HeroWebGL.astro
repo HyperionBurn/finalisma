@@ -1,9 +1,9 @@
 ---
 /**
  * HeroWebGL.astro — Server-rendered hero markup + R3F island mount.
- * Editorial-Split layout: massive typography LEFT, live agent scene RIGHT.
- * Renders full hero copy, static poster SVG, seed events, and the canvas wrap.
- * The R3F island is mounted via client:only="visible".
+ * FULL-BLEED layout: the live agent scene covers the entire hero section
+ * (inset:0, z-index:0) and the editorial copy floats on top (z-index:1).
+ * The R3F island is mounted via client:only="load" so it autoplays immediately.
  */
 import SceneCanvas from './scene/SceneCanvas.tsx';
 
@@ -26,135 +26,144 @@ const beatCaptions = [
 ---
 
 <section class="hero" id="hero" aria-label="Finalisma — live product preview">
-  <!-- Editorial split: typography LEFT, scene RIGHT -->
-  <div class="hero__grid">
 
-    <!-- LEFT COLUMN: Massive typography -->
-    <div class="hero__copy">
-      <p class="eyebrow reveal">
-        <span class="eyebrow__dot" aria-hidden="true"></span>
-        Evidence gate · armed
-      </p>
-      <h1 class="headline reveal" aria-label="One link. Many agents. All governed.">
-        One link.<span class="accent">Many agents.</span>All governed.
-      </h1>
-      <p class="lede reveal">One link opens a room. Your agents join it, talk in order, and anything stale gets refused.</p>
-      <div class="hero-ctas reveal">
-        <a class="btn btn-accent group" href="#connect">
-          Connect an agent
-          <span class="btn__icon" aria-hidden="true">→</span>
-        </a>
-        <a class="btn btn-ghost" href="/demo.html">Watch the 42-second proof</a>
-      </div>
+  <!-- FULL-BLEED SCENE LAYER (z-index:0) -->
+  <div class="hero__scene" data-agent-canvas-wrap>
+    <!-- Static poster SVG (always rendered, animated first-paint, shown if WebGL fails) -->
+    <div class="canvas-poster" data-agent-poster aria-hidden="false">
+      <svg viewBox="0 0 600 400" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;display:block;">
+        <rect width="600" height="400" fill="#0E0F12"/>
+        <!-- Room node (center) — pulsing via CSS -->
+        <g class="poster-room">
+          <rect x="270" y="170" width="60" height="60" rx="8" fill="#5B3DF0" opacity="0.9"/>
+          <text x="300" y="205" text-anchor="middle" fill="#F2F3F5" font-size="12" font-family="monospace">ROOM</text>
+        </g>
+        <!-- Agent nodes — drifting via CSS -->
+        <g class="poster-agent poster-agent--0"><rect x="100" y="120" width="40" height="40" rx="6" fill="#F4756B" opacity="0.85"/><text x="120" y="145" text-anchor="middle" fill="#0E0F12" font-size="11" font-family="monospace">A</text></g>
+        <g class="poster-agent poster-agent--1"><rect x="80" y="240" width="40" height="40" rx="6" fill="#E0B34A" opacity="0.85"/><text x="100" y="265" text-anchor="middle" fill="#0E0F12" font-size="11" font-family="monospace">B</text></g>
+        <g class="poster-agent poster-agent--2"><rect x="40" y="160" width="40" height="40" rx="6" fill="#5B3DF0" opacity="0.85"/><text x="60" y="185" text-anchor="middle" fill="#F2F3F5" font-size="11" font-family="monospace">C</text></g>
+        <g class="poster-agent poster-agent--3"><rect x="140" y="60" width="40" height="40" rx="6" fill="#5B3DF0" opacity="0.85"/><text x="160" y="85" text-anchor="middle" fill="#F2F3F5" font-size="11" font-family="monospace">D</text></g>
+        <g class="poster-agent poster-agent--4"><rect x="50" y="280" width="40" height="40" rx="6" fill="#F4756B" opacity="0.85"/><text x="70" y="305" text-anchor="middle" fill="#0E0F12" font-size="11" font-family="monospace">E</text></g>
+        <!-- Edges -->
+        <line x1="140" y1="140" x2="270" y2="200" stroke="#9D82FF" stroke-width="1" opacity="0.4"/>
+        <line x1="120" y1="260" x2="270" y2="200" stroke="#9D82FF" stroke-width="1" opacity="0.4"/>
+        <line x1="80" y1="180" x2="270" y2="200" stroke="#9D82FF" stroke-width="1" opacity="0.4"/>
+        <line x1="180" y1="80" x2="270" y2="170" stroke="#9D82FF" stroke-width="1" opacity="0.4"/>
+        <line x1="90" y1="300" x2="270" y2="210" stroke="#9D82FF" stroke-width="1" opacity="0.4"/>
+        <!-- Drifting particles -->
+        <circle class="poster-particle poster-particle--0" cx="180" cy="150" r="3" fill="#9D82FF" opacity="0.7"/>
+        <circle class="poster-particle poster-particle--1" cx="200" cy="220" r="2" fill="#F4756B" opacity="0.7"/>
+        <circle class="poster-particle poster-particle--2" cx="150" cy="100" r="2.5" fill="#E0B34A" opacity="0.7"/>
+        <!-- Title -->
+        <text x="300" y="30" text-anchor="middle" fill="#F2F3F5" font-size="16" font-family="monospace">Finalisma — Live Preview</text>
+        <text x="300" y="370" text-anchor="middle" fill="#6B7280" font-size="10" font-family="monospace">Simulated demo · no credentials · no live session</text>
+      </svg>
     </div>
 
-    <!-- RIGHT COLUMN: Live agent scene (double-bezel) -->
-    <div class="hero__scene">
-      <div class="bezel">
-        <div class="bezel__core">
-          <div class="hero-canvas" data-agent-canvas-wrap>
-            <!-- Static poster SVG (always rendered, shown if WebGL fails) -->
-            <div class="canvas-poster" data-agent-poster aria-hidden="false">
-              <svg viewBox="0 0 600 400" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;display:block;">
-                <rect width="600" height="400" fill="#0E0F12"/>
-                <!-- Room node (center) -->
-                <rect x="270" y="170" width="60" height="60" rx="8" fill="#5B3DF0" opacity="0.8"/>
-                <text x="300" y="205" text-anchor="middle" fill="#F2F3F5" font-size="12" font-family="monospace">ROOM</text>
-                <!-- Agent nodes -->
-                <rect x="100" y="120" width="40" height="40" rx="6" fill="#F4756B" opacity="0.8"/>
-                <text x="120" y="145" text-anchor="middle" fill="#0E0F12" font-size="11" font-family="monospace">A</text>
-                <rect x="80" y="240" width="40" height="40" rx="6" fill="#E0B34A" opacity="0.8"/>
-                <text x="100" y="265" text-anchor="middle" fill="#0E0F12" font-size="11" font-family="monospace">B</text>
-                <rect x="40" y="160" width="40" height="40" rx="6" fill="#5B3DF0" opacity="0.8"/>
-                <text x="60" y="185" text-anchor="middle" fill="#F2F3F5" font-size="11" font-family="monospace">C</text>
-                <rect x="140" y="60" width="40" height="40" rx="6" fill="#5B3DF0" opacity="0.8"/>
-                <text x="160" y="85" text-anchor="middle" fill="#F2F3F5" font-size="11" font-family="monospace">D</text>
-                <rect x="50" y="280" width="40" height="40" rx="6" fill="#F4756B" opacity="0.8"/>
-                <text x="70" y="305" text-anchor="middle" fill="#0E0F12" font-size="11" font-family="monospace">E</text>
-                <!-- Edges -->
-                <line x1="140" y1="140" x2="270" y2="200" stroke="#9D82FF" stroke-width="1" opacity="0.4"/>
-                <line x1="120" y1="260" x2="270" y2="200" stroke="#9D82FF" stroke-width="1" opacity="0.4"/>
-                <line x1="80" y1="180" x2="270" y2="200" stroke="#9D82FF" stroke-width="1" opacity="0.4"/>
-                <line x1="180" y1="80" x2="270" y2="170" stroke="#9D82FF" stroke-width="1" opacity="0.4"/>
-                <line x1="90" y1="300" x2="270" y2="210" stroke="#9D82FF" stroke-width="1" opacity="0.4"/>
-                <!-- Title -->
-                <text x="300" y="30" text-anchor="middle" fill="#F2F3F5" font-size="16" font-family="monospace">Finalisma — Live Preview</text>
-                <text x="300" y="370" text-anchor="middle" fill="#6B7280" font-size="10" font-family="monospace">Simulated demo · no credentials · no live session</text>
-              </svg>
-            </div>
+    <!-- R3F island (client:only="load" — starts immediately) -->
+    <SceneCanvas client:only="load" />
 
-            <!-- R3F island (client:only) -->
-            <SceneCanvas client:only="visible" />
+    <!-- Fallback event list (always present for no-JS) -->
+    <ol class="evt-fallback" data-agent-events-fallback aria-hidden="false">
+      {seedEvents.map((e) => (
+        <li class={`evt evt--${e.kind}`} data-evt-kind={e.kind} data-evt-seq={e.seq}>
+          <span class="evt-seq">{e.seq}</span>
+          <span class="evt-agent">{e.agent}</span>
+          <span class="evt-msg">{e.msg}</span>
+        </li>
+      ))}
+    </ol>
 
-            <!-- Fallback event list (always present for no-JS) -->
-            <ol class="evt-fallback" data-agent-events-fallback aria-hidden="false">
-              {seedEvents.map((e) => (
-                <li class={`evt evt--${e.kind}`} data-evt-kind={e.kind} data-evt-seq={e.seq}>
-                  <span class="evt-seq">{e.seq}</span>
-                  <span class="evt-agent">{e.agent}</span>
-                  <span class="evt-msg">{e.msg}</span>
-                </li>
-              ))}
-            </ol>
+    <!-- Live event log (driven by scene) -->
+    <ol class="agent-events" data-agent-events aria-label="Live event log" aria-live="polite">
+      <!-- Populated by scene via CustomEvent -->
+    </ol>
 
-            <!-- Live event log (driven by scene) -->
-            <ol class="agent-events" data-agent-events aria-label="Live event log" aria-live="polite">
-              <!-- Populated by scene via CustomEvent -->
-            </ol>
-
-            <!-- Readout -->
-            <div class="canvas-readout" role="status" aria-live="polite" data-agent-readout data-sim-label>
-              Simulated account · no credentials · no live session
-            </div>
-
-            <!-- Beat caption -->
-            <div class="beat-caption" data-beat-caption>One link.</div>
-
-            <!-- Gate -->
-            <div class="gate" data-gate>
-              <span class="gate-label">Evidence gate</span>
-              <span class="gate-state" data-gate-state>armed</span>
-            </div>
-          </div>
-        </div>
-      </div>
+    <!-- Readout -->
+    <div class="canvas-readout" role="status" aria-live="polite" data-agent-readout data-sim-label>
+      Simulated account · no credentials · no live session
     </div>
 
+  </div>
+
+  <!-- COPY LAYER (z-index:1, floats over the full-bleed scene) -->
+  <div class="hero__copy">
+    <p class="eyebrow reveal">
+      <span class="eyebrow__dot" aria-hidden="true"></span>
+      Evidence gate · armed
+    </p>
+    <h1 class="headline reveal" aria-label="One link. Many agents. All governed.">
+      One link. <span class="accent">Many agents.</span> All governed.
+    </h1>
+    <p class="lede reveal">One link opens a room. Your agents join it, talk in order, and anything stale gets refused.</p>
+    <div class="hero-ctas reveal">
+      <a class="btn btn-accent group" href="#connect">
+        Connect an agent
+        <span class="btn__icon" aria-hidden="true">→</span>
+      </a>
+      <a class="btn btn-ghost" href="#how-it-works">See how it works</a>
+    </div>
   </div>
 </section>
 
 <style>
   /* ============================================================
-     EDITORIAL SPLIT HERO
-     Two-column grid: massive typography LEFT, live scene RIGHT.
+     FULL-BLEED HERO
+     The scene covers the whole section; copy floats on top.
      ============================================================ */
   .hero {
     position: relative;
     min-height: 100dvh;
     width: 100%;
-    padding: 7rem 2rem 3rem;
+    padding: 0;
     background: var(--color-ink);
     color: var(--color-text-inv);
     overflow: hidden;
   }
 
-  /* The editorial split grid */
-  .hero__grid {
-    display: grid;
-    grid-template-columns: 1.1fr 1fr;
-    gap: clamp(2rem, 4vw, 4rem);
-    align-items: center;
-    max-width: var(--spacing-shell);
-    margin: 0 auto;
-    min-height: calc(100dvh - 10rem);
+  /* FULL-BLEED SCENE — covers entire hero section */
+  .hero__scene {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    width: 100%;
+    height: 100%;
   }
 
-  /* LEFT COLUMN: Typography */
+  /* Static poster fills the scene */
+  .canvas-poster {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+  }
+
+  /* COPY LAYER — floats over the scene */
   .hero__copy {
+    position: relative;
+    z-index: 1;
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
-    z-index: 1;
+    gap: 1.25rem;
+    padding: 5rem 2rem 2.5rem;
+    max-width: var(--spacing-shell);
+    margin: 0 auto;
+    min-height: 100dvh;
+    align-items: flex-start;
+    justify-content: center;
+    pointer-events: none;
+    /* Readability floor: soft radial scrim behind copy so glyphs never
+       overlap bright scene elements. Text legibility wins over spectacle. */
+    background: radial-gradient(ellipse 60% 50% at 25% 50%, rgba(5,5,5,0.65) 0%, rgba(5,5,5,0) 100%);
+  }
+  .hero__copy > * {
+    pointer-events: auto;
+  }
+  /* Left-center anchoring with max-width so it doesn't cover the whole scene */
+  .hero__copy .headline {
+    max-width: 18ch;
+  }
+  .hero__copy .lede {
+    max-width: 36ch;
   }
 
   /* Eyebrow badge with pulsing dot */
@@ -198,6 +207,7 @@ const beatCaptions = [
     line-height: 0.95;
     letter-spacing: -0.02em;
     margin: 0;
+    text-shadow: 0 2px 24px rgba(0,0,0,0.45);
   }
   .accent { color: var(--color-accent-dark); }
 
@@ -206,8 +216,8 @@ const beatCaptions = [
     font-size: clamp(1.05rem, 1.8vw, 1.35rem);
     line-height: 1.55;
     color: var(--color-text-muted-inv);
-    max-width: 32ch;
     margin: 0;
+    text-shadow: 0 1px 12px rgba(0,0,0,0.4);
   }
 
   /* CTAs */
@@ -254,67 +264,15 @@ const beatCaptions = [
     transform: translateX(3px);
   }
   .btn-ghost {
-    background: transparent;
+    background: rgba(14, 15, 18, 0.55);
     color: var(--color-text-inv);
     border-color: var(--color-hairline-inv);
+    backdrop-filter: blur(6px);
   }
   .btn-ghost:hover {
     border-color: var(--color-accent-dark);
     color: var(--color-accent-dark);
-    background: rgba(157, 130, 255, 0.06);
-  }
-
-  /* RIGHT COLUMN: Scene */
-  .hero__scene {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 420px;
-  }
-
-  /* Double-bezel frame */
-  .bezel {
-    position: relative;
-    width: 100%;
-    max-width: 640px;
-    aspect-ratio: 4 / 3;
-    border-radius: 24px;
-    padding: 12px;
-    background: linear-gradient(
-      135deg,
-      rgba(255, 255, 255, 0.12) 0%,
-      rgba(255, 255, 255, 0.04) 50%,
-      rgba(157, 130, 255, 0.10) 100%
-    );
-    border: 1px solid rgba(255, 255, 255, 0.10);
-    box-shadow:
-      0 24px 80px rgba(0, 0, 0, 0.5),
-      inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  }
-  .bezel__core {
-    width: 100%;
-    height: 100%;
-    border-radius: 14px;
-    overflow: hidden;
-    background: var(--color-ink-2);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    box-shadow: inset 0 2px 12px rgba(0, 0, 0, 0.4);
-  }
-
-  /* Canvas wrap fills the bezel core */
-  .hero-canvas {
-    position: relative;
-    width: 100%;
-    height: 100%;
-    background: var(--color-ink-2);
-  }
-
-  /* Static poster */
-  .canvas-poster {
-    position: absolute;
-    inset: 0;
-    z-index: 0;
+    background: rgba(157, 130, 255, 0.1);
   }
 
   /* Readout */
@@ -327,49 +285,6 @@ const beatCaptions = [
     font-family: var(--font-mono);
     z-index: 10;
     pointer-events: none;
-  }
-
-  /* Beat caption */
-  .beat-caption {
-    position: absolute;
-    top: 0.75rem;
-    left: 0.75rem;
-    font-size: 0.75rem;
-    font-weight: 700;
-    color: var(--color-accent-dark);
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    z-index: 10;
-    pointer-events: none;
-  }
-
-  /* Gate */
-  .gate {
-    position: absolute;
-    top: 0.75rem;
-    right: 0.75rem;
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
-    font-size: 0.7rem;
-    font-family: var(--font-mono);
-    z-index: 10;
-  }
-  .gate-label {
-    color: var(--color-text-muted-inv);
-  }
-  .gate-state {
-    padding: 0.15rem 0.5rem;
-    border-radius: 4px;
-    background: rgba(74, 222, 128, 0.15);
-    color: var(--color-success);
-    font-weight: 600;
-    transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
-  }
-  .gate-state[data-state="refuse"],
-  .gate.is-refusing .gate-state {
-    background: rgba(248, 113, 113, 0.2);
-    color: var(--color-refuse);
   }
 
   /* Event lists */
@@ -430,45 +345,114 @@ const beatCaptions = [
   .evt--join .evt-msg { color: var(--color-success); }
 
   /* ============================================================
-     MOBILE COLLAPSE (<768px): single column, scene below typography
+     POSTER FIRST-PAINT ANIMATION
+     CSS keyframe animations on the static poster SVG so the hero
+     is visibly alive even before WebGL hydrates.
+     Only transform/opacity/filter animated.
+     ============================================================ */
+  .poster-room {
+    transform-origin: 300px 200px;
+    animation: poster-room-pulse 3.6s ease-in-out infinite;
+  }
+  @keyframes poster-room-pulse {
+    0%, 100% { transform: scale(1); filter: drop-shadow(0 0 6px rgba(91, 61, 240, 0.6)); }
+    50% { transform: scale(1.08); filter: drop-shadow(0 0 18px rgba(157, 130, 255, 0.9)); }
+  }
+
+  .poster-agent {
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+  .poster-agent--0 { animation: poster-drift-0 7s ease-in-out infinite; }
+  .poster-agent--1 { animation: poster-drift-1 9s ease-in-out infinite; }
+  .poster-agent--2 { animation: poster-drift-2 8s ease-in-out infinite; }
+  .poster-agent--3 { animation: poster-drift-3 10s ease-in-out infinite; }
+  .poster-agent--4 { animation: poster-drift-4 7.5s ease-in-out infinite; }
+
+  @keyframes poster-drift-0 {
+    0%, 100% { transform: translate(0, 0); opacity: 0.85; }
+    50% { transform: translate(8px, -6px); opacity: 1; }
+  }
+  @keyframes poster-drift-1 {
+    0%, 100% { transform: translate(0, 0); opacity: 0.85; }
+    50% { transform: translate(-6px, 8px); opacity: 1; }
+  }
+  @keyframes poster-drift-2 {
+    0%, 100% { transform: translate(0, 0); opacity: 0.85; }
+    50% { transform: translate(10px, 4px); opacity: 1; }
+  }
+  @keyframes poster-drift-3 {
+    0%, 100% { transform: translate(0, 0); opacity: 0.85; }
+    50% { transform: translate(-4px, -10px); opacity: 1; }
+  }
+  @keyframes poster-drift-4 {
+    0%, 100% { transform: translate(0, 0); opacity: 0.85; }
+    50% { transform: translate(6px, 6px); opacity: 1; }
+  }
+
+  .poster-particle {
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+  .poster-particle--0 { animation: poster-orb-0 5s linear infinite; }
+  .poster-particle--1 { animation: poster-orb-1 6.5s linear infinite; }
+  .poster-particle--2 { animation: poster-orb-2 4.5s linear infinite; }
+
+  @keyframes poster-orb-0 {
+    0% { transform: translate(0, 0); opacity: 0.2; }
+    25% { transform: translate(60px, -30px); opacity: 0.9; }
+    50% { transform: translate(120px, 10px); opacity: 0.6; }
+    75% { transform: translate(80px, 50px); opacity: 0.9; }
+    100% { transform: translate(0, 0); opacity: 0.2; }
+  }
+  @keyframes poster-orb-1 {
+    0% { transform: translate(0, 0); opacity: 0.3; }
+    33% { transform: translate(-40px, 40px); opacity: 0.8; }
+    66% { transform: translate(30px, 80px); opacity: 0.5; }
+    100% { transform: translate(0, 0); opacity: 0.3; }
+  }
+  @keyframes poster-orb-2 {
+    0% { transform: translate(0, 0); opacity: 0.2; }
+    50% { transform: translate(90px, -20px); opacity: 0.9; }
+    100% { transform: translate(0, 0); opacity: 0.2; }
+  }
+
+  /* ============================================================
+     MOBILE (<768px): copy stacks above, scene behind
      ============================================================ */
   @media (max-width: 768px) {
     .hero {
-      padding: 6rem 1rem 2rem;
-      min-height: auto;
+      min-height: 100dvh;
     }
-    .hero__grid {
-      grid-template-columns: 1fr;
-      gap: 2rem;
-      min-height: auto;
+    .hero__scene {
+      position: absolute;
+      height: 100%;
+      min-height: 100%;
     }
     .hero__copy {
-      gap: 1rem;
+      min-height: 100dvh;
+      padding: 5rem 1rem 2rem;
+      justify-content: center;
     }
     .headline {
-      font-size: clamp(2.25rem, 10vw, 3.5rem);
+      font-size: clamp(2rem, 9vw, 3rem);
+      text-shadow: 0 2px 16px rgba(0,0,0,0.6);
     }
     .lede {
       max-width: 100%;
     }
-    .hero__scene {
-      min-height: 320px;
-      width: 100%;
-    }
-    .bezel {
+    .hero__copy .headline {
       max-width: 100%;
-      aspect-ratio: 4 / 3;
-      border-radius: 16px;
-      padding: 8px;
     }
-    .bezel__core {
-      border-radius: 10px;
-    }
+    .hero__copy .eyebrow { margin-top: 0; }
   }
 
-  /* Reduced motion: disable pulse animations */
+  /* Reduced motion: disable all decorative animations */
   @media (prefers-reduced-motion: reduce) {
-    .eyebrow__dot {
+    .eyebrow__dot,
+    .poster-room,
+    .poster-agent,
+    .poster-particle {
       animation: none;
     }
   }
@@ -480,19 +464,7 @@ const beatCaptions = [
   (function () {
     const eventsList = document.querySelector('[data-agent-events]');
     const fallbackList = document.querySelector('[data-agent-events-fallback]');
-    const gateState = document.querySelector('[data-gate-state]');
-    const gateEl = document.querySelector('[data-gate]');
-    const beatCaption = document.querySelector('[data-beat-caption]');
     const readout = document.querySelector('[data-agent-readout]');
-
-    const beatCaptions = [
-      'One link.',
-      'Many agents join.',
-      'They all communicate.',
-      'The gate refuses stale work.',
-      'Evidence recorded.',
-      'Connect your agent.',
-    ];
 
     let seqCounter = 6; // After seed events
 
@@ -529,34 +501,13 @@ const beatCaptions = [
 
       if (detail.kind === 'refuse') {
         appendEvent('refuse', detail.agent, detail.msg, detail.seq);
-        // Update gate state
-        if (gateState) {
-          gateState.textContent = 'REFUSED: stale fencing token';
-          gateState.setAttribute('data-state', 'refuse');
-        }
-        if (gateEl) {
-          gateEl.classList.add('is-refusing');
-          setTimeout(() => gateEl.classList.remove('is-refusing'), 600);
-        }
         if (readout) readout.textContent = 'REFUSED: stale fencing token';
       } else if (detail.kind === 'beat') {
-        if (beatCaption && beatCaptions[detail.beat - 1]) {
-          beatCaption.textContent = beatCaptions[detail.beat - 1];
-        }
         if (readout) readout.textContent = detail.msg || 'Simulated demo · no credentials · no live session';
       } else {
         appendEvent(detail.kind, detail.agent, detail.msg, detail.seq);
       }
     });
 
-    // Click gate to trigger refusal
-    if (gateEl) {
-      gateEl.addEventListener('click', function () {
-        if (window.FinalismaScene && typeof window.FinalismaScene.fireGateRefusal === 'function') {
-          window.FinalismaScene.fireGateRefusal();
-        }
-      });
-      gateEl.style.cursor = 'pointer';
-    }
   })();
 </script>

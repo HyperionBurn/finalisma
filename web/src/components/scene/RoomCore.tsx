@@ -7,6 +7,8 @@ import { useRefusalFlash, useBeat } from './useSceneStore';
 /**
  * RoomCore.tsx — Central room node with simplex-noise animated surface.
  * Amplitude spikes on refusal.
+ *
+ * SCALED UP: larger core, stronger emissive presence.
  */
 
 export default function RoomCore() {
@@ -17,8 +19,8 @@ export default function RoomCore() {
   const material = useMemo(() => createRoomMaterial(), []);
 
   const geometry = useMemo(() => {
-    // Rounded box approximation — use a box with bevel via segments
-    const geo = new THREE.BoxGeometry(0.7, 0.7, 0.7, 4, 4, 4);
+    // Luminous core — sphere reads as a glowing orb, not a cube
+    const geo = new THREE.SphereGeometry(1.1, 48, 48);
     return geo;
   }, []);
 
@@ -29,8 +31,8 @@ export default function RoomCore() {
     mat.uniforms.uRefuseAmp.value = refusalFlash;
 
     // Subtle rotation
-    meshRef.current.rotation.y += delta * 0.05;
-    meshRef.current.rotation.x += delta * 0.02;
+    meshRef.current.rotation.y += delta * 0.06;
+    meshRef.current.rotation.x += delta * 0.025;
   });
 
   return (

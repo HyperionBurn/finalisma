@@ -100,15 +100,16 @@ export const roomFragmentShader = /* glsl */ `
     float noise = snoise(vec3(vUv * 3.0, t)) * 0.5 + 0.5;
     float spike = uRefuseAmp * snoise(vec3(vUv * 6.0, uTime * 2.0)) * 0.5;
 
-    // Fresnel rim
-    float fresnel = pow(1.0 - max(dot(vNormal, vViewDir), 0.0), 3.0);
+    // Fresnel rim — stronger for a glowing sphere silhouette
+    float fresnel = pow(1.0 - max(dot(vNormal, vViewDir), 0.0), 3.5);
 
     // Refuse tint
-    vec3 refuseCol = vec3(0.973, 0.443, 0.443);
+    vec3 refuseCol = vec3(1.0, 0.302, 0.302); // #FF4D4D
     vec3 base = mix(uColor, refuseCol, uRefuseAmp * 0.7);
 
-    vec3 color = base * (0.5 + noise * 0.5 + spike) + base * fresnel * 0.8;
-    float alpha = 0.9 + fresnel * 0.1;
+    // Emissive core — brighter base + strong rim halo
+    vec3 color = base * (0.8 + noise * 0.4 + spike) + base * fresnel * 1.8;
+    float alpha = 0.92 + fresnel * 0.08;
 
     gl_FragColor = vec4(color, alpha);
   }
@@ -121,7 +122,7 @@ export function createRoomMaterial(): THREE.ShaderMaterial {
     uniforms: {
       uTime: { value: 0 },
       uRefuseAmp: { value: 0 },
-      uColor: { value: new THREE.Color('#5B3DF0') },
+      uColor: { value: new THREE.Color('#7C5CFF') },
     },
     transparent: true,
     depthWrite: true,
