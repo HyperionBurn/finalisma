@@ -109,11 +109,121 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 );
 """
 
+_IDENTITY_ACCOUNTS_SQL = """
+CREATE TABLE IF NOT EXISTS cloud_identity_accounts (
+    account_id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    email TEXT NOT NULL,
+    salt BLOB NOT NULL,
+    password_hash BLOB NOT NULL,
+    created_at TEXT NOT NULL,
+    email_verified INTEGER NOT NULL DEFAULT 0,
+    verification_token_hash TEXT,
+    verification_expires_at REAL NOT NULL DEFAULT 0,
+    reset_token_hash TEXT,
+    reset_expires_at REAL NOT NULL DEFAULT 0,
+    FOREIGN KEY(tenant_id) REFERENCES cloud_tenants(tenant_id)
+);
+CREATE INDEX IF NOT EXISTS idx_identity_accounts_tenant_email
+    ON cloud_identity_accounts(tenant_id, email);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_identity_accounts_tenant_email_unique
+    ON cloud_identity_accounts(tenant_id, email);
+"""
+
+_IDENTITY_SESSIONS_SQL = """
+CREATE TABLE IF NOT EXISTS cloud_identity_sessions (
+    session_id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    account_id TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    expires_at REAL NOT NULL,
+    revoked_at REAL,
+    role_snapshot TEXT NOT NULL,
+    FOREIGN KEY(tenant_id) REFERENCES cloud_tenants(tenant_id),
+    FOREIGN KEY(account_id) REFERENCES cloud_identity_accounts(account_id)
+);
+CREATE INDEX IF NOT EXISTS idx_identity_sessions_account
+    ON cloud_identity_sessions(account_id, revoked_at);
+CREATE INDEX IF NOT EXISTS idx_identity_sessions_token
+    ON cloud_identity_sessions(token_hash);
+"""
+
+_IDENTITY_MEMBERS_SQL = """
+CREATE TABLE IF NOT EXISTS cloud_identity_members (
+    tenant_id TEXT NOT NULL,
+    account_id TEXT NOT NULL,
+    role TEXT NOT NULL CHECK(role IN ('owner','admin','member')),
+    joined_at TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, account_id),
+    FOREIGN KEY(tenant_id) REFERENCES cloud_tenants(tenant_id),
+    FOREIGN KEY(account_id) REFERENCES cloud_identity_accounts(account_id)
+);
+CREATE INDEX IF NOT EXISTS idx_identity_members_account
+    ON cloud_identity_members(account_id);
+"""
+
+_IDENTITY_INVITES_SQL = """
+CREATE TABLE IF NOT EXISTS cloud_identity_invites (
+    invite_id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    email TEXT NOT NULL,
+    role TEXT NOT NULL CHECK(role IN ('admin','member')),
+    token_hash TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    expires_at REAL NOT NULL,
+    consumed_at REAL,
+    created_by TEXT NOT NULL,
+    FOREIGN KEY(tenant_id) REFERENCES cloud_tenants(tenant_id),
+    FOREIGN KEY(created_by) REFERENCES cloud_identity_accounts(account_id)
+);
+CREATE INDEX IF NOT EXISTS idx_identity_invites_tenant
+    ON cloud_identity_invites(tenant_id, email);
+"""
+
+_IDENTITY_OUTBOX_SQL = """
+CREATE TABLE IF NOT EXISTS cloud_identity_outbox (
+    entry_id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    to_email TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    dispatched_at REAL,
+    FOREIGN KEY(tenant_id) REFERENCES cloud_tenants(tenant_id)
+);
+"""
+
 MIGRATIONS: list[Migration] = [
     Migration(
         "cloud_001_init",
         "cloud plane bootstrap",
         _CLOUD_TABLES_SQL,
+    ),
+    Migration(
+        "cloud_002_identity_accounts",
+        "identity accounts",
+        _IDENTITY_ACCOUNTS_SQL,
+    ),
+    Migration(
+        "cloud_003_identity_sessions",
+        "identity sessions",
+        _IDENTITY_SESSIONS_SQL,
+    ),
+    Migration(
+        "cloud_004_identity_members",
+        "identity membership",
+        _IDENTITY_MEMBERS_SQL,
+    ),
+    Migration(
+        "cloud_005_identity_invites",
+        "identity invites",
+        _IDENTITY_INVITES_SQL,
+    ),
+    Migration(
+        "cloud_006_identity_outbox",
+        "identity email outbox",
+        _IDENTITY_OUTBOX_SQL,
     ),
 ]
 
