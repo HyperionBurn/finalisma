@@ -34,3 +34,53 @@ import '../styles/global.css';
 
   <Footer />
 </RootLayout>
+
+<script>
+  // Shared scroll-entry IntersectionObserver — single instance, observes every
+  // .scroll-in element and adds .in when >=20% visible. Per-element stagger
+  // via inline --delay (ms). No window scroll listener.
+  (function () {
+    if (typeof window === 'undefined' || !('IntersectionObserver' in window)) {
+      // No-IO fallback: reveal everything so content is never hidden.
+      document.querySelectorAll('.scroll-in').forEach(function (el) {
+        el.classList.add('in');
+      });
+      return;
+    }
+
+    var io = new IntersectionObserver(
+      function (entries) {
+        entries.forEach(function (entry) {
+          if (!entry.isIntersecting) return;
+          var el = entry.target;
+          var delay = 0;
+          var style = getComputedStyle(el);
+          var delayRaw = style.getPropertyValue('--delay').trim();
+          if (delayRaw) {
+            delay = parseInt(delayRaw, 10);
+            if (isNaN(delay)) delay = 0;
+          }
+          if (delay > 0) {
+            setTimeout(function () { el.classList.add('in'); }, delay);
+          } else {
+            el.classList.add('in');
+          }
+          io.unobserve(el);
+        });
+      },
+      { threshold: 0.2 }
+    );
+
+    function observeAll() {
+      document.querySelectorAll('.scroll-in').forEach(function (el) {
+        io.observe(el);
+      });
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', observeAll);
+    } else {
+      observeAll();
+    }
+  })();
+</script>

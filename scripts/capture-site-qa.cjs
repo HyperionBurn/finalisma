@@ -119,7 +119,7 @@ const screenshots = {
   blog: path.join(outputDir, "implementation-blog-1440x900.png"),
   demo: path.join(outputDir, "implementation-demo-1440x900.png"),
   comparison: path.join(outputDir, "comparison-desktop-1440x900.png"),
-  og: path.join(root, "site", "assets", "og-card.png"),
+  og: path.join(outputDir, "implementation-og-card-1200x630.png"),
   story: [0, 25, 50, 75, 100].map((percent) => path.join(outputDir, `implementation-story-${percent}pct-1440x900.png`))
 };
 
@@ -395,14 +395,19 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
     await og.close();
   } catch (_) {}
 
-  const comparison = await browser.newPage({ viewport: { width: 2880, height: 960 }, deviceScaleFactor: 1 });
-  await comparison.setContent(
-    `<style>html,body{margin:0;background:#0E0F12}.comparison{display:flex;width:2880px;height:960px;padding-top:60px;box-sizing:border-box}.panel{position:relative;width:1440px;height:900px;flex:0 0 1440px}.panel img{display:block;width:1440px;height:900px;object-fit:contain}.label{position:absolute;top:-60px;left:0;width:100%;height:60px;box-sizing:border-box;padding:20px 24px;color:#F2F3F5;background:#0E0F12;font:500 12px/1 Consolas,monospace;letter-spacing:.16em}</style>`
-    + `<div class="comparison"><div class="panel"><div class="label">RENDERED IMPLEMENTATION · 1440 × 900</div><img src="${dataUrl(screenshots.desktop)}"></div></div>`,
-    { waitUntil: "load" }
-  );
-  await comparison.screenshot({ path: screenshots.comparison, fullPage: true });
-  await comparison.close();
+  // The comparison composite screenshot is informational only — no assertion
+  // reads it. The 2880px-wide data-URL page reliably flakes in this headless
+  // chromium build ("Unable to capture screenshot"), so it must not kill the run.
+  try {
+    const comparison = await browser.newPage({ viewport: { width: 2880, height: 960 }, deviceScaleFactor: 1 });
+    await comparison.setContent(
+      `<style>html,body{margin:0;background:#0E0F12}.comparison{display:flex;width:2880px;height:960px;padding-top:60px;box-sizing:border-box}.panel{position:relative;width:1440px;height:900px;flex:0 0 1440px}.panel img{display:block;width:1440px;height:900px;object-fit:contain}.label{position:absolute;top:-60px;left:0;width:100%;height:60px;box-sizing:border-box;padding:20px 24px;color:#F2F3F5;background:#0E0F12;font:500 12px/1 Consolas,monospace;letter-spacing:.16em}</style>`
+      + `<div class="comparison"><div class="panel"><div class="label">RENDERED IMPLEMENTATION · 1440 × 900</div><img src="${dataUrl(screenshots.desktop)}"></div></div>`,
+      { waitUntil: "load" }
+    );
+    await comparison.screenshot({ path: screenshots.comparison, fullPage: true });
+    await comparison.close();
+  } catch (_) {}
 
   const mobileResults = [];
   for (const [width, height, destination] of [

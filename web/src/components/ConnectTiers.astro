@@ -95,15 +95,15 @@ client._call("finalisma_room_send", {
 <section class="section connect" id="connect" aria-labelledby="connect-title" data-reveal-section>
   <div class="section-shell">
     <div class="section-head">
-      <p class="kicker reveal">Four ways to connect</p>
-      <h2 id="connect-title" class="reveal">stdio, HTTP, bridge, or SDK.</h2>
-      <p class="section-lede reveal">
+      <p class="kicker eyebrow scroll-in">Four ways to connect</p>
+      <h2 id="connect-title" class="scroll-in" style="--delay:80ms">stdio, HTTP, bridge, or SDK.</h2>
+      <p class="section-lede scroll-in" style="--delay:160ms">
         Connect any agent through the transport it already speaks. All four tiers
         drive the same coordinator and the same evidence gate.
       </p>
     </div>
 
-    <div class="tier-tabs" role="tablist" data-tier-tabs>
+    <div class="tier-tabs scroll-in" style="--delay:240ms" role="tablist" data-tier-tabs>
       {tiers.map((tier, i) => (
         <button
           class="tier-tab"
@@ -120,13 +120,15 @@ client._call("finalisma_room_send", {
     <div class="tier-panels">
       {tiers.map((tier, i) => (
         <div
-          class="tier-panel"
+          class="bezel tier-panel"
           role="tabpanel"
           data-tier-panel={tier.id}
           hidden={i !== 0 ? true : undefined}
         >
-          <pre class="code-block" data-code-block><code>{tier.code}</code></pre>
-          <button class="btn btn-sm" data-copy={tier.id} type="button">Copy config</button>
+          <div class="bezel__core">
+            <pre class="code-block" data-code-block><code>{tier.code}</code></pre>
+            <button class="btn btn-sm group" data-copy={tier.id} type="button">Copy config<span class="btn__icon" aria-hidden="true">→</span></button>
+          </div>
         </div>
       ))}
     </div>

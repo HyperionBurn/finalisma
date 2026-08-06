@@ -2,19 +2,23 @@
 
 @theme {
   /* Core palette (DESIGN_SYSTEM_V2 §1, corrected values)
-     Base darkened per Lane-A brief: ink #0A0B0E (was #0E0F12). */
-  --color-ink: #0A0B0E;
+     Base deepened per Lane-A brief: ink #050505 (OLED black). */
+  --color-ink: #050505;
+  --color-ink-deep: #050505;
   --color-ink-2: #16181D;
   --color-ink-3: #1C2028;
   --color-ink-4: #232833;
   --color-surface: #F7F8FA;
   --color-surface-2: #FFFFFF;
-  --color-text: #0A0B0E;
+  --color-text: #050505;
   --color-text-inv: #F2F3F5;
   --color-text-muted: #6B7280;
   --color-text-muted-inv: #9BA1AD;
   --color-hairline: rgba(10,11,14,0.14);
-  --color-hairline-inv: rgba(242,243,245,0.14);
+  /* White/10 hairlines — never solid grey. */
+  --color-hairline-inv: rgba(255,255,255,0.10);
+  --color-hairline-glass: rgba(255,255,255,0.10);
+  --color-shell: rgba(255,255,255,0.05);
 
   /* Accent */
   --color-accent: #5B3DF0;
@@ -47,14 +51,15 @@
   --radius-sm: 6px;
   --radius-lg: 16px;
 
-  /* Motion */
+  /* Motion — fluid dynamics, no default easing */
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
-  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-fluid: cubic-bezier(0.32, 0.72, 0, 1);
   --ease-snap: cubic-bezier(0.34, 1.56, 0.64, 1);
   --dur-fast: 150ms;
   --dur-mid: 300ms;
   --dur-slow: 600ms;
   --dur-crawl: 900ms;
+  --dur-fluid: 700ms;
 
   /* Type scale roles (added by Lane-A) */
   --t-display: clamp(40px, 6.5vw, 88px);
@@ -68,6 +73,27 @@
 }
 
 @layer base {
+  /* OLED-black base + radial mesh gradient orbs (non-scrolling, fixed root layer) */
+  body {
+    background: var(--color-ink-deep);
+    position: relative;
+  }
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(ellipse 60% 50% at 15% 10%, rgba(91, 61, 240, 0.10) 0%, transparent 70%),
+      radial-gradient(ellipse 50% 45% at 85% 90%, rgba(76, 29, 149, 0.08) 0%, transparent 70%),
+      radial-gradient(ellipse 40% 35% at 50% 50%, rgba(91, 61, 240, 0.05) 0%, transparent 60%);
+    filter: blur(80px);
+    will-change: opacity;
+  }
+  /* Ensure page content sits above the mesh layer */
+  body > * { position: relative; z-index: 1; }
+
   /* Self-hosted fonts — root-relative so they resolve against site/ no
      matter where the built stylesheet lands (/_astro/index.<hash>.css). */
   @font-face {
@@ -221,7 +247,7 @@
      Section scaffolding
      ============================================================ */
   .section {
-    padding: clamp(56px, 8vw, 120px) clamp(20px, 4vw, 64px);
+    padding: clamp(6rem, 10vw, 10rem) clamp(20px, 4vw, 64px);
     position: relative;
   }
   .section-shell {
@@ -265,17 +291,18 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    gap: 0.5rem;
     padding: 0.75rem 1.5rem;
-    border-radius: var(--radius-sm);
+    border-radius: 9999px;
     font-weight: 600;
     text-decoration: none;
     font-size: 0.95rem;
     transition:
-      transform var(--dur-fast) var(--ease-out),
-      background var(--dur-fast) var(--ease-out),
-      border-color var(--dur-fast) var(--ease-out),
-      opacity var(--dur-fast) var(--ease-out),
-      box-shadow var(--dur-fast) var(--ease-out);
+      transform var(--dur-fast) var(--ease-fluid),
+      background var(--dur-fast) var(--ease-fluid),
+      border-color var(--dur-fast) var(--ease-fluid),
+      opacity var(--dur-fast) var(--ease-fluid),
+      box-shadow var(--dur-fast) var(--ease-fluid);
     cursor: pointer;
     border: 1px solid transparent;
   }
@@ -283,7 +310,23 @@
     transform: translateY(-1px);
     box-shadow: 0 4px 16px rgba(91, 61, 240, 0.18);
   }
-  .btn:active { transform: translateY(0); }
+  .btn:active { transform: scale(0.98); }
+  /* Magnetic island button-in-button pattern: nested icon circle flush right */
+  .btn__icon {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.10);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: auto;
+    flex-shrink: 0;
+    transition: transform var(--dur-fluid) var(--ease-fluid);
+  }
+  .group:hover .btn__icon {
+    transform: translateX(0.25rem) translateY(-1px) scale(1.05);
+  }
   .btn-accent {
     background: var(--color-accent);
     color: var(--color-accent-ink);
@@ -962,8 +1005,86 @@
   }
 
   /* ============================================================
-     Colour-temperature / theme overrides
-     ============================================================ */
+      Double-bezel (Doppelrand) — outer aluminium tray + inner glass core
+      ============================================================ */
+  .bezel {
+    background: var(--color-shell);
+    border: 1px solid var(--color-hairline-glass);
+    padding: 0.5rem;
+    border-radius: 2rem;
+  }
+  .bezel__core {
+    background: var(--color-ink);
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.15);
+    border-radius: calc(2rem - 0.375rem);
+    overflow: hidden;
+  }
+  .bezel--sm { border-radius: 1.25rem; }
+  .bezel--sm .bezel__core { border-radius: calc(1.25rem - 0.375rem); }
+  .bezel--lg { border-radius: 2.5rem; }
+  .bezel--lg .bezel__core { border-radius: calc(2.5rem - 0.375rem); }
+
+  /* ============================================================
+      Eyebrow badges — micro pills preceding major headings
+      ============================================================ */
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    border-radius: 9999px;
+    padding: 0.25rem 0.75rem;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    font-weight: 500;
+    color: var(--color-accent-dark);
+    background: rgba(91, 61, 240, 0.12);
+    border: 1px solid var(--color-hairline-glass);
+  }
+  .eyebrow--glass {
+    background: rgba(255, 255, 255, 0.05);
+  }
+  .eyebrow__dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-accent-dark);
+    box-shadow: 0 0 0 0 rgba(157, 130, 255, 0.5);
+    animation: eyebrow-pulse 2s var(--ease-fluid) infinite;
+    flex-shrink: 0;
+  }
+  @keyframes eyebrow-pulse {
+    0% { box-shadow: 0 0 0 0 rgba(157, 130, 255, 0.5); }
+    70% { box-shadow: 0 0 0 6px rgba(157, 130, 255, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(157, 130, 255, 0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .eyebrow__dot { animation: none !important; }
+  }
+
+  /* ============================================================
+      Scroll-entry utilities (opt-in, separate from .reveal)
+      ============================================================ */
+  .scroll-in {
+    opacity: 0;
+    transform: translateY(4rem) blur(6px);
+    transition:
+      opacity 800ms var(--ease-fluid),
+      transform 800ms var(--ease-fluid),
+      filter 800ms var(--ease-fluid);
+    will-change: opacity, transform;
+  }
+  .scroll-in.in {
+    opacity: 1;
+    transform: translateY(0) blur(0);
+  }
+  .scroll-in--delay-1 { transition-delay: 100ms; }
+  .scroll-in--delay-2 { transition-delay: 150ms; }
+  .scroll-in--delay-3 { transition-delay: 200ms; }
+
+  /* ============================================================
+      Colour-temperature / theme overrides
+      ============================================================ */
   [data-theme="light"] .section {
     /* Light band adjustments handled per-section above */
   }
@@ -997,5 +1118,6 @@
     .proof-item, .proof-item--visible { opacity: 1 !important; transform: none !important; }
     .stagger-item { opacity: 1 !important; transform: none !important; }
     .status-pill::before { animation: none !important; }
+    body::before { opacity: 1 !important; }
   }
 }

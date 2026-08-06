@@ -98,7 +98,7 @@ const requiredStrings = [
   'aria-live="polite"',
   'data-sim-label',
   'Simulated account · no credentials · no live session',
-  'Documented MCP paths',
+  'MCP — the open protocol',
   'Verified host (OpenCode 1.18.13)',
 ];
 for (const s of requiredStrings) {

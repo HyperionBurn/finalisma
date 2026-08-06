@@ -64,7 +64,7 @@ def main(argv: list[str] | None = None) -> int:
     home = (SITE / "index.html").read_text(encoding="utf-8")
     for phrase in (
         "One incident. Two agents. One account of what happened.",
-        "Documented MCP paths",
+        "MCP — the open protocol",
         "Verified host (OpenCode 1.18.13)",
         "data-cohort-form",
         "65",

@@ -7,38 +7,40 @@
 <section class="section problem" id="problem" aria-labelledby="problem-title" data-reveal-section>
   <div class="section-shell">
     <div class="section-head">
-      <p class="kicker reveal">The problem</p>
-      <h2 id="problem-title" class="reveal">Pasted prompts. No record. No governance.</h2>
-      <p class="section-lede reveal">
+      <p class="kicker eyebrow scroll-in">The problem</p>
+      <h2 id="problem-title" class="scroll-in" style="--delay:80ms">Pasted prompts. No record. No governance.</h2>
+      <p class="section-lede scroll-in" style="--delay:160ms">
         Right now, coordinating agents means pasting the same prompt into every window
         and hoping nothing drifts. No shared state, no ordered delivery, no evidence gate —
         just copy-paste and crossed fingers.
       </p>
     </div>
 
-    <div class="problem-card reveal" role="img" aria-label="A pasted-prompt chaos card showing uncoordinated agent instructions">
-      <div class="problem-card__header">
-        <span class="problem-card__dot problem-card__dot--red"></span>
-        <span class="problem-card__dot problem-card__dot--amber"></span>
-        <span class="problem-card__dot problem-card__dot--green"></span>
-        <span class="problem-card__title">agent-instructions.md — pasted 5×</span>
-      </div>
-      <div class="problem-card__body">
-        <pre class="problem-card__code"><code>You are agent-a. Read handoff.txt and continue the work.
+    <div class="bezel scroll-in" style="--delay:240ms" role="img" aria-label="A pasted-prompt chaos card showing uncoordinated agent instructions">
+      <div class="bezel__core problem-card">
+        <div class="problem-card__header">
+          <span class="problem-card__dot problem-card__dot--red"></span>
+          <span class="problem-card__dot problem-card__dot--amber"></span>
+          <span class="problem-card__dot problem-card__dot--green"></span>
+          <span class="problem-card__title">agent-instructions.md — pasted 5×</span>
+        </div>
+        <div class="problem-card__body">
+          <pre class="problem-card__code"><code>You are agent-a. Read handoff.txt and continue the work.
 Make sure you don't duplicate what agent-b did.
 The scope is: the retry boundary in handoff.txt.
 Report back when done. Do not claim tasks that aren't yours.</code></pre>
-        <div class="problem-card__chaos">
-          <span class="problem-card__tag problem-card__tag--conflict">agent-a sees v1</span>
-          <span class="problem-card__tag problem-card__tag--conflict">agent-b sees v3</span>
-          <span class="problem-card__tag problem-card__tag--conflict">agent-c sees v2</span>
-          <span class="problem-card__tag problem-card__tag--stale">agent-d: stale scope</span>
-          <span class="problem-card__tag problem-card__tag--stale">agent-e: no fencing</span>
+          <div class="problem-card__chaos">
+            <span class="problem-card__tag problem-card__tag--conflict">agent-a sees v1</span>
+            <span class="problem-card__tag problem-card__tag--conflict">agent-b sees v3</span>
+            <span class="problem-card__tag problem-card__tag--conflict">agent-c sees v2</span>
+            <span class="problem-card__tag problem-card__tag--stale">agent-d: stale scope</span>
+            <span class="problem-card__tag problem-card__tag--stale">agent-e: no fencing</span>
+          </div>
         </div>
       </div>
     </div>
 
-    <p class="problem-foot reveal">
+    <p class="problem-foot scroll-in" style="--delay:320ms">
       MCP is the tool protocol your hosts already speak. Finalisma adds the
       coordination layer on top — rooms, consent, addressing, and an evidence gate.
     </p>

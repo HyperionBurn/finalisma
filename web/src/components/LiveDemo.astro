@@ -37,29 +37,31 @@ const terminalText = terminalLines.join('\n');
 <section class="section demo" id="demo" aria-labelledby="demo-title" data-reveal-section>
   <div class="section-shell">
     <div class="section-head">
-      <p class="kicker reveal">Live demo</p>
-      <h2 id="demo-title" class="reveal">See it run.</h2>
-      <p class="section-lede reveal">
+      <p class="kicker eyebrow scroll-in">Live demo</p>
+      <h2 id="demo-title" class="scroll-in" style="--delay:80ms">See it run.</h2>
+      <p class="section-lede scroll-in" style="--delay:160ms">
         A real coordinator run — simulated here with real protocol strings.
         Watch the room form, agents join, and the evidence gate refuse stale work.
       </p>
     </div>
 
-    <div class="demo-shell" data-demo-shell>
-      <pre class="terminal" data-terminal role="log" aria-live="polite"><code set:html={terminalText}></code></pre>
+    <div class="bezel scroll-in" style="--delay:240ms">
+      <div class="bezel__core demo-shell" data-demo-shell>
+        <pre class="terminal" data-terminal role="log" aria-live="polite"><code set:html={terminalText}></code></pre>
 
-      <div class="demo-output">
-        <div class="link-out" data-link-output>
-          <span class="link-out__label">Room link</span>
-          <code class="link-out__code" data-generated-link>finalisma.test/r/room_8cc840e0fd9044b7ab2154af9e9c1222</code>
-          <button class="btn btn-sm" data-copy="link" type="button">Copy link</button>
+        <div class="demo-output">
+          <div class="link-out" data-link-output>
+            <span class="link-out__label">Room link</span>
+            <code class="link-out__code" data-generated-link>finalisma.test/r/room_8cc840e0fd9044b7ab2154af9e9c1222</code>
+            <button class="btn btn-sm group" data-copy="link" type="button">Copy link<span class="btn__icon" aria-hidden="true">→</span></button>
+          </div>
+          <div class="gate" data-gate>
+            <span class="gate-label">Evidence gate</span>
+            <span class="gate-state" data-gate-state>armed</span>
+            <button class="btn btn-sm btn-ghost group" data-trigger-refusal type="button">Trigger refusal<span class="btn__icon" aria-hidden="true">→</span></button>
+          </div>
+          <div class="copy-status" aria-live="polite" data-copy-status></div>
         </div>
-        <div class="gate" data-gate>
-          <span class="gate-label">Evidence gate</span>
-          <span class="gate-state" data-gate-state>armed</span>
-          <button class="btn btn-sm btn-ghost" data-trigger-refusal type="button">Trigger refusal</button>
-        </div>
-        <div class="copy-status" aria-live="polite" data-copy-status></div>
       </div>
     </div>
   </div>

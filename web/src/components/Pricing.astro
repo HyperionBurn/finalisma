@@ -9,23 +9,25 @@
 <section class="section pricing" id="pricing" aria-labelledby="pricing-title" data-reveal-section>
   <div class="section-shell">
     <div class="section-head">
-      <p class="kicker reveal">Pricing</p>
-      <h2 id="pricing-title" class="reveal">Tested with design partners.</h2>
+      <p class="kicker eyebrow scroll-in">Pricing</p>
+      <h2 id="pricing-title" class="scroll-in" style="--delay:80ms">Tested with design partners.</h2>
 
     </div>
 
-    <div class="pricing-card reveal">
-      <p class="pricing-hypothesis">Hypothesis, tested with design partners:</p>
-      <p class="pricing-figure"><b>$1,000</b> / workspace / month</p>
-      <p class="pricing-deposit"><b>$500 deposit</b> credited toward the first month.</p>
-      <p class="pricing-pilot">30-day free pilot.</p>
-      <div class="pricing-ctas">
-        <a class="btn btn-accent btn-lg" href="#connect">Connect an agent</a>
-        <a class="btn btn-ghost" href="/docs/pilot.html">Apply for the managed pilot</a>
+    <div class="bezel scroll-in" style="--delay:160ms">
+      <div class="bezel__core pricing-card">
+        <p class="pricing-hypothesis">Hypothesis, tested with design partners:</p>
+        <p class="pricing-figure"><b>$1,000</b> / workspace / month</p>
+        <p class="pricing-deposit"><b>$500 deposit</b> credited toward the first month.</p>
+        <p class="pricing-pilot">30-day free pilot.</p>
+        <div class="pricing-ctas">
+          <a class="btn btn-accent btn-lg group" href="#connect">Connect an agent<span class="btn__icon" aria-hidden="true">→</span></a>
+          <a class="btn btn-ghost group" href="/docs/pilot.html">Apply for the managed pilot<span class="btn__icon" aria-hidden="true">→</span></a>
+        </div>
       </div>
     </div>
 
-    <div class="cohort-form-wrap reveal">
+    <div class="cohort-form-wrap scroll-in" style="--delay:240ms">
       <h3 class="cohort-form__title">Build the application</h3>
       <p class="cohort-form__lede">
         Fill in your details. The form builds an application text
@@ -48,7 +50,7 @@
           <label for="cohort-scenario">Coordination scenario</label>
           <textarea id="cohort-scenario" name="scenario" rows="3" placeholder="Two agents, one handoff task, evidence-gated completion."></textarea>
         </div>
-        <button class="btn btn-accent" type="submit">Build the application</button>
+        <button class="btn btn-accent group" type="submit">Build the application<span class="btn__icon" aria-hidden="true">→</span></button>
         <div class="cohort-form__status" data-cohort-status role="status" aria-live="polite"></div>
       </form>
     </div>

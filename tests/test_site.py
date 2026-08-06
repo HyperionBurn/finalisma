@@ -44,7 +44,12 @@ class LaunchSurfaceTests(unittest.TestCase):
         # below the fold in the Proof section — that is the justified
         # replacement assertion, not a deletion of the truthfulness intent.
         self.assertNotIn("data-stat-strip", html)
-        self.assertIn("Documented MCP paths", html)
+        # VANGUARD spec (founder): the "documented MCP paths" phrase is banned
+        # everywhere. The truthful below-the-fold proof section now carries
+        # "MCP — the open protocol" with stat 1. That is the justified
+        # replacement assertion, not a deletion of the truthfulness intent.
+        self.assertNotIn("documented MCP paths", html.lower())
+        self.assertIn("MCP — the open protocol", html)
         self.assertIn("Verified host (OpenCode 1.18.13)", html)
         self.assertIn("next proof pair, Claude Code + Cursor", html)
         self.assertIn('type="application/ld+json"', html)
