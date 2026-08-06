@@ -196,6 +196,25 @@ export default function ScrollController() {
       // Initial state
       driveScene(0);
       updateBeat(1);
+
+      // The hero is above the fold and must be VISIBLE immediately — its
+      // `.reveal` elements are not scroll-gated (the hero has no
+      // data-reveal-section), so force `.in` on mount with a short stagger.
+      // This is the design rule: the initial state is visible, animation
+      // enhances from there — never the reverse.
+      const heroReveals = document.querySelectorAll('.hero .reveal');
+      heroReveals.forEach((el: Element, i: number) => {
+        setTimeout(() => {
+          el.classList.add('in');
+        }, 60 + i * 90);
+      });
+      // Belt-and-braces: a hard timeout guarantees the hero is never left
+      // invisible even if the RAF/scroll machinery stalls.
+      setTimeout(() => {
+        if (!cancelled) {
+          document.querySelectorAll('.hero .reveal').forEach((el) => el.classList.add('in'));
+        }
+      }, 1200);
     }
 
     if (reducedMotion) {
