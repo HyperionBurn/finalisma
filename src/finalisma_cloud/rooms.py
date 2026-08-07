@@ -47,7 +47,7 @@ def _token_hash(token: str) -> str:
 _MESSAGE_KIND_RE = re.compile(r"^[a-z0-9_-]{1,32}$")
 
 
-def _validate_message_kind(value: Any) -> str | None:
+def _validate_message_kind(value: Any, field: str = "message_kind") -> str | None:
     """Validate a sender-set ``message_kind`` (optional, lowercase slug).
 
     ``None`` is allowed (message_kind is optional). Otherwise it must be a
@@ -59,7 +59,7 @@ def _validate_message_kind(value: Any) -> str | None:
     if not isinstance(value, str) or not _MESSAGE_KIND_RE.match(value):
         raise RoomError(
             "invalid_argument",
-            "message_kind must be an optional string of 1-32 lowercase "
+            f"{field} must be an optional string of 1-32 lowercase "
             "characters matching [a-z0-9_-]",
         )
     return value
@@ -80,7 +80,7 @@ def _validate_message_kinds(value: Any) -> list[str] | None:
         )
     validated: list[str] = []
     for entry in value:
-        v = _validate_message_kind(entry)
+        v = _validate_message_kind(entry, "message_kinds")
         if v is not None:
             validated.append(v)
     return validated

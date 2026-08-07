@@ -431,6 +431,33 @@ class SdkRoomsContractTest(unittest.TestCase):
                 f"FinalismaClient missing public room method: {m}",
             )
 
+    # -- 11. message_kind via the public SDK ---------------------------------
+
+    def test_11_message_kind_round_trip_through_public_sdk(self) -> None:
+        """send(message_kind=...) + room_poll(message_kinds=[...]) round-trip."""
+        a = self.harness.clients["agent-0"]
+        res = a.create_room(cap=4, name="mk")
+        for name in ["agent-1", "agent-2"]:
+            self.harness.clients[name].join_room(res.room_id, res.link_token, consent=True)
+
+        # Broadcast a status and a result.
+        a.send(res.room_id, target="*", payload={"text": "liveness"}, message_kind="status")
+        a.send(res.room_id, target="*", payload={"text": "the result"}, message_kind="result")
+
+        # Filter on ["result"] — only the result event, with message_kind set.
+        filtered: RoomPoll = a.room_poll(res.room_id, after_seq=0, message_kinds=["result"])
+        result_events = [e for e in filtered.events if e.kind == "room.message"]
+        self.assertEqual(len(result_events), 1)
+        self.assertEqual(result_events[0].message_kind, "result")
+        self.assertEqual(result_events[0].payload["payload"]["text"], "the result")
+
+        # Unfiltered poll sees both, each carrying its message_kind.
+        all_events: RoomPoll = a.room_poll(res.room_id, after_seq=0)
+        msg_events = [e for e in all_events.events if e.kind == "room.message"]
+        self.assertEqual(len(msg_events), 2)
+        kinds = {e.message_kind for e in msg_events}
+        self.assertEqual(kinds, {"status", "result"})
+
 
 if __name__ == "__main__":
     unittest.main()
