@@ -14,10 +14,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SITE = ROOT / "site"
-# Canonical web-app path base (funnel lane, 2026-08-07). Single source of
+# Canonical web-app origin (funnel lane, 2026-08-07). Single source of
 # truth for the routes the landing page links to: defined once in
-# web/src/lib/app.ts and mirrored here for the link-resolution tests.
-APP_BASE_PATH = "/app"
+# web/src/lib/app.ts and mirrored here for the link-resolution tests. The
+# web app serves its routes at the origin ROOT (no `/app` path prefix), so
+# this is an absolute origin, not a path.
+APP_ORIGIN = "http://127.0.0.1:18789"
 sys.path.insert(0, str(ROOT))
 
 _SITE_SPEC = importlib.util.spec_from_file_location(
@@ -78,7 +80,12 @@ class LaunchSurfaceTests(unittest.TestCase):
         self.assertIn("$0", html)
         self.assertIn("$39", html)
         self.assertIn("Start free", html)
-        self.assertIn('href="/app/signup"', html)
+        self.assertIn('href="http://127.0.0.1:18789/signup"', html)
+        # The web app serves its routes at the ORIGIN ROOT, not under `/app`.
+        # Any relative `/app/...` CTA in the built landing page is a 404 link
+        # and must never ship. The absolute-origin form is asserted above.
+        self.assertNotIn('href="/app/signup"', html)
+        self.assertNotIn('href="/app/login"', html)
         self.assertNotIn("verified agent handoff layer", html.lower())
         self.assertNotIn("Finalisma A2A Standard", html)
         self.assertNotIn("gpt-5.5", html.lower())
@@ -273,14 +280,17 @@ class LaunchSurfaceTests(unittest.TestCase):
                 if reference.startswith(("#", "http://", "https://", "mailto:", "javascript:", "data:")):
                     continue
                 href_path = reference.split("#", 1)[0].split("?", 1)[0]
-                # Funnel lane (2026-08-07): `/app/*` references are the web
-                # app's front-door routes (finalisma_cloud/web/app.py), served
-                # outside this static bundle. They intentionally resolve to
-                # nothing here until the app is deployed — the static server's
-                # branded 404 is the honest interim answer. Their presence on
-                # the landing page is asserted separately by
-                # test_funnel_ctas_point_at_web_app.
-                if href_path == APP_BASE_PATH or href_path.startswith(APP_BASE_PATH + "/"):
+                # App-front-door references are external to this static
+                # bundle — the web app (finalisma_cloud/web/app.py) serves
+                # them, not the site's path tree. The built index.html now
+                # points at the absolute APP_ORIGIN (already excluded by the
+                # scheme check above); preserved legacy pages restored
+                # byte-for-byte by guard-legacy (e.g. site/docs/pilot.html,
+                # part of the pricing work) still carry the retired relative
+                # `/app/*` path form and are skipped here. A `/app/*` link in
+                # the BUILT index.html is asserted absent by
+                # test_landing_page_has_truthful_semantic_launch_surface.
+                if href_path == "/app" or href_path.startswith("/app/"):
                     continue
                 target = (
                     (SITE / href_path.lstrip("/")).resolve()
@@ -295,15 +305,15 @@ class LaunchSurfaceTests(unittest.TestCase):
         """The site must offer a real way to become a user: the web app.
 
         Funnel lane (2026-08-07): every primary CTA on the landing page
-        resolves to the canonical app route (APP_BASE_PATH), a quiet "Log in"
+        resolves to the canonical app origin (APP_ORIGIN), a quiet "Log in"
         affordance exists for returning users, and the closed-trial framing
         ("Start free pilot") is gone from the primary CTAs. The app is not
-        deployed, so routes are asserted by path only — nothing here invents
-        a destination, a free-tier limit, or a trial length.
+        deployed, so routes are asserted by origin + path only — nothing here
+        invents a destination, a free-tier limit, or a trial length.
         """
         html = (SITE / "index.html").read_text(encoding="utf-8")
-        self.assertIn(f'href="{APP_BASE_PATH}/signup"', html)
-        self.assertIn(f'href="{APP_BASE_PATH}/login"', html)
+        self.assertIn(f'href="{APP_ORIGIN}/signup"', html)
+        self.assertIn(f'href="{APP_ORIGIN}/login"', html)
 
         hero = re.search(r'<section[^>]*id="hero"[^>]*>(.*?)</section>', html, re.S)
         self.assertIsNotNone(hero, "hero section must exist")
@@ -312,12 +322,12 @@ class LaunchSurfaceTests(unittest.TestCase):
             hero.group(1),
         )
         self.assertIsNotNone(hero_primary, "hero must carry a btn-accent primary CTA")
-        self.assertEqual(hero_primary.group(1), f"{APP_BASE_PATH}/signup")
+        self.assertEqual(hero_primary.group(1), f"{APP_ORIGIN}/signup")
 
         connect = re.search(r'<section[^>]*id="connect"[^>]*>(.*?)</section>', html, re.S)
         self.assertIsNotNone(connect, "connect section must exist")
         self.assertIn(
-            f'href="{APP_BASE_PATH}/signup"',
+            f'href="{APP_ORIGIN}/signup"',
             connect.group(1),
             "connect section must close with a real signup link",
         )
