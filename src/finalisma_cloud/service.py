@@ -23,12 +23,13 @@ up to the room cap. Any number of distinct agents can redeem it.
 from __future__ import annotations
 
 import json
+import os
 import re
 import secrets
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from http import HTTPStatus
-from typing import Any
+from typing import Any, Mapping
 from urllib.parse import urlsplit
 
 from finalisma_cloud.identity import (
@@ -596,6 +597,50 @@ def create_service(db_path: str = ":memory:") -> FinalismaCloudService:
     return FinalismaCloudService(backend)
 
 
+def runtime_config(
+    argv: list[str] | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """Resolve runtime settings for the cloud service launcher.
+
+    Precedence is CLI argv → environment → defaults, so the original
+    positional form (``service.py <port> <db-path>``) keeps working while
+    containers configure entirely through the environment:
+
+    - ``FINALISMA_HOST``  (default ``127.0.0.1``)
+    - ``FINALISMA_PORT``  (default ``18788``)
+    - ``FINALISMA_DB_PATH`` (default ``./data/finalisma-cloud.db``)
+
+    A malformed or out-of-range port raises ``ValueError`` so a misconfigured
+    deploy fails loudly at startup instead of silently binding the default.
+    """
+    argv = list(argv) if argv is not None else []
+    environ = os.environ if environ is None else environ
+
+    def _port(name: str, raw: str | None, default: int) -> int:
+        if raw is None or raw == "":
+            return default
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            raise ValueError(f"{name} must be an integer, got {raw!r}")
+        if not (1 <= value <= 65535):
+            raise ValueError(f"{name} must be in 1..65535, got {value}")
+        return value
+
+    host = environ.get("FINALISMA_HOST", "127.0.0.1").strip() or "127.0.0.1"
+    port = _port("FINALISMA_PORT", environ.get("FINALISMA_PORT"), 18788)
+    db_path = environ.get("FINALISMA_DB_PATH", "./data/finalisma-cloud.db").strip() \
+        or "./data/finalisma-cloud.db"
+
+    if len(argv) >= 1:
+        port = _port("port", argv[0], port)
+    if len(argv) >= 2:
+        db_path = argv[1]
+
+    return {"host": host, "port": port, "db_path": db_path}
+
+
 def serve(host: str = "127.0.0.1", port: int = 18788, db_path: str = "./data/finalisma-cloud.db") -> None:
     """Run the cloud HTTP service (blocking)."""
     service = create_service(db_path)
@@ -613,6 +658,9 @@ def serve(host: str = "127.0.0.1", port: int = 18788, db_path: str = "./data/fin
 
 if __name__ == "__main__":
     import sys
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 18788
-    path = sys.argv[2] if len(sys.argv) > 2 else "./data/finalisma-cloud.db"
-    serve("127.0.0.1", port, path)
+    try:
+        cfg = runtime_config(sys.argv[1:])
+    except ValueError as exc:
+        print(f"finalisma-cloud: {exc}", file=sys.stderr)
+        sys.exit(2)
+    serve(cfg["host"], cfg["port"], cfg["db_path"])
