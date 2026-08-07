@@ -59,7 +59,7 @@ class WebAppDriver:
     def get(self, path, extra_cookie=None):
         headers = self._headers()
         if extra_cookie:
-            headers["Cookie"] = (headers.get("Cookie", "") + "; " + extra_cookie).strip("; ")
+            headers["Cookie"] = (extra_cookie + "; " + headers.get("Cookie", "")).strip("; ")
         conn = http.client.HTTPConnection(self.host, self.port, timeout=10)
         conn.request("GET", path, headers=headers)
         resp = conn.getresponse()
@@ -73,7 +73,7 @@ class WebAppDriver:
         body = urlencode(form)
         headers = self._headers()
         if extra_cookie:
-            headers["Cookie"] = (headers.get("Cookie", "") + "; " + extra_cookie).strip("; ")
+            headers["Cookie"] = (extra_cookie + "; " + headers.get("Cookie", "")).strip("; ")
         headers["Content-Type"] = "application/x-www-form-urlencoded"
         conn = http.client.HTTPConnection(self.host, self.port, timeout=10)
         conn.request("POST", path, body=body, headers=headers)
@@ -303,8 +303,8 @@ class TestRoleEnforcement(unittest.TestCase):
         status, body, _ = self.d.post("/org", {"email": "new@example.com"}, extra_cookie=f"fss_session={self.admin_cookie}")
         self.assertEqual(status, 400)
         # No second membership row
+        acct = self.d.account_id(self.admin_email)
         with self.d.backend.transaction() as tx:
-            acct = self.d.account_id(self.admin_email)
             rows = tx.execute(
                 "SELECT COUNT(*) AS c FROM cloud_identity_members WHERE account_id = ?",
                 (acct,),
@@ -336,6 +336,10 @@ class TestTenantIsolation(unittest.TestCase):
         _, body2, _ = self.d.get(f"/invite/{token}")
         csrf2 = self.d.extract_csrf(body2)
         self.d.post(f"/invite/{token}", {"email": self.member_a, "password": self.password, "_csrf": csrf2})
+        # Re-login as owner — invite-accept switched the session to the member,
+        # and only admin+ can create rooms.
+        self.d.cookies.clear()
+        self.assertTrue(self.d.login_only(self.owner_a, self.password))
         # Create room A
         _, body, _ = self.d.get("/")
         csrf = self.d.extract_csrf(body)
@@ -506,8 +510,8 @@ class TestNoSecretsInHtml(unittest.TestCase):
         self.assertNotRegex(body, r"rm_[A-Za-z0-9_-]+")
 
     def test_33_member_connect_renders_link_token(self):
-        _, body, _ = self.d.get(f"/room/{self.room_id}/connect", extra_cookie=f"fss_session={self.cookie}")
-        self.assertEqual(_, 200)
+        status, body, _ = self.d.get(f"/room/{self.room_id}/connect", extra_cookie=f"fss_session={self.cookie}")
+        self.assertEqual(status, 200)
         self.assertRegex(body, r"rm_[A-Za-z0-9_-]+", "link token must be present for members")
 
 
@@ -543,8 +547,8 @@ class TestRoomLinkRefusals(unittest.TestCase):
         # The web app renders config regardless; coordinator enforces.
         # This test asserts the page renders (no crash) — the coordinator
         # refusal is an integration concern, not a web-app concern.
-        _, body, _ = self.d.get(f"/room/{self.room_id}/connect", extra_cookie=f"fss_session={self.cookie}")
-        self.assertEqual(_, 200)
+        status, body, _ = self.d.get(f"/room/{self.room_id}/connect", extra_cookie=f"fss_session={self.cookie}")
+        self.assertEqual(status, 200)
         self.assertRegex(body, r"rm_[A-Za-z0-9_-]+")
 
 

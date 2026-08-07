@@ -130,7 +130,7 @@ class WebAppDriver:
         """Return the tenant_id for the org whose owner has this email, or None."""
         with self.backend.transaction() as tx:
             row = tx.execute(
-                "SELECT tenant_id FROM cloud_identity_members m "
+                "SELECT m.tenant_id FROM cloud_identity_members m "
                 "JOIN cloud_identity_accounts a ON a.account_id = m.account_id "
                 "WHERE a.email = ? AND m.role = 'owner'",
                 (email,),
@@ -327,9 +327,10 @@ class TestRemoveMember(unittest.TestCase):
         self.tenant_id = self.driver.tenant_for_email(self.owner_email)
         self.member_email = f"member{time.time_ns()}@example.com"
         self.member_password = "member-password-ok"
+        csrf = self.driver.csrf()
         self.driver.post(
             "/org/invite",
-            {"email": self.member_email, "role": "member", "_csrf": "x"},
+            {"email": self.member_email, "role": "member", "_csrf": csrf},
         )
         token = re.search(
             r"(fiv_[A-Za-z0-9_-]+)", self.driver.last_outbox_body(self.member_email)
@@ -379,9 +380,10 @@ class TestOwnerLeave(unittest.TestCase):
         # Add a second member.
         self.member_email = f"member{time.time_ns()}@example.com"
         self.member_password = "member-password-ok"
+        csrf = self.driver.csrf()
         self.driver.post(
             "/org/invite",
-            {"email": self.member_email, "role": "member", "_csrf": "x"},
+            {"email": self.member_email, "role": "member", "_csrf": csrf},
         )
         token = re.search(
             r"(fiv_[A-Za-z0-9_-]+)", self.driver.last_outbox_body(self.member_email)
@@ -416,9 +418,10 @@ class TestMemberCannotAdmin(unittest.TestCase):
         self.tenant_id = self.driver.tenant_for_email(self.owner_email)
         self.member_email = f"member{time.time_ns()}@example.com"
         self.member_password = "member-password-ok"
+        csrf = self.driver.csrf()
         self.driver.post(
             "/org/invite",
-            {"email": self.member_email, "role": "member", "_csrf": "x"},
+            {"email": self.member_email, "role": "member", "_csrf": csrf},
         )
         token = re.search(
             r"(fiv_[A-Za-z0-9_-]+)", self.driver.last_outbox_body(self.member_email)

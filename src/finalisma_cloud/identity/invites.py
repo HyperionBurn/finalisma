@@ -102,6 +102,19 @@ def accept(backend: Any, raw_token: str, email: str, password: str) -> tuple[str
         if invite["email"] != email:
             raise AuthError("invite_mismatch")
 
+        # One-org-per-account (design §8/§9.2 #15): an email that already
+        # belongs to any org must not be admitted to a second one, even when
+        # the two orgs are different tenants. The email is the person's
+        # identity across tenants, so refuse before creating an account here.
+        existing_member = tx.execute(
+            "SELECT 1 FROM cloud_identity_members m "
+            "JOIN cloud_identity_accounts a ON a.account_id = m.account_id "
+            "WHERE a.email = ? LIMIT 1",
+            (email,),
+        ).fetchone()
+        if existing_member is not None:
+            raise AuthError("already_in_org")
+
         # Consume atomically — single-use guard.
         cur = tx.execute(
             "UPDATE cloud_identity_invites SET consumed_at = ? "

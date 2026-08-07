@@ -92,7 +92,11 @@ def add_member(ctx: SessionContext, email: str, role: str = "member") -> None:
 
 
 def remove_member(ctx: SessionContext, account_id: str) -> None:
-    """Remove an account from the org (admin/owner only)."""
+    """Remove an account from the org (admin/owner only).
+
+    A removed member's sessions are revoked so their credentials no longer
+    authenticate against the org (mirrors ``set_role`` rotation).
+    """
     ctx = _require_ctx(ctx)
     ensure_schema(ctx.backend)
     ctx.require_role("admin")
@@ -103,6 +107,7 @@ def remove_member(ctx: SessionContext, account_id: str) -> None:
             (ctx.tenant_id, account_id),
         )
         tx.commit()
+    revoke_all_for_account(ctx.backend, account_id)
 
 
 def set_role(ctx: SessionContext, account_id: str, new_role: str) -> None:
