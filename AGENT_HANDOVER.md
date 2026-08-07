@@ -214,6 +214,13 @@ Rules that must survive future edits:
 - `docs/SECURITY_GATES.md` — what is safe for single-node preview versus hosted
   multi-instance traffic.
 - `docs/GO_LIVE.md` — local run, vertical slice, launch checklist, and release gate.
+- `docs/DEPLOY.md` — container runbook for the cloud service: environment
+  configuration, Dockerfile/compose build and verify, volume backup/restore,
+  rollback, and the single-instance SQLite-WAL constraint (never scale
+  horizontally; durability comes from the volume, not replicas).
+- `Dockerfile`, `.dockerignore`, `compose.yaml` — the cloud service image
+  (stdlib-only, non-root, `/data` volume) and the one-command local stack with
+  a persistent named volume for the database.
 - `docs/YC_READINESS.md` — investor review, wedge, activation/retention metrics,
   and remaining production requirements.
 - `docs/YC_APPLICATION.md` — application draft; it still has `[FILL]` placeholders
@@ -548,6 +555,12 @@ Priority order for the next agent:
    `--display` / `--serif` / `--mono` token — nothing else references the family
    names directly. Do not move any of them to a CDN; local assets are what keeps
    the dependency-free promise true.
+8. The cloud service (`src/finalisma_cloud/service.py`) is containerised
+   (`Dockerfile` + `compose.yaml` + `docs/DEPLOY.md`) as a **single-instance**
+   SQLite-WAL deployment: one writer, one persistent disk, no horizontal
+   scaling. The image build itself is untested until run on a machine with
+   Docker installed; `docs/DEPLOY.md` records the exact verification status.
+   Making it a real multi-node service is a storage-layer change.
 
 Current mobile QA is clean: document width equals the 390px viewport, no horizontal
 page scroll is exposed, and the overflow-offender scan reports no offenders. Keep
