@@ -88,18 +88,17 @@ check(blog.length >= 4, `site/blog/ has >= 4 articles (found ${blog.length})`);
 console.log('[verify-preservation] checking built index.html test strings...');
 const html = fs.readFileSync(path.join(SITE, 'index.html'), 'utf-8');
 const requiredStrings = [
-  'next proof pair, Claude Code + Cursor',
   'MCP is the tool protocol',
   'single-node',
   '$500 deposit',
   'data-cohort-form',
-  'href="/demo.html"',
-  'Watch the 42-second proof',
+  'See how it works',
+  'href="#how-it-works"',
   'aria-live="polite"',
   'data-sim-label',
   'Simulated account · no credentials · no live session',
-  'MCP — the open protocol',
-  'Verified host (OpenCode 1.18.13)',
+  'Speaks MCP',
+  'MCP is a public protocol; these names identify the hosts that speak it',
 ];
 for (const s of requiredStrings) {
   check(html.includes(s), `index.html contains "${s}"`);
