@@ -546,17 +546,18 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
             self._send_json(HTTPStatus.CONFLICT, {"error": error})
         except RateLimitedError as exc:
             retry_after = str(int(max(1.0, exc.retry_after or 1.0)))
+            body = json.dumps({
+                "error": {"code": exc.code, "message": str(exc),
+                          "retry_after": float(exc.retry_after or 1.0)},
+            })
             self.send_response(HTTPStatus.TOO_MANY_REQUESTS)
             self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(
-                json.dumps({"error": {"code": exc.code, "message": str(exc)}}))))
+            self.send_header("Content-Length", str(len(body)))
             self.send_header("Retry-After", retry_after)
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
-            self.wfile.write(json.dumps(
-                {"error": {"code": exc.code, "message": str(exc), "retry_after": float(exc.retry_after or 1.0)}}
-            ).encode("utf-8"))
+            self.wfile.write(body.encode("utf-8"))
         except AuthError as exc:
             self._send_json(HTTPStatus.UNAUTHORIZED, {"error": {"code": exc.code, "message": str(exc)}})
         except RoleError as exc:

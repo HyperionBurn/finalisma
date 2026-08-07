@@ -249,6 +249,36 @@ class TestProPlanHonored(QuotaEnforcementTestBase):
             self.assertEqual(s, 201, f"pro room {i} should be created: {body}")
 
 
+class TestPerMinuteMessageRateLimit(QuotaEnforcementTestBase):
+    """The plan's per-minute message budget is enforced on the HTTP surface."""
+
+    def test_61st_message_in_a_minute_refused_with_rate_limited(self) -> None:
+        owner = self._signup("rl-owner@example.com", "CorrectHorse!1")
+        status, room = self._raw_create(owner["session_token"], cap=6)
+        self.assertEqual(status, 201)
+
+        # Free plan allows 60 messages per minute; the first 60 succeed.
+        for i in range(60):
+            s, body = _post(self.base, "/v1/rooms/send", {
+                "room_id": room["room_id"],
+                "sender_agent_id": owner["account_id"],
+                "target_spec": "*",
+                "payload": {"text": f"m-{i}"},
+            }, owner["session_token"])
+            self.assertEqual(s, 200, f"message {i} should be allowed: {body}")
+
+        # The 61st is refused with rate_limited and a Retry-After value.
+        s, body = _post(self.base, "/v1/rooms/send", {
+            "room_id": room["room_id"],
+            "sender_agent_id": owner["account_id"],
+            "target_spec": "*",
+            "payload": {"text": "over"},
+        }, owner["session_token"])
+        self.assertEqual(s, 429)
+        self.assertEqual(body["error"]["code"], "rate_limited")
+        self.assertGreater(body["error"]["retry_after"], 0.0)
+
+
 class TestAtomicMemberCapUnderConcurrency(QuotaEnforcementTestBase):
     """Exactly one of N concurrent joins at the last slot succeeds."""
 
