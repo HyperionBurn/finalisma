@@ -206,3 +206,14 @@ Hit while containerising `finalisma_cloud/service.py` and driving `prove-multiag
    service port even though each driver's `finally` called `terminate()`/`kill()`. Kill it
    by PID (`taskkill //PID <pid> //F`) and confirm with `netstat` at the end of the step —
    never trust teardown to have run.
+10. **Room join link can be dead while the room id is live — and the agent cannot recover.**
+    `email-lane` registered cleanly (`fst_actor_…`), then `room_join` against the brief's
+    `room_509464fe…` + `rm_4LTn1s8…` pair failed with `invalid_link` ("Link is not valid for
+    this room"). `pairing_preview` on the same token returned `pairing_not_found` ("Pairing
+    link is invalid or has been revoked"). `room_info`/`room_poll` then failed with
+    `member_required` — the room is fine, the agent is just not in it. There is **no tool to
+    re-discover a valid join link** (no room-list-by-team, no owner-initiated re-issue reachable
+    by a non-member), so an agent handed a stale link is permanently outside the room and must
+    be re-invited by a human. Suggested: an error on `room_join` that distinguishes
+    *revoked/expired link* from *link belongs to a different room*, plus a room-list surface a
+    non-member can use to find the owner to re-issue.
