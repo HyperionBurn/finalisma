@@ -193,6 +193,84 @@ CREATE TABLE IF NOT EXISTS cloud_identity_outbox (
 );
 """
 
+_ROOM_TABLES_SQL = """
+CREATE TABLE IF NOT EXISTS cloud_rooms (
+    room_id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    owner_agent_id TEXT NOT NULL,
+    name TEXT,
+    cap INTEGER NOT NULL,
+    state TEXT NOT NULL DEFAULT 'forming'
+        CHECK(state IN ('forming','active','closed')),
+    link_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at REAL NOT NULL,
+    cursor_head INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS cloud_room_members (
+    tenant_id TEXT NOT NULL,
+    room_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    joined_at TEXT NOT NULL,
+    last_seen REAL NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active'
+        CHECK(status IN ('active','stale','left')),
+    capabilities_json TEXT NOT NULL DEFAULT '[]',
+    actor_token_hash TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, room_id, agent_id)
+);
+CREATE TABLE IF NOT EXISTS cloud_room_links (
+    link_id TEXT PRIMARY KEY,
+    room_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at REAL NOT NULL,
+    revoked INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_cloud_room_links_tenant ON cloud_room_links(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_cloud_room_links_room ON cloud_room_links(room_id);
+CREATE TABLE IF NOT EXISTS cloud_room_event_log (
+    event_id TEXT PRIMARY KEY,
+    room_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    origin_agent TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    trace_id TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE(room_id, seq),
+    UNIQUE(room_id, origin_agent, idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS idx_cloud_room_events_replay ON cloud_room_event_log(room_id, seq);
+CREATE INDEX IF NOT EXISTS idx_cloud_room_events_tenant ON cloud_room_event_log(tenant_id);
+CREATE TABLE IF NOT EXISTS cloud_room_cursors (
+    tenant_id TEXT NOT NULL,
+    room_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    last_ack_seq INTEGER NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, room_id, agent_id)
+);
+CREATE TABLE IF NOT EXISTS cloud_room_groups (
+    tenant_id TEXT NOT NULL,
+    room_id TEXT NOT NULL,
+    group_name TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, room_id, group_name)
+);
+CREATE TABLE IF NOT EXISTS cloud_room_group_members (
+    tenant_id TEXT NOT NULL,
+    room_id TEXT NOT NULL,
+    group_name TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, room_id, group_name, agent_id)
+);
+"""
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         "cloud_001_init",
@@ -223,6 +301,11 @@ MIGRATIONS: list[Migration] = [
         "cloud_006_identity_outbox",
         "identity email outbox",
         _IDENTITY_OUTBOX_SQL,
+    ),
+    Migration(
+        "cloud_007_room_tables",
+        "cloud room lifecycle + event log + addressing",
+        _ROOM_TABLES_SQL,
     ),
 ]
 
