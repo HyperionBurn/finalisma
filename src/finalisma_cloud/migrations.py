@@ -193,6 +193,15 @@ CREATE TABLE IF NOT EXISTS cloud_identity_outbox (
 );
 """
 
+_IDENTITY_OUTBOX_DELIVERY_SQL = """
+ALTER TABLE cloud_identity_outbox ADD COLUMN status TEXT NOT NULL DEFAULT 'queued';
+ALTER TABLE cloud_identity_outbox ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE cloud_identity_outbox ADD COLUMN next_attempt_at REAL NOT NULL DEFAULT 0;
+ALTER TABLE cloud_identity_outbox ADD COLUMN claimed_at REAL;
+ALTER TABLE cloud_identity_outbox ADD COLUMN claimed_by TEXT;
+ALTER TABLE cloud_identity_outbox ADD COLUMN last_error TEXT;
+"""
+
 _ROOM_TABLES_SQL = """
 CREATE TABLE IF NOT EXISTS cloud_rooms (
     room_id TEXT PRIMARY KEY,
@@ -306,6 +315,11 @@ MIGRATIONS: list[Migration] = [
         "cloud_007_room_tables",
         "cloud room lifecycle + event log + addressing",
         _ROOM_TABLES_SQL,
+    ),
+    Migration(
+        "cloud_008_identity_outbox_delivery",
+        "identity email outbox delivery state (status/attempts/backoff)",
+        _IDENTITY_OUTBOX_DELIVERY_SQL,
     ),
 ]
 
