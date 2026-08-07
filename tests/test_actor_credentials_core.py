@@ -247,6 +247,30 @@ class ActorCredentialCoreTests(unittest.TestCase):
         self.assertEqual(row["token_hash"], hashlib.sha256(new_token.encode("utf-8")).hexdigest())
         self.assertEqual(row["rotation_count"], 1)
 
+    def test_unauthenticated_rotation_does_not_leak_agent_existence(self) -> None:
+        trusted = self.store()
+        trusted.register_agent("team", "agent-a")
+        secured = self.store(require_actor_auth=True)
+
+        def unauth_code(agent_id: str) -> str:
+            with self.assertRaises(FinalismaError) as caught:
+                secured.rotate_agent_credential("team", agent_id)
+            return caught.exception.code
+
+        real = unauth_code("agent-a")
+        fake = unauth_code("no-such-agent-zzz")
+        self.assertEqual(real, fake, "unauth rotate must not reveal whether the agent exists")
+        self.assertEqual(real, "actor_auth_required")
+
+        def bad_token_code(agent_id: str) -> str:
+            with self.assertRaises(FinalismaError) as caught:
+                secured.rotate_agent_credential("team", agent_id, "fst_actor_bogus_token_value_which_is_long")
+            return caught.exception.code
+
+        real_bad = bad_token_code("agent-a")
+        fake_bad = bad_token_code("no-such-agent-zzz")
+        self.assertEqual(real_bad, fake_bad, "bad-token rotate must not reveal agent existence either")
+
     def test_v2_migration_does_not_claim_credentials_and_trusted_rotation_recovers(self) -> None:
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(self.state_path)

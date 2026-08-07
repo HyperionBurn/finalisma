@@ -125,6 +125,20 @@ class ActorCredentialTransportTests(unittest.TestCase):
             server.server_close()
             thread.join(timeout=5)
 
+    def test_unauthenticated_rotation_does_not_leak_agent_existence_via_mcp(self) -> None:
+        def unauth_code(agent_id: str) -> str:
+            with self.assertRaises(FinalismaError) as caught:
+                self.dispatcher.call_tool(
+                    "finalisma_rotate_agent_credential",
+                    {"team_id": "demo", "agent_id": agent_id},
+                )
+            return caught.exception.code
+
+        real = unauth_code("agent-a")
+        fake = unauth_code("no-such-agent-zzz")
+        self.assertEqual(real, fake, "MCP surface: unauth rotate must not reveal agent existence")
+        self.assertEqual(real, "actor_auth_required")
+
     def test_rotation_invalidates_the_prior_token(self) -> None:
         rotated = self.dispatcher.call_tool(
             "finalisma_rotate_agent_credential",
