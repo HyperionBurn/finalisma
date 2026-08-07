@@ -14,12 +14,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SITE = ROOT / "site"
-# Canonical web-app origin (funnel lane, 2026-08-07). Single source of
-# truth for the routes the landing page links to: defined once in
-# web/src/lib/app.ts and mirrored here for the link-resolution tests. The
-# web app serves its routes at the origin ROOT (no `/app` path prefix), so
-# this is an absolute origin, not a path.
-APP_ORIGIN = "http://127.0.0.1:18789"
+
+# The landing-page CTAs must be ABSOLUTE URLs on the web app's routes
+# (/signup, /login). The app origin is a deployment property, not a constant:
+# it moves (localhost -> tunnel -> production domain) and is set once in
+# web/src/lib/app.ts. The tests below therefore assert the PROPERTY that stays
+# true regardless of host — an absolute `http(s)://` href ending in the route —
+# rather than re-pinning a specific host, which broke every time the backend
+# moved. Matches: href="https://app.example/signup".
+ABSOLUTE_ROUTE_HREF = r'href="https?://[^"]+/signup"'
 sys.path.insert(0, str(ROOT))
 
 _SITE_SPEC = importlib.util.spec_from_file_location(
@@ -80,7 +83,14 @@ class LaunchSurfaceTests(unittest.TestCase):
         self.assertIn("$0", html)
         self.assertIn("$39", html)
         self.assertIn("Start free", html)
-        self.assertIn('href="http://127.0.0.1:18789/signup"', html)
+        # The signup/login CTAs must be ABSOLUTE hrefs on the app origin, not
+        # relative paths that 404 against the static bundle. We assert the
+        # property (`http(s)://<host>/signup`) rather than a specific host —
+        # the origin moves between dev and prod and lives in one place,
+        # web/src/lib/app.ts. Re-pinning a concrete URL broke every time the
+        # backend moved (localhost -> tunnel -> production domain).
+        self.assertRegex(html, ABSOLUTE_ROUTE_HREF)
+        self.assertRegex(html, r'href="https?://[^"]+/login"')
         # The web app serves its routes at the ORIGIN ROOT, not under `/app`.
         # Any relative `/app/...` CTA in the built landing page is a 404 link
         # and must never ship. The absolute-origin form is asserted above.
@@ -283,7 +293,7 @@ class LaunchSurfaceTests(unittest.TestCase):
                 # App-front-door references are external to this static
                 # bundle — the web app (finalisma_cloud/web/app.py) serves
                 # them, not the site's path tree. The built index.html now
-                # points at the absolute APP_ORIGIN (already excluded by the
+                # points at an absolute app origin (already excluded by the
                 # scheme check above); preserved legacy pages restored
                 # byte-for-byte by guard-legacy (e.g. site/docs/pilot.html,
                 # part of the pricing work) still carry the retired relative
@@ -305,15 +315,17 @@ class LaunchSurfaceTests(unittest.TestCase):
         """The site must offer a real way to become a user: the web app.
 
         Funnel lane (2026-08-07): every primary CTA on the landing page
-        resolves to the canonical app origin (APP_ORIGIN), a quiet "Log in"
+        resolves to the app origin, a quiet "Log in"
         affordance exists for returning users, and the closed-trial framing
         ("Start free pilot") is gone from the primary CTAs. The app is not
         deployed, so routes are asserted by origin + path only — nothing here
-        invents a destination, a free-tier limit, or a trial length.
+        invents a destination, a free-tier limit, or a trial length. The
+        origin itself is a deployment property (web/src/lib/app.ts); we assert
+        absolute `http(s)://` hrefs ending in the route, not a pinned host.
         """
         html = (SITE / "index.html").read_text(encoding="utf-8")
-        self.assertIn(f'href="{APP_ORIGIN}/signup"', html)
-        self.assertIn(f'href="{APP_ORIGIN}/login"', html)
+        self.assertRegex(html, ABSOLUTE_ROUTE_HREF)
+        self.assertRegex(html, r'href="https?://[^"]+/login"')
 
         hero = re.search(r'<section[^>]*id="hero"[^>]*>(.*?)</section>', html, re.S)
         self.assertIsNotNone(hero, "hero section must exist")
@@ -322,13 +334,17 @@ class LaunchSurfaceTests(unittest.TestCase):
             hero.group(1),
         )
         self.assertIsNotNone(hero_primary, "hero must carry a btn-accent primary CTA")
-        self.assertEqual(hero_primary.group(1), f"{APP_ORIGIN}/signup")
+        self.assertRegex(
+            hero_primary.group(1),
+            r"^https?://[^\"\s]+/signup$",
+            "hero primary CTA must be an absolute URL on the app origin ending in /signup",
+        )
 
         connect = re.search(r'<section[^>]*id="connect"[^>]*>(.*?)</section>', html, re.S)
         self.assertIsNotNone(connect, "connect section must exist")
-        self.assertIn(
-            f'href="{APP_ORIGIN}/signup"',
+        self.assertRegex(
             connect.group(1),
+            r'href="https?://[^"]+/signup"',
             "connect section must close with a real signup link",
         )
 
