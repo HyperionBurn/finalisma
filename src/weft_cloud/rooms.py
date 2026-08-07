@@ -31,6 +31,14 @@ from weft_cloud.storage import StorageBackend, utc_now_iso
 
 from .identity.context import SessionContext, require_db_role
 from .identity.tokens import AuthError, hash_token
+from .quotas import (
+    QuotaError,
+    create_room_with_quota,
+    join_room_with_quota,
+    plan_limits,
+    validate_room_cap,
+)
+from .rate_limit import RateLimiter
 
 
 def _new_id(prefix: str) -> str:
@@ -330,6 +338,9 @@ class CloudRoomService:
             raise RoomError("invalid_argument", "cap must be an integer >= 2")
         if not isinstance(ttl_seconds, int) or ttl_seconds < 1:
             raise RoomError("invalid_argument", "ttl_seconds must be a positive integer")
+        # Plan-aware cap bound: a room may never ask for more members than its
+        # plan allows. PLANS is the single source of truth for the limit.
+        validate_room_cap(self.backend, tenant_id, cap)
 
         actor_token_hash = _token_hash(actor_token)
         room_id = _new_id("room")
@@ -338,6 +349,14 @@ class CloudRoomService:
         now = utc_now_iso()
         now_epoch = _time.time()
         expires_at = now_epoch + ttl_seconds
+
+        # Quota gates — both atomic in their own transactions (BEGIN IMMEDIATE).
+        # 1. Enforce the tenant's max_rooms cap; records the room binding and
+        #    increments the rooms counter in the SAME transaction as the check.
+        # 2. Count the owner's auto-join in the room's member counter so the
+        #    plan member cap counts the owner exactly like every other join.
+        create_room_with_quota(self.backend, tenant_id, room_id, self.backend.state_path)
+        join_room_with_quota(self.backend, tenant_id, room_id, owner_agent_id)
 
         with self.backend.transaction() as tx:
             tx.execute(
@@ -424,6 +443,10 @@ class CloudRoomService:
         caps = list(capabilities) if capabilities else []
         now_epoch = _time.time()
 
+        # Phase 1: resolve the room by its link and detect an existing
+        # membership, atomically. The plan-member-cap gate below needs its own
+        # transaction (it increments the counter), so it cannot run inside this
+        # one.
         with self.backend.transaction() as tx:
             real_tenant_id, room, link_row = self._resolve_room_for_link(tx, room_id, link_token)
             if room["state"] == "closed":
@@ -432,18 +455,20 @@ class CloudRoomService:
                 raise RoomError("link_revoked", "Link has been revoked", 410)
             if float(link_row["expires_at"]) < now_epoch:
                 raise RoomError("link_expired", "Link has expired", 410)
-
             existing = tx.execute(
                 "SELECT * FROM cloud_room_members WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
                 (real_tenant_id, room_id, agent_id),
             ).fetchone()
-            if existing is not None:
-                # Existing identity: verify it is the SAME actor, then reactivate.
-                if existing["actor_token_hash"] and existing["actor_token_hash"] != actor_token_hash:
-                    raise RoomError("actor_auth_invalid",
-                                    "Link cannot overwrite an existing member identity", 403)
-                now = utc_now_iso()
-                already_active = existing["status"] == "active"
+
+        if existing is not None:
+            # Existing identity: verify it is the SAME actor, then reactivate.
+            # Re-joins are NOT re-counted against the plan member cap.
+            if existing["actor_token_hash"] and existing["actor_token_hash"] != actor_token_hash:
+                raise RoomError("actor_auth_invalid",
+                                "Link cannot overwrite an existing member identity", 403)
+            now = utc_now_iso()
+            already_active = existing["status"] == "active"
+            with self.backend.transaction() as tx:
                 tx.execute(
                     "UPDATE cloud_room_members SET status = 'active', last_seen = ?, "
                     "joined_at = ?, capabilities_json = ?, actor_token_hash = ? "
@@ -460,10 +485,28 @@ class CloudRoomService:
                 if not already_active:
                     self._append_event(tx, real_tenant_id, room_id, agent_id, "room.joined",
                                        {"agent_id": agent_id, "status": "active"})
-                return {"room_id": room_id, "agent_id": agent_id, "status": "active",
-                        "joined_at": now, "cursor": 0}
+                tx.commit()
+            return {"room_id": room_id, "agent_id": agent_id, "status": "active",
+                    "joined_at": now, "cursor": 0}
 
-            # New identity: enforce the cap atomically (BEGIN IMMEDIATE writer lock).
+        # New identity: enforce the PLAN member cap atomically. The cap check
+        # and the counter increment are one transaction, so concurrent joins
+        # cannot oversubscribe a room past its plan limit (PLANS is the single
+        # source of truth for the limit).
+        join_room_with_quota(self.backend, real_tenant_id, room_id, agent_id)
+
+        # Phase 3: re-resolve the room (it may have changed since phase 1),
+        # enforce the room's own declared cap, and record the membership
+        # atomically (BEGIN IMMEDIATE writer lock).
+        with self.backend.transaction() as tx:
+            real_tenant_id, room, link_row = self._resolve_room_for_link(tx, room_id, link_token)
+            if room["state"] == "closed":
+                raise RoomError("room_closed", "Room is closed", 409)
+            if link_row["revoked"]:
+                raise RoomError("link_revoked", "Link has been revoked", 410)
+            if float(link_row["expires_at"]) < now_epoch:
+                raise RoomError("link_expired", "Link has expired", 410)
+
             active_count = tx.execute(
                 "SELECT COUNT(*) AS c FROM cloud_room_members "
                 "WHERE tenant_id = ? AND room_id = ? AND status = 'active'",
@@ -695,6 +738,21 @@ class CloudRoomService:
     def room_send(self, tenant_id: str, room_id: str, sender_agent_id: str,
                   target_spec: Any, payload: Any, exclude_sender: bool = True) -> dict:
         """Send a message to targets. Returns the event seq and per-target receipts."""
+        # Verify the sender is an active member BEFORE the rate gate, so a
+        # non-member cannot consume the room's per-minute message budget.
+        with self.backend.transaction() as tx:
+            room = self._require_room(tx, tenant_id, room_id)
+            self._require_member(tx, tenant_id, room_id, sender_agent_id)
+            if room["state"] == "closed":
+                raise RoomError("room_closed", "Room is closed", 409)
+
+        # Per-minute message budget, plan-driven (PLANS is the single source of
+        # truth for the limit). Refuses with rate_limited + Retry-After.
+        RateLimiter().enforce(
+            self.backend, tenant_id, room_id, "messages",
+            plan_limits(self.backend, tenant_id).max_messages_per_minute, 60,
+        )
+
         with self.backend.transaction() as tx:
             room = self._require_room(tx, tenant_id, room_id)
             self._require_member(tx, tenant_id, room_id, sender_agent_id)

@@ -42,6 +42,7 @@ from weft_cloud.identity.accounts import reset_password as _identity_reset_passw
 from weft_cloud.identity.accounts import authenticate as _identity_authenticate
 from weft_cloud.identity.schema import ensure_schema as _ensure_identity_schema
 from weft_cloud.identity.tokens import hash_token as _hash_token
+from weft_cloud.quotas import QuotaError
 from weft_cloud.rooms import CloudRoomService, RoomError
 from weft_cloud.storage import StorageBackend
 
@@ -935,13 +936,18 @@ class WeftWebApp:
                             _page("Forbidden",
                                   '<p>Only admins can create rooms.</p>'))
             return
-        result = self.rooms.create_room(
-            tenant_id=ctx.tenant_id,
-            owner_agent_id=ctx.account_id,
-            actor_token=secrets.token_urlsafe(32),
-            cap=cap,
-            name=name,
-        )
+        try:
+            result = self.rooms.create_room(
+                tenant_id=ctx.tenant_id,
+                owner_agent_id=ctx.account_id,
+                actor_token=secrets.token_urlsafe(32),
+                cap=cap,
+                name=name,
+            )
+        except QuotaError as exc:
+            self._send_html(handler, HTTPStatus.BAD_REQUEST,
+                            _page("Create room failed", f"<p>{_esc(str(exc))}</p>"))
+            return
         room_id = result["room_id"]
         self._store_link_token(room_id, result["link_token"])
         self._redirect(handler, f"/room/{room_id}")

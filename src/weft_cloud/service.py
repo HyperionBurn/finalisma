@@ -43,6 +43,8 @@ from weft_cloud.identity import (
     ensure_identity_schema,
 )
 from weft_cloud.identity.schema import ensure_schema as _ensure_identity_schema
+from weft_cloud.quotas import QuotaError
+from weft_cloud.rate_limit import RateLimitedError
 from weft_cloud.rooms import CloudRoomService, RoomError
 from weft_cloud.storage import SqliteWalBackend, StorageBackend
 
@@ -531,6 +533,31 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
             self._send_json(exc.status, {"error": {"code": exc.code, "message": exc.message}})
         except RoomError as exc:
             self._send_json(exc.status, {"error": {"code": exc.code, "message": exc.message}})
+        except QuotaError as exc:
+            # Plan limit hit. Include the caller's OWN limit + plan so the
+            # error is actionable; never another tenant's data or an internal id.
+            error = {"code": exc.code, "message": str(exc)}
+            if exc.limit_name is not None:
+                error["limit"] = {
+                    "name": exc.limit_name,
+                    "value": exc.limit_value,
+                    "plan": exc.plan_id,
+                }
+            self._send_json(HTTPStatus.CONFLICT, {"error": error})
+        except RateLimitedError as exc:
+            retry_after = str(int(max(1.0, exc.retry_after or 1.0)))
+            body = json.dumps({
+                "error": {"code": exc.code, "message": str(exc),
+                          "retry_after": float(exc.retry_after or 1.0)},
+            })
+            self.send_response(HTTPStatus.TOO_MANY_REQUESTS)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Retry-After", retry_after)
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(body.encode("utf-8"))
         except AuthError as exc:
             self._send_json(HTTPStatus.UNAUTHORIZED, {"error": {"code": exc.code, "message": str(exc)}})
         except RoleError as exc:
