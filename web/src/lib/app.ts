@@ -3,7 +3,7 @@
  *
  * Decision (funnel lane, 2026-08-07): the marketing site points every
  * "become a user" CTA at the hosted web app. The web app
- * (finalisma_cloud/web/app.py) serves its routes at the ORIGIN ROOT — there
+ * (weft_cloud/web/app.py) serves its routes at the ORIGIN ROOT — there
  * is no `/app` path prefix. The three public routes used anywhere on the
  * site are:
  *
@@ -16,7 +16,7 @@
  * This constant is the single source of truth: repoint it to a real host in
  * ONE edit when deployment lands by setting APP_ORIGIN to an absolute HTTPS
  * origin, e.g.
- *   export const APP_ORIGIN = 'https://app.finalisma.com';
+ *   export const APP_ORIGIN = 'https://app.weft.com';
  * (no trailing slash).
  */
 export const APP_ORIGIN = 'https://forum-peripherals-cartoons-brain.trycloudflare.com';

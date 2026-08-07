@@ -67,7 +67,7 @@ class CloudServiceTestBase(unittest.TestCase):
     """Base class that spins up a real HTTP service on a background thread."""
 
     def setUp(self) -> None:
-        self.tmpdir = tempfile.mkdtemp(prefix="finalisma-test-")
+        self.tmpdir = tempfile.mkdtemp(prefix="weft-test-")
         self.db_path = str(Path(self.tmpdir) / "test.db")
         self.service = WeftCloudService(SqliteWalBackend(self.db_path))
         self.port = 18800 + (hash(self.tmpdir) % 1000)

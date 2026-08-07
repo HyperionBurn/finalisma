@@ -16,16 +16,16 @@ class TenancyIntegrationTests(unittest.TestCase):
     """Integration tests for the tenancy module driven through the REAL MCP
     JSON-RPC surface (WeftDispatcher.call_tool).
 
-    The tenancy tool handlers are not wired yet, so every finalisma_org_*
+    The tenancy tool handlers are not wired yet, so every org_*
     call_tool must raise WeftError("unknown_tool", ...). That RED is the
     deliverable.
     """
 
     TENANCY_TOOLS = (
-        "finalisma_org_create",
-        "finalisma_org_add_member",
-        "finalisma_org_is_member",
-        "finalisma_org_assert_scope",
+        "org_create",
+        "org_add_member",
+        "org_is_member",
+        "org_assert_scope",
     )
 
     def setUp(self) -> None:
@@ -52,7 +52,7 @@ class TenancyIntegrationTests(unittest.TestCase):
 
     def test_create_org_returns_org_id_and_distinct_ids(self) -> None:
         first = self.dispatcher.call_tool(
-            "finalisma_org_create",
+            "org_create",
             {"team_id": "team-1", "org_name": "Acme"},
         )
         self.assertIn("org_id", first)
@@ -60,7 +60,7 @@ class TenancyIntegrationTests(unittest.TestCase):
         self.assertIn("created_at", first)
 
         second = self.dispatcher.call_tool(
-            "finalisma_org_create",
+            "org_create",
             {"team_id": "team-1", "org_name": "Globex"},
         )
         self.assertIn("org_id", second)
@@ -70,13 +70,13 @@ class TenancyIntegrationTests(unittest.TestCase):
 
     def test_add_member_then_is_member_true_and_false(self) -> None:
         created = self.dispatcher.call_tool(
-            "finalisma_org_create",
+            "org_create",
             {"team_id": "team-1", "org_name": "Acme"},
         )
         org_id = created["org_id"]
 
         added = self.dispatcher.call_tool(
-            "finalisma_org_add_member",
+            "org_add_member",
             {"team_id": "team-1", "org_id": org_id, "agent_id": "agent-a", "role": "owner"},
         )
         self.assertEqual(added["org_id"], org_id)
@@ -85,13 +85,13 @@ class TenancyIntegrationTests(unittest.TestCase):
         self.assertTrue(added["added"])
 
         member_check = self.dispatcher.call_tool(
-            "finalisma_org_is_member",
+            "org_is_member",
             {"team_id": "team-1", "org_id": org_id, "agent_id": "agent-a"},
         )
         self.assertTrue(member_check["is_member"])
 
         non_member_check = self.dispatcher.call_tool(
-            "finalisma_org_is_member",
+            "org_is_member",
             {"team_id": "team-1", "org_id": org_id, "agent_id": "agent-b"},
         )
         self.assertFalse(non_member_check["is_member"])
@@ -100,26 +100,26 @@ class TenancyIntegrationTests(unittest.TestCase):
 
     def test_assert_scope_ok_for_member_with_correct_key(self) -> None:
         created = self.dispatcher.call_tool(
-            "finalisma_org_create",
+            "org_create",
             {"team_id": "team-1", "org_name": "Acme"},
         )
         org_id = created["org_id"]
 
         self.dispatcher.call_tool(
-            "finalisma_org_add_member",
+            "org_add_member",
             {"team_id": "team-1", "org_id": org_id, "agent_id": "agent-a", "role": "owner"},
         )
 
         actor_key = hashlib.sha256((org_id + "agent-a").encode("utf-8")).hexdigest()
         result = self.dispatcher.call_tool(
-            "finalisma_org_assert_scope",
+            "org_assert_scope",
             {"team_id": "team-1", "org_id": org_id, "agent_id": "agent-a", "actor_key_hex": actor_key},
         )
         self.assertTrue(result["ok"])
 
     def test_assert_scope_raises_for_non_member(self) -> None:
         created = self.dispatcher.call_tool(
-            "finalisma_org_create",
+            "org_create",
             {"team_id": "team-1", "org_name": "Acme"},
         )
         org_id = created["org_id"]
@@ -128,7 +128,7 @@ class TenancyIntegrationTests(unittest.TestCase):
         actor_key = hashlib.sha256((org_id + "agent-a").encode("utf-8")).hexdigest()
         with self.assertRaises(WeftError) as ctx:
             self.dispatcher.call_tool(
-                "finalisma_org_assert_scope",
+                "org_assert_scope",
                 {"team_id": "team-1", "org_id": org_id, "agent_id": "agent-a", "actor_key_hex": actor_key},
             )
         self.assertEqual(ctx.exception.code, "tenancy_scope_forbidden")
@@ -136,22 +136,22 @@ class TenancyIntegrationTests(unittest.TestCase):
     def test_assert_scope_raises_for_wrong_actor_key_cross_tenant(self) -> None:
         """Cross-tenant negative test: org B's agent cannot pass org A's scope."""
         org_a = self.dispatcher.call_tool(
-            "finalisma_org_create",
+            "org_create",
             {"team_id": "team-1", "org_name": "OrgA"},
         )
         org_b = self.dispatcher.call_tool(
-            "finalisma_org_create",
+            "org_create",
             {"team_id": "team-1", "org_name": "OrgB"},
         )
         org_a_id = org_a["org_id"]
         org_b_id = org_b["org_id"]
 
         self.dispatcher.call_tool(
-            "finalisma_org_add_member",
+            "org_add_member",
             {"team_id": "team-1", "org_id": org_a_id, "agent_id": "agent-a", "role": "owner"},
         )
         self.dispatcher.call_tool(
-            "finalisma_org_add_member",
+            "org_add_member",
             {"team_id": "team-1", "org_id": org_b_id, "agent_id": "agent-b", "role": "owner"},
         )
 
@@ -159,7 +159,7 @@ class TenancyIntegrationTests(unittest.TestCase):
         wrong_key = hashlib.sha256((org_b_id + "agent-b").encode("utf-8")).hexdigest()
         with self.assertRaises(WeftError) as ctx:
             self.dispatcher.call_tool(
-                "finalisma_org_assert_scope",
+                "org_assert_scope",
                 {"team_id": "team-1", "org_id": org_a_id, "agent_id": "agent-b", "actor_key_hex": wrong_key},
             )
         self.assertEqual(ctx.exception.code, "tenancy_scope_forbidden")
@@ -168,43 +168,43 @@ class TenancyIntegrationTests(unittest.TestCase):
 
     def test_cross_tenant_isolation_two_orgs(self) -> None:
         org_a = self.dispatcher.call_tool(
-            "finalisma_org_create",
+            "org_create",
             {"team_id": "team-1", "org_name": "OrgA"},
         )
         org_b = self.dispatcher.call_tool(
-            "finalisma_org_create",
+            "org_create",
             {"team_id": "team-1", "org_name": "OrgB"},
         )
         org_a_id = org_a["org_id"]
         org_b_id = org_b["org_id"]
 
         self.dispatcher.call_tool(
-            "finalisma_org_add_member",
+            "org_add_member",
             {"team_id": "team-1", "org_id": org_a_id, "agent_id": "agent-a", "role": "owner"},
         )
         self.dispatcher.call_tool(
-            "finalisma_org_add_member",
+            "org_add_member",
             {"team_id": "team-1", "org_id": org_b_id, "agent_id": "agent-b", "role": "owner"},
         )
 
         # Each member is a member only of its own org.
         a_in_a = self.dispatcher.call_tool(
-            "finalisma_org_is_member",
+            "org_is_member",
             {"team_id": "team-1", "org_id": org_a_id, "agent_id": "agent-a"},
         )
         self.assertTrue(a_in_a["is_member"])
         a_in_b = self.dispatcher.call_tool(
-            "finalisma_org_is_member",
+            "org_is_member",
             {"team_id": "team-1", "org_id": org_b_id, "agent_id": "agent-a"},
         )
         self.assertFalse(a_in_b["is_member"])
         b_in_b = self.dispatcher.call_tool(
-            "finalisma_org_is_member",
+            "org_is_member",
             {"team_id": "team-1", "org_id": org_b_id, "agent_id": "agent-b"},
         )
         self.assertTrue(b_in_b["is_member"])
         b_in_a = self.dispatcher.call_tool(
-            "finalisma_org_is_member",
+            "org_is_member",
             {"team_id": "team-1", "org_id": org_a_id, "agent_id": "agent-b"},
         )
         self.assertFalse(b_in_a["is_member"])
@@ -214,12 +214,12 @@ class TenancyIntegrationTests(unittest.TestCase):
         key_b = hashlib.sha256((org_b_id + "agent-b").encode("utf-8")).hexdigest()
 
         scope_a = self.dispatcher.call_tool(
-            "finalisma_org_assert_scope",
+            "org_assert_scope",
             {"team_id": "team-1", "org_id": org_a_id, "agent_id": "agent-a", "actor_key_hex": key_a},
         )
         self.assertTrue(scope_a["ok"])
         scope_b = self.dispatcher.call_tool(
-            "finalisma_org_assert_scope",
+            "org_assert_scope",
             {"team_id": "team-1", "org_id": org_b_id, "agent_id": "agent-b", "actor_key_hex": key_b},
         )
         self.assertTrue(scope_b["ok"])
@@ -227,14 +227,14 @@ class TenancyIntegrationTests(unittest.TestCase):
         # Cross-org: agent-a's key fails against org_b and vice versa.
         with self.assertRaises(WeftError) as cross_a_in_b:
             self.dispatcher.call_tool(
-                "finalisma_org_assert_scope",
+                "org_assert_scope",
                 {"team_id": "team-1", "org_id": org_b_id, "agent_id": "agent-a", "actor_key_hex": key_a},
             )
         self.assertEqual(cross_a_in_b.exception.code, "tenancy_scope_forbidden")
 
         with self.assertRaises(WeftError) as cross_b_in_a:
             self.dispatcher.call_tool(
-                "finalisma_org_assert_scope",
+                "org_assert_scope",
                 {"team_id": "team-1", "org_id": org_a_id, "agent_id": "agent-b", "actor_key_hex": key_b},
             )
         self.assertEqual(cross_b_in_a.exception.code, "tenancy_scope_forbidden")

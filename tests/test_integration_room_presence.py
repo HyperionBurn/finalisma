@@ -1,8 +1,8 @@
 """Integration tests for the Room presence + roster-visibility contract.
 
-RED deliverable — these tests assert the finalisma_room_* MCP surface per
+RED deliverable — these tests assert the room_* MCP surface per
 docs/ROOMS_DESIGN.md §4 (presence), §8 (tool surface), §9 (negative cases).
-Every finalisma_room_* call MUST fail with WeftError("unknown_tool", ...)
+Every room_* call MUST fail with WeftError("unknown_tool", ...)
 until the orchestrator wires the room tools into the dispatcher and TOOLS list.
 """
 
@@ -31,15 +31,15 @@ class RoomPresenceIntegrationTests(unittest.TestCase):
         self.team = "team-presence"
         # Register three agents and capture their actor tokens.
         reg_a1 = self.dispatcher.call_tool(
-            "finalisma_register_agent",
+            "register_agent",
             {"team_id": self.team, "agent_id": "A1", "role": "owner"},
         )
         reg_a2 = self.dispatcher.call_tool(
-            "finalisma_register_agent",
+            "register_agent",
             {"team_id": self.team, "agent_id": "A2", "role": "member"},
         )
         reg_a3 = self.dispatcher.call_tool(
-            "finalisma_register_agent",
+            "register_agent",
             {"team_id": self.team, "agent_id": "A3", "role": "member"},
         )
         self.token_a1 = reg_a1["actor_token"]
@@ -54,7 +54,7 @@ class RoomPresenceIntegrationTests(unittest.TestCase):
 
     def _create_room(self, cap: int = 5) -> dict:
         return self.dispatcher.call_tool(
-            "finalisma_room_create",
+            "room_create",
             {"team_id": self.team, "owner_agent_id": "A1", "cap": cap},
         )
 
@@ -70,23 +70,23 @@ class RoomPresenceIntegrationTests(unittest.TestCase):
         }
         if capabilities is not None:
             args["capabilities"] = capabilities
-        return self.dispatcher.call_tool("finalisma_room_join", args)
+        return self.dispatcher.call_tool("room_join", args)
 
     def _info(self, room_id: str, agent_id: str, token: str) -> dict:
         return self.dispatcher.call_tool(
-            "finalisma_room_info",
+            "room_info",
             {"team_id": self.team, "room_id": room_id, "agent_id": agent_id, "actor_token": token},
         )
 
     def _heartbeat(self, room_id: str, agent_id: str, token: str) -> dict:
         return self.dispatcher.call_tool(
-            "finalisma_room_heartbeat",
+            "room_heartbeat",
             {"team_id": self.team, "room_id": room_id, "agent_id": agent_id, "actor_token": token},
         )
 
     def _leave(self, room_id: str, agent_id: str, token: str) -> dict:
         return self.dispatcher.call_tool(
-            "finalisma_room_leave",
+            "room_leave",
             {"team_id": self.team, "room_id": room_id, "agent_id": agent_id, "actor_token": token},
         )
 
@@ -202,21 +202,21 @@ class RoomPresenceIntegrationTests(unittest.TestCase):
         """Test 5: tool schemas for the 4 room tools present in the TOOLS list."""
         schemas = {tool["name"]: tool["inputSchema"] for tool in TOOLS}
         expected_tools = {
-            "finalisma_room_create",
-            "finalisma_room_join",
-            "finalisma_room_info",
-            "finalisma_room_heartbeat",
+            "room_create",
+            "room_join",
+            "room_info",
+            "room_heartbeat",
         }
         for tool_name in expected_tools:
             self.assertIn(tool_name, schemas, f"{tool_name} missing from TOOLS")
 
         # Spot-check required properties per ROOMS_DESIGN.md §8.
-        create_props = schemas["finalisma_room_create"]["properties"]
+        create_props = schemas["room_create"]["properties"]
         self.assertIn("team_id", create_props)
         self.assertIn("owner_agent_id", create_props)
         self.assertIn("cap", create_props)
 
-        join_props = schemas["finalisma_room_join"]["properties"]
+        join_props = schemas["room_join"]["properties"]
         self.assertIn("team_id", join_props)
         self.assertIn("room_id", join_props)
         self.assertIn("link_token", join_props)
@@ -224,13 +224,13 @@ class RoomPresenceIntegrationTests(unittest.TestCase):
         self.assertIn("consent", join_props)
         self.assertIn("actor_token", join_props)
 
-        info_props = schemas["finalisma_room_info"]["properties"]
+        info_props = schemas["room_info"]["properties"]
         self.assertIn("team_id", info_props)
         self.assertIn("room_id", info_props)
         self.assertIn("agent_id", info_props)
         self.assertIn("actor_token", info_props)
 
-        hb_props = schemas["finalisma_room_heartbeat"]["properties"]
+        hb_props = schemas["room_heartbeat"]["properties"]
         self.assertIn("team_id", hb_props)
         self.assertIn("room_id", hb_props)
         self.assertIn("agent_id", hb_props)

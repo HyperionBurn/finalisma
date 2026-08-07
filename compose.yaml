@@ -5,9 +5,9 @@
 #
 #     docker compose up -d --build
 #
-# TWO PROCESSES, ONE STORE: the agent-facing API (finalisma-cloud) and the
-# browser front-end (finalisma-web) are separate containers from the same
-# image, and BOTH open the SAME SQLite database file (/data/finalisma-cloud.db)
+# TWO PROCESSES, ONE STORE: the agent-facing API (weft-cloud) and the
+# browser front-end (weft-web) are separate containers from the same
+# image, and BOTH open the SAME SQLite database file (/data/weft-cloud.db)
 # in WAL mode. SQLite-WAL supports many concurrent readers and exactly ONE
 # writer, so the single-writer constraint now spans both processes: each
 # service must run as a single instance, the two must share one persistent
@@ -22,19 +22,19 @@
 # defaults in this file contain nothing secret.
 
 services:
-  finalisma-cloud:
+  weft-cloud:
     build:
       context: .
       dockerfile: Dockerfile
-    image: finalisma-cloud:local
+    image: weft-cloud:local
     ports:
       - "127.0.0.1:18788:18788"
     environment:
       WEFT_HOST: "0.0.0.0"
       WEFT_PORT: "18788"
-      WEFT_DB_PATH: "/data/finalisma-cloud.db"
+      WEFT_DB_PATH: "/data/weft-cloud.db"
     volumes:
-      - finalisma-cloud-data:/data
+      - weft-cloud-data:/data
     restart: unless-stopped
 
   # Browser front-end: signup/login/rooms over the SAME database the agent API
@@ -45,18 +45,18 @@ services:
   # readers). The image's baked-in HEALTHCHECK probes WEFT_PORT/healthz,
   # which nothing in this container listens on, so it is overridden here to
   # probe the web port; GET /login returns 200 without a session.
-  finalisma-web:
-    image: finalisma-cloud:local
+  weft-web:
+    image: weft-cloud:local
     command: ["python", "-B", "-m", "weft_cloud.web"]
     ports:
       - "127.0.0.1:18789:18789"
     environment:
       WEFT_WEB_HOST: "0.0.0.0"
       WEFT_WEB_PORT: "18789"
-      WEFT_WEB_DB_PATH: "/data/finalisma-cloud.db"
+      WEFT_WEB_DB_PATH: "/data/weft-cloud.db"
       WEFT_WEB_STATE_DIR: "/data"
     volumes:
-      - finalisma-cloud-data:/data
+      - weft-cloud-data:/data
     healthcheck:
       test: ["CMD", "python", "-c", "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('WEFT_WEB_PORT','18789')+'/login', timeout=3)"]
       interval: 30s
@@ -68,4 +68,4 @@ services:
 volumes:
   # State survives container rebuilds and `docker compose down`. Only
   # `docker compose down -v` (or an explicit `docker volume rm`) destroys it.
-  finalisma-cloud-data:
+  weft-cloud-data:

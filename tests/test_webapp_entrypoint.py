@@ -56,7 +56,7 @@ class TestWebRuntimeConfig(unittest.TestCase):
         self.assertEqual(cfg, {
             "host": "127.0.0.1",
             "port": 18789,
-            "db_path": "./data/finalisma-web.db",
+            "db_path": "./data/weft-web.db",
             "static_dir": "./site",
             "state_dir": "./data",
         })
@@ -133,7 +133,7 @@ class TestWebEntryPointBootsAndServes(unittest.TestCase):
                     proc.wait(timeout=10)
             bound = stderr_path.read_text(encoding="utf-8", errors="replace")
             self.assertIn(
-                f"finalisma-web listening on http://127.0.0.1:{port}",
+                f"weft-web listening on http://127.0.0.1:{port}",
                 bound,
                 "launcher must print its bound URL to stderr",
             )

@@ -22,8 +22,8 @@ class PublicJoinScopeTests(unittest.TestCase):
         root = Path(self.temp.name)
         self.store = WeftStore(root / "state.db", root)
         self.unscoped = WeftDispatcher(self.store)
-        self.unscoped.call_tool("finalisma_register_agent", {"team_id": "team-a", "agent_id": "agent-a"})
-        self.unscoped.call_tool("finalisma_register_agent", {"team_id": "team-b", "agent_id": "agent-b"})
+        self.unscoped.call_tool("register_agent", {"team_id": "team-a", "agent_id": "agent-a"})
+        self.unscoped.call_tool("register_agent", {"team_id": "team-b", "agent_id": "agent-b"})
         self.scoped = WeftDispatcher(self.store, team_scope="team-a")
 
     def tearDown(self) -> None:
@@ -31,7 +31,7 @@ class PublicJoinScopeTests(unittest.TestCase):
         self.temp.cleanup()
 
     def test_public_join_cannot_bypass_the_http_coordinator_team_scope(self) -> None:
-        pairing = self.unscoped.call_tool("finalisma_create_pairing", {"team_id": "team-b", "initiator_id": "agent-b"})
+        pairing = self.unscoped.call_tool("create_pairing", {"team_id": "team-b", "initiator_id": "agent-b"})
         handler = type("ScopedPublicJoinHandler", (_MCPRequestHandler,), {})
         handler.dispatcher = self.scoped
         handler.token = None

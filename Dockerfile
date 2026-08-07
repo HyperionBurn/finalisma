@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# Finalisma Cloud — the hosted SaaS surface.
+# Weft Cloud — the hosted SaaS surface.
 #
 # A deliberate small, boring image: the cloud service is stdlib-only with zero
 # runtime dependencies, so there is no build step, no package install and no
@@ -21,22 +21,22 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app/src \
     WEFT_HOST=0.0.0.0 \
     WEFT_PORT=18788 \
-    WEFT_DB_PATH=/data/finalisma-cloud.db
+    WEFT_DB_PATH=/data/weft-cloud.db
 
 WORKDIR /app
 
 # Run as an unprivileged user. The DB mount point /data is owned by that user
 # so a named volume initialized from this image inherits writable ownership.
-RUN groupadd --system finalisma \
-    && useradd --system --gid finalisma --no-create-home finalisma \
+RUN groupadd --system weft \
+    && useradd --system --gid weft --no-create-home weft \
     && mkdir -p /app/src /data \
-    && chown -R finalisma:finalisma /app /data
+    && chown -R weft:weft /app /data
 
 # .dockerignore keeps tests, the marketing site (site/, web/), docs, .git and
 # render artifacts out of the build context.
-COPY --chown=finalisma:finalisma src/ /app/src/
+COPY --chown=weft:weft src/ /app/src/
 
-USER finalisma
+USER weft
 
 # The database mount point. Compose mounts a named volume here so state
 # survives restarts; never bake the database into a filesystem layer.

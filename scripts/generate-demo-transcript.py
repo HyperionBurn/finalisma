@@ -26,7 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def run_demo() -> dict[str, object]:
-    with tempfile.TemporaryDirectory(prefix="finalisma-launch-demo-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="weft-launch-demo-") as temporary:
         workspace = Path(temporary)
         with WeftStore(workspace / "state.db", workspace) as store:
             agent_a = store.register_agent(

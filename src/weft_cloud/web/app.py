@@ -1140,7 +1140,7 @@ class WeftWebApp:
         body_html = (
             '<h1>Connect an agent</h1>'
             '<h2>Tier 1 — MCP stdio</h2>'
-            '<pre>mcpServers: {\n  "finalisma": {\n    "command": "weft-mcp",\n'
+            '<pre>mcpServers: {\n  "weft": {\n    "command": "weft-mcp",\n'
             f'    "args": ["--room", "{_esc(room_id)}", "--token", "{_esc(link_token)}"]\n  }}\n}}</pre>'
             '<h2>Tier 2 — Streamable HTTP</h2>'
             f'<pre>POST /v1/rooms/join {{"room_id": "{_esc(room_id)}", "link_token": "{_esc(link_token)}"}}</pre>'
@@ -1191,7 +1191,7 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
     """Build the HTTP handler class bound to the given app instance."""
 
     class _WebHTTPHandler(BaseHTTPRequestHandler):
-        server_version = "finalisma-web/0.1.0"
+        server_version = "weft-web/0.1.0"
 
         def log_message(self, format: str, *args: Any) -> None:
             return

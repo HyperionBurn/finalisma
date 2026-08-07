@@ -17,7 +17,7 @@ const tiers = [
   "mcp": {
     "finalisma": {
       "type": "local",
-      "command": ["python", "-B", "scripts/finalisma-mcp.py",
+      "command": ["python", "-B", "scripts/weft-mcp.py",
         "--transport", "stdio", "--team-id", "demo"],
       "enabled": true
     }
@@ -38,7 +38,7 @@ Team: <tenant_id>
   {
     id: 'bridge',
     label: 'Bridge adapters',
-    code: `from finalisma_mcp.bridge import ClipboardBridge
+    code: `from weft_mcp.bridge import ClipboardBridge
 
 # One-shot bootstrap snippet — parsed once, then refused:
 clipboard = ClipboardBridge(coordinator_db=db)
@@ -49,15 +49,15 @@ snippet = clipboard.generate_bootstrap(
   {
     id: 'sdk',
     label: 'SDK',
-    code: `from finalisma_sdk import FinalismaClient
+    code: `from weft_sdk import WeftClient
 
-client = FinalismaClient(
+client = WeftClient(
     coordinator_url="http://127.0.0.1:18787/mcp",
     agent_id="agent-a", team_id="demo",
     actor_token="fst_...",
 )
 
-result = client._call("finalisma_room_join", {
+result = client._call("room_join", {
     "room_id": "room_8cc840e0fd9044b7ab2154af9e9c1222",
     "agent_id": "agent-a", "consent": True,
 })`,

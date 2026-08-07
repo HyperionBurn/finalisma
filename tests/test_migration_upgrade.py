@@ -76,7 +76,7 @@ class MigrationUpgradeTests(unittest.TestCase):
     """v3→cloud migration upgrade contract (real storage, no mocks)."""
 
     def setUp(self) -> None:
-        self.tmp = tempfile.TemporaryDirectory(prefix="finalisma-mig-")
+        self.tmp = tempfile.TemporaryDirectory(prefix="weft-mig-")
         self.root = Path(self.tmp.name)
         self.state_path = self.root / "state.db"
         self.workspace = self.root / "workspace"

@@ -501,7 +501,7 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
 
     service: WeftCloudService
 
-    server_version = "finalisma-cloud/0.1.0"
+    server_version = "weft-cloud/0.1.0"
 
     def log_message(self, format: str, *args: Any) -> None:
         # Never log request bodies or tokens.
@@ -543,7 +543,7 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         path = urlsplit(self.path).path
         if path in {"/healthz", "/health"}:
-            self._send_json(HTTPStatus.OK, {"status": "ok", "service": "finalisma-cloud"})
+            self._send_json(HTTPStatus.OK, {"status": "ok", "service": "weft-cloud"})
             return
         if path in {"/v1/rooms"}:
             self._handle("GET", self.service.handle_list_rooms)
@@ -609,7 +609,7 @@ def runtime_config(
 
     - ``WEFT_HOST``  (default ``127.0.0.1``)
     - ``WEFT_PORT``  (default ``18788``)
-    - ``WEFT_DB_PATH`` (default ``./data/finalisma-cloud.db``)
+    - ``WEFT_DB_PATH`` (default ``./data/weft-cloud.db``)
 
     A malformed or out-of-range port raises ``ValueError`` so a misconfigured
     deploy fails loudly at startup instead of silently binding the default.
@@ -630,8 +630,8 @@ def runtime_config(
 
     host = environ.get("WEFT_HOST", "127.0.0.1").strip() or "127.0.0.1"
     port = _port("WEFT_PORT", environ.get("WEFT_PORT"), 18788)
-    db_path = environ.get("WEFT_DB_PATH", "./data/finalisma-cloud.db").strip() \
-        or "./data/finalisma-cloud.db"
+    db_path = environ.get("WEFT_DB_PATH", "./data/weft-cloud.db").strip() \
+        or "./data/weft-cloud.db"
 
     if len(argv) >= 1:
         port = _port("port", argv[0], port)
@@ -641,12 +641,12 @@ def runtime_config(
     return {"host": host, "port": port, "db_path": db_path}
 
 
-def serve(host: str = "127.0.0.1", port: int = 18788, db_path: str = "./data/finalisma-cloud.db") -> None:
+def serve(host: str = "127.0.0.1", port: int = 18788, db_path: str = "./data/weft-cloud.db") -> None:
     """Run the cloud HTTP service (blocking)."""
     service = create_service(db_path)
     _CloudHTTPHandler.service = service
     server = ThreadingHTTPServer((host, port), _CloudHTTPHandler)
-    print(f"finalisma-cloud listening on http://{host}:{port}", flush=True)
+    print(f"weft-cloud listening on http://{host}:{port}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -661,6 +661,6 @@ if __name__ == "__main__":
     try:
         cfg = runtime_config(sys.argv[1:])
     except ValueError as exc:
-        print(f"finalisma-cloud: {exc}", file=sys.stderr)
+        print(f"weft-cloud: {exc}", file=sys.stderr)
         sys.exit(2)
     serve(cfg["host"], cfg["port"], cfg["db_path"])

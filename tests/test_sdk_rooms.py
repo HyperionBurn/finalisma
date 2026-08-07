@@ -78,7 +78,7 @@ class _RoomHarness:
     _live: list["_RoomHarness"] = []
 
     def __init__(self) -> None:
-        self.scratch = tempfile.TemporaryDirectory(prefix="finalisma-sdk-rooms-")
+        self.scratch = tempfile.TemporaryDirectory(prefix="weft-sdk-rooms-")
         self.workspace = Path(self.scratch.name)
         self.port = _pick_free_port()
         self.base_url = f"http://127.0.0.1:{self.port}/mcp"

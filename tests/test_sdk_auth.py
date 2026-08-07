@@ -118,7 +118,7 @@ class SdkAuthInjectionContract(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.scratch = tempfile.TemporaryDirectory(prefix="finalisma-sdk-auth-")
+        cls.scratch = tempfile.TemporaryDirectory(prefix="weft-sdk-auth-")
         cls.workspace = Path(cls.scratch.name)
         cls.port = _pick_free_port()
         cls.base_url = f"http://127.0.0.1:{cls.port}/mcp"
@@ -128,7 +128,7 @@ class SdkAuthInjectionContract(unittest.TestCase):
         # Owner registers + creates a room (cap 4).
         cls.owner, cls.owner_token = _register(cls.base_url, "owner")
         room = cls.owner._call(
-            "finalisma_room_create",
+            "room_create",
             owner_agent_id="owner", cap=4, name="auth-contract",
         )
         cls.room_id = room["room_id"]
@@ -140,7 +140,7 @@ class SdkAuthInjectionContract(unittest.TestCase):
             cls.members[name] = c
             cls.member_tokens[name] = t
             c._call(
-                "finalisma_room_join",
+                "room_join",
                 room_id=cls.room_id,
                 link_token=cls.link_token,
                 agent_id=name,
@@ -388,7 +388,7 @@ class SdkAuthInjectionContract(unittest.TestCase):
         try:
             # Join the room with the good token via low-level call.
             victim._call(
-                "finalisma_room_join",
+                "room_join",
                 room_id=self.room_id, link_token=self.link_token,
                 agent_id="victim", consent=True,
             )
@@ -417,7 +417,7 @@ class SdkAuthInjectionContract(unittest.TestCase):
         """A member of room A calling room_info/poll/send on room B's id
         is refused (room_not_found or member_required)."""
         other = self.owner._call(
-            "finalisma_room_create",
+            "room_create",
             owner_agent_id="owner", cap=4, name="other",
         )
         other_id = other["room_id"]
@@ -445,7 +445,7 @@ class SdkAuthInjectionContract(unittest.TestCase):
         # Cap must be >= 2 per coordinator validation. Use cap=2: owner
         # auto-joins (1), m1 joins (2) → full. The 3rd join attempt is refused.
         tiny = self.owner._call(
-            "finalisma_room_create",
+            "room_create",
             owner_agent_id="owner", cap=2, name="tiny",
         )
         tiny_id = tiny["room_id"]
@@ -453,7 +453,7 @@ class SdkAuthInjectionContract(unittest.TestCase):
 
         # Fill the room: m1 joins (2nd member → cap reached).
         self.members["m1"]._call(
-            "finalisma_room_join",
+            "room_join",
             room_id=tiny_id, link_token=tiny_link,
             agent_id="m1", consent=True,
         )
@@ -476,13 +476,13 @@ class SdkAuthInjectionContract(unittest.TestCase):
         """A revoked link is refused (link_revoked)."""
         # Create a room, revoke its link, then attempt to join.
         rl = self.owner._call(
-            "finalisma_room_create",
+            "room_create",
             owner_agent_id="owner", cap=4, name="rl",
         )
         rl_id = rl["room_id"]
         # Revoke the room's PRIMARY link (a distinct link_* id returned by create).
         self.owner._call(
-            "finalisma_room_revoke_link",
+            "room_revoke_link",
             room_id=rl_id, owner_agent_id="owner", link_id=rl["link_id"],
         )
         joiner, _ = _register(self.base_url, "rl-joiner")

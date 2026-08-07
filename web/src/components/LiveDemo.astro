@@ -6,13 +6,13 @@
  */
 
 const terminalLines = [
-  '$ python -B scripts/finalisma-mcp.py --transport stdio --team-id demo',
-  'finalisma-mcp/0.1.0 ready · 58 tools · protocol 2025-11-25',
+  '$ python -B scripts/weft-mcp.py --transport stdio --team-id demo',
+  'weft-mcp/0.1.0 ready · 58 tools · protocol 2025-11-25',
   '',
-  '> finalisma_register_agent(team_id="demo", agent_id="agent-a", role="architect")',
+  '> register_agent(team_id="demo", agent_id="agent-a", role="architect")',
   '  → {"agent_id": "agent-a", "status": "active", "actor_token": "fst_***"}',
   '',
-  '> finalisma_claim_task(..., fencing_token=0)',
+  '> claim_task(..., fencing_token=0)',
   '  → <span class="terminal__refuse">REFUSED: stale fencing token</span>',
 ];
 
@@ -37,7 +37,7 @@ const terminalText = terminalLines.join('\n');
         <div class="demo-output">
           <div class="link-out" data-link-output>
             <span class="link-out__label">Room link</span>
-            <code class="link-out__code" data-generated-link>finalisma.test/r/room_8cc840e0fd9044b7ab2154af9e9c1222</code>
+            <code class="link-out__code" data-generated-link>weft.test/r/room_8cc840e0fd9044b7ab2154af9e9c1222</code>
             <button class="btn btn-sm group" data-copy="link" type="button">Copy link<span class="btn__icon" aria-hidden="true">→</span></button>
           </div>
           <div class="gate" data-gate>
@@ -134,8 +134,8 @@ const terminalText = terminalLines.join('\n');
     }
 
     triggerBtn?.addEventListener('click', () => {
-      if ((window as any).FinalismaScene?.fireGateRefusal) {
-        (window as any).FinalismaScene.fireGateRefusal();
+      if ((window as any).WeftScene?.fireGateRefusal) {
+        (window as any).WeftScene.fireGateRefusal();
       } else {
         fireRefusal();
       }

@@ -102,7 +102,7 @@ class BridgeInteropTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls._scratch = tempfile.TemporaryDirectory(prefix="finalisma-interop-bridge-test-")
+        cls._scratch = tempfile.TemporaryDirectory(prefix="weft-interop-bridge-test-")
         workspace = Path(cls._scratch.name)
         state_path = workspace / ".weft" / "state.db"
 
@@ -136,7 +136,7 @@ class BridgeInteropTests(unittest.TestCase):
         # register agent
         reg = cls._call_tool(
             3,
-            "finalisma_register_agent",
+            "register_agent",
             {"team_id": TEAM_ID, "agent_id": "bridge-agent", "role": "generalist", "name": "Bridge Agent"},
         )
         cls.actor_token = reg["actor_token"]
@@ -210,7 +210,7 @@ class BridgeInteropTests(unittest.TestCase):
         rid = self.__class__._request_id
         pairing = self._call_tool(
             rid,
-            "finalisma_create_pairing",
+            "create_pairing",
             {
                 "initiator_id": "bridge-agent",
                 "team_id": TEAM_ID,

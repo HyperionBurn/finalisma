@@ -1169,10 +1169,10 @@ class WeftStore:
             if row["lease_until"] is not None and row["lease_until"] < _epoch():
                 raise WeftError("lease_expired", "The task lease has expired; reclaim it before updating")
             if status == "done":
-                raise WeftError("quality_gate_required", "Use finalisma_complete_task after a passed quality gate")
+                raise WeftError("quality_gate_required", "Use complete_task after a passed quality gate")
             next_status = status or row["status"]
             if status == "verified":
-                raise WeftError("quality_gate_required", "Use finalisma_verify_task to reach verified")
+                raise WeftError("quality_gate_required", "Use verify_task to reach verified")
             if row["status"] == "verified" and next_status != "verified":
                 raise WeftError("invalid_transition", "A verified task can only be completed")
             fields: list[str] = ["status = ?", "progress = ?", "version = version + 1", "updated_at = ?"]
@@ -1605,7 +1605,7 @@ class WeftStore:
             "Join the Finalisma team using this one-time link:\n"
             f"{join_url}\n"
             "Review the offered capabilities, extract the token from the URL fragment, then call "
-            "finalisma_pairing_preview followed by finalisma_join_pairing with consent=true. "
+            "pairing_preview followed by join_pairing with consent=true. "
             "Never copy the token into logs or public transcripts outside this intended handoff."
         )
         return {
@@ -1736,7 +1736,7 @@ class WeftStore:
                 "state": "active",
                 "members": members,
                 "expires_at": session_expires,
-                "resume_instruction": "Persist session_token securely. Resume with finalisma_session_poll after_seq using the last acknowledged seq. The initiator has a separate credential; never exchange credentials between agents.",
+                "resume_instruction": "Persist session_token securely. Resume with session_poll after_seq using the last acknowledged seq. The initiator has a separate credential; never exchange credentials between agents.",
             }
             if issued_actor_token is not None:
                 result["actor_token"] = issued_actor_token
@@ -1933,7 +1933,7 @@ class WeftStore:
             connection.execute("SELECT 1").fetchone()
             sessions = connection.execute("SELECT COUNT(*) FROM sessions WHERE state = 'active' AND expires_at >= ?", (_epoch(),)).fetchone()[0]
             schema = connection.execute("SELECT value FROM schema_meta WHERE key = 'schema_version'").fetchone()
-            return {"status": "ok", "service": "finalisma", "protocol": WEFT_PROTOCOL, "version": WEFT_VERSION, "schema_version": int(schema["value"]) if schema else None, "active_sessions": sessions}
+            return {"status": "ok", "service": "weft", "protocol": WEFT_PROTOCOL, "version": WEFT_VERSION, "schema_version": int(schema["value"]) if schema else None, "active_sessions": sessions}
 
     def team_status(
         self,

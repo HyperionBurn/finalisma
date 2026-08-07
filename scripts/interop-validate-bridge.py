@@ -122,7 +122,7 @@ def _make_handler_class():
 # ---------------------------------------------------------------------------
 
 def main() -> int:
-    scratch = tempfile.TemporaryDirectory(prefix="finalisma-interop-bridge-")
+    scratch = tempfile.TemporaryDirectory(prefix="weft-interop-bridge-")
     workspace = Path(scratch.name)
     state_path = workspace / ".weft" / "state.db"
     transcript: list[str] = []
@@ -199,13 +199,13 @@ def main() -> int:
         tools = rpc(2, "tools/list").get("tools", [])
         tool_names = [t["name"] for t in tools]
         transcript.append(f"# tools/list: {len(tools)} tools")
-        if "finalisma_register_agent" not in tool_names:
-            raise InteropError("tools/list missing finalisma_register_agent")
+        if "register_agent" not in tool_names:
+            raise InteropError("tools/list missing register_agent")
 
         # ---- 1. register agent over MCP --------------------------------
         reg = call_tool(
             3,
-            "finalisma_register_agent",
+            "register_agent",
             {"team_id": TEAM_ID, "agent_id": "bridge-agent", "role": "generalist", "name": "Bridge Agent"},
         )
         actor_token = reg["actor_token"]
@@ -226,7 +226,7 @@ def main() -> int:
         # bootstrap snippet references a real pairing.
         pairing = call_tool(
             4,
-            "finalisma_create_pairing",
+            "create_pairing",
             {
                 "initiator_id": "bridge-agent",
                 "team_id": TEAM_ID,

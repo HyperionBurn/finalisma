@@ -328,9 +328,9 @@ class MCPProtocolTests(unittest.TestCase):
         self.assertEqual(initialize["result"]["protocolVersion"], "2025-11-25")
         tools = handle_json_rpc(self.dispatcher, {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
         names = [tool["name"] for tool in tools["result"]["tools"]]
-        self.assertIn("finalisma_send_message", names)
-        self.assertIn("finalisma_verify_task", names)
-        catalog = self.dispatcher.call_tool("finalisma_model_catalog", {})
+        self.assertIn("send_message", names)
+        self.assertIn("verify_task", names)
+        catalog = self.dispatcher.call_tool("model_catalog", {})
         model_ids = {model["id"] for model in catalog["models"]}
         self.assertIn("qwencloud/qwen3.8-max-preview", model_ids)
         self.assertIn("longcat/LongCat-2.0", model_ids)
@@ -338,7 +338,7 @@ class MCPProtocolTests(unittest.TestCase):
 
     def test_pairing_requires_team_id_on_unscoped_dispatcher(self) -> None:
         with self.assertRaises(WeftError) as missing_team:
-            self.dispatcher.call_tool("finalisma_create_pairing", {"initiator_id": "agent-a"})
+            self.dispatcher.call_tool("create_pairing", {"initiator_id": "agent-a"})
         self.assertEqual(missing_team.exception.code, "invalid_argument")
 
     def test_stdio_never_emits_logs(self) -> None:
@@ -430,47 +430,47 @@ class MCPProtocolTests(unittest.TestCase):
 
     def test_dispatcher_team_scope_is_a_hard_boundary(self) -> None:
         scoped = WeftDispatcher(self.dispatcher.store, team_scope="demo")
-        registered = scoped.call_tool("finalisma_register_agent", {"team_id": "demo", "agent_id": "scoped-agent", "role": "reviewer"})
+        registered = scoped.call_tool("register_agent", {"team_id": "demo", "agent_id": "scoped-agent", "role": "reviewer"})
         self.assertEqual(registered["agent_id"], "scoped-agent")
-        implicit = scoped.call_tool("finalisma_register_agent", {"agent_id": "scoped-agent-2", "role": "reviewer"})
+        implicit = scoped.call_tool("register_agent", {"agent_id": "scoped-agent-2", "role": "reviewer"})
         self.assertEqual(implicit["agent_id"], "scoped-agent-2")
-        scoped_status = scoped.call_tool("finalisma_team_status", {})
+        scoped_status = scoped.call_tool("team_status", {})
         self.assertEqual(scoped_status["team_id"], "demo")
         with self.assertRaises(WeftError) as forbidden:
-            scoped.call_tool("finalisma_team_status", {"team_id": "other"})
+            scoped.call_tool("team_status", {"team_id": "other"})
         self.assertEqual(forbidden.exception.code, "team_scope_forbidden")
         with self.assertRaises(WeftError) as pairing_forbidden:
-            scoped.call_tool("finalisma_create_pairing", {"team_id": "other", "initiator_id": "scoped-agent"})
+            scoped.call_tool("create_pairing", {"team_id": "other", "initiator_id": "scoped-agent"})
         self.assertEqual(pairing_forbidden.exception.code, "team_scope_forbidden")
 
-        self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "other", "agent_id": "other-initiator", "role": "architect"})
-        other_pairing = self.dispatcher.call_tool("finalisma_create_pairing", {"team_id": "other", "initiator_id": "other-initiator"})
+        self.dispatcher.call_tool("register_agent", {"team_id": "other", "agent_id": "other-initiator", "role": "architect"})
+        other_pairing = self.dispatcher.call_tool("create_pairing", {"team_id": "other", "initiator_id": "other-initiator"})
         with self.assertRaises(WeftError) as pair_capability_forbidden:
-            scoped.call_tool("finalisma_pairing_preview", {"token": other_pairing["join_token"]})
+            scoped.call_tool("pairing_preview", {"token": other_pairing["join_token"]})
         self.assertEqual(pair_capability_forbidden.exception.code, "team_scope_forbidden")
-        other_joined = self.dispatcher.call_tool("finalisma_join_pairing", {"token": other_pairing["join_token"], "agent_id": "other-joiner", "consent": True})
+        other_joined = self.dispatcher.call_tool("join_pairing", {"token": other_pairing["join_token"], "agent_id": "other-joiner", "consent": True})
         with self.assertRaises(WeftError) as session_capability_forbidden:
-            scoped.call_tool("finalisma_session_status", {"session_token": other_joined["session_token"], "agent_id": "other-joiner"})
+            scoped.call_tool("session_status", {"session_token": other_joined["session_token"], "agent_id": "other-joiner"})
         self.assertEqual(session_capability_forbidden.exception.code, "team_scope_forbidden")
 
     def test_mcp_tool_round_trip_dispatch_claim_verify_complete(self) -> None:
-        self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "demo", "agent_id": "agent-a", "role": "architect", "model": "gpt-5.6-luna", "capabilities": ["planning"]})
-        self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "demo", "agent_id": "agent-b", "role": "coding", "model": "longcat-2.0", "capabilities": ["coding", "testing"]})
-        created = self.dispatcher.call_tool("finalisma_create_task", {"team_id": "demo", "created_by": "agent-a", "title": "Build the handoff", "description": "Implement code and tests", "scope": ["handoff.txt"], "preferred_agent": "agent-b"})
+        self.dispatcher.call_tool("register_agent", {"team_id": "demo", "agent_id": "agent-a", "role": "architect", "model": "gpt-5.6-luna", "capabilities": ["planning"]})
+        self.dispatcher.call_tool("register_agent", {"team_id": "demo", "agent_id": "agent-b", "role": "coding", "model": "longcat-2.0", "capabilities": ["coding", "testing"]})
+        created = self.dispatcher.call_tool("create_task", {"team_id": "demo", "created_by": "agent-a", "title": "Build the handoff", "description": "Implement code and tests", "scope": ["handoff.txt"], "preferred_agent": "agent-b"})
         self.assertTrue(created["dispatch"]["sent"])
         task = created["task"]
-        inbox = self.dispatcher.call_tool("finalisma_read_inbox", {"team_id": "demo", "agent_id": "agent-b"})
+        inbox = self.dispatcher.call_tool("read_inbox", {"team_id": "demo", "agent_id": "agent-b"})
         self.assertEqual(inbox["messages"][0]["type"], "task.dispatch")
-        claimed = self.dispatcher.call_tool("finalisma_claim_task", {"team_id": "demo", "agent_id": "agent-b", "task_id": task["task_id"]})
+        claimed = self.dispatcher.call_tool("claim_task", {"team_id": "demo", "agent_id": "agent-b", "task_id": task["task_id"]})
         (Path(self.dispatcher.store.workspace) / "handoff.txt").write_text("handoff complete\n", encoding="utf-8")
-        verified = self.dispatcher.call_tool("finalisma_verify_task", {"team_id": "demo", "agent_id": "agent-b", "task_id": task["task_id"], "fencing_token": claimed["fencing_token"], "files": ["handoff.txt"], "checks": [{"name": "unit-tests", "status": "passed", "evidence": "8 tests pass"}]})
+        verified = self.dispatcher.call_tool("verify_task", {"team_id": "demo", "agent_id": "agent-b", "task_id": task["task_id"], "fencing_token": claimed["fencing_token"], "files": ["handoff.txt"], "checks": [{"name": "unit-tests", "status": "passed", "evidence": "8 tests pass"}]})
         self.assertTrue(verified["passed"])
-        completed = self.dispatcher.call_tool("finalisma_complete_task", {"team_id": "demo", "agent_id": "agent-b", "task_id": task["task_id"], "fencing_token": claimed["fencing_token"], "summary": "Handoff verified"})
+        completed = self.dispatcher.call_tool("complete_task", {"team_id": "demo", "agent_id": "agent-b", "task_id": task["task_id"], "fencing_token": claimed["fencing_token"], "summary": "Handoff verified"})
         self.assertEqual(completed["status"], "done")
 
     def test_http_health_preview_and_public_join(self) -> None:
-        self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "demo", "agent_id": "agent-a", "role": "architect", "model": "gpt-5.6-luna", "capabilities": ["planning"]})
-        pairing = self.dispatcher.call_tool("finalisma_create_pairing", {"team_id": "demo", "initiator_id": "agent-a", "capabilities_offered": ["read"]})
+        self.dispatcher.call_tool("register_agent", {"team_id": "demo", "agent_id": "agent-a", "role": "architect", "model": "gpt-5.6-luna", "capabilities": ["planning"]})
+        pairing = self.dispatcher.call_tool("create_pairing", {"team_id": "demo", "initiator_id": "agent-a", "capabilities_offered": ["read"]})
         handler = type("TestPairingHTTPHandler", (_MCPRequestHandler,), {})
         handler.dispatcher = self.dispatcher
         handler.token = "test-token"
@@ -545,8 +545,8 @@ class MCPProtocolTests(unittest.TestCase):
             thread.join(timeout=5)
 
     def test_http_rejects_token_bearing_legacy_join_paths(self) -> None:
-        self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "demo", "agent_id": "agent-a", "role": "architect", "model": "gpt-5.6-luna", "capabilities": ["planning"]})
-        pairing = self.dispatcher.call_tool("finalisma_create_pairing", {"team_id": "demo", "initiator_id": "agent-a"})
+        self.dispatcher.call_tool("register_agent", {"team_id": "demo", "agent_id": "agent-a", "role": "architect", "model": "gpt-5.6-luna", "capabilities": ["planning"]})
+        pairing = self.dispatcher.call_tool("create_pairing", {"team_id": "demo", "initiator_id": "agent-a"})
         handler = type("LegacyJoinHTTPHandler", (_MCPRequestHandler,), {})
         handler.dispatcher = self.dispatcher
         handler.token = None

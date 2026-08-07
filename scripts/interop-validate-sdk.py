@@ -58,7 +58,7 @@ def _redact(token: str) -> str:
 
 
 def main() -> int:
-    scratch = tempfile.TemporaryDirectory(prefix="finalisma-sdk-interop-")
+    scratch = tempfile.TemporaryDirectory(prefix="weft-sdk-interop-")
     workspace = Path(scratch.name)
     transcript: list[str] = []
     failures: list[str] = []

@@ -51,7 +51,7 @@ class StrictConsentTests(unittest.TestCase):
                     "id": request_id,
                     "method": "tools/call",
                     "params": {
-                        "name": "finalisma_join_pairing",
+                        "name": "join_pairing",
                         "arguments": {
                             "token": pairing["join_token"],
                             "agent_id": "agent-b",

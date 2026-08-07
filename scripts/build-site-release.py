@@ -182,7 +182,7 @@ def build_release(*, origin: str, contact_url: str, output: Path, force: bool = 
         resolved_output / "assets" / "finalisma-demo-poster.png",
     ]
     manifest = {
-        "schema": "finalisma.site-release/v1",
+        "schema": "weft.site-release/v1",
         "origin": normalized_origin,
         "contact_scheme": urlsplit(normalized_contact).scheme,
         "page_count": page_count,
@@ -199,7 +199,7 @@ def build_release(*, origin: str, contact_url: str, output: Path, force: bool = 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Build a deployment-ready Finalisma static bundle")
-    parser.add_argument("--origin", required=True, help="Public HTTPS origin, for example https://finalisma.example")
+    parser.add_argument("--origin", required=True, help="Public HTTPS origin, for example https://weft.example")
     parser.add_argument("--contact-url", required=True, help="Founder-owned HTTPS contact form or mailto URL")
     parser.add_argument("--output", default=str(DEFAULT_OUTPUT), help="Project-local release output directory")
     parser.add_argument("--force", action="store_true", help="Replace an existing release output directory")

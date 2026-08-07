@@ -116,7 +116,7 @@ def call_tool(client: HTTPClient, transcript: list[str], request_id: int, name: 
 
 
 def main() -> int:
-    scratch = tempfile.TemporaryDirectory(prefix="finalisma-interop-http-")
+    scratch = tempfile.TemporaryDirectory(prefix="weft-interop-http-")
     workspace = Path(scratch.name)
     transcript: list[str] = []
     started = time.monotonic()
@@ -175,59 +175,59 @@ def main() -> int:
         tool_names = [t["name"] for t in tools]
         transcript.append(f"# tools/list: {len(tools)} tools")
         required_tools = {
-            "finalisma_register_agent",
-            "finalisma_create_pairing",
-            "finalisma_pairing_preview",
-            "finalisma_join_pairing",
-            "finalisma_create_task",
-            "finalisma_claim_task",
-            "finalisma_verify_task",
-            "finalisma_complete_task",
+            "register_agent",
+            "create_pairing",
+            "pairing_preview",
+            "join_pairing",
+            "create_task",
+            "claim_task",
+            "verify_task",
+            "complete_task",
         }
         missing = required_tools - set(tool_names)
         if missing:
             raise InteropError(f"tools/list missing required tools: {missing}")
 
         # 3. register two agents
-        reg_a = call_tool(client, transcript, 3, "finalisma_register_agent", {
+        reg_a = call_tool(client, transcript, 3, "register_agent", {
             "team_id": TEAM_ID, "agent_id": "agent-a", "role": "architect", "name": "Planner",
         })
         token_a = reg_a["actor_token"]
-        reg_b = call_tool(client, transcript, 4, "finalisma_register_agent", {
+        reg_b = call_tool(client, transcript, 4, "register_agent", {
             "team_id": TEAM_ID, "agent_id": "agent-b", "role": "builder", "name": "Builder",
         })
         token_b = reg_b["actor_token"]
 
         # pairing link + preview + join with consent=true
-        pairing = call_tool(client, transcript, 5, "finalisma_create_pairing", {
+        pairing = call_tool(client, transcript, 5, "create_pairing", {
             "initiator_id": "agent-a", "team_id": TEAM_ID,
             "capabilities_offered": ["read", "comment"], "actor_token": token_a,
         })
         join_token = pairing["join_token"]
-        preview = call_tool(client, transcript, 6, "finalisma_pairing_preview", {"token": join_token})
+        preview = call_tool(client, transcript, 6, "pairing_preview", {"token": join_token})
         if preview.get("status") != "issued":
             raise InteropError(f"pairing preview status != issued: {preview}")
-        joined = call_tool(client, transcript, 7, "finalisma_join_pairing", {
+        joined = call_tool(client, transcript, 7, "join_pairing", {
             "token": join_token, "agent_id": "agent-b", "consent": True, "actor_token": token_b,
         })
         if joined.get("state") not in ("active", "open"):
             raise InteropError(f"join state not active/open: {joined}")
 
         # 4. create task, claim, write artifact, verify evidence, complete
-        task_result = call_tool(client, transcript, 8, "finalisma_create_task", {
+        task_result = call_tool(client, transcript, 8, "create_task", {
             "team_id": TEAM_ID, "created_by": "agent-a",
             "title": "Interop review", "description": "Verify the retry boundary in handoff.txt",
             "scope": ["handoff.txt"], "preferred_agent": "agent-b",
             "idempotency_key": "interop-http-task-v1", "actor_token": token_a,
         })
         task_id = task_result["task"]["task_id"]
-        claimed = call_tool(client, transcript, 9, "finalisma_claim_task", {
+        claimed = call_tool(client, transcript, 9, "claim_task", {
             "team_id": TEAM_ID, "agent_id": "agent-b", "task_id": task_id, "actor_token": token_b,
         })
         fencing = claimed["fencing_token"]
         artifact = workspace / "handoff.txt"
         artifact.write_text("synthetic interop http evidence\n", encoding="utf-8")
-        verified = call_tool(client, transcript, 10, "finalisma_verify_task", {
+        verified = call_tool(client, transcript, 10, "verify_task", {
             "team_id": TEAM_ID, "agent_id": "agent-b", "task_id": task_id,
             "fencing_token": fencing, "files": ["handoff.txt"],
             "checks": [{"name": "interop-check", "status": "passed", "evidence": "artifact present"}],
@@ -235,7 +235,7 @@ def main() -> int:
         })
         if not verified.get("passed"):
             raise InteropError(f"evidence gate did not pass: {verified}")
-        completed = call_tool(client, transcript, 11, "finalisma_complete_task", {
+        completed = call_tool(client, transcript, 11, "complete_task", {
             "team_id": TEAM_ID, "agent_id": "agent-b", "task_id": task_id,
             "fencing_token": fencing, "summary": "Interop HTTP verified", "actor_token": token_b,
         })
@@ -246,7 +246,7 @@ def main() -> int:
         negative_transcript = []
         refused = False
         try:
-            call_tool(client, transcript, 12, "finalisma_join_pairing", {
+            call_tool(client, transcript, 12, "join_pairing", {
                 "token": join_token, "agent_id": "agent-c", "consent": True,
             })
             negative_transcript.append("JOIN_REUSE: NOT refused (unexpected)")

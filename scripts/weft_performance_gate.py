@@ -496,7 +496,7 @@ def _benchmark(runs: int) -> tuple[dict[str, Any], list[str]]:
     root.mkdir(parents=True, exist_ok=True)
     secrets: list[str] = []
     try:
-        with tempfile.TemporaryDirectory(prefix="finalisma-perf-", dir=root) as temporary:
+        with tempfile.TemporaryDirectory(prefix="weft-perf-", dir=root) as temporary:
             base = Path(temporary)
             _run_trial(base, -1)  # warm-up; intentionally excluded
             _run_new_trial(base, -1)  # warm-up new scenarios; excluded
@@ -651,7 +651,7 @@ def _capture_baseline(path: Path, runs: int, force: bool) -> int:
         except (json.JSONDecodeError, OSError, TypeError):
             pass
     baseline = {
-        "schema": "finalisma.performance-baseline/v1",
+        "schema": "weft.performance-baseline/v1",
         "harness_version": HARNESS_VERSION,
         "harness_sha256": _harness_digest(),
         "captured_at_epoch": int(time.time()),
@@ -689,7 +689,7 @@ def _evaluate(path: Path, runs: int) -> int:
         )
     baseline = json.loads(path.read_text(encoding="utf-8"))
     failures: list[str] = []
-    if baseline.get("schema") != "finalisma.performance-baseline/v1":
+    if baseline.get("schema") != "weft.performance-baseline/v1":
         failures.append("unsupported baseline schema")
     if baseline.get("harness_version") != HARNESS_VERSION:
         failures.append("harness version differs from baseline")

@@ -3,7 +3,7 @@
 Drives roster through the REAL MCP JSON-RPC dispatcher via
 ``WeftDispatcher.call_tool`` — never ``roster.py``'s Python API directly.
 
-These tests are RED by design: the ``finalisma_roster_*`` tools are not yet
+These tests are RED by design: the ``roster_*`` tools are not yet
 registered on the dispatcher. The orchestrator wires them; these tests lock
 the contract (tool names, argument names, and return shapes).
 
@@ -26,11 +26,11 @@ from weft_mcp.server import WeftDispatcher, TOOLS
 
 # The five roster tool names the orchestrator must register.
 ROSTER_TOOLS = (
-    "finalisma_roster_create",
-    "finalisma_roster_join",
-    "finalisma_roster_members",
-    "finalisma_roster_route",
-    "finalisma_roster_group_add",
+    "roster_create",
+    "roster_join",
+    "roster_members",
+    "roster_route",
+    "roster_group_add",
 )
 
 
@@ -55,13 +55,13 @@ class RosterIntegrationTests(unittest.TestCase):
 
     def _create_roster(self, owner_agent_id: str | None = None) -> dict:
         return self.dispatcher.call_tool(
-            "finalisma_roster_create",
+            "roster_create",
             {"team_id": self.team_id, "owner_agent_id": owner_agent_id or self.owner},
         )
 
     def _join(self, roster_id: str, agent_id: str, capabilities: list[str] | None = None) -> dict:
         return self.dispatcher.call_tool(
-            "finalisma_roster_join",
+            "roster_join",
             {
                 "team_id": self.team_id,
                 "roster_id": roster_id,
@@ -98,7 +98,7 @@ class RosterIntegrationTests(unittest.TestCase):
         self.assertEqual(join_b["status"], "active")
 
         members = self.dispatcher.call_tool(
-            "finalisma_roster_members",
+            "roster_members",
             {"team_id": self.team_id, "roster_id": roster_id},
         )
         self.assertEqual(members["roster_id"], roster_id)
@@ -126,7 +126,7 @@ class RosterIntegrationTests(unittest.TestCase):
 
         # Broadcast returns every active member (owner + a + b).
         broadcast = self.dispatcher.call_tool(
-            "finalisma_roster_route",
+            "roster_route",
             {"team_id": self.team_id, "roster_id": roster_id, "target_spec": "*"},
         )
         self.assertEqual(broadcast["roster_id"], roster_id)
@@ -134,14 +134,14 @@ class RosterIntegrationTests(unittest.TestCase):
 
         # Single known agent routes to just that agent.
         single = self.dispatcher.call_tool(
-            "finalisma_roster_route",
+            "roster_route",
             {"team_id": self.team_id, "roster_id": roster_id, "target_spec": self.agent_a},
         )
         self.assertEqual(single["targets"], [self.agent_a])
 
         # Unknown agent yields an empty target list.
         unknown = self.dispatcher.call_tool(
-            "finalisma_roster_route",
+            "roster_route",
             {"team_id": self.team_id, "roster_id": roster_id, "target_spec": "ghost-agent"},
         )
         self.assertEqual(unknown["targets"], [])
@@ -156,7 +156,7 @@ class RosterIntegrationTests(unittest.TestCase):
         self._join(roster_id, self.agent_b)
 
         add = self.dispatcher.call_tool(
-            "finalisma_roster_group_add",
+            "roster_group_add",
             {
                 "team_id": self.team_id,
                 "roster_id": roster_id,
@@ -169,7 +169,7 @@ class RosterIntegrationTests(unittest.TestCase):
         self.assertTrue(add["added"])
 
         routed = self.dispatcher.call_tool(
-            "finalisma_roster_route",
+            "roster_route",
             {"team_id": self.team_id, "roster_id": roster_id, "target_spec": "builders"},
         )
         self.assertEqual(routed["targets"], [self.agent_a])
@@ -184,7 +184,7 @@ class RosterIntegrationTests(unittest.TestCase):
             schema = schemas[tool_name]
             self.assertIn("properties", schema)
         # Spot-check the create contract's argument names.
-        create_props = schemas["finalisma_roster_create"]["properties"]
+        create_props = schemas["roster_create"]["properties"]
         self.assertIn("team_id", create_props)
         self.assertIn("owner_agent_id", create_props)
 
@@ -200,7 +200,7 @@ class RosterIntegrationTests(unittest.TestCase):
         self._join(roster_id, self.agent_b)
 
         routed = self.dispatcher.call_tool(
-            "finalisma_roster_route",
+            "roster_route",
             {"team_id": self.team_id, "roster_id": roster_id, "target_spec": "*"},
         )
         self.assertEqual(

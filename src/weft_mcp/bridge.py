@@ -628,7 +628,7 @@ class HttpBridgeClient:
             params["actor_token"] = actor_token
         if trace_id:
             params["trace_id"] = trace_id
-        return self._mcp_call("finalisma_session_send", params)
+        return self._mcp_call("session_send", params)
 
     def poll_events(
         self,
@@ -638,7 +638,7 @@ class HttpBridgeClient:
         limit: int = 100,
     ) -> dict[str, Any]:
         """Poll session events after a cursor."""
-        return self._mcp_call("finalisma_session_poll", {
+        return self._mcp_call("session_poll", {
             "session_token": session_token,
             "agent_id": agent_id,
             "after_seq": after_seq,
@@ -647,7 +647,7 @@ class HttpBridgeClient:
 
     def ack(self, session_token: str, agent_id: str, seq: int) -> dict[str, Any]:
         """Acknowledge events up to seq."""
-        return self._mcp_call("finalisma_session_ack", {
+        return self._mcp_call("session_ack", {
             "session_token": session_token,
             "agent_id": agent_id,
             "seq": seq,

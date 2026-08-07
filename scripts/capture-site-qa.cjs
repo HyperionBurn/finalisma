@@ -153,23 +153,23 @@ const capturePageSignals = (page, bucket) => {
 };
 
 const installPerformanceObservers = (page) => page.addInitScript(() => {
-  window.__finalismaQaPerf = { cls: 0, lcp: 0, longTasks: [] };
+  window.__weftQaPerf = { cls: 0, lcp: 0, longTasks: [] };
   try {
     new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) {
-        if (!entry.hadRecentInput) window.__finalismaQaPerf.cls += entry.value;
+        if (!entry.hadRecentInput) window.__weftQaPerf.cls += entry.value;
       }
     }).observe({ type: "layout-shift", buffered: true });
   } catch (_) {}
   try {
     new PerformanceObserver((list) => {
       const entries = list.getEntries();
-      if (entries.length) window.__finalismaQaPerf.lcp = entries.at(-1).startTime;
+      if (entries.length) window.__weftQaPerf.lcp = entries.at(-1).startTime;
     }).observe({ type: "largest-contentful-paint", buffered: true });
   } catch (_) {}
   try {
     new PerformanceObserver((list) => {
-      window.__finalismaQaPerf.longTasks.push(...list.getEntries().map((entry) => entry.duration));
+      window.__weftQaPerf.longTasks.push(...list.getEntries().map((entry) => entry.duration));
     }).observe({ type: "longtask", buffered: true });
   } catch (_) {}
 });
@@ -263,9 +263,9 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
   });
 
   // Wait for the R3F island to mount and animate (up to ~6s), then measure frame times.
-  await desktop.waitForFunction(() => window.WeftScene || window.__finalismaFrameTimes, null, { timeout: 15000 }).catch(() => {});
+  await desktop.waitForFunction(() => window.WeftScene || window.__weftFrameTimes, null, { timeout: 15000 }).catch(() => {});
   await desktop.waitForTimeout(2500);
-  const frameTimes = await desktop.evaluate(() => Array.isArray(window.__finalismaFrameTimes) ? window.__finalismaFrameTimes.slice() : []);
+  const frameTimes = await desktop.evaluate(() => Array.isArray(window.__weftFrameTimes) ? window.__weftFrameTimes.slice() : []);
   const sorted = [...frameTimes].sort((a, b) => a - b);
   const frameTimeMedian = sorted.length ? sorted[Math.floor(sorted.length / 2)] : -1;
   const frameTimeP95 = sorted.length ? sorted[Math.floor(sorted.length * 0.95)] : -1;
@@ -273,7 +273,7 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
     // `[data-agent-canvas]` is the R3F wrapper (a div), not the raw canvas —
     // calling getContext on it throws. The authoritative "is it animating"
     // signal is the frame-time ring buffer exposed by the scene.
-    return (window.__finalismaFrameTimes || []).length > 10;
+    return (window.__weftFrameTimes || []).length > 10;
   });
 
   // Drive the gate refusal so the harness can assert the moat beat.
@@ -289,11 +289,11 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
 
   // Copy interaction (link + tier config).
   await desktop.evaluate(() => {
-    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (v) => { window.__finalismaCopied = v; } } });
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (v) => { window.__weftCopied = v; } } });
   });
   await desktop.locator('[data-copy="link"]').click();
   await desktop.waitForTimeout(200);
-  const linkCopied = await desktop.evaluate(() => window.__finalismaCopied || "");
+  const linkCopied = await desktop.evaluate(() => window.__weftCopied || "");
   await desktop.locator('[data-tier-tab="http"]').click();
   await desktop.waitForTimeout(200);
   const tierSwitched = await desktop.evaluate(() => {
@@ -307,7 +307,7 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
   });
   await desktop.locator('[data-copy="http"]').click();
   await desktop.waitForTimeout(200);
-  const tierCopied = await desktop.evaluate(() => window.__finalismaCopied || "");
+  const tierCopied = await desktop.evaluate(() => window.__weftCopied || "");
 
   // Cohort form copy builder.
   const form = desktop.locator("[data-cohort-form]");
@@ -318,7 +318,7 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
   await form.locator('button[type="submit"]').click();
   await desktop.waitForTimeout(200);
   const cohortStatus = await form.locator("[data-cohort-status]").textContent();
-  const cohortClipboard = await desktop.evaluate(() => window.__finalismaCopied || "");
+  const cohortClipboard = await desktop.evaluate(() => window.__weftCopied || "");
 
   const supportingPageChecks = {};
   for (const [name, route, destination, requiredText] of [
@@ -441,9 +441,9 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
   const performanceChecks = await desktop.evaluate(() => {
     const resources = performance.getEntriesByType("resource");
     return {
-      cls: window.__finalismaQaPerf?.cls || 0,
-      lcp: window.__finalismaQaPerf?.lcp || 0,
-      longTasks: window.__finalismaQaPerf?.longTasks || [],
+      cls: window.__weftQaPerf?.cls || 0,
+      lcp: window.__weftQaPerf?.lcp || 0,
+      longTasks: window.__weftQaPerf?.longTasks || [],
       resourceCount: resources.length,
       transferBytes: resources.reduce((sum, entry) => sum + (entry.transferSize || 0), 0),
       domNodes: document.getElementsByTagName("*").length

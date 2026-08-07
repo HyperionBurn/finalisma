@@ -254,7 +254,7 @@ class LaunchSurfaceTests(unittest.TestCase):
 
         temp_root = ROOT / ".tmp"
         temp_root.mkdir(exist_ok=True)
-        with tempfile.TemporaryDirectory(prefix="finalisma-release-test-", dir=temp_root) as temporary:
+        with tempfile.TemporaryDirectory(prefix="weft-release-test-", dir=temp_root) as temporary:
             output = Path(temporary) / "site"
             result = _RELEASE_MODULE.build_release(
                 origin="https://weft.test",

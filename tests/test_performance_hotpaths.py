@@ -36,7 +36,7 @@ class _ConnectionCountStore(WeftStore):
 
 class PerformanceHotPathTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory(prefix="finalisma-performance-test-")
+        self.temporary = tempfile.TemporaryDirectory(prefix="weft-performance-test-")
         self.root = Path(self.temporary.name)
 
     def tearDown(self) -> None:

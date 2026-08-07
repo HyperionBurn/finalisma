@@ -56,7 +56,7 @@ class SdkInteropTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.scratch = tempfile.TemporaryDirectory(prefix="finalisma-sdk-test-")
+        cls.scratch = tempfile.TemporaryDirectory(prefix="weft-sdk-test-")
         cls.workspace = Path(cls.scratch.name)
         port = _pick_free_port()
         cls.base_url = f"http://127.0.0.1:{port}/mcp"
@@ -96,14 +96,14 @@ class SdkInteropTest(unittest.TestCase):
             cls.clients[name] = WeftClient(cls.base_url, name, "demo", actor_token=cls.tokens[name])
         # Create one room shared by the Part B tests; owner auto-joins.
         room = cls.clients["agent-a"]._call(
-            "finalisma_room_create", owner_agent_id="agent-a", cap=4, name="t-sdk",
+            "room_create", owner_agent_id="agent-a", cap=4, name="t-sdk",
         )
         cls.room_id = room["room_id"]
         cls.link_token = room["link_token"]
         # Join the other two members once.
         for name in ["agent-b", "agent-c"]:
             cls.clients[name]._call(
-                "finalisma_room_join", room_id=cls.room_id, link_token=cls.link_token,
+                "room_join", room_id=cls.room_id, link_token=cls.link_token,
                 agent_id=name, consent=True, capabilities=["read"],
             )
 
@@ -126,7 +126,7 @@ class SdkInteropTest(unittest.TestCase):
         from urllib.parse import urlsplit, parse_qs
         token = parse_qs(urlsplit(link).fragment).get("token", [""])[0]
         return self.clients[agent]._call(
-            "finalisma_join_pairing",
+            "join_pairing",
             token=token,
             agent_id=agent,
             name=agent,
@@ -173,7 +173,7 @@ class SdkInteropTest(unittest.TestCase):
 
     def test_02_room_n_agents_membership(self) -> None:
         """3 agents join one room; roster shows all 3; state is active."""
-        info = self.clients["agent-a"]._call("finalisma_room_info", room_id=self.room_id)
+        info = self.clients["agent-a"]._call("room_info", room_id=self.room_id)
         self.assertEqual(info["member_count"], 3)
         self.assertEqual(sorted(m["agent_id"] for m in info["members"]),
                          ["agent-a", "agent-b", "agent-c"])
@@ -186,18 +186,18 @@ class SdkInteropTest(unittest.TestCase):
 
         # Unicast A -> B
         send_b = self.clients["agent-a"]._call(
-            "finalisma_room_send", room_id=room_id, sender_agent_id="agent-a",
+            "room_send", room_id=room_id, sender_agent_id="agent-a",
             target_spec="agent-b", payload={"text": "hi B"},
         )
         self.assertEqual([r["agent_id"] for r in send_b["receipts"]], ["agent-b"])
 
         # Group: add B+C, send
         self.clients["agent-a"]._call(
-            "finalisma_room_groups", room_id=room_id, agent_id="agent-a",
+            "room_groups", room_id=room_id, agent_id="agent-a",
             group_name="builders", action="add", members=["agent-b", "agent-c"],
         )
         send_g = self.clients["agent-a"]._call(
-            "finalisma_room_send", room_id=room_id, sender_agent_id="agent-a",
+            "room_send", room_id=room_id, sender_agent_id="agent-a",
             target_spec="builders", payload={"text": "hi group"},
         )
         self.assertEqual(sorted(r["agent_id"] for r in send_g["receipts"]),
@@ -205,7 +205,7 @@ class SdkInteropTest(unittest.TestCase):
 
         # Broadcast
         send_bc = self.clients["agent-a"]._call(
-            "finalisma_room_send", room_id=room_id, sender_agent_id="agent-a",
+            "room_send", room_id=room_id, sender_agent_id="agent-a",
             target_spec="*", payload={"text": "hi all"},
         )
         self.assertEqual(sorted(r["agent_id"] for r in send_bc["receipts"]),
@@ -218,13 +218,13 @@ class SdkInteropTest(unittest.TestCase):
         cursors: dict[str, int] = {}
         for name in ["agent-a", "agent-b", "agent-c"]:
             poll = self.clients[name]._call(
-                "finalisma_room_poll", room_id=room_id, agent_id=name, after_seq=0,
+                "room_poll", room_id=room_id, agent_id=name, after_seq=0,
             )
             seqs = [e["seq"] for e in poll["events"]]
             self.assertEqual(seqs, sorted(set(seqs)), f"{name} events ordered, no dup")
             head = poll["cursor_head"]
             acked = self.clients[name]._call(
-                "finalisma_room_ack", room_id=room_id, agent_id=name, seq=head,
+                "room_ack", room_id=room_id, agent_id=name, seq=head,
             )
             cursors[name] = acked["last_ack_seq"]
             self.assertEqual(acked["last_ack_seq"], head)
@@ -235,14 +235,14 @@ class SdkInteropTest(unittest.TestCase):
         )
         try:
             replay = reconnected._call(
-                "finalisma_room_poll", room_id=room_id, agent_id="agent-b", after_seq=0,
+                "room_poll", room_id=room_id, agent_id="agent-b", after_seq=0,
             )
             replay_seqs = [e["seq"] for e in replay["events"]]
             self.assertEqual(replay_seqs, sorted(set(replay_seqs)),
                              "reconnect replay ordered, no dup")
             # From cursor: no already-acked events replayed.
             from_cursor = reconnected._call(
-                "finalisma_room_poll", room_id=room_id, agent_id="agent-b",
+                "room_poll", room_id=room_id, agent_id="agent-b",
                 after_seq=cursors["agent-b"],
             )
             self.assertEqual(len(from_cursor["events"]), 0,
@@ -256,14 +256,14 @@ class SdkInteropTest(unittest.TestCase):
         # Non-member poll
         with self.assertRaises(WeftError) as ctx:
             self.clients["agent-outsider"]._call(
-                "finalisma_room_poll", room_id=room_id, agent_id="agent-outsider",
+                "room_poll", room_id=room_id, agent_id="agent-outsider",
             )
         self.assertEqual(ctx.exception.code, "member_required")
 
         # Non-member info
         with self.assertRaises(WeftError) as ctx:
             self.clients["agent-outsider"]._call(
-                "finalisma_room_info", room_id=room_id, agent_id="agent-outsider",
+                "room_info", room_id=room_id, agent_id="agent-outsider",
             )
         self.assertEqual(ctx.exception.code, "member_required")
 
@@ -273,7 +273,7 @@ class SdkInteropTest(unittest.TestCase):
         try:
             with self.assertRaises(WeftError) as ctx:
                 impostor._call(
-                    "finalisma_room_join", room_id=room_id, link_token=self.link_token,
+                    "room_join", room_id=room_id, link_token=self.link_token,
                     agent_id="agent-b", consent=True,
                 )
             self.assertEqual(ctx.exception.code, "actor_auth_invalid")

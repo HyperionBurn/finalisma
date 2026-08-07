@@ -24,7 +24,7 @@ class TestRuntimeConfig(unittest.TestCase):
         self.assertEqual(cfg, {
             "host": "127.0.0.1",
             "port": 18788,
-            "db_path": "./data/finalisma-cloud.db",
+            "db_path": "./data/weft-cloud.db",
         })
 
     def test_env_overrides_defaults(self) -> None:

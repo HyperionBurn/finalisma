@@ -36,10 +36,10 @@ def _make_handler(dispatcher, token=None, origins=None):
 
 def _pair(dispatcher, team="team-h", initiator="hub-a", actor_token=None):
     if actor_token is not None:
-        return dispatcher.call_tool("finalisma_create_pairing", {
+        return dispatcher.call_tool("create_pairing", {
             "team_id": team, "initiator_id": initiator, "actor_token": actor_token,
         })
-    return dispatcher.call_tool("finalisma_create_pairing", {
+    return dispatcher.call_tool("create_pairing", {
         "team_id": team, "initiator_id": initiator,
     })
 
@@ -48,7 +48,7 @@ def _join(dispatcher, token, agent_id, team="team-h", actor_token=None):
     args = {"token": token, "agent_id": agent_id, "consent": True}
     if actor_token is not None:
         args["actor_token"] = actor_token
-    return dispatcher.call_tool("finalisma_join_pairing", args)
+    return dispatcher.call_tool("join_pairing", args)
 
 
 class TokenBucketTests(unittest.TestCase):
@@ -93,8 +93,8 @@ class MultiClientSessionTests(unittest.TestCase):
         root = Path(self.temp.name)
         self.store = WeftStore(root / "state.db", root)
         self.dispatcher = WeftDispatcher(self.store)
-        self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-a"})
-        self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-b"})
+        self.dispatcher.call_tool("register_agent", {"team_id": "team-h", "agent_id": "hub-a"})
+        self.dispatcher.call_tool("register_agent", {"team_id": "team-h", "agent_id": "hub-b"})
 
     def tearDown(self):
         self.store.close()
@@ -109,7 +109,7 @@ class MultiClientSessionTests(unittest.TestCase):
         token_a, token_b = self._create_session()
         # Send 20 events from hub-a
         for i in range(20):
-            self.dispatcher.call_tool("finalisma_session_send", {
+            self.dispatcher.call_tool("session_send", {
                 "session_token": token_a, "agent_id": "hub-a",
                 "kind": "test.msg", "payload": {"i": i},
                 "idempotency_key": f"aaa-key-{i:06d}-xyz",
@@ -120,7 +120,7 @@ class MultiClientSessionTests(unittest.TestCase):
 
         def poll_worker():
             try:
-                result = self.dispatcher.call_tool("finalisma_session_poll", {
+                result = self.dispatcher.call_tool("session_poll", {
                     "session_token": token_b, "agent_id": "hub-b",
                     "after_seq": 0, "limit": 5,
                 })
@@ -147,7 +147,7 @@ class MultiClientSessionTests(unittest.TestCase):
         def sender(agent_id, token, prefix):
             try:
                 for i in range(50):
-                    self.dispatcher.call_tool("finalisma_session_send", {
+                    self.dispatcher.call_tool("session_send", {
                         "session_token": token, "agent_id": agent_id,
                         "kind": "test.msg", "payload": {"i": i},
                         "idempotency_key": f"{prefix}-key-{i:06d}-xyz",
@@ -163,7 +163,7 @@ class MultiClientSessionTests(unittest.TestCase):
         t2.join()
         self.assertEqual(errors, [])
         # Total events should be exactly 100 (no lost seqs)
-        status = self.dispatcher.call_tool("finalisma_session_status", {
+        status = self.dispatcher.call_tool("session_status", {
             "session_token": token_a, "agent_id": "hub-a",
         })
         self.assertEqual(status["cursor_head"], 100)
@@ -171,7 +171,7 @@ class MultiClientSessionTests(unittest.TestCase):
     def test_ack_monotonic_under_concurrent_poll(self):
         token_a, token_b = self._create_session()
         for i in range(10):
-            self.dispatcher.call_tool("finalisma_session_send", {
+            self.dispatcher.call_tool("session_send", {
                 "session_token": token_a, "agent_id": "hub-a",
                 "kind": "test.msg", "payload": {"i": i},
                 "idempotency_key": f"aaa-key-{i:06d}-xyz",
@@ -181,7 +181,7 @@ class MultiClientSessionTests(unittest.TestCase):
 
         def ack_worker(seq):
             try:
-                self.dispatcher.call_tool("finalisma_session_ack", {
+                self.dispatcher.call_tool("session_ack", {
                     "session_token": token_b, "agent_id": "hub-b", "seq": seq,
                 })
             except Exception as exc:
@@ -193,7 +193,7 @@ class MultiClientSessionTests(unittest.TestCase):
         for t in threads:
             t.join()
         self.assertEqual(errors, [])
-        status = self.dispatcher.call_tool("finalisma_session_status", {
+        status = self.dispatcher.call_tool("session_status", {
             "session_token": token_b, "agent_id": "hub-b",
         })
         cursor = {c["agent_id"]: c["last_ack_seq"] for c in status["cursors"]}
@@ -206,8 +206,8 @@ class ReconnectResilienceTests(unittest.TestCase):
         root = Path(self.temp.name)
         self.store = WeftStore(root / "state.db", root)
         self.dispatcher = WeftDispatcher(self.store)
-        self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-a"})
-        self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-b"})
+        self.dispatcher.call_tool("register_agent", {"team_id": "team-h", "agent_id": "hub-a"})
+        self.dispatcher.call_tool("register_agent", {"team_id": "team-h", "agent_id": "hub-b"})
 
     def tearDown(self):
         self.store.close()
@@ -222,23 +222,23 @@ class ReconnectResilienceTests(unittest.TestCase):
         token_a, token_b = self._create_session()
         # Send 30 events
         for i in range(30):
-            self.dispatcher.call_tool("finalisma_session_send", {
+            self.dispatcher.call_tool("session_send", {
                 "session_token": token_a, "agent_id": "hub-a",
                 "kind": "test.msg", "payload": {"i": i},
                 "idempotency_key": f"aaa-key-{i:06d}-xyz",
             })
         # hub-b polls first 10, acks them
-        first = self.dispatcher.call_tool("finalisma_session_poll", {
+        first = self.dispatcher.call_tool("session_poll", {
             "session_token": token_b, "agent_id": "hub-b",
             "after_seq": 0, "limit": 10,
         })
         self.assertEqual(len(first["events"]), 10)
         self.assertEqual(first["events"][-1]["seq"], 10)
-        self.dispatcher.call_tool("finalisma_session_ack", {
+        self.dispatcher.call_tool("session_ack", {
             "session_token": token_b, "agent_id": "hub-b", "seq": 10,
         })
         # Simulate disconnect: reconnect and poll from last ack
-        reconnected = self.dispatcher.call_tool("finalisma_session_poll", {
+        reconnected = self.dispatcher.call_tool("session_poll", {
             "session_token": token_b, "agent_id": "hub-b",
             "after_seq": 10, "limit": 20,
         })
@@ -246,7 +246,7 @@ class ReconnectResilienceTests(unittest.TestCase):
         self.assertEqual(reconnected["events"][0]["seq"], 11)
         self.assertEqual(reconnected["events"][-1]["seq"], 30)
         # No duplicates on second poll
-        again = self.dispatcher.call_tool("finalisma_session_poll", {
+        again = self.dispatcher.call_tool("session_poll", {
             "session_token": token_b, "agent_id": "hub-b",
             "after_seq": 10, "limit": 20,
         })
@@ -255,17 +255,17 @@ class ReconnectResilienceTests(unittest.TestCase):
     def test_last_ack_reconciliation_on_resume(self):
         token_a, token_b = self._create_session()
         for i in range(5):
-            self.dispatcher.call_tool("finalisma_session_send", {
+            self.dispatcher.call_tool("session_send", {
                 "session_token": token_a, "agent_id": "hub-a",
                 "kind": "test.msg", "payload": {"i": i},
                 "idempotency_key": f"aaa-key-{i:06d}-xyz",
             })
         # hub-b acks seq 3
-        self.dispatcher.call_tool("finalisma_session_ack", {
+        self.dispatcher.call_tool("session_ack", {
             "session_token": token_b, "agent_id": "hub-b", "seq": 3,
         })
         # Reconnect: poll with after_seq=0 should return all 5, but last_ack_seq=3
-        result = self.dispatcher.call_tool("finalisma_session_poll", {
+        result = self.dispatcher.call_tool("session_poll", {
             "session_token": token_b, "agent_id": "hub-b",
             "after_seq": 0, "limit": 10,
         })
@@ -283,8 +283,8 @@ class IdleDisconnectTests(unittest.TestCase):
         root = Path(self.temp.name)
         self.store = WeftStore(root / "state.db", root)
         self.dispatcher = WeftDispatcher(self.store)
-        self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-a"})
-        self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-b"})
+        self.dispatcher.call_tool("register_agent", {"team_id": "team-h", "agent_id": "hub-a"})
+        self.dispatcher.call_tool("register_agent", {"team_id": "team-h", "agent_id": "hub-b"})
 
     def tearDown(self):
         self.store.close()
@@ -303,7 +303,7 @@ class IdleDisconnectTests(unittest.TestCase):
         joined = _join(self.dispatcher, pairing["join_token"], "hub-b")
         token_a = joined["session_token"]
         # Session is active
-        status = self.dispatcher.call_tool("finalisma_session_status", {
+        status = self.dispatcher.call_tool("session_status", {
             "session_token": token_a, "agent_id": "hub-b",
         })
         self.assertEqual(status["state"], "active")
@@ -311,7 +311,7 @@ class IdleDisconnectTests(unittest.TestCase):
         self._expire_all_sessions()
         # Now a write operation should expire the stale session
         with self.assertRaises(Exception) as ctx:
-            self.dispatcher.call_tool("finalisma_session_send", {
+            self.dispatcher.call_tool("session_send", {
                 "session_token": token_a, "agent_id": "hub-b",
                 "kind": "test.msg", "payload": {},
                 "idempotency_key": "stale-test-01",
@@ -324,7 +324,7 @@ class IdleDisconnectTests(unittest.TestCase):
         token_a = joined["session_token"]
         # Send some events then abandon
         for i in range(5):
-            self.dispatcher.call_tool("finalisma_session_send", {
+            self.dispatcher.call_tool("session_send", {
                 "session_token": token_a, "agent_id": "hub-b",
                 "kind": "test.msg", "payload": {"i": i},
                 "idempotency_key": f"bbb-key-{i:06d}-xyz",
@@ -333,7 +333,7 @@ class IdleDisconnectTests(unittest.TestCase):
         self._expire_all_sessions()
         # Trigger a write to mark it expired in state
         with self.assertRaises(Exception):
-            self.dispatcher.call_tool("finalisma_session_send", {
+            self.dispatcher.call_tool("session_send", {
                 "session_token": token_a, "agent_id": "hub-b",
                 "kind": "test.msg", "payload": {},
                 "idempotency_key": "abandon-test-01",
@@ -343,7 +343,7 @@ class IdleDisconnectTests(unittest.TestCase):
         self.assertTrue(result["applied"])
         # Verify session is expired (status read should fail)
         with self.assertRaises(Exception):
-            self.dispatcher.call_tool("finalisma_session_status", {
+            self.dispatcher.call_tool("session_status", {
                 "session_token": token_a, "agent_id": "hub-b",
             })
 
@@ -354,8 +354,8 @@ class ServerHubRateLimitingTests(unittest.TestCase):
         root = Path(self.temp.name)
         self.store = WeftStore(root / "state.db", root)
         self.dispatcher = WeftDispatcher(self.store)
-        self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-a"})
-        self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-b"})
+        self.dispatcher.call_tool("register_agent", {"team_id": "team-h", "agent_id": "hub-a"})
+        self.dispatcher.call_tool("register_agent", {"team_id": "team-h", "agent_id": "hub-b"})
 
     def tearDown(self):
         self.store.close()
@@ -397,8 +397,8 @@ class ServerHubMetricsTests(unittest.TestCase):
         root = Path(self.temp.name)
         self.store = WeftStore(root / "state.db", root)
         self.dispatcher = WeftDispatcher(self.store)
-        self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-a"})
-        self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-b"})
+        self.dispatcher.call_tool("register_agent", {"team_id": "team-h", "agent_id": "hub-a"})
+        self.dispatcher.call_tool("register_agent", {"team_id": "team-h", "agent_id": "hub-b"})
 
     def tearDown(self):
         self.store.close()
@@ -410,13 +410,13 @@ class ServerHubMetricsTests(unittest.TestCase):
         token_a = pairing["initiator_session_token"]
         # Send events
         for i in range(5):
-            self.dispatcher.call_tool("finalisma_session_send", {
+            self.dispatcher.call_tool("session_send", {
                 "session_token": token_a, "agent_id": "hub-a",
                 "kind": "test.msg", "payload": {"i": i},
                 "idempotency_key": f"aaa-key-{i:06d}-xyz",
             })
         # Ack some
-        self.dispatcher.call_tool("finalisma_session_ack", {
+        self.dispatcher.call_tool("session_ack", {
             "session_token": joined["session_token"], "agent_id": "hub-b", "seq": 3,
         })
         hub_state = _ServerHubState()
@@ -436,8 +436,8 @@ class HTTPTransportHardeningTests(unittest.TestCase):
         root = Path(self.temp.name)
         self.store = WeftStore(root / "state.db", root)
         self.dispatcher = WeftDispatcher(self.store)
-        self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-a"})
-        self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-b"})
+        self.dispatcher.call_tool("register_agent", {"team_id": "team-h", "agent_id": "hub-a"})
+        self.dispatcher.call_tool("register_agent", {"team_id": "team-h", "agent_id": "hub-b"})
 
     def tearDown(self):
         self.store.close()
@@ -463,7 +463,7 @@ class HTTPTransportHardeningTests(unittest.TestCase):
                         body = json.dumps({
                             "jsonrpc": "2.0", "id": i + 1, "method": "tools/call",
                             "params": {
-                                "name": "finalisma_session_send",
+                                "name": "session_send",
                                 "arguments": {
                                     "session_token": token, "agent_id": agent_id,
                                     "kind": "test.msg", "payload": {"i": i},
@@ -483,7 +483,7 @@ class HTTPTransportHardeningTests(unittest.TestCase):
                         body = json.dumps({
                             "jsonrpc": "2.0", "id": i + 100, "method": "tools/call",
                             "params": {
-                                "name": "finalisma_session_poll",
+                                "name": "session_poll",
                                 "arguments": {
                                     "session_token": token, "agent_id": agent_id,
                                     "after_seq": 0, "limit": 5,
@@ -511,7 +511,7 @@ class HTTPTransportHardeningTests(unittest.TestCase):
                 t.join()
             self.assertEqual(errors, [])
             # Verify total events
-            status = self.dispatcher.call_tool("finalisma_session_status", {
+            status = self.dispatcher.call_tool("session_status", {
                 "session_token": token_a, "agent_id": "hub-a",
             })
             self.assertEqual(status["cursor_head"], 20)
@@ -533,7 +533,7 @@ class HTTPTransportHardeningTests(unittest.TestCase):
             for i in range(2):
                 body = json.dumps({
                     "jsonrpc": "2.0", "id": i + 1, "method": "tools/call",
-                    "params": {"name": "finalisma_protocol", "arguments": {}},
+                    "params": {"name": "protocol", "arguments": {}},
                 })
                 conn = HTTPConnection(host, port, timeout=5)
                 conn.request("POST", "/mcp", body=body,
@@ -545,7 +545,7 @@ class HTTPTransportHardeningTests(unittest.TestCase):
             # Next request should be rate limited
             body = json.dumps({
                 "jsonrpc": "2.0", "id": 3, "method": "tools/call",
-                "params": {"name": "finalisma_protocol", "arguments": {}},
+                "params": {"name": "protocol", "arguments": {}},
             })
             conn = HTTPConnection(host, port, timeout=5)
             conn.request("POST", "/mcp", body=body,

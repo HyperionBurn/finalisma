@@ -13,7 +13,7 @@ import { initEventBridge, disposeEventBridge, fireGateRefusal } from './eventBri
 
 /**
  * SceneCanvas.tsx — The R3F island. client:only="load".
- * Exposes window.FinalismaScene for the scroll lane to drive.
+ * Exposes window.WeftScene for the scroll lane to drive.
  * SCALED UP: stronger bloom, volumetric haze, wider FOV.
  */
 
@@ -34,7 +34,7 @@ function FrameTimer() {
 
     // Expose frame times
     if (typeof window !== 'undefined') {
-      (window as any).__finalismaFrameTimes = frameTimes;
+      (window as any).__weftFrameTimes = frameTimes;
     }
 
     // Decrement refusal flash
@@ -219,7 +219,7 @@ export default function SceneCanvas() {
     initEventBridge();
 
     // Expose API for scroll lane
-    (window as any).FinalismaScene = {
+    (window as any).WeftScene = {
       setProgress: (t: number) => sceneActions.setProgress(t),
       setTier: (t: 'high' | 'medium' | 'low') => sceneActions.setTier(t),
       fireGateRefusal,

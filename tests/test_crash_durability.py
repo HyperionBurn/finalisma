@@ -42,7 +42,7 @@ from weft_cloud.migrations import apply_migrations  # noqa: F401
 
 
 TEAM_ID = "crash-team"
-SCRATCH_PREFIX = "finalisma-crash-"
+SCRATCH_PREFIX = "weft-crash-"
 REQUEST_TIMEOUT_S = 30
 
 
@@ -162,7 +162,7 @@ class TestCrashDurability(unittest.TestCase):
         self.scratch.cleanup()
 
     def _register_agent(self, agent_id: str, role: str = "tester") -> str:
-        result = self.driver.call_tool("finalisma_register_agent", {
+        result = self.driver.call_tool("register_agent", {
             "team_id": TEAM_ID,
             "agent_id": agent_id,
             "role": role,
@@ -224,7 +224,7 @@ class TestCrashDurability(unittest.TestCase):
         token_b = self._register_agent("crash-b")
 
         # Create a room (owner auto-joins).
-        room = self.driver.call_tool("finalisma_room_create", {
+        room = self.driver.call_tool("room_create", {
             "team_id": TEAM_ID,
             "owner_agent_id": "crash-a",
             "cap": 5,
@@ -234,7 +234,7 @@ class TestCrashDurability(unittest.TestCase):
         link_token = room["link_token"]
 
         # Second agent joins.
-        self.driver.call_tool("finalisma_room_join", {
+        self.driver.call_tool("room_join", {
             "team_id": TEAM_ID,
             "room_id": room_id,
             "link_token": link_token,
@@ -245,7 +245,7 @@ class TestCrashDurability(unittest.TestCase):
         })
 
         # Append an event + enqueue outbox (room_send does both).
-        send_result = self.driver.call_tool("finalisma_room_send", {
+        send_result = self.driver.call_tool("room_send", {
             "team_id": TEAM_ID,
             "room_id": room_id,
             "sender_agent_id": "crash-a",
@@ -257,7 +257,7 @@ class TestCrashDurability(unittest.TestCase):
         observed_event_ids = self._get_event_ids(room_id)
 
         # Ack the events so cursors advance.
-        self.driver.call_tool("finalisma_room_ack", {
+        self.driver.call_tool("room_ack", {
             "team_id": TEAM_ID,
             "room_id": room_id,
             "agent_id": "crash-a",
@@ -277,7 +277,7 @@ class TestCrashDurability(unittest.TestCase):
         try:
             for i in range(50):
                 batch_started = True
-                self.driver.call_tool("finalisma_room_send", {
+                self.driver.call_tool("room_send", {
                     "team_id": TEAM_ID,
                     "room_id": room_id,
                     "sender_agent_id": "crash-b",
@@ -362,7 +362,7 @@ class TestCrashDurability(unittest.TestCase):
         token_a = self._register_agent("ob-a")
         token_b = self._register_agent("ob-b")
 
-        room = self.driver.call_tool("finalisma_room_create", {
+        room = self.driver.call_tool("room_create", {
             "team_id": TEAM_ID,
             "owner_agent_id": "ob-a",
             "cap": 5,
@@ -371,7 +371,7 @@ class TestCrashDurability(unittest.TestCase):
         room_id = room["room_id"]
         link_token = room["link_token"]
 
-        self.driver.call_tool("finalisma_room_join", {
+        self.driver.call_tool("room_join", {
             "team_id": TEAM_ID,
             "room_id": room_id,
             "link_token": link_token,
@@ -382,7 +382,7 @@ class TestCrashDurability(unittest.TestCase):
         })
 
         # Send a message — this enqueues an outbox entry.
-        self.driver.call_tool("finalisma_room_send", {
+        self.driver.call_tool("room_send", {
             "team_id": TEAM_ID,
             "room_id": room_id,
             "sender_agent_id": "ob-a",
@@ -447,7 +447,7 @@ class TestCrashDurability(unittest.TestCase):
         token_a = self._register_agent("wal-a")
         token_b = self._register_agent("wal-b")
 
-        room = self.driver.call_tool("finalisma_room_create", {
+        room = self.driver.call_tool("room_create", {
             "team_id": TEAM_ID,
             "owner_agent_id": "wal-a",
             "cap": 10,
@@ -456,7 +456,7 @@ class TestCrashDurability(unittest.TestCase):
         room_id = room["room_id"]
         link_token = room["link_token"]
 
-        self.driver.call_tool("finalisma_room_join", {
+        self.driver.call_tool("room_join", {
             "team_id": TEAM_ID,
             "room_id": room_id,
             "link_token": link_token,
@@ -473,7 +473,7 @@ class TestCrashDurability(unittest.TestCase):
         killed = False
         for i in range(100):
             try:
-                self.driver.call_tool("finalisma_room_send", {
+                self.driver.call_tool("room_send", {
                     "team_id": TEAM_ID,
                     "room_id": room_id,
                     "sender_agent_id": "wal-a" if i % 2 == 0 else "wal-b",

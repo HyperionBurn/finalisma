@@ -254,26 +254,26 @@ _MAX_RETRIES = 4
 _BASE_BACKOFF = 0.05  # seconds
 _TRANSIENT_STATUSES = {408, 429, 500, 502, 503, 504}
 _IDEMPOTENT_METHODS = {
-    "finalisma_register_agent",
-    "finalisma_create_task",
-    "finalisma_claim_task",
-    "finalisma_update_task",
-    "finalisma_verify_task",
-    "finalisma_complete_task",
-    "finalisma_send_message",
-    "finalisma_heartbeat",
-    "finalisma_rotate_agent_credential",
-    "finalisma_session_send",
-    "finalisma_session_ack",
-    "finalisma_read_inbox",
-    "finalisma_ack_message",
-    "finalisma_pairing_preview",
-    "finalisma_team_status",
-    "finalisma_protocol",
-    "finalisma_model_catalog",
-    "finalisma_session_poll",
-    "finalisma_session_status",
-    "finalisma_route_task",
+    "register_agent",
+    "create_task",
+    "claim_task",
+    "update_task",
+    "verify_task",
+    "complete_task",
+    "send_message",
+    "heartbeat",
+    "rotate_agent_credential",
+    "session_send",
+    "session_ack",
+    "read_inbox",
+    "ack_message",
+    "pairing_preview",
+    "team_status",
+    "protocol",
+    "model_catalog",
+    "session_poll",
+    "session_status",
+    "route_task",
 }
 
 
@@ -420,7 +420,7 @@ class WeftClient:
 
     def connect(self) -> dict[str, Any]:
         """Verify the coordinator is reachable; returns protocol info."""
-        return self._transport.call("finalisma_protocol", {})
+        return self._transport.call("protocol", {})
 
     # -- identity ------------------------------------------------------------
 
@@ -435,7 +435,7 @@ class WeftClient:
         """Register (or renew) this agent identity.  Returns the server response
         which includes a one-time actor_token on first registration."""
         return self._call(
-            "finalisma_register_agent",
+            "register_agent",
             name=name or self.agent_id,
             role=role,
             model=model,
@@ -444,12 +444,12 @@ class WeftClient:
         )
 
     def heartbeat(self, task_ids: list[str] | None = None, fencing_tokens: dict[str, int] | None = None) -> dict[str, Any]:
-        return self._call("finalisma_heartbeat", task_ids=task_ids, fencing_tokens=fencing_tokens)
+        return self._call("heartbeat", task_ids=task_ids, fencing_tokens=fencing_tokens)
 
     def rotate_credential(self, current_token: str | None = None) -> CredentialRotation:
         token = current_token or self._actor_token or ""
         result = self._transport.call(
-            "finalisma_rotate_agent_credential",
+            "rotate_agent_credential",
             {"team_id": self.team_id, "agent_id": self.agent_id, "current_token": token},
         )
         new_token = result.get("actor_token", "")
@@ -467,7 +467,7 @@ class WeftClient:
 
     def create_pairing_link(self, capabilities: list[str] | None = None, ttl_seconds: int = 900) -> PairingResult:
         result = self._call(
-            "finalisma_create_pairing",
+            "create_pairing",
             initiator_id=self.agent_id,
             capabilities_offered=capabilities,
             ttl_seconds=ttl_seconds,
@@ -509,7 +509,7 @@ class WeftClient:
         if self._actor_token:
             params["actor_token"] = self._actor_token
         result = self._transport.call(
-            "finalisma_join_pairing",
+            "join_pairing",
             params,
         )
         return JoinResult(
@@ -537,7 +537,7 @@ class WeftClient:
             # Derive a short title from the description
             title = description[:60] if description else "untitled"
         result = self._call(
-            "finalisma_create_task",
+            "create_task",
             created_by=self.agent_id,
             title=title,
             description=description,
@@ -558,16 +558,16 @@ class WeftClient:
         raise WeftError("task_creation_failed", "Task was not created", result)
 
     def claim(self, task_id: str, lease_seconds: int | None = None) -> TaskResult:
-        result = self._call("finalisma_claim_task", task_id=task_id, lease_seconds=lease_seconds)
+        result = self._call("claim_task", task_id=task_id, lease_seconds=lease_seconds)
         return _task_from_dict(result)
 
     def update_progress(self, task_id: str, pct: int, note: str | None = None, fencing_token: int | None = None) -> TaskResult:
-        result = self._call("finalisma_update_task", task_id=task_id, progress=pct, note=note, fencing_token=fencing_token)
+        result = self._call("update_task", task_id=task_id, progress=pct, note=note, fencing_token=fencing_token)
         return _task_from_dict(result)
 
     def submit_evidence(self, task_id: str, artifact_paths: list[str], checks: list[dict[str, Any]], fencing_token: int | None = None) -> dict[str, Any]:
         result = self._call(
-            "finalisma_verify_task",
+            "verify_task",
             task_id=task_id,
             files=artifact_paths,
             checks=checks,
@@ -578,14 +578,14 @@ class WeftClient:
         return result
 
     def complete(self, task_id: str, fencing_token: int | None = None, summary: str = "") -> TaskResult:
-        result = self._call("finalisma_complete_task", task_id=task_id, fencing_token=fencing_token, summary=summary)
+        result = self._call("complete_task", task_id=task_id, fencing_token=fencing_token, summary=summary)
         return _task_from_dict(result)
 
     # -- messaging -----------------------------------------------------------
 
     def ask(self, recipient: str, text: str, kind: str = "question") -> dict[str, Any]:
         return self._call(
-            "finalisma_send_message",
+            "send_message",
             sender_id=self.agent_id,
             recipient_id=recipient,
             kind=kind,
@@ -598,7 +598,7 @@ class WeftClient:
         for key in required:
             if key not in envelope:
                 raise WeftError("invalid_envelope", f"Envelope must include '{key}'")
-        return self._call("finalisma_send_message", **envelope)
+        return self._call("send_message", **envelope)
 
     # -- rooms (Wave SDK-ROOMS) ---------------------------------------------
 
@@ -610,7 +610,7 @@ class WeftClient:
         number of members (>= 2). Extra wire args pass through to the tool.
         """
         result = self._call(
-            "finalisma_room_create",
+            "room_create",
             owner_agent_id=kwargs.pop("owner_agent_id", self.agent_id),
             cap=cap,
             name=name,
@@ -635,7 +635,7 @@ class WeftClient:
         RoomJoinResult bound to this client's identity (or `agent_id` if given).
         """
         result = self._call(
-            "finalisma_room_join",
+            "room_join",
             room_id=room_id,
             link_token=link_token,
             agent_id=agent_id or self.agent_id,
@@ -654,7 +654,7 @@ class WeftClient:
     def room_info(self, room_id: str, agent_id: str | None = None, **kwargs: Any) -> RoomInfo:
         """Member-only view of a Room: state, cap, member count, roster, owner."""
         result = self._call(
-            "finalisma_room_info",
+            "room_info",
             room_id=room_id,
             agent_id=agent_id or self.agent_id,
             **kwargs,
@@ -685,7 +685,7 @@ class WeftClient:
     def leave_room(self, room_id: str, agent_id: str | None = None, **kwargs: Any) -> dict[str, Any]:
         """Leave a Room. The membership row is marked left; re-join reactivates."""
         return self._call(
-            "finalisma_room_leave",
+            "room_leave",
             room_id=room_id,
             agent_id=agent_id or self.agent_id,
             **kwargs,
@@ -694,7 +694,7 @@ class WeftClient:
     def close_room(self, room_id: str, owner_agent_id: str | None = None, **kwargs: Any) -> dict[str, Any]:
         """Close a Room (owner only). Refuses joins and invalidates all links."""
         return self._call(
-            "finalisma_room_close",
+            "room_close",
             room_id=room_id,
             owner_agent_id=owner_agent_id or self.agent_id,
             **kwargs,
@@ -704,7 +704,7 @@ class WeftClient:
                     **kwargs: Any) -> dict[str, Any]:
         """Revoke a Room link (owner only) so it can admit no one."""
         return self._call(
-            "finalisma_room_revoke_link",
+            "room_revoke_link",
             room_id=room_id,
             link_id=link_id,
             owner_agent_id=owner_agent_id or self.agent_id,
@@ -725,7 +725,7 @@ class WeftClient:
         if target_spec is None:
             raise WeftError("invalid_argument", "send requires a target (agent id, group, '*', or list)")
         result = self._call(
-            "finalisma_room_send",
+            "room_send",
             room_id=room_id,
             sender_agent_id=sender_agent_id or self.agent_id,
             target_spec=target_spec,
@@ -745,7 +745,7 @@ class WeftClient:
         """List the members of a named group within a Room."""
         kwargs.pop("action", None)  # this method always lists
         result = self._call(
-            "finalisma_room_groups",
+            "room_groups",
             room_id=room_id,
             group_name=group_name,
             action="list",
@@ -758,7 +758,7 @@ class WeftClient:
                      agent_id: str | None = None, **kwargs: Any) -> dict[str, Any]:
         """Add members to a named group for group-addressable sends."""
         return self._call(
-            "finalisma_room_groups",
+            "room_groups",
             room_id=room_id,
             group_name=group_name,
             action="add",
@@ -771,7 +771,7 @@ class WeftClient:
                           agent_id: str | None = None, **kwargs: Any) -> dict[str, Any]:
         """Remove members from a named group."""
         return self._call(
-            "finalisma_room_groups",
+            "room_groups",
             room_id=room_id,
             group_name=group_name,
             action="remove",
@@ -788,7 +788,7 @@ class WeftClient:
         At-least-once; ack to advance this member's cursor.
         """
         result = self._call(
-            "finalisma_room_poll",
+            "room_poll",
             room_id=room_id,
             after_seq=after_seq,
             limit=limit,
@@ -820,7 +820,7 @@ class WeftClient:
         """Advance this member's cursor to seq (monotonic MAX). Returns the
         new last_ack_seq."""
         result = self._call(
-            "finalisma_room_ack",
+            "room_ack",
             room_id=room_id,
             seq=seq,
             agent_id=agent_id or self.agent_id,
@@ -831,7 +831,7 @@ class WeftClient:
     def room_heartbeat(self, room_id: str, agent_id: str | None = None, **kwargs: Any) -> dict[str, Any]:
         """Refresh this member's presence in the Room."""
         return self._call(
-            "finalisma_room_heartbeat",
+            "room_heartbeat",
             room_id=room_id,
             agent_id=agent_id or self.agent_id,
             **kwargs,
@@ -841,7 +841,7 @@ class WeftClient:
                       **kwargs: Any) -> list[dict[str, Any]]:
         """Query delivery-receipt status for outbox entry ids."""
         result = self._call(
-            "finalisma_room_receipts",
+            "room_receipts",
             room_id=room_id,
             entry_ids=entry_ids,
             agent_id=agent_id or self.agent_id,
@@ -854,7 +854,7 @@ class WeftClient:
     def session_send(self, session_token: str, kind: str, payload: Any, idempotency_key: str | None = None, trace_id: str | None = None, agent_id: str | None = None) -> SessionEvent:
         key = idempotency_key or f"sess-send-{uuid.uuid4().hex}"
         result = self._transport.call(
-            "finalisma_session_send",
+            "session_send",
             {
                 "session_token": session_token,
                 "agent_id": agent_id or self.agent_id,
@@ -883,7 +883,7 @@ class WeftClient:
 
     def session_wait(self, session_token: str, after_seq: int = 0, timeout_seconds: int = 20, limit: int = 100, agent_id: str | None = None) -> list[SessionEvent]:
         result = self._transport.call(
-            "finalisma_session_wait",
+            "session_wait",
             {
                 "session_token": session_token,
                 "agent_id": agent_id or self.agent_id,
@@ -896,7 +896,7 @@ class WeftClient:
 
     def session_poll(self, session_token: str, after_seq: int = 0, limit: int = 100, agent_id: str | None = None) -> list[SessionEvent]:
         result = self._transport.call(
-            "finalisma_session_poll",
+            "session_poll",
             {
                 "session_token": session_token,
                 "agent_id": agent_id or self.agent_id,
@@ -908,7 +908,7 @@ class WeftClient:
 
     def session_ack(self, session_token: str, seq: int, agent_id: str | None = None) -> int:
         result = self._transport.call(
-            "finalisma_session_ack",
+            "session_ack",
             {
                 "session_token": session_token,
                 "agent_id": agent_id or self.agent_id,

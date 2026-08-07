@@ -47,7 +47,7 @@ def runtime_config(
 
     - ``WEFT_WEB_HOST``        (default ``127.0.0.1``)
     - ``WEFT_WEB_PORT``        (default ``18789``)
-    - ``WEFT_WEB_DB_PATH``     (default ``./data/finalisma-web.db``)
+    - ``WEFT_WEB_DB_PATH``     (default ``./data/weft-web.db``)
     - ``WEFT_WEB_STATIC_DIR``  (default ``./site``)
     - ``WEFT_WEB_STATE_DIR``   (default ``./data``)
 
@@ -70,8 +70,8 @@ def runtime_config(
 
     host = environ.get("WEFT_WEB_HOST", "127.0.0.1").strip() or "127.0.0.1"
     port = _port("WEFT_WEB_PORT", environ.get("WEFT_WEB_PORT"), 18789)
-    db_path = environ.get("WEFT_WEB_DB_PATH", "./data/finalisma-web.db").strip() \
-        or "./data/finalisma-web.db"
+    db_path = environ.get("WEFT_WEB_DB_PATH", "./data/weft-web.db").strip() \
+        or "./data/weft-web.db"
     static_dir = environ.get("WEFT_WEB_STATIC_DIR", "./site").strip() or "./site"
     state_dir = environ.get("WEFT_WEB_STATE_DIR", "./data").strip() or "./data"
 
@@ -92,7 +92,7 @@ def runtime_config(
 def serve(
     host: str = "127.0.0.1",
     port: int = 18789,
-    db_path: str = "./data/finalisma-web.db",
+    db_path: str = "./data/weft-web.db",
     static_dir: str = "./site",
     state_dir: str = "./data",
 ) -> None:
@@ -104,7 +104,7 @@ def serve(
     server = http.server.ThreadingHTTPServer((host, port), app.handler)
     # Report the ACTUAL bound address so port=0 (test) prints a usable URL.
     actual_host, actual_port = server.server_address
-    print(f"finalisma-web listening on http://{actual_host}:{actual_port}",
+    print(f"weft-web listening on http://{actual_host}:{actual_port}",
           file=sys.stderr, flush=True)
     try:
         server.serve_forever()
@@ -119,6 +119,6 @@ if __name__ == "__main__":
     try:
         cfg = runtime_config(sys.argv[1:])
     except ValueError as exc:
-        print(f"finalisma-web: {exc}", file=sys.stderr)
+        print(f"weft-web: {exc}", file=sys.stderr)
         sys.exit(2)
     serve(cfg["host"], cfg["port"], cfg["db_path"], cfg["static_dir"], cfg["state_dir"])
