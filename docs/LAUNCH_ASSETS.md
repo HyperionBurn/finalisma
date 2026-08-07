@@ -1,4 +1,4 @@
-# Finalisma launch-asset inventory
+# Weft launch-asset inventory
 
 ## Public website
 
@@ -13,10 +13,10 @@
 ## Social and video
 
 - `site/assets/og-card.png` — 1200 x 630 social card
-- `site/assets/finalisma-demo.mp4` — 6,772,088-byte H.264 launch video
-- `site/assets/finalisma-demo.webm` — 3,459,479-byte VP8 browser recording
-- `site/assets/finalisma-demo-poster.png` — 1280 x 720 video poster
-- `site/assets/finalisma-demo.vtt` — English captions
+- `site/assets/weft-demo.mp4` — 6,772,088-byte H.264 launch video
+- `site/assets/weft-demo.webm` — 3,459,479-byte VP8 browser recording
+- `site/assets/weft-demo-poster.png` — 1280 x 720 video poster
+- `site/assets/weft-demo.vtt` — English captions
 - `site/assets/demo-transcript.json` — public redacted run record
 
 ## Launch copy

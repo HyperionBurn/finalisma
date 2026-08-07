@@ -65,7 +65,7 @@ class LaunchSurfaceTests(unittest.TestCase):
         self.assertIn("Speaks MCP", html)
         self.assertIn("MCP is a public protocol; these names identify the hosts that speak it", html)
         self.assertIn('type="application/ld+json"', html)
-        self.assertIn('property="og:site_name" content="Finalisma"', html)
+        self.assertIn('property="og:site_name" content="Weft"', html)
         self.assertIn('name="twitter:image" content="/assets/og-card.png"', html)
         self.assertIn('aria-live="polite"', html)
         self.assertIn("data-sim-label", html)
@@ -97,7 +97,7 @@ class LaunchSurfaceTests(unittest.TestCase):
         self.assertNotIn('href="/app/signup"', html)
         self.assertNotIn('href="/app/login"', html)
         self.assertNotIn("verified agent handoff layer", html.lower())
-        self.assertNotIn("Finalisma A2A Standard", html)
+        self.assertNotIn("Weft A2A Standard", html)
         self.assertNotIn("gpt-5.5", html.lower())
         self.assertNotIn("lorem ipsum", html.lower())
 
@@ -229,15 +229,15 @@ class LaunchSurfaceTests(unittest.TestCase):
         self.assertEqual(int.from_bytes(png_header[16:20], "big"), 1200)
         self.assertEqual(int.from_bytes(png_header[20:24], "big"), 630)
 
-        poster = SITE / "assets" / "finalisma-demo-poster.png"
+        poster = SITE / "assets" / "weft-demo-poster.png"
         poster_header = poster.read_bytes()
         self.assertEqual(poster_header[:8], b"\x89PNG\r\n\x1a\n")
         self.assertEqual(int.from_bytes(poster_header[16:20], "big"), 1280)
         self.assertEqual(int.from_bytes(poster_header[20:24], "big"), 720)
 
-        mp4 = SITE / "assets" / "finalisma-demo.mp4"
-        webm = SITE / "assets" / "finalisma-demo.webm"
-        captions = SITE / "assets" / "finalisma-demo.vtt"
+        mp4 = SITE / "assets" / "weft-demo.mp4"
+        webm = SITE / "assets" / "weft-demo.webm"
+        captions = SITE / "assets" / "weft-demo.vtt"
         self.assertGreater(mp4.stat().st_size, 500_000)
         self.assertEqual(mp4.read_bytes()[4:8], b"ftyp")
         self.assertGreater(webm.stat().st_size, 500_000)
@@ -268,7 +268,7 @@ class LaunchSurfaceTests(unittest.TestCase):
             self.assertIn('property="og:url" content="https://weft.test/"', built_home)
             self.assertIn('name="twitter:image" content="https://weft.test/assets/og-card.png"', built_home)
             self.assertIn('data-founder-contact href="mailto:founder@example.invalid"', built_home)
-            self.assertIn('"contentUrl": "https://weft.test/assets/finalisma-demo.mp4"', built_demo)
+            self.assertIn('"contentUrl": "https://weft.test/assets/weft-demo.mp4"', built_demo)
             self.assertIn("https://weft.test/demo.html", (output / "sitemap.xml").read_text(encoding="utf-8"))
             self.assertIn("Sitemap: https://weft.test/sitemap.xml", (output / "robots.txt").read_text(encoding="utf-8"))
             self.assertTrue((output / "release-manifest.json").is_file())
@@ -367,16 +367,16 @@ class LaunchSurfaceTests(unittest.TestCase):
         transcript = json.loads((SITE / "assets" / "demo-transcript.json").read_text(encoding="utf-8"))
         build = json.loads((ROOT / "artifacts" / "design-qa" / "demo-video-results.json").read_text(encoding="utf-8"))
         self.assertIn("The two agent hosts are deterministic fixtures", demo)
-        self.assertIn("finalisma-demo.mp4", demo)
-        self.assertIn("finalisma-demo.webm", demo)
-        self.assertIn("finalisma-demo.vtt", demo)
+        self.assertIn("weft-demo.mp4", demo)
+        self.assertIn("weft-demo.webm", demo)
+        self.assertIn("weft-demo.vtt", demo)
         self.assertIn('"@type": "VideoObject"', demo)
-        self.assertIn('content="/assets/finalisma-demo.mp4"', demo)
+        self.assertIn('content="/assets/weft-demo.mp4"', demo)
         self.assertIn('content="1280"', demo)
         self.assertIn('content="720"', demo)
         self.assertIn('content="index,follow,max-video-preview:-1,max-image-preview:large"', demo)
-        self.assertIn('property="og:site_name" content="Finalisma"', demo)
-        self.assertIn('name="twitter:image" content="/assets/finalisma-demo-poster.png"', demo)
+        self.assertIn('property="og:site_name" content="Weft"', demo)
+        self.assertIn('name="twitter:image" content="/assets/weft-demo-poster.png"', demo)
         self.assertEqual(transcript["schema"], "weft.public-demo/v1")
         self.assertEqual(len(transcript["frames"]), 10)
         self.assertTrue(transcript["credentials_redacted"])
@@ -422,9 +422,9 @@ class LaunchSurfaceTests(unittest.TestCase):
 
             status, manifest, _ = get("/site.webmanifest")
             self.assertEqual(status, 200)
-            self.assertEqual(json.loads(manifest)["name"], "Finalisma")
+            self.assertEqual(json.loads(manifest)["name"], "Weft")
 
-            status, _, _ = get("/assets/finalisma-demo.mp4")
+            status, _, _ = get("/assets/weft-demo.mp4")
             self.assertEqual(status, 200)
 
             status, _, headers = get("/assets/og-card.png")
@@ -439,7 +439,7 @@ class LaunchSurfaceTests(unittest.TestCase):
                 with self.subTest(path=path):
                     status, body, _ = get(path)
                     self.assertEqual(status, 404)
-                    self.assertNotIn("class Finalisma", body)
+                    self.assertNotIn("class Weft", body)
         finally:
             server.shutdown()
             server.server_close()

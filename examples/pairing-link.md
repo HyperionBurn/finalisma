@@ -34,7 +34,7 @@ join_pairing(token="<token from the link>", agent_id="agent-b", model="opencode-
 
 Because `agent-b` is new, persist both one-time results securely:
 `actor_token` for Agent B's team/work-plane calls and `session_token` for this
-paired session. Finalisma stores only hashes. The initiator and joiner must
+paired session. Weft stores only hashes. The initiator and joiner must
 never exchange their session credentials. Then use:
 
 ```text

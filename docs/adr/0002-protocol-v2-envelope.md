@@ -7,7 +7,7 @@
 
 ## Context
 
-Finalisma 1.0 (`docs/PROTOCOL.md`) defines a two-party, unicast pairing protocol with a message envelope, task lifecycle, and evidence gate. It works for two MCP-capable agents sharing a state file. The vision for Finalisma as a next-gen multiplayer AI coordination layer requires:
+Weft 1.0 (`docs/PROTOCOL.md`) defines a two-party, unicast pairing protocol with a message envelope, task lifecycle, and evidence gate. It works for two MCP-capable agents sharing a state file. The vision for Weft as a next-gen multiplayer AI coordination layer requires:
 
 - **N-way communication** — one agent addressing many, not just one.
 - **Multi-adapter support** — MCP/stdio, MCP/HTTP, webhook bridges, embedded SDKs, and CLI bridges.
@@ -112,5 +112,5 @@ Require agents to poll `discovery.presence` on an interval. **Rejected:** Heartb
 
 - `docs/PROTOCOL.md` — 1.0 specification (preserved).
 - `docs/PROTOCOL_V2.md` — 2.0 specification (this ADR accompanies it).
-- `src/finalisma_mcp/core.py` — current implementation (1.0).
+- `src/weft_mcp/core.py` — current implementation (1.0).
 - README.md — product overview and quickstart.

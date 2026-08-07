@@ -1,5 +1,5 @@
 /**
- * APP ORIGIN — single source of truth for where the Finalisma web app lives.
+ * APP ORIGIN — single source of truth for where the Weft web app lives.
  *
  * Decision (funnel lane, 2026-08-07): the marketing site points every
  * "become a user" CTA at the hosted web app. The web app

@@ -1,4 +1,4 @@
-# Finalisma go-live checklist
+# Weft go-live checklist
 
 This is the launch plan for a truthful design-partner release. The current
 product is a dependency-free, single-node coordinator with a local static
@@ -11,7 +11,7 @@ remote session.
 From the repository root:
 
 ```powershell
-python -B .\scripts\finalisma-mcp.py --transport http --host 127.0.0.1 --port 8787 --team-id demo --workspace .\.local\workspace --state .\.local\workspace\.finalisma\state.db
+python -B .\scripts\weft-mcp.py --transport http --host 127.0.0.1 --port 8787 --team-id demo --workspace .\.local\workspace --state .\.local\workspace\.weft\state.db
 ```
 
 HTTP uses required actor authentication under the default `auto` policy. Each
@@ -23,7 +23,7 @@ credential-aware calls.
 In a second terminal, serve the launch site:
 
 ```powershell
-python -B .\scripts\finalisma-site.py --port 4173
+python -B .\scripts\weft-site.py --port 4173
 ```
 
 Open [http://127.0.0.1:4173/](http://127.0.0.1:4173/) and run the browser
@@ -33,7 +33,7 @@ simulation (labeled as a simulation). Then connect two real MCP hosts using
 For a fast protocol proof without host setup:
 
 ```powershell
-python -B .\scripts\finalisma-smoke.py
+python -B .\scripts\weft-smoke.py
 ```
 
 The `.local` folder is project-local and disposable. Stop both processes before
@@ -87,7 +87,7 @@ regenerate it from a fresh real coordinator run:
 
 ```powershell
 python -B .\scripts\generate-demo-transcript.py
-$env:FINALISMA_SITE_URL = "http://127.0.0.1:4173/"
+$env:WEFT_SITE_URL = "http://127.0.0.1:4173/"
 node .\scripts\record-demo-video.cjs
 ```
 
@@ -107,10 +107,10 @@ Before sharing a public URL, run:
 
 ```powershell
 python -B -m unittest discover -s tests -v
-python -B .\scripts\finalisma-smoke.py
-python -B .\scripts\finalisma_performance_gate.py --baseline .omx\goals\performance\single-node-coordinator-envelope\baseline.json --runs 7
-python -B .\scripts\finalisma-mcp.py --help
-python -B .\scripts\finalisma-site.py --help
+python -B .\scripts\weft-smoke.py
+python -B .\scripts\weft_performance_gate.py --baseline .omx\goals\performance\single-node-coordinator-envelope\baseline.json --runs 7
+python -B .\scripts\weft-mcp.py --help
+python -B .\scripts\weft-site.py --help
 ```
 
 The performance command is a same-machine single-node gate. Read
@@ -125,7 +125,7 @@ retention/deletion, load tests, and operational alerting.
 Preview retention cleanup without deleting anything:
 
 ```powershell
-python -B .\scripts\finalisma-prune.py --state .\.local\workspace\.finalisma\state.db --workspace .\.local\workspace
+python -B .\scripts\weft-prune.py --state .\.local\workspace\.weft\state.db --workspace .\.local\workspace
 ```
 
 Only pass `--apply` after reviewing the dry-run counts and your retention

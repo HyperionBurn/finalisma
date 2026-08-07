@@ -1,4 +1,4 @@
-# Finalisma security review — 2026-08-05
+# Weft security review — 2026-08-05
 
 Read-only adversarial review of the Wave-A attack-surface doubling.
 Scope: `tenancy.py`, `roster.py`, `outbox.py`, `bridge.py`, `sdk/client.py`.
@@ -39,7 +39,7 @@ And `verify_signature` (`bridge.py:260-280`) recomputes the expected MAC with th
 ```
 
 **Attack scenario.** The docstring at line 202-208 admits the fallback is for "test/self-test contexts", but the code path is keyed only on `signing_secret is None`, not on a test flag. In production, any caller that omits `signing_secret` silently signs with `SHA-256(secret)`. Because `verify_signature` accepts the *raw* secret, a recipient can verify a signature produced with the hash-as-key — so the scheme works, but the security bound collapses:
-- Anyone who can read the `bridge_webhooks.secret_hash` column (SQL injection, a backup leak, a shared multi-tenant DB, a DBA) can forge a valid `X-Finalisma-Signature` for *any* event to that webhook, without ever knowing the real secret. The stored hash *is* the signing key.
+- Anyone who can read the `bridge_webhooks.secret_hash` column (SQL injection, a backup leak, a shared multi-tenant DB, a DBA) can forge a valid `X-Weft-Signature` for *any* event to that webhook, without ever knowing the real secret. The stored hash *is* the signing key.
 - HMAC's security proof assumes the key is high-entropy and secret. Using a hash of the secret as the key reduces effective security to "whoever can read the hash column", which is a strictly weaker bound than the raw secret.
 
 **Canonicalisation.** `_hmac_sign` and `verify_signature` use identical payload construction (`f"{timestamp}.{json.dumps(body, sort_keys=True, separators=(',', ':'))}"`), so there is no canonicalisation mismatch between sign and verify. Timestamp replay window (`max_age_seconds=300`) is enforced at `bridge.py:273-275`. These parts are correct.
@@ -55,7 +55,7 @@ And `verify_signature` (`bridge.py:260-280`) recomputes the expected MAC with th
 **Evidence:** `sdk/client.py:263-264`:
 ```
 263:                if status != 200:
-264:                    raise FinalismaError("http_error", f"HTTP {status} from coordinator", {"status": status, "body": body.decode("utf-8", errors="ignore")[:500]})
+264:                    raise WeftError("http_error", f"HTTP {status} from coordinator", {"status": status, "body": body.decode("utf-8", errors="ignore")[:500]})
 ```
 
 **Attack scenario.** When the server returns a 4xx/5xx (e.g. `actor_auth_invalid` after a rotation, or an error envelope that echoes the rejected token), the SDK truncates the body to 500 bytes and attaches it as `details` to the exception. A typical application logs `repr(exc)` or `exc.details`. If the server ever includes the rejected `actor_token` or a session token in its error body (the server currently does not, but the contract is one-way — the SDK cannot assume), it lands in the SDK caller's logs. Even under the current server, the body can contain the caller's own `actor_token` if the server ever echoes the failed credential in a debug field.
@@ -163,7 +163,7 @@ And `verify_signature` (`bridge.py:260-280`) recomputes the expected MAC with th
 362:     def rotate_credential(self, current_token: str | None = None) -> CredentialRotation:
 363:         token = current_token or self._actor_token or ""
 364:         result = self._transport.call(
-365:             "finalisma_rotate_agent_credential",
+365:             "rotate_agent_credential",
 366:             {"team_id": self.team_id, "agent_id": self.agent_id, "current_token": token},
 ```
 
@@ -180,7 +180,7 @@ Pattern: `print|logging|log(|__repr__|__str__` near credential variables, across
 **Result: clean.** No `print(`, no `logging.`, no `__repr__`/`__str__` override references any credential material in `tenancy.py`, `roster.py`, `outbox.py`, or `bridge.py`. The only `__repr__` in scope is `sdk/client.py:320-321`:
 ```
 320:     def __repr__(self) -> str:
-321:         return f"FinalismaClient(coordinator_url={self.coordinator_url!r}, agent_id={self.agent_id!r}, team_id={self.team_id!r})"
+321:         return f"WeftClient(coordinator_url={self.coordinator_url!r}, agent_id={self.agent_id!r}, team_id={self.team_id!r})"
 ```
 This is safe — no token, no secret. The module docstring (`client.py:298-300`) explicitly promises this hygiene and the code keeps the promise.
 
@@ -188,9 +188,9 @@ This is safe — no token, no secret. The module docstring (`client.py:298-300`)
 
 **Core path** (`core.py:897-958`): `rotate_agent_credential` runs inside `self._transaction()` (BEGIN IMMEDIATE), executes `UPDATE agent_credentials SET token_hash = ? ... WHERE team_id = ? AND agent_id = ?`, and returns the new token once. The old hash is overwritten in-place; there is no window where both hashes coexist. `_require_actor_credential` (`core.py:561-585`) uses `secrets.compare_digest` and checks `revoked_at is not None`. **Airtight at the core layer.**
 
-**Server path** (`server.py:625-630`): `finalisma_rotate_agent_credential` dispatches directly to `store.rotate_agent_credential` with no intermediate caching. **Airtight.**
+**Server path** (`server.py:625-630`): `rotate_agent_credential` dispatches directly to `store.rotate_agent_credential` with no intermediate caching. **Airtight.**
 
-**SDK path** (`sdk/client.py:362-377`): After a successful rotation, `self._actor_token = new_token` (line 370). The retry loop in `_JsonRpcTransport.call` (`client.py:245-288`) retries only on `_TRANSIENT_STATUSES` (408/429/5xx) and only for methods in `_IDEMPOTENT_METHODS`, which includes `finalisma_rotate_agent_credential` (line 184). The server-side rotation is keyed by `(team_id, agent_id)` and the UPDATE is idempotent in effect (re-running with the *old* token fails auth; re-running with the *new* token succeeds and returns the same new hash). **No wrong-auth resend.**
+**SDK path** (`sdk/client.py:362-377`): After a successful rotation, `self._actor_token = new_token` (line 370). The retry loop in `_JsonRpcTransport.call` (`client.py:245-288`) retries only on `_TRANSIENT_STATUSES` (408/429/5xx) and only for methods in `_IDEMPOTENT_METHODS`, which includes `rotate_agent_credential` (line 184). The server-side rotation is keyed by `(team_id, agent_id)` and the UPDATE is idempotent in effect (re-running with the *old* token fails auth; re-running with the *new* token succeeds and returns the same new hash). **No wrong-auth resend.**
 
 **One residual risk (downgraded to LOW-3 above):** the silent `current_token=""` fallback.
 
@@ -240,7 +240,7 @@ Full-suite run: `Ran 181 tests in 21.585s / FAILED (failures=3, errors=1)`. The 
 
 - No static-analysis or fuzzing of the JSON-RPC envelope parser.
 - No live HTTP replay test against a running server (read-only lane; no server process started).
-- No review of `src/finalisma_mcp/metrics_activation.py` (does not exist — the `test_metrics_activation` import error is a pre-existing site-bundle issue, not in scope).
+- No review of `src/weft_mcp/metrics_activation.py` (does not exist — the `test_metrics_activation` import error is a pre-existing site-bundle issue, not in scope).
 - No formal verification of the `BEGIN IMMEDIATE` isolation under SQLite WAL with concurrent writers from multiple threads — correctness is inferred from the 73 passing tests and the lock ordering, not measured under load.
 
 ## Invariants touched

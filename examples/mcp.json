@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "finalisma": {
+    "weft": {
       "command": "python",
       "args": [
         "C:\\ABSOLUTE\\PATH\\Multiplayer-AI\\scripts\\weft-mcp.py",

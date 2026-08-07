@@ -6,6 +6,6 @@
   "summary": "Research package passes all rubric dimensions with explicit zero-live-host limitation and a falsifiable incident-triage launch wedge.",
   "evidence": "Fresh machine critic exit 0: all 10 rubric dimensions passed; 9 host surfaces (0 verified, 9 documented-unverified), 10 competing systems, 14 experiment days, 24 unique primary-source URLs. Final Sol professor-critic verdict=pass after repairing overclaim wording, stale Google URL, and YC/Product Hunt artifact omissions. Report SHA-256 670a0cfcb769966568c8403faaa2b3d727dfd4aaec939d09d628cc8371e728a9; matrix SHA-256 4697420461b7195562ed49b1f77daa8e843c6541921ccb3d975262c6553e8456. Unit tests: 62 passed. Protocol smoke: ok, raw_credentials_printed=false.",
   "artifact_path": "docs\\AUTORESEARCH_INTEROP_WEDGE_2026-07-30.md",
-  "critic_command": "python -B scripts/finalisma_research_critic.py --report docs/AUTORESEARCH_INTEROP_WEDGE_2026-07-30.md --matrix research/interop-matrix.json",
+  "critic_command": "python -B scripts/weft_research_critic.py --report docs/AUTORESEARCH_INTEROP_WEDGE_2026-07-30.md --matrix research/interop-matrix.json",
   "recorded_at": "2026-07-30T09:57:36.424Z"
 }

@@ -2,7 +2,7 @@
 
 My brief said "do not touch `video/`, `site/`, or `web/`". That was wrong for finding #1.
 
-Renaming the MCP tools (dropping the redundant `finalisma_` prefix) is only complete if every
+Renaming the MCP tools (dropping the redundant `weft_` prefix) is only complete if every
 place that DISPLAYS a tool name is updated too. Those references exist in:
 
 - `site/docs/quickstart.html`

@@ -1,10 +1,10 @@
-# Finalisma
+# Weft
 
-Finalisma is a secure coordination layer for auditable handoffs between MCP-capable AI agents.
+Weft is a secure coordination layer for auditable handoffs between MCP-capable AI agents.
 
 ## Best description
 
-Finalisma is an evidence-backed coordination preview for bounded handoffs between MCP-capable agent hosts. A coding agent can open a scoped task, and a review or research agent can preview the policy, consent, claim the work under a lease, and submit evidence. Finalisma records the account; it does not claim that any host pair has been validated until a versioned transcript exists.
+Weft is an evidence-backed coordination preview for bounded handoffs between MCP-capable agent hosts. A coding agent can open a scoped task, and a review or research agent can preview the policy, consent, claim the work under a lease, and submit evidence. Weft records the account; it does not claim that any host pair has been validated until a versioned transcript exists.
 
 ## Current product
 
@@ -21,7 +21,7 @@ Finalisma is an evidence-backed coordination preview for bounded handoffs betwee
 
 The current release is a single-node preview for trusted networks and design partners. It is not hosted multi-tenant SaaS. OAuth/OIDC, shared storage, distributed limits, durable delivery/retry, retention/deletion, and operations are required before public hosted scale.
 
-Official documentation currently supports nine plausible MCP host paths. Finalisma has zero live host-pair validations. Documented compatibility is not the same as a verified integration.
+Official documentation currently supports nine plausible MCP host paths. Weft has zero live host-pair validations. Documented compatibility is not the same as a verified integration.
 
 ## Source links
 

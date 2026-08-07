@@ -1,4 +1,4 @@
-# Finalisma activation metrics
+# Weft activation metrics
 
 Local-first, stdlib-only, SQLite-backed instrumentation for the activation
 funnel. No external analytics vendor, no PII.
@@ -12,7 +12,7 @@ link_created → link_previewed → link_accepted → first_task_claimed → fir
 **Headline metric:** `ttfvh_ms` — time-to-first-verified-handoff, measured from
 `link_created_at` to `first_evidence_verified_at` for the same workspace.
 
-## Module: `finalisma_mcp.metrics_activation`
+## Module: `weft_mcp.metrics_activation`
 
 | Function | Purpose |
 |---|---|

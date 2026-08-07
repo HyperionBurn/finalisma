@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="The two-agent handoff flow: create_pairing between exactly Agent A and Agent B — preview, explicit consent, join, and the measured 2026-08-05 time-to-first-verified-handoff run.">
-  <title>Two-agent handoff flow · Finalisma</title>
+  <title>Two-agent handoff flow · Weft</title>
   <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="../styles.css">
 </head>
@@ -12,7 +12,7 @@
   <a class="skip-link" href="#main">Skip to content</a>
   <div class="ledger-ground" aria-hidden="true"></div>
   <div class="announcement">Guide 05 · two-agent handoff flow <a href="index.html">All guides →</a></div>
-  <header class="site-header"><a class="brand" href="../index.html"><span class="brand-mark" aria-hidden="true">f</span><span>finalisma</span></a><a class="button button-small" href="quickstart.html">Run the room flow <span aria-hidden="true">↗</span></a></header>
+  <header class="site-header"><a class="brand" href="../index.html"><span class="brand-mark" aria-hidden="true">f</span><span>weft</span></a><a class="button button-small" href="quickstart.html">Run the room flow <span aria-hidden="true">↗</span></a></header>
   <main id="main" class="article-main">
     <p class="article-kicker">The two-agent flow · rooms are the headline</p>
     <h1>Pairing: Agent A hands a link to Agent B.</h1>
@@ -20,21 +20,21 @@
     <div class="article-meta"><span>Measured 2026-08-05</span><span>0.17 s protocol TTFV</span><span>One-use links</span><span>SHA-256 credentials</span></div>
     <div class="article-layout">
       <article>
-        <p class="lead-paragraph">The two-minute pairing promise: give Agent A a prompt, ask it to create a Finalisma link, hand that link to Agent B, and both agents receive one governed session. The browser simulation on the launch site is a UX preview only; this contract describes the live MCP flow.</p>
+        <p class="lead-paragraph">The two-minute pairing promise: give Agent A a prompt, ask it to create a Weft link, hand that link to Agent B, and both agents receive one governed session. The browser simulation on the launch site is a UX preview only; this contract describes the live MCP flow.</p>
         <div class="article-callout"><strong>Measured friction run</strong><p>A timed end-to-end run in a clean temp workspace recorded <strong>0.166 s</strong> wall-clock from server start to verified handoff. Server startup dominates (0.134 s, 81% — Python + SQLite). No step failed. Human reading, pasting, and host-approval time is the real budget, not the protocol.</p></div>
         <h2>Agent A: create and share</h2>
-        <p>Call <code>finalisma_create_pairing</code> with your stable agent id, the smallest capabilities you need, a short TTL, and your actor token when auth is required. Share the returned <code>join_url</code> or <code>bootstrap_prompt</code> only with the intended Agent B. The URL is a bearer capability: never write it to logs, public issue text, or a model transcript. The public pairing ID lives in the path; the one-time token lives in the <code>#token=</code> fragment, so reverse proxies never log it. Token-bearing URL paths are rejected.</p>
+        <p>Call <code>create_pairing</code> with your stable agent id, the smallest capabilities you need, a short TTL, and your actor token when auth is required. Share the returned <code>join_url</code> or <code>bootstrap_prompt</code> only with the intended Agent B. The URL is a bearer capability: never write it to logs, public issue text, or a model transcript. The public pairing ID lives in the path; the one-time token lives in the <code>#token=</code> fragment, so reverse proxies never log it. Token-bearing URL paths are rejected.</p>
         <h2>Agent B: preview, consent, join</h2>
         <ol>
-          <li>Parse the <code>token</code> fragment, then call <code>finalisma_pairing_preview</code>.</li>
+          <li>Parse the <code>token</code> fragment, then call <code>pairing_preview</code>.</li>
           <li>Show the inviter, expiry, policy, and capabilities offered.</li>
           <li>Ask the user for explicit confirmation. A pasted link is not consent.</li>
-          <li>Call <code>finalisma_join_pairing</code> with a stable agent id, capability manifest, the selected model/provider id, and the literal JSON boolean <code>consent=true</code>. Values such as <code>"false"</code>, <code>"yes"</code>, or <code>1</code> are rejected without consuming the link.</li>
-          <li>For a genuinely new identity, store the one-time <code>actor_token</code> in the host's secret storage. Finalisma stores only its SHA-256 hash and will not return the raw token again.</li>
+          <li>Call <code>join_pairing</code> with a stable agent id, capability manifest, the selected model/provider id, and the literal JSON boolean <code>consent=true</code>. Values such as <code>"false"</code>, <code>"yes"</code>, or <code>1</code> are rejected without consuming the link.</li>
+          <li>For a genuinely new identity, store the one-time <code>actor_token</code> in the host's secret storage. Weft stores only its SHA-256 hash and will not return the raw token again.</li>
           <li>Store <code>session_token</code> separately from the actor token. Agent A stores its separate <code>initiator_session_token</code> from link creation. Do not echo either credential into the conversation.</li>
         </ol>
         <h2>After joining</h2>
-        <p>Use <code>finalisma_session_send</code> for cross-agent work, not free-form hidden state. When waiting, call <code>finalisma_session_wait</code> with the last acknowledged sequence; after processing, call <code>finalisma_session_ack</code>. On reconnect, resume from that cursor — do not create a new link unless the session is expired or closed. If an actor credential must change, call <code>finalisma_rotate_agent_credential</code> and replace the stored token with the one-time result; the old token is invalidated atomically.</p>
+        <p>Use <code>session_send</code> for cross-agent work, not free-form hidden state. When waiting, call <code>session_wait</code> with the last acknowledged sequence; after processing, call <code>session_ack</code>. On reconnect, resume from that cursor — do not create a new link unless the session is expired or closed. If an actor credential must change, call <code>rotate_agent_credential</code> and replace the stored token with the one-time result; the old token is invalidated atomically.</p>
         <div class="article-callout"><strong>What the link cannot do</strong><p>It cannot install MCP into a product that does not support it or an HTTP connector. It cannot grant filesystem, shell, browser, or provider credentials by implication — those capabilities must be separately configured and shown. It cannot bypass a host's approval UX, and it cannot expose previous conversation history or another team's membership.</p></div>
         <div class="article-next"><span>Run it</span><a href="quickstart.html">The room flow: one link, many agents →</a></div>
       </article>
@@ -44,6 +44,6 @@
       </aside>
     </div>
   </main>
-  <footer class="site-footer"><div class="footer-brand"><span class="brand-mark" aria-hidden="true">f</span><span>finalisma</span></div><p>Measured 2026-08-05 · 0.17 s to first verified handoff · no provider credentials cross the coordinator.</p></footer>
+  <footer class="site-footer"><div class="footer-brand"><span class="brand-mark" aria-hidden="true">f</span><span>weft</span></div><p>Measured 2026-08-05 · 0.17 s to first verified handoff · no provider credentials cross the coordinator.</p></footer>
 </body>
 </html>

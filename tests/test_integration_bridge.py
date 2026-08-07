@@ -1,4 +1,4 @@
-"""Integration tests for the Finalisma Bridge MCP surface.
+"""Integration tests for the Weft Bridge MCP surface.
 
 These tests drive the bridge adapters (WebhookBridge, PollingBridge,
 ClipboardBridge) THROUGH the real MCP JSON-RPC dispatcher — never via the
@@ -65,12 +65,12 @@ class BridgeIntegrationTests(unittest.TestCase):
             team_id=self.team_id,
             agent_id=self.agent_id,
             actor_token=self.actor_token,
-            url="https://example.com/finalisma/webhook",
+            url="https://example.com/weft/webhook",
             secret_ref=secret_ref,
         )
         self.assertIn("webhook_id", result)
         self.assertTrue(result["webhook_id"].startswith("wh_"))
-        self.assertEqual(result["url"], "https://example.com/finalisma/webhook")
+        self.assertEqual(result["url"], "https://example.com/weft/webhook")
         self.assertTrue(result["active"])
         # The secret_ref value must NEVER appear in the result JSON.
         serialized = json.dumps(result)
@@ -86,7 +86,7 @@ class BridgeIntegrationTests(unittest.TestCase):
                 team_id=self.team_id,
                 agent_id=self.agent_id,
                 actor_token="fst_actor_wrong_token_value_that_is_long_enough_123456",
-                url="https://example.com/finalisma/webhook",
+                url="https://example.com/weft/webhook",
                 secret_ref="whsec_live_secret_value_do_not_leak_12345",
             )
         self.assertEqual(ctx.exception.code, "actor_auth_invalid")

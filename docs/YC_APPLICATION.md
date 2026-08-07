@@ -12,7 +12,7 @@ verify the live status at [YC Apply](https://www.ycombinator.com/apply).
 
 ## What does your company make?
 
-Finalisma is the secure coordination layer for AI-native engineering teams. It
+Weft is the secure coordination layer for AI-native engineering teams. It
 lets two agent hosts pair through a one-time link, transfer only the approved
 task context, and produce an auditable, evidence-gated handoff.
 
@@ -54,7 +54,7 @@ What we can state truthfully:
   customer median, and it does not include the human time to read docs,
   paste commands, and approve a host's MCP prompt. Treat it as a lower bound on
   the protocol, not an adoption signal.
-- **One real host validated.** The finalisma MCP server completed a full
+- **One real host validated.** The weft MCP server completed a full
   two-agent handoff through a genuine MCP host — opencode 1.18.13 — from its
   own config, with a captured transcript (`docs/INTEROP_VALIDATION_2026-08-05.md`).
   That validation also found and fixed a real interop defect (fencing tokens
@@ -65,13 +65,13 @@ The plan is to recruit a small cohort of teams already running two MCP-capable
 agent hosts, run their first three handoffs as concierge onboarding, and
 measure first-handoff time and second-weekly-handoff rates on real teams. Until
 those are real, the truthful statement is **"we are recruiting design
-partners,"** not "teams use Finalisma."
+partners,"** not "teams use Weft."
 
 ## Why now?
 
 AI-native teams increasingly use more than one agent host. The useful work is
 distributed across coding, research, review, and operations agents, but the
-handoff remains manual. MCP makes host integration possible; Finalisma supplies
+handoff remains manual. MCP makes host integration possible; Weft supplies
 the missing identity, scope, replay, and evidence contract.
 
 ## What is the insight?

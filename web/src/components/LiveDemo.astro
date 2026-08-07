@@ -63,9 +63,9 @@ const terminalText = terminalLines.join('\n');
     opacity: 0;
     margin-left: 0.1ch;
   }
-  .terminal.is-typing .terminal__caret { opacity: 1; animation: finalisma-blink 1s steps(1) infinite; }
+  .terminal.is-typing .terminal__caret { opacity: 1; animation: weft-blink 1s steps(1) infinite; }
   .terminal.is-done .terminal__caret { opacity: 0; }
-  @keyframes finalisma-blink { 50% { opacity: 0; } }
+  @keyframes weft-blink { 50% { opacity: 0; } }
   @media (prefers-reduced-motion: reduce) {
     .terminal__caret { display: none !important; }
   }

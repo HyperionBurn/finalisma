@@ -14,15 +14,15 @@ makers. Recheck the live guide immediately before submission:
 
 ## Listing
 
-**Name:** Finalisma
+**Name:** Weft
 
 **Tagline:** One incident. Two agents. One account of what happened.
 
-**Description:** Finalisma is a single-node coordination preview for bounded,
+**Description:** Weft is a single-node coordination preview for bounded,
 evidence-backed handoffs between MCP-capable agent hosts. One agent opens an
 incident account; another previews the policy, consents, claims the scoped
 work, and returns artifact-linked evidence. Agents keep their own model
-credentials and approval UX. Nine host paths are documented; live Finalisma
+credentials and approval UX. Nine host paths are documented; live Weft
 host-pair validation is still open.
 
 **Topics:** Developer Tools · Artificial Intelligence · Open Source · MCP ·
@@ -30,7 +30,7 @@ Productivity
 
 ## Maker first comment
 
-We built Finalisma because moving work between AI agents still means copying
+We built Weft because moving work between AI agents still means copying
 prompts, credentials, file lists, and progress by hand.
 
 The first workflow is narrow: non-production incident mirrors and PR review for
@@ -55,14 +55,14 @@ whether the second one is meaningfully easier than copy-paste.
 
 **Does this work outside one provider?**
 
-Finalisma is provider-neutral at the coordination layer. Official docs show
+Weft is provider-neutral at the coordination layer. Official docs show
 nine plausible MCP host paths, but this repository contains zero completed
 host-pair validations. Other products need an adapter. Model routes are
 recorded explicitly and never silently substituted.
 
 **Why not Slack?**
 
-Slack carries conversation. Finalisma carries a governed work object: identity,
+Slack carries conversation. Weft carries a governed work object: identity,
 scope, atomic claim, fencing token, ordered replay, and evidence before close.
 
 **Can I expose this publicly?**

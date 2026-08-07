@@ -139,7 +139,7 @@ const capturePageSignals = (page, bucket) => {
     const expectedMetadataAbort =
       request.resourceType() === "media" &&
       reason === "net::ERR_ABORTED" &&
-      /\/assets\/finalisma-demo\.(?:mp4|webm)$/.test(requestPath);
+      /\/assets\/weft-demo\.(?:mp4|webm)$/.test(requestPath);
 
     if (!expectedMetadataAbort) {
       bucket.failedRequests.push({ url: request.url(), reason });
@@ -249,7 +249,7 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
       fallbackRows: fallback ? fallback.querySelectorAll("li").length : 0,
       readoutHasLive: !!readout && readout.getAttribute("aria-live") === "polite",
       gatePresent: !!gateState,
-      generatedLinkNonEmpty: !!generatedLink && /finalisma\.[^/]*\/r\//.test(generatedLink.textContent || ""),
+      generatedLinkNonEmpty: !!generatedLink && /weft\.[^/]*\/r\//.test(generatedLink.textContent || ""),
       tierTabsCount: tierTabs.length,
       tierPanelsCount: tierPanels.length,
       proofItemsCount: proofItems.length,
@@ -359,7 +359,7 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
       sourceTypes,
       hasMp4AndWebm: sourceTypes.includes('video/mp4') && sourceTypes.includes('video/webm'),
       hasEnglishCaptions: !!track && track.srclang === 'en' && track.hasAttribute('default'),
-      posterSet: video.getAttribute('poster') === 'assets/finalisma-demo-poster.png',
+      posterSet: video.getAttribute('poster') === 'assets/weft-demo-poster.png',
       noHorizontalOverflow: document.documentElement.scrollWidth <= document.documentElement.clientWidth
     };
   });
@@ -463,7 +463,7 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
       tierSwitched,
       tierCopied,
       cohortStatus,
-      cohortApplicationPrepared: cohortClipboard.includes("FINALISMA"),
+      cohortApplicationPrepared: cohortClipboard.includes("WEFT"),
       gateTriggered: gateAfterTrigger,
       gateStateText,
       mobileResults,
@@ -517,12 +517,12 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
     || topLevelChecks.linksWithNoName
     || !topLevelChecks.formLabels
     || !topLevelChecks.revealDefaultVisible
-    || !linkCopied.includes("finalisma.")
+    || !linkCopied.includes("weft.")
     || !tierSwitched.httpVisible
     || !tierSwitched.stdioHidden
     || tierSwitched.selectedTab !== "true"
     || !tierCopied.includes("mcp")
-    || !cohortClipboard.includes("FINALISMA")
+    || !cohortClipboard.includes("WEFT")
     || !Object.values(supportingPageChecks).every((checks) => Object.values(checks).every(Boolean))
     || !demoPageChecks.oneH1
     || !demoPageChecks.boundaryVisible

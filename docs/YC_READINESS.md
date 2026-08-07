@@ -1,4 +1,4 @@
-# Finalisma YC readiness review
+# Weft YC readiness review
 
 ## Investor verdict
 
@@ -7,7 +7,7 @@ and get a multiplayer team” is still a platform feature, not a company. A YC
 partner would ask for one painful repeated workflow, a fast activation event,
 and evidence that teams come back without founder-led prompting.
 
-Finalisma should lead with:
+Weft should lead with:
 
 > **The evidence-backed handoff layer for AI-native engineering teams.**
 >

@@ -3,7 +3,7 @@
 **Status:** Authoritative spec for the Wave H web application (the hosted dashboard).
 **Source of truth:** `docs/PRODUCT_ROADMAP.md` §4 (Web application ship gate), §5 (Wave H).
 **Scope:** Server-rendered multi-tenant dashboard: auth, org/member management, rooms, live event stream, audit log, connect-an-agent.
-**Hard boundary:** `src/finalisma_mcp/` stays stdlib-only and UNTOUCHED. The web app lives entirely in `src/finalisma_cloud/web/` and drives rooms by instantiating `RoomStore(db_path)` and calling its methods, plus `backend.bind_room(...)` to bind to a tenant. No dependency on `finalisma_mcp` is added.
+**Hard boundary:** `src/weft_mcp/` stays stdlib-only and UNTOUCHED. The web app lives entirely in `src/weft_cloud/web/` and drives rooms by instantiating `RoomStore(db_path)` and calling its methods, plus `backend.bind_room(...)` to bind to a tenant. No dependency on `weft_mcp` is added.
 
 ---
 
@@ -27,12 +27,12 @@
 
 ## 2. Plane boundary & module layout
 
-All web code lives in `src/finalisma_cloud/web/`:
+All web code lives in `src/weft_cloud/web/`:
 
 ```
-src/finalisma_cloud/web/
+src/weft_cloud/web/
   __init__.py        # package marker
-  app.py             # FinalismaWebApp: route table, server lifecycle
+  app.py             # WeftWebApp: route table, server lifecycle
   routes.py          # handler functions (one per route group)
   session.py         # cookie extraction, CSRF, session→ctx
   templates.py       # TemplateRenderer (string.Template + html.escape)
@@ -54,7 +54,7 @@ src/finalisma_cloud/web/
       connect.html     # /room/{room_id}/connect — copy-paste config
 ```
 
-The coordinator plane (`src/finalisma_mcp/`) is untouched and stays stdlib-only. The web app imports `finalisma_mcp.room.RoomStore` and `finalisma_mcp.tokens` only as a *client* — it calls `RoomStore(db_path)` directly. This is composition, not modification.
+The coordinator plane (`src/weft_mcp/`) is untouched and stays stdlib-only. The web app imports `weft_mcp.room.RoomStore` and `weft_mcp.tokens` only as a *client* — it calls `RoomStore(db_path)` directly. This is composition, not modification.
 
 ---
 
@@ -121,7 +121,7 @@ All state-changing routes are POST; all reads are GET. Auth is enforced per-rout
 - **Name:** `fss_session`
 - **Value:** the raw `fss_` session token (opaque, 43 chars, URL-safe).
 - **Attributes:** `HttpOnly; SameSite=Lax; Path=/`
-- **Secure flag:** set ONLY when the request arrives over HTTPS. The app detects this via the `X-Forwarded-Proto: https` header (TLS-terminating proxy sets it) OR `wsgi.url_scheme == "https"`. In local dev without TLS, Secure is NOT set so the cookie works over HTTP. A single env-configurable toggle `FINALISMA_FORCE_SECURE` (default false) lets tests/dev force it.
+- **Secure flag:** set ONLY when the request arrives over HTTPS. The app detects this via the `X-Forwarded-Proto: https` header (TLS-terminating proxy sets it) OR `wsgi.url_scheme == "https"`. In local dev without TLS, Secure is NOT set so the cookie works over HTTP. A single env-configurable toggle `WEFT_FORCE_SECURE` (default false) lets tests/dev force it.
 - **Max-Age:** 86400 (24h), matching `sessions.DEFAULT_TTL_SECONDS`.
 - **Set via:** `Set-Cookie` header on login, signup→login, invite-accept. Cleared via `Set-Cookie: fss_session=; Max-Age=0; ...` on logout and session revocation.
 
@@ -160,7 +160,7 @@ For each authenticated request:
 
 **stdlib `string.Template` with a `TemplateRenderer` subclass.** No framework, no Jinja2. Templates use `$variable` and `${escaped}` syntax. The renderer:
 
-1. Loads a `.html` template from `src/finalisma_cloud/web/templates/`.
+1. Loads a `.html` template from `src/weft_cloud/web/templates/`.
 2. Calls `template.safe_substitute(mapping)` where every value in `mapping` is pre-escaped via `html.escape(str(value), quote=True)` BEFORE substitution. This guarantees no raw user input reaches the output unescaped, even if a template author forgets to escape.
 3. **Exception:** a deliberate `|raw` filter is NOT provided — there is zero case where the app needs to inject unescaped HTML. All dynamic content is text.
 
@@ -185,13 +185,13 @@ The app reuses `site/styles.css` tokens and the `site/assets/fonts/` font files.
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>$page_title — Finalisma</title>
+  <title>$page_title — Weft</title>
   <link rel="stylesheet" href="/static/styles.css">
   <script>document.documentElement.classList.add('js');</script>
 </head>
 <body>
   <header class="masthead on-cover">
-    <a class="masthead-brand plain" href="/"><span>FINALISMA</span><em>Dashboard</em></a>
+    <a class="masthead-brand plain" href="/"><span>WEFT</span><em>Dashboard</em></a>
     <nav class="masthead-nav">
       <a href="/">Rooms</a>
       <a href="/org">Org</a>
@@ -280,9 +280,9 @@ The page has the room's `link_token`, `room_id`, `tenant_id`, and the coordinato
 ```json
 {
   "mcpServers": {
-    "finalisma": {
+    "weft": {
       "type": "local",
-      "command": ["python", "-B", "/path/to/scripts/finalisma-mcp.py",
+      "command": ["python", "-B", "/path/to/scripts/weft-mcp.py",
         "--transport", "stdio", "--team-id", "<tenant_id>",
         "--workspace", "<workspace_path>", "--state", "<state_path>"],
       "enabled": true
@@ -310,8 +310,8 @@ Actor token:    <agent_actor_token>           # from coordinator registration
 
 **Tier 4 — SDK** (Python snippet):
 ```python
-from finalisma_sdk import FinalismaClient
-client = FinalismaClient(
+from weft_sdk import WeftClient
+client = WeftClient(
     coordinator_url="http://127.0.0.1:18787",
     agent_id="<agent_id>",
     team_id="<tenant_id>",
@@ -330,8 +330,8 @@ room = client.join_room(room_id="<room_id>", link_token="<link_token>", consent=
 ### 7.3 Tier-to-room mapping
 
 The four tiers map to rooms as follows:
-- **MCP stdio / HTTP / SDK** all use the same `finalisma_room_*` tools (the coordinator's room surface). The tier is just the transport — the room is the same.
-- **Bridge** uses `finalisma_bridge_poll` / `finalisma_bridge_ack` / `finalisma_bridge_webhook_register` / `finalisma_bridge_bootstrap` — these are the non-MCP path for hosts that cannot speak MCP.
+- **MCP stdio / HTTP / SDK** all use the same `room_*` tools (the coordinator's room surface). The tier is just the transport — the room is the same.
+- **Bridge** uses `bridge_poll` / `bridge_ack` / `bridge_webhook_register` / `bridge_bootstrap` — these are the non-MCP path for hosts that cannot speak MCP.
 
 ---
 
@@ -437,7 +437,7 @@ class WebAppDriver:
         # Identity schema
         ensure_schema(self.backend)
         # Web app instance
-        self.app = FinalismaWebApp(self.backend, static_dir=SITE_DIR)
+        self.app = WeftWebApp(self.backend, static_dir=SITE_DIR)
         # In-process server on ephemeral port
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), self.app.handler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -537,7 +537,7 @@ Mirrors IDENTITY_DESIGN.md §14 style.
 
 7. **No raw secret in any rendered HTML, URL, or error page.** The orchestrator must run a grep proof: no raw password, session token, link_token (except connect page for members), reset/verify token, or signing secret (except at generation time) appears in any template, redirect URL, or error message.
 
-8. **The coordinator plane (`finalisma_mcp/`) is untouched.** The web app must not modify any file in `src/finalisma_mcp/`. The orchestrator must verify: the diff for Wave H touches only `src/finalisma_cloud/web/`, `src/finalisma_cloud/identity/` (for the new agent-token primitive), `src/finalisma_cloud/storage.py` (for new migrations), and `tests/`.
+8. **The coordinator plane (`weft_mcp/`) is untouched.** The web app must not modify any file in `src/weft_mcp/`. The orchestrator must verify: the diff for Wave H touches only `src/weft_cloud/web/`, `src/weft_cloud/identity/` (for the new agent-token primitive), `src/weft_cloud/storage.py` (for new migrations), and `tests/`.
 
 9. **The new `cloud_identity_csrf` column and `cloud_room_links` table migrations are idempotent.** Every `CREATE TABLE` must use `IF NOT EXISTS`. Every `INSERT` into `schema_migrations` must use `ON CONFLICT DO NOTHING`. The orchestrator must audit each migration SQL.
 
@@ -549,8 +549,8 @@ Mirrors IDENTITY_DESIGN.md §14 style.
 
 | Primitive | Location | Purpose |
 | --- | --- | --- |
-| `orgs.membership_count(backend, account_id) -> int` | `src/finalisma_cloud/identity/orgs.py` | Returns the number of memberships for an account (additive helper; used to enforce one-org-per-account at invite-accept in the web layer). |
-| `SessionContext.session_id` (optional field) | `src/finalisma_cloud/identity/context.py` | Backward-compatible optional field filled by `sessions.validate` so the web layer can read the session's CSRF row. |
+| `orgs.membership_count(backend, account_id) -> int` | `src/weft_cloud/identity/orgs.py` | Returns the number of memberships for an account (additive helper; used to enforce one-org-per-account at invite-accept in the web layer). |
+| `SessionContext.session_id` (optional field) | `src/weft_cloud/identity/context.py` | Backward-compatible optional field filled by `sessions.validate` so the web layer can read the session's CSRF row. |
 | `cloud_identity_csrf(session_id, csrf_token)` | migration `cloud_007_web_csrf` | Stores per-session CSRF tokens (separate table — no ALTER on Wave G tables). |
 | `cloud_room_links(tenant_id, room_id, link_id, link_token, owner_actor_token, created_at)` | migration `cloud_008_web_room_links` | Stores raw room link token (connect-page UX) and the synthetic room-owner actor token (for RoomStore calls), both tenant-scoped. |
 
@@ -565,7 +565,7 @@ All migrations are additive — no existing Wave F/G table is altered.
 | Session management | `identity/sessions.py`: `create`, `validate`, `revoke`, `revoke_all_for_account` (plus optional `SessionContext.session_id` for CSRF lookup) |
 | Role enforcement | `identity/context.py`: `SessionContext.require_role`, `require_db_role` |
 | One-org-per-account | `identity/orgs.py`: additive `membership_count` helper |
-| Room operations | `finalisma_mcp/room.py`: `RoomStore.create_room/room_info/poll/close_room` |
+| Room operations | `weft_mcp/room.py`: `RoomStore.create_room/room_info/poll/close_room` |
 | Tenant scoping | `storage.py`: `StorageBackend` ABC, `bind_room`, `list_rooms`, `append_audit`, `list_audit` |
 | Token hygiene | `identity/tokens.py`: `generate_token`, `hash_token` |
 | Design system | `site/styles.css`: FIELD NOTES tokens, `[hidden]` rule, `@font-face` declarations |

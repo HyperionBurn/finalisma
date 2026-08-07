@@ -1,13 +1,13 @@
 {
   "mcpServers": {
-    "finalisma": {
+    "weft": {
       "command": "python",
       "args": [
-        "C:\\ABSOLUTE\\PATH\\Multiplayer-AI\\scripts\\finalisma-mcp.py",
+        "C:\\ABSOLUTE\\PATH\\Multiplayer-AI\\scripts\\weft-mcp.py",
         "--workspace",
         "C:\\ABSOLUTE\\PATH\\shared-workspace",
         "--state",
-        "C:\\ABSOLUTE\\PATH\\shared-workspace\\.finalisma\\state.db"
+        "C:\\ABSOLUTE\\PATH\\shared-workspace\\.weft\\state.db"
       ]
     }
   }

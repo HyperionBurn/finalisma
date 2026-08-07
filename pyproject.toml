@@ -9,7 +9,7 @@ description = "A dependency-free MCP bridge for reliable agent-to-agent teams."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-authors = [{ name = "Finalisma" }]
+authors = [{ name = "Weft" }]
 dependencies = []
 
 [project.scripts]

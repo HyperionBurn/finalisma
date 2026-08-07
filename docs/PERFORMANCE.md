@@ -1,6 +1,6 @@
 # Single-node performance envelope
 
-Finalisma has a locked, standard-library-only performance gate for the local
+Weft has a locked, standard-library-only performance gate for the local
 SQLite coordinator. It measures product work rather than isolated helper
 functions:
 
@@ -39,7 +39,7 @@ change absolute timings.
 ## Run the locked gate
 
 ```powershell
-python -B .\scripts\finalisma_performance_gate.py `
+python -B .\scripts\weft_performance_gate.py `
   --baseline .omx\goals\performance\single-node-coordinator-envelope\baseline.json `
   --runs 7
 ```
@@ -60,7 +60,7 @@ Capture a baseline only under a new reviewed performance goal. Never overwrite
 a baseline to make a regression pass:
 
 ```powershell
-python -B .\scripts\finalisma_performance_gate.py `
+python -B .\scripts\weft_performance_gate.py `
   --baseline .omx\goals\performance\<new-goal>\baseline.json `
   --runs 7 `
   --capture-baseline
@@ -69,7 +69,7 @@ python -B .\scripts\finalisma_performance_gate.py `
 ## What changed
 
 The largest Windows cost was opening and closing a SQLite connection for every
-store operation. `FinalismaStore` now keeps bounded, thread-safe idle pools for
+store operation. `WeftStore` now keeps bounded, thread-safe idle pools for
 write and query-only connections. Each pool retains at most four connections;
 additional concurrent connections are closed when returned. SQLite remains the
 source of truth, separate processes still coordinate through WAL, and no token
@@ -84,7 +84,7 @@ The hot paths also avoid redundant work:
 - task writes use `RETURNING` instead of immediately re-reading rows;
 - inbox reads reuse acknowledgement state from their existing join.
 
-Long-lived callers should use `with FinalismaStore(...) as store:` or call
+Long-lived callers should use `with WeftStore(...) as store:` or call
 `store.close()` during shutdown. The CLI, smoke flow, pruning utility, and test
 harnesses exercise this lifecycle.
 

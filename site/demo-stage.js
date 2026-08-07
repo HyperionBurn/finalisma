@@ -89,7 +89,7 @@
         if (elapsed >= totalMs) {
           document.body.dataset.demoComplete = 'true';
           fields.progressLabel.textContent = `Recorded proof · ${formatClock(totalMs)} / ${formatClock(totalMs)}`;
-          window.dispatchEvent(new CustomEvent('finalisma:demo-complete'));
+          window.dispatchEvent(new CustomEvent('weft:demo-complete'));
           return;
         }
         requestAnimationFrame(tick);

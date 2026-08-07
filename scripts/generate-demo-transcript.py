@@ -16,7 +16,7 @@ from weft_mcp.core import WeftError, WeftStore  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Generate the redacted Finalisma launch-demo transcript")
+    parser = argparse.ArgumentParser(description="Generate the redacted Weft launch-demo transcript")
     parser.add_argument(
         "--output",
         default=str(PROJECT_ROOT / "site" / "assets" / "demo-transcript.json"),
@@ -159,7 +159,7 @@ def run_demo() -> dict[str, object]:
                     {
                         "eyebrow": "The handoff problem",
                         "headline": "One agent stalls. Copy-paste destroys the account.",
-                        "caption": "Finalisma keeps scope, ownership, ordered progress, and evidence in one inspectable record.",
+                        "caption": "Weft keeps scope, ownership, ordered progress, and evidence in one inspectable record.",
                         "agent_a": "Incident owner · context exhausted",
                         "agent_b": "Review agent · waiting outside the account",
                         "event": "No governed handoff yet",
@@ -238,11 +238,11 @@ def run_demo() -> dict[str, object]:
                         "state": "balanced",
                     },
                     {
-                        "eyebrow": "Finalisma · design-partner preview",
+                        "eyebrow": "Weft · design-partner preview",
                         "headline": "One incident. Two agents. One account of what happened.",
                         "caption": "Run the local proof. Then help validate the first real host pair.",
                         "agent_a": "9 documented MCP paths",
-                        "agent_b": "0 live Finalisma host validations",
+                        "agent_b": "0 live Weft host validations",
                         "event": "Codex + Claude Code proposed first pair",
                         "state": "balanced",
                     },

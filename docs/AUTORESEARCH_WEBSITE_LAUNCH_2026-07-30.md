@@ -1,4 +1,4 @@
-# Finalisma website launch autoresearch
+# Weft website launch autoresearch
 
 Date: 2026-07-30  
 Codex goal: `go all in on the website`  
@@ -6,7 +6,7 @@ Research perspective: a first-time engineering buyer deciding in 90 seconds whet
 
 ## Research question
 
-Can the Finalisma website turn a skeptical visitor into a qualified design-partner action while preserving the DOUBLE ENTRY visual system and never claiming host compatibility that the repository has not proved?
+Can the Weft website turn a skeptical visitor into a qualified design-partner action while preserving the DOUBLE ENTRY visual system and never claiming host compatibility that the repository has not proved?
 
 The prior product research selected one wedge: a bounded, non-production incident handoff between two agent hosts. This pass treats the website itself as the product experiment. Visual novelty counts only when it improves comprehension, trust, memory, or action.
 
@@ -15,7 +15,7 @@ The prior product research selected one wedge: a bounded, non-production inciden
 PASS requires every dimension below:
 
 1. A visitor can state the job, user, and boundary from the first fold.
-2. Documented compatibility and live Finalisma validation are numerically distinct.
+2. Documented compatibility and live Weft validation are numerically distinct.
 3. The desktop reconciliation interaction tells the product story through scroll and manual control.
 4. Mobile uses a reliable touch interaction at standard and short heights.
 5. The primary CTA is gated by the story state and visible in the standard mobile fold.
@@ -30,7 +30,7 @@ PASS requires every dimension below:
 
 ### P0 truth risk
 
-The original primary language described a “verified agent handoff layer” even though the current matrix contains nine documented MCP paths and zero fresh Finalisma host runs. A YC partner or senior buyer would discover that mismatch immediately and discount every later claim.
+The original primary language described a “verified agent handoff layer” even though the current matrix contains nine documented MCP paths and zero fresh Weft host runs. A YC partner or senior buyer would discover that mismatch immediately and discount every later claim.
 
 ### P1 conversion risk
 
@@ -76,7 +76,7 @@ Result: supported with a launch limitation. The form validates real fields and p
 
 ### H6: a generated real-run proof is stronger than a simulated browser story alone
 
-Result: supported. A fresh local `FinalismaStore` run now produces a credential-redacted public transcript and a reproducible 42-second narrative encoded as 43.04-second MP4 and WebM files. Pairing, ordered relay, cursor acknowledgement, lease and fencing ownership, artifact hashing, secret scanning, evidence gating, completion, and audit events use the real coordinator. The two host actors remain labelled deterministic fixtures in the video, poster, watch page, and transcript.
+Result: supported. A fresh local `WeftStore` run now produces a credential-redacted public transcript and a reproducible 42-second narrative encoded as 43.04-second MP4 and WebM files. Pairing, ordered relay, cursor acknowledgement, lease and fencing ownership, artifact hashing, secret scanning, evidence gating, completion, and audit events use the real coordinator. The two host actors remain labelled deterministic fixtures in the video, poster, watch page, and transcript.
 
 ## Implemented outcome
 
@@ -98,7 +98,7 @@ Result: supported. A fresh local `FinalismaStore` run now produces a credential-
 - Visual comparison: [../artifacts/design-qa/comparison-desktop-1440x900.png](../artifacts/design-qa/comparison-desktop-1440x900.png)
 - Recorded-proof page: [../artifacts/design-qa/implementation-demo-1440x900.png](../artifacts/design-qa/implementation-demo-1440x900.png)
 - Video build record: [../artifacts/design-qa/demo-video-results.json](../artifacts/design-qa/demo-video-results.json)
-- Deterministic critic: `python -B scripts/finalisma_website_critic.py`
+- Deterministic critic: `python -B scripts/weft_website_critic.py`
 - Protocol and launch tests: `python -B -m unittest discover -s tests -v` -> 226 passing
 - Rendered browser gate: `node scripts/capture-site-qa.cjs` -> exit 0
 - Matching-runtime performance gate: re-baselined 2026-08-05 to ~68.8ms weighted median against the current extended harness; earlier 1,265.771ms -> 59.314ms (95.31%) was measured against a 3-scenario harness that no longer exists — see docs/PERFORMANCE.md provenance
@@ -118,4 +118,4 @@ The active Codex goal was used for the website mission. The installed `$autorese
 
 ## Professor verdict
 
-PASS when the fresh unit suite, rendered browser harness, `design-qa.md`, and `scripts/finalisma_website_critic.py` all pass against the same working tree. External domain and lead-delivery inputs remain an explicit go-live handoff, not a hidden implementation claim.
+PASS when the fresh unit suite, rendered browser harness, `design-qa.md`, and `scripts/weft_website_critic.py` all pass against the same working tree. External domain and lead-delivery inputs remain an explicit go-live handoff, not a hidden implementation claim.

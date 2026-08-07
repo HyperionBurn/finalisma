@@ -101,7 +101,7 @@ class WeftStoreTests(unittest.TestCase):
         self.assertFalse(failed["passed"])
         self.assertEqual(failed["task_status"], "review")
 
-        artifact.write_text("Finalisma artifact\n", encoding="utf-8")
+        artifact.write_text("Weft artifact\n", encoding="utf-8")
         passed = self.store.verify_task(
             "demo", "agent-b", claimed["task_id"], claimed["fencing_token"], ["artifact.txt"], [{"name": "tests", "status": "passed", "evidence": "unit tests pass"}]
         )

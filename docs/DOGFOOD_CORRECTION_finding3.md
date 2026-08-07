@@ -2,7 +2,7 @@
 
 **I was wrong, and implementing finding #3 as written would be a security regression.**
 
-Verified in `src/finalisma_mcp/core.py`:
+Verified in `src/weft_mcp/core.py`:
 
 ```sql
 token_hash TEXT NOT NULL UNIQUE CHECK(length(token_hash) = 64)
@@ -12,7 +12,7 @@ Actor tokens are stored as **SHA-256 hashes only**. The raw token is never persi
 an existing credential is not merely unimplemented — it is cryptographically impossible without
 storing raw secrets. `site/docs/quickstart.html` already documents this as intentional:
 
-> "Persist the returned `actor_token` once in the host's secret storage. Finalisma stores only its
+> "Persist the returned `actor_token` once in the host's secret storage. Weft stores only its
 > SHA-256 hash and will never return the raw token again."
 
 That is a good design. Do not weaken it.

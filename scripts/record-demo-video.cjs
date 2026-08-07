@@ -10,9 +10,9 @@ const { chromium } = require(playwrightPath);
 const root = path.resolve(__dirname, '..');
 const siteUrl = process.env.WEFT_SITE_URL || 'http://127.0.0.1:4175/';
 const tempDir = path.join(root, '.tmp', 'demo-video');
-const webmPath = path.join(root, 'site', 'assets', 'finalisma-demo.webm');
-const mp4Path = path.join(root, 'site', 'assets', 'finalisma-demo.mp4');
-const posterPath = path.join(root, 'site', 'assets', 'finalisma-demo-poster.png');
+const webmPath = path.join(root, 'site', 'assets', 'weft-demo.webm');
+const mp4Path = path.join(root, 'site', 'assets', 'weft-demo.mp4');
+const posterPath = path.join(root, 'site', 'assets', 'weft-demo-poster.png');
 
 const findNestedFfmpeg = (directory, depth = 0) => {
   if (!directory || depth > 7 || !fs.existsSync(directory)) return [];

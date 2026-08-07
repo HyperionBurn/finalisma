@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Finalisma Coordination Protocol Preview 0.1: the current contract for identity, pairing, sessions, tasks, and evidence.">
-  <title>Coordination protocol preview · Finalisma</title>
+  <meta name="description" content="Weft Coordination Protocol Preview 0.1: the current contract for identity, pairing, sessions, tasks, and evidence.">
+  <title>Coordination protocol preview · Weft</title>
   <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="../styles.css">
 </head>
@@ -12,16 +12,16 @@
   <a class="skip-link" href="#main">Skip to content</a>
   <div class="ledger-ground" aria-hidden="true"></div>
   <div class="announcement">Guide 02 · protocol preview <a href="index.html">All guides →</a></div>
-  <header class="site-header"><a class="brand" href="../index.html"><span class="brand-mark" aria-hidden="true">f</span><span>finalisma</span></a><a class="button button-small" href="security.html">Security gates <span aria-hidden="true">↗</span></a></header>
+  <header class="site-header"><a class="brand" href="../index.html"><span class="brand-mark" aria-hidden="true">f</span><span>weft</span></a><a class="button button-small" href="security.html">Security gates <span aria-hidden="true">↗</span></a></header>
   <main id="main" class="article-main">
     <p class="article-kicker">Interop Profile 0.1 · implementation preview</p>
     <h1>A handoff is an account, not a pasted prompt.</h1>
-    <p class="article-dek">This is a product protocol preview, not an industry standard. MCP provides the tool transport; Finalisma adds a bounded coordination contract.</p>
+    <p class="article-dek">This is a product protocol preview, not an industry standard. MCP provides the tool transport; Weft adds a bounded coordination contract.</p>
     <div class="article-layout">
       <article>
         <p class="lead-paragraph">Each participant has an explicit identity and capability. Every task has one owner at a time, a declared scope, ordered events, and an inspectable basis for completion.</p>
         <h2>Discovery and identity</h2>
-        <p>Hosts discover Finalisma as an MCP server. Agents register a team-scoped identity, declared host/model route, role, and capabilities. A slot records routing data; it never contains a provider credential.</p>
+        <p>Hosts discover Weft as an MCP server. Agents register a team-scoped identity, declared host/model route, role, and capabilities. A slot records routing data; it never contains a provider credential.</p>
         <h2>Consent and pairing</h2>
         <p>A one-use pairing link exposes a non-mutating preview before join. Only literal JSON <code>true</code> counts as consent. Pairing tokens expire and are stored only as hashes.</p>
         <h2>Task ownership</h2>
@@ -31,8 +31,8 @@
         <h2>Cancellation and failure</h2>
         <p>Cancellation is explicit and auditable. Expired links require new consent. A transport disconnect reuses the active session and cursor; it does not silently create a new identity or task.</p>
         <h2>Evidence semantics</h2>
-        <p>Finalisma hashes declared artifacts, rejects workspace escapes, scans for high-confidence secret signatures, and requires submitted checks to pass. The gate proves what was submitted and evaluated—not that the code is universally correct.</p>
-        <div class="article-callout"><strong>What remains Finalisma-specific</strong><p>Pairing consent, team identities, task leases, fencing, ordered event replay, evidence gates, and the audit account. MCP remains the host-to-server transport.</p></div>
+        <p>Weft hashes declared artifacts, rejects workspace escapes, scans for high-confidence secret signatures, and requires submitted checks to pass. The gate proves what was submitted and evaluated—not that the code is universally correct.</p>
+        <div class="article-callout"><strong>What remains Weft-specific</strong><p>Pairing consent, team identities, task leases, fencing, ordered event replay, evidence gates, and the audit account. MCP remains the host-to-server transport.</p></div>
         <div class="article-next"><span>Boundary</span><a href="security.html">Read what blocks public hosted scale →</a></div>
       </article>
       <aside class="article-aside">
@@ -41,6 +41,6 @@
       </aside>
     </div>
   </main>
-  <footer class="site-footer"><div class="footer-brand"><span class="brand-mark" aria-hidden="true">f</span><span>finalisma</span></div><p>Coordination Protocol Preview 0.1.</p></footer>
+  <footer class="site-footer"><div class="footer-brand"><span class="brand-mark" aria-hidden="true">f</span><span>weft</span></div><p>Coordination Protocol Preview 0.1.</p></footer>
 </body>
 </html>

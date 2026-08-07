@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
-  <title>Finalisma — evidence-backed handoffs between AI agent hosts</title>
+  <title>Weft — evidence-backed handoffs between AI agent hosts</title>
   <style>
     /* Resolved relative to this file, so the rendered PNG uses the real faces. */
     @font-face {
@@ -33,7 +33,7 @@
   <!-- brand -->
   <rect x="72" y="56" width="30" height="30" fill="#E8E3D4"/>
   <text class="ink-ground" x="87" y="79" font-family="Archivo, sans-serif" font-size="20" font-weight="700" font-stretch="90%" text-anchor="middle">f</text>
-  <text class="brand" x="114" y="79" fill="#E8E3D4">finalisma</text>
+  <text class="brand" x="114" y="79" fill="#E8E3D4">weft</text>
   <rect y="118" width="1200" height="1" fill="#E8E3D4" fill-opacity=".22"/>
 
   <!-- the statement, straddling the rule -->

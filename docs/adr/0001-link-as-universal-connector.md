@@ -1,7 +1,7 @@
 # ADR-0001: Link as universal connector
 
 > **Status:** Accepted.
-> **Context:** Finalisma ships a single-node MCP coordinator. Pairing links already
+> **Context:** Weft ships a single-node MCP coordinator. Pairing links already
 > carry a public pairing ID in the path and a one-time secret in the URL fragment.
 > The product vision is a universal agent interconnect: any agent (CLI, app,
 > browser/ChatGPT-like, opencode) shares ONE link to connect to any other
@@ -9,14 +9,14 @@
 
 ## Decision
 
-**The Finalisma pairing link is the single universal connector.** One link format
+**The Weft pairing link is the single universal connector.** One link format
 binds any two hosts regardless of MCP support. We implement three bridging tiers
 over the same link + consent flow already shipped in `server.py`:
 
 - **T1 Native MCP** — direct use (shipped).
 - **T2 HTTP bridge** (`bridge.py`) — REST adapter over `core.py` for hosts with
   HTTP but no MCP.
-- **T3 Browser embed** (`finalisma_sdk`) — JS widget driving the existing
+- **T3 Browser embed** (`weft_sdk`) — JS widget driving the existing
   `/v1/join/:id` endpoints for browser/ChatGPT-like UIs.
 
 Every tier performs the same `pairing_preview → consent=true → join` sequence and
@@ -46,7 +46,7 @@ a shortcut past the consent gate.
   seconds") is identical for T1/T2/T3. The product becomes the universal
   interconnect without forking the protocol.
 - **Positive:** Backward compatibility. Existing MCP clients keep working.
-  `bridge.py` and `finalisma_sdk` are additive — no change to `core.py` in P0.
+  `bridge.py` and `weft_sdk` are additive — no change to `core.py` in P0.
 - **Negative / cost:** Three surfaces to maintain and test (MCP, REST, browser).
   Each tier must enforce the same consent + evidence invariants. Test matrix
   grows: every tier needs pairing-join, evidence-gate, and credential-rotation
@@ -73,5 +73,5 @@ a shortcut past the consent gate.
   hosted traffic (P2).
 - `docs/PROTOCOL.md` — the `finalisma.a2a/1.0` envelope; `2.0` in NEXUS adds
   roster, capability manifest, addressing.
-- `src/finalisma_mcp/server.py` — existing HTTP join flow (`/v1/join/:id`).
-- `src/finalisma_mcp/core.py` — transport-neutral store reused by all tiers.
+- `src/weft_mcp/server.py` — existing HTTP join flow (`/v1/join/:id`).
+- `src/weft_mcp/core.py` — transport-neutral store reused by all tiers.

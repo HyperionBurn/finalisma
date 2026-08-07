@@ -1,11 +1,11 @@
 # Performance Evaluator: single-node-coordinator-envelope
 
 ## Objective
-Measure and improve Finalisma's realistic single-node coordination envelope, reducing weighted median coordinator wall time by at least 20 percent while preserving protocol semantics, security boundaries, and product behavior.
+Measure and improve Weft's realistic single-node coordination envelope, reducing weighted median coordinator wall time by at least 20 percent while preserving protocol semantics, security boundaries, and product behavior.
 
 ## Evaluator Command
 ```sh
-python -B scripts/finalisma_performance_gate.py --baseline .omx/goals/performance/single-node-coordinator-envelope/baseline.json --runs 7
+python -B scripts/weft_performance_gate.py --baseline .omx/goals/performance/single-node-coordinator-envelope/baseline.json --runs 7
 ```
 
 ## Pass/Fail Contract

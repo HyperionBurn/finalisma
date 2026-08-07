@@ -30,10 +30,10 @@ for them.
 
 ## Cause
 
-- `room_send` (`src/finalisma_cloud/rooms.py`) appends via
+- `room_send` (`src/weft_cloud/rooms.py`) appends via
   `_append_event(..., "room.message", {"payload": ..., "target_spec": ..., "targets": targets})`.
   The recipients live *inside the payload*, as data.
-- `poll` (`src/finalisma_cloud/rooms.py`) reads:
+- `poll` (`src/weft_cloud/rooms.py`) reads:
   ```sql
   SELECT * FROM cloud_room_event_log
   WHERE tenant_id = ? AND room_id = ? AND seq > ? ORDER BY seq ASC LIMIT ?

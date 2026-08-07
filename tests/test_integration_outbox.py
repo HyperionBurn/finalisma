@@ -1,4 +1,4 @@
-"""Integration tests for the Finalisma outbox MCP surface.
+"""Integration tests for the Weft outbox MCP surface.
 
 RED-only deliverable: the ``outbox_*`` tools are not wired into the
 MCP dispatcher yet, so every ``call_tool`` below must fail. The orchestrator

@@ -1,5 +1,12 @@
 # Dogfood findings — first real integration
 
+> **Status note (2026-08-07, rebrand lane):** finding #1 below has been
+> FIXED. The internal `finalisma_` tool prefix was dropped (item 9 of the
+> rebrand), so `tools/list` now returns unprefixed names (`room_create`,
+> `register_agent`, `room_poll`). The historical text below is kept as the
+> dated record of the defect; it no longer describes current behaviour. All
+> other findings remain open.
+
 We coordinated our own multi-agent build using Finalisma: MCP server on `127.0.0.1:18787`,
 a room for the build team, opencode agents as members. These are the things that cost a
 competent, motivated integrator real time. Every one was hit for real, not imagined.
@@ -13,9 +20,9 @@ Ordered by how much damage each does to a first integration.
 opencode surfaces our tools as:
 
 ```
-finalisma_finalisma_room_create
-finalisma_finalisma_register_agent
-finalisma_finalisma_room_poll
+finalisma_room_create
+finalisma_register_agent
+finalisma_room_poll
 ```
 
 MCP hosts namespace tools by **server name**. Ours are *also* individually prefixed
@@ -39,14 +46,14 @@ error messages says "this is where your credential comes from."
 It took four failed attempts to open one room:
 
 ```
-finalisma_register_agent  → "Missing required argument 'team_id'"
-finalisma_org_create      → "Missing required argument 'org_name'"
-finalisma_room_create     → "Missing required argument 'owner_agent_id'"
-finalisma_room_create     → "Actor token is invalid"     ← passed an empty token
+register_agent  → "Missing required argument 'team_id'"
+org_create      → "Missing required argument 'org_name'"
+room_create     → "Missing required argument 'owner_agent_id'"
+room_create     → "Actor token is invalid"     ← passed an empty token
 ```
 
 Each error is individually correct. The sequence is still pure guesswork. The server's
-`initialize` instructions say *"Use finalisma_register_agent before mutations"* — which is the
+`initialize` instructions say *"Use register_agent before mutations"* — which is the
 right hint and stops one sentence too early.
 
 **Fix:** say in the `register_agent` description that it returns `actor_token` and that every
@@ -163,7 +170,7 @@ integrator's first hour.
 
 ## Deploy-lane session findings
 
-Hit while containerising `finalisma_cloud/service.py` and driving `prove-multiagent.py`.
+Hit while containerising `weft_cloud/service.py` and driving `prove-multiagent.py`.
 
 1. **`target_spec: "*"` must be sent as the JSON string `"*"`, not a bare token.** In
    opencode, passing `target_spec: *` fails with "JSON Parse error: Unrecognized token '*'"
@@ -192,7 +199,7 @@ Hit while containerising `finalisma_cloud/service.py` and driving `prove-multiag
    This is a general rule for every script and transcript in the repo.
 7. **The suite is red before any deploy work.** On arrival: 512 tests, 9-11 failures + 19
    errors. The persistent set: 19 webapp errors + 3 webapp failures (all from in-progress
-   uncommitted `src/finalisma_cloud/web/app.py`), the `frl_` prefix assertion (code emits
+   uncommitted `src/weft_cloud/web/app.py`), the `frl_` prefix assertion (code emits
    `rm_`), and the count guard (docs still claim 396, live is 512). Plus 4 webapp tests are
    flaky (pass on some runs). A lane told to "keep the suite green" must know the baseline is
    already red or it will burn an hour re-discovering it.

@@ -177,9 +177,9 @@ def build_release(*, origin: str, contact_url: str, output: Path, force: bool = 
     )
 
     media_paths = [
-        resolved_output / "assets" / "finalisma-demo.mp4",
-        resolved_output / "assets" / "finalisma-demo.webm",
-        resolved_output / "assets" / "finalisma-demo-poster.png",
+        resolved_output / "assets" / "weft-demo.mp4",
+        resolved_output / "assets" / "weft-demo.webm",
+        resolved_output / "assets" / "weft-demo-poster.png",
     ]
     manifest = {
         "schema": "weft.site-release/v1",

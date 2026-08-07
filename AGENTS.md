@@ -1,4 +1,4 @@
-# Finalisma — agent rules (branch `isolated`)
+# Weft — agent rules (branch `isolated`)
 
 Read `ORCHESTRATOR_BRIEF.md` in this directory before planning work or dispatching a lane.
 It contains the full analysis, lane specs, prompt template, and verification gates.
@@ -54,19 +54,19 @@ These were real defects and are all fixed. Listed so nobody spends a lane re-dis
   exceptions (`client.py:269`).
 - The five Wave-A modules are mounted behind the MCP surface (`fe4b2c5`) with integration
   contracts that drive real JSON-RPC dispatch, not the module APIs.
-- A real MCP host (opencode 1.18.13) loaded finalisma from its own config and completed a full
+- A real MCP host (opencode 1.18.13) loaded weft from its own config and completed a full
   two-agent handoff (`96d76ba`, `docs/INTEROP_VALIDATION_2026-08-05.md`). The interop matrix now
   records 1 verified host.
-- Wave E Rooms are implemented (`src/finalisma_mcp/room.py`): one multi-use link admits N agents
+- Wave E Rooms are implemented (`src/weft_mcp/room.py`): one multi-use link admits N agents
   up to a cap, with ordered event log, per-member cursors, addressing (unicast/group/broadcast),
-  and 12 `finalisma_room_*` tools. Design: `docs/ROOMS_DESIGN.md`.
-- Wave F Cloud Spine is implemented (`src/finalisma_cloud/`): a storage interface
+  and 12 `room_*` tools. Design: `docs/ROOMS_DESIGN.md`.
+- Wave F Cloud Spine is implemented (`src/weft_cloud/`): a storage interface
   (`StorageBackend` ABC) with a stdlib SQLite-WAL backend, structural tenancy at the storage
   boundary (`TenantContext` guard, required `tenant_id`, `WHERE tenant_id = ?`), forward-only
   idempotent migrations that upgrade a real v3 coordinator DB in place, plan-driven quotas and
   rate limits, and real crash-kill durability tests. Design: `docs/CLOUD_SPINE_DESIGN.md`. The
-  coordinator plane (`finalisma_mcp`) is untouched and stays stdlib-only.
-- Wave G Identity is implemented (`src/finalisma_cloud/identity/`): accounts (scrypt, per-user
+  coordinator plane (`weft_mcp`) is untouched and stays stdlib-only.
+- Wave G Identity is implemented (`src/weft_cloud/identity/`): accounts (scrypt, per-user
   salt, constant-time compare, timing-invariant unknown-email auth), sessions (opaque `fss_`
   tokens, SHA-256 at rest, rotation on role change, revoke/revoke-all), orgs (owner/admin/member,
   org IS a tenant), invites (expiring single-use role-scoped `fiv_` tokens, email-locked, no
@@ -123,7 +123,7 @@ blocks the tool call forever and the whole run stalls with no error.
 Never do this:
 
 ```bash
-python scripts/finalisma-mcp.py --transport http --port 18787 &   # BLOCKS the tool call
+python scripts/weft-mcp.py --transport http --port 18787 &   # BLOCKS the tool call
 ```
 
 A `Start-Process` wrapper was tried and also stalled once, for reasons not reproduced in
@@ -136,7 +136,7 @@ cleanup, no detachment, no orphan risk:
 ```python
 import subprocess, json, sys
 proc = subprocess.Popen(
-    [sys.executable, "-B", "scripts/finalisma-mcp.py"],       # stdio transport
+    [sys.executable, "-B", "scripts/weft-mcp.py"],       # stdio transport
     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
 )
 try:
@@ -195,8 +195,8 @@ here: `agent-orchestrator` (scan → match → orchestrate before fanning out la
 
 ```powershell
 python -B -m unittest discover -s tests
-python -B scripts/finalisma-smoke.py          # expect evidence_passed: true
+python -B scripts/weft-smoke.py          # expect evidence_passed: true
 node --check site/app.js
 node scripts/capture-site-qa.cjs              # expect consoleErrors: [] and all booleans true
-python scripts/finalisma_performance_gate.py  # locked baseline; 59.314ms weighted median
+python scripts/weft_performance_gate.py  # locked baseline; 59.314ms weighted median
 ```

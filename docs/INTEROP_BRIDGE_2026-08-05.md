@@ -1,4 +1,4 @@
-# Finalisma bridge-adapter interop validation — 2026-08-05
+# Weft bridge-adapter interop validation — 2026-08-05
 
 ## Summary
 
@@ -17,7 +17,7 @@ specific third-party host product (e.g. Slack webhook) integrates.
 ## Honest scope statement
 
 - **Proven:** the bridge adapter classes (`WebhookBridge`, `PollingBridge`,
-  `ClipboardBridge`) in `src/finalisma_mcp/bridge.py` compose against a real
+  `ClipboardBridge`) in `src/weft_mcp/bridge.py` compose against a real
   coordinator's database and enforce their invariants (one-shot nonce,
   at-most-once cursor delivery, actor-bound access, HMAC-signed webhooks with
   fail-closed signing). All negative refusals fire as designed.
@@ -33,7 +33,7 @@ specific third-party host product (e.g. Slack webhook) integrates.
 
 - Host: Windows 11, Python 3.11+ (stdlib only — no third-party deps)
 - Transport: **stdio** (MCP's primary transport)
-- Coordinator: `scripts/finalisma-mcp.py --transport stdio --team-id demo`
+- Coordinator: `scripts/weft-mcp.py --transport stdio --team-id demo`
 - Driver: `scripts/interop-validate-bridge.py` (Python driver owns the child
   via `subprocess.Popen`, teardown in `finally`, run under `timeout`)
 
@@ -43,7 +43,7 @@ specific third-party host product (e.g. Slack webhook) integrates.
 timeout 180 python -B scripts/interop-validate-bridge.py
 python -B -m unittest tests.test_interop_bridge -v
 netstat -ano | grep <webhook-port>   # must show NO listener after exit
-python -B scripts/finalisma-smoke.py
+python -B scripts/weft-smoke.py
 ```
 
 ## Result
@@ -53,7 +53,7 @@ Driver: `status: ok`, `time_s: 0.376`.
 ```
 status: ok
 protocol_version: 2025-11-25
-server_info: {name: finalisma-mcp, version: 0.1.0}
+server_info: {name: weft-mcp, version: 0.1.0}
 tool_count: 58
 clipboard_one_shot:
   first_parse_ok: true
@@ -85,15 +85,15 @@ Netstat: NO LISTENER (clean) — the ephemeral webhook receiver was torn down.
 
 ```
 > {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{}}}
-< {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{"tools":{"listChanged":false}},"serverInfo":{"name":"finalisma-mcp","version":"0.1.0"},...}}
-# initialize: protocol=2025-11-25 server={'name': 'finalisma-mcp', 'version': '0.1.0'}
+< {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{"tools":{"listChanged":false}},"serverInfo":{"name":"weft-mcp","version":"0.1.0"},...}}
+# initialize: protocol=2025-11-25 server={'name': 'weft-mcp', 'version': '0.1.0'}
 > {"jsonrpc":"2.0","id":2,"method":"tools/list"}
 < {"jsonrpc":"2.0","id":2,"result":{"tools":[...58 tools...]}}
 # tools/list: 58 tools
-> {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"finalisma_register_agent","arguments":{"team_id":"demo","agent_id":"bridge-agent","role":"generalist","name":"Bridge Agent"}}}
+> {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"register_agent","arguments":{"team_id":"demo","agent_id":"bridge-agent","role":"generalist","name":"Bridge Agent"}}}
 < {"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"{...\"actor_token\":\"fst_actor_w6e0nNc8iuTHLIMNUgCuhWkOvVOlr0g1TjpUXyor6mU\"...}"}],...}}
 # register_agent: agent_id=bridge-agent token=fst_acto...
-> {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"finalisma_create_pairing","arguments":{"initiator_id":"bridge-agent","team_id":"demo","capabilities_offered":["read"],"actor_token":"fst_actor_w6e0nNc8iuTHLIMNUgCuhWkOvVOlr0g1TjpUXyor6mU"}}}
+> {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"create_pairing","arguments":{"initiator_id":"bridge-agent","team_id":"demo","capabilities_offered":["read"],"actor_token":"fst_actor_w6e0nNc8iuTHLIMNUgCuhWkOvVOlr0g1TjpUXyor6mU"}}}
 < {"jsonrpc":"2.0","id":4,"result":{...,"pairing_id":"pair_f1d90b2b038d4182948b81495c532787","join_token":"fst_pair_IkqJWyWwtm1d6zf3RYcAW7Utc7HqpLgIowamCuEnVTw",...}}
 # clipboard.generate_bootstrap: pairing_id=pair_f1d90b2b038d4182948b81495c532787 nonce=d67ec2fe...
 # clipboard.parse_bootstrap (1st): accepted, nonce consumed

@@ -109,7 +109,7 @@
         "routing_fanout": 817.764,
         "session_relay": 2072.561
       },
-      "schema": "finalisma.performance-baseline/v1",
+      "schema": "weft.performance-baseline/v1",
       "target_improvement_percent": 20.0,
       "weighted_median_ms": 1265.771,
       "weighted_p95_ms": 1362.598
@@ -124,6 +124,6 @@
     }
   ],
   "max_p95_regression_percent": 5.0,
-  "schema": "finalisma.performance-baseline/v1",
+  "schema": "weft.performance-baseline/v1",
   "target_improvement_percent": 0.0
 }

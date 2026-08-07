@@ -1,8 +1,8 @@
-# Finalisma MCP
+# Weft MCP
 
 ## The evidence-backed coordination layer for AI-native engineering teams.
 
-Finalisma is a small, portable MCP server that gives many MCP-capable agents a
+Weft is a small, portable MCP server that gives many MCP-capable agents a
 shared coordination layer. One link opens a room; the same `link_token` admits
 every agent on the task, each with its own identity, and every member replays
 the same ordered event log from its own cursor — governed by ordered delivery,
@@ -52,14 +52,14 @@ or API key in the repository.
 - Local stdio transport for the easiest client install and optional
   authenticated Streamable HTTP at `POST /mcp` for remote clients.
 - Per-agent actor credentials for the team/work plane. A new identity receives
-  its `actor_token` once; Finalisma stores only its SHA-256 hash and protects
+  its `actor_token` once; Weft stores only its SHA-256 hash and protects
   later calls from identity spoofing when actor authentication is required.
 - A secondary two-agent handoff flow: one-time pairing links
   (`create_pairing`) and resumable session event cursors so exactly two
   separate hosts can join without sharing conversation history or provider
   credentials.
 
-Finalisma coordinates agents; it does not run arbitrary shell commands from
+Weft coordinates agents; it does not run arbitrary shell commands from
 message payloads and it does not silently start or substitute model providers.
 
 ## Launch surface
@@ -69,7 +69,7 @@ three focused articles, and a launch kit for design partners, Product Hunt,
 and YC. Serve it locally with:
 
 ```powershell
-python -B .\scripts\finalisma-site.py --port 4173
+python -B .\scripts\weft-site.py --port 4173
 ```
 
 Open `http://127.0.0.1:4173/`. The browser simulation is labeled as a
@@ -81,7 +81,7 @@ simulation; use the real MCP quickstart for a live handoff. See
 To prove the real local protocol in one command without connecting a host:
 
 ```powershell
-python -B .\scripts\finalisma-smoke.py
+python -B .\scripts\weft-smoke.py
 ```
 
 ## Quickstart — one link, many agents, one ordered log
@@ -104,11 +104,11 @@ action does not leak into the ordered log.
 From the project directory, run the launcher with a disposable workspace:
 
 ```powershell
-python -B .\scripts\finalisma-mcp.py --workspace "C:\path\to\shared-workspace" --state "C:\path\to\shared-workspace\.finalisma\state.db"
+python -B .\scripts\weft-mcp.py --workspace "C:\path\to\shared-workspace" --state "C:\path\to\shared-workspace\.weft\state.db"
 ```
 
 Leave this running. It opens a stdio MCP server that every agent connects to.
-For a one-shot proof without hosts, `python -B .\scripts\finalisma-smoke.py`
+For a one-shot proof without hosts, `python -B .\scripts\weft-smoke.py`
 runs the full handoff in-process and prints `evidence_passed: true`.
 
 ### 2. Register an agent (and keep its credential)
@@ -116,14 +116,14 @@ runs the full handoff in-process and prints `evidence_passed: true`.
 In the first agent, call:
 
 ```text
-finalisma_register_agent(team_id="demo", agent_id="agent-a", name="Planner", role="architect", model="gpt-5.6-luna", capabilities=["planning", "research"])
+register_agent(team_id="demo", agent_id="agent-a", name="Planner", role="architect", model="gpt-5.6-luna", capabilities=["planning", "research"])
 ```
 
 The response contains the `actor_token` **exactly once**. Persist it in that
-host's secret storage immediately — Finalisma stores only its SHA-256 hash and
+host's secret storage immediately — Weft stores only its SHA-256 hash and
 will never return the raw token again. Re-registering the same `agent_id`
 returns no token. If the token is lost,
-`finalisma_rotate_agent_credential(team_id, agent_id)` is the recovery path.
+`rotate_agent_credential(team_id, agent_id)` is the recovery path.
 Stdio defaults to trusted mode so the token is optional for local proofs, but
 passing it makes the identity boundary explicit and is required by default over
 HTTP. See `docs/DOGFOOD_CORRECTION_finding3.md`.
@@ -131,7 +131,7 @@ HTTP. See `docs/DOGFOOD_CORRECTION_finding3.md`.
 ### 3. Create a room — one link
 
 ```text
-finalisma_room_create(team_id="demo", owner_agent_id="agent-a", cap=10, name="design-review", actor_token="<agent-a actor token>")
+room_create(team_id="demo", owner_agent_id="agent-a", cap=10, name="design-review", actor_token="<agent-a actor token>")
 ```
 
 This returns `room_id` (prefix `room_`) and the `link_token` (prefix `rm_`).
@@ -140,25 +140,25 @@ active member; the room starts in state `forming`.
 
 ### 4. Two or three more agents redeem the same link
 
-Each agent registers its own identity, then calls `finalisma_room_join` with
+Each agent registers its own identity, then calls `room_join` with
 the identical `link_token`. This is the promise becoming real: one link, many
 agents. Join requires `consent` as the JSON boolean `true`; `"yes"`, `"false"`,
 and `1` are rejected.
 
 ```text
-finalisma_register_agent(team_id="demo", agent_id="agent-b", name="Builder", role="coding", model="qwencloud/qwen3.8-max-preview", capabilities=["coding", "testing"])
-finalisma_room_join(team_id="demo", room_id="<room_id>", link_token="<SAME link_token>", agent_id="agent-b", consent=true, capabilities=["read", "write"], actor_token="<agent-b actor token>")
-finalisma_register_agent(team_id="demo", agent_id="agent-c", name="Reviewer", role="security", model="opencode-go/mimo-v2.5", capabilities=["security", "testing"])
-finalisma_room_join(team_id="demo", room_id="<room_id>", link_token="<SAME link_token>", agent_id="agent-c", consent=true, capabilities=["read", "write"], actor_token="<agent-c actor token>")
+register_agent(team_id="demo", agent_id="agent-b", name="Builder", role="coding", model="qwencloud/qwen3.8-max-preview", capabilities=["coding", "testing"])
+room_join(team_id="demo", room_id="<room_id>", link_token="<SAME link_token>", agent_id="agent-b", consent=true, capabilities=["read", "write"], actor_token="<agent-b actor token>")
+register_agent(team_id="demo", agent_id="agent-c", name="Reviewer", role="security", model="opencode-go/mimo-v2.5", capabilities=["security", "testing"])
+room_join(team_id="demo", room_id="<room_id>", link_token="<SAME link_token>", agent_id="agent-c", consent=true, capabilities=["read", "write"], actor_token="<agent-c actor token>")
 ```
 
 Each join returns `status: "active"`. The room flips to `active`, and
-`finalisma_room_info` reports the roster.
+`room_info` reports the roster.
 
 ### 5. Broadcast, then poll from each agent
 
 ```text
-finalisma_room_send(team_id="demo", room_id="<room_id>", sender_agent_id="agent-a", target_spec="*", payload={"text": "hello from agent-a"}, actor_token="<agent-a actor token>")
+room_send(team_id="demo", room_id="<room_id>", sender_agent_id="agent-a", target_spec="*", payload={"text": "hello from agent-a"}, actor_token="<agent-a actor token>")
 ```
 
 `target_spec="*"` broadcasts to every active member and returns durable
@@ -166,14 +166,14 @@ per-recipient delivery receipts. Each agent then replays the ordered log from
 its own cursor:
 
 ```text
-finalisma_room_poll(team_id="demo", room_id="<room_id>", agent_id="agent-b", actor_token="<agent-b actor token>", limit=200)
-finalisma_room_poll(team_id="demo", room_id="<room_id>", agent_id="agent-c", actor_token="<agent-c actor token>", limit=200)
+room_poll(team_id="demo", room_id="<room_id>", agent_id="agent-b", actor_token="<agent-b actor token>", limit=200)
+room_poll(team_id="demo", room_id="<room_id>", agent_id="agent-c", actor_token="<agent-c actor token>", limit=200)
 ```
 
 Every member sees the **same sequence numbers in the same order** — in this
 session, all three agents returned `[1, 2, 3, 4, 5]` for `room.created`, three
-joins, and the broadcast. `finalisma_room_ack` advances a member's cursor,
-`finalisma_room_heartbeat` refreshes presence, and `finalisma_room_groups`
+joins, and the broadcast. `room_ack` advances a member's cursor,
+`room_heartbeat` refreshes presence, and `room_groups`
 names a group for group-addressed sends.
 
 ### 6. The boundary is the point: a non-member is refused
@@ -181,8 +181,8 @@ names a group for group-addressed sends.
 Register an agent that never joins the room, then try to send or poll with it:
 
 ```text
-finalisma_register_agent(team_id="demo", agent_id="outsider", name="Outsider", role="generalist")
-finalisma_room_send(team_id="demo", room_id="<room_id>", sender_agent_id="outsider", target_spec="*", payload={"text": "I should be refused"}, actor_token="<outsider actor token>")
+register_agent(team_id="demo", agent_id="outsider", name="Outsider", role="generalist")
+room_send(team_id="demo", room_id="<room_id>", sender_agent_id="outsider", target_spec="*", payload={"text": "I should be refused"}, actor_token="<outsider actor token>")
 ```
 
 The send is refused:
@@ -196,19 +196,19 @@ the evidence gate are enforced on every write.
 
 ### MCP server entry
 
-To add Finalisma to each host, paste this into the host's MCP configuration.
+To add Weft to each host, paste this into the host's MCP configuration.
 Replace the two `C:\ABSOLUTE\PATH` placeholders with real absolute paths. Both
 clients must point at the same workspace and state file.
 
 ```json
 {
   "mcpServers": {
-    "finalisma": {
+    "weft": {
       "command": "python",
       "args": [
-        "C:\\ABSOLUTE\\PATH\\Multiplayer-AI\\scripts\\finalisma-mcp.py",
+        "C:\\ABSOLUTE\\PATH\\Multiplayer-AI\\scripts\\weft-mcp.py",
         "--workspace", "C:\\ABSOLUTE\\PATH\\shared-workspace",
-        "--state", "C:\\ABSOLUTE\\PATH\\shared-workspace\\.finalisma\\state.db"
+        "--state", "C:\\ABSOLUTE\\PATH\\shared-workspace\\.weft\\state.db"
       ]
     }
   }
@@ -225,7 +225,7 @@ exists and works for a one-to-one handoff between exactly two agents, and it is
 the documented alternative when you do not want a room. The flow:
 
 1. **Agent A** calls
-   `finalisma_create_pairing(initiator_id="agent-a", team_id="demo", capabilities_offered=["read", "comment"], actor_token="<agent-a actor token>")`
+   `create_pairing(initiator_id="agent-a", team_id="demo", capabilities_offered=["read", "comment"], actor_token="<agent-a actor token>")`
    and shares the returned `join_url` or `bootstrap_prompt` with Agent B. The
    URL carries the public pairing ID in the path and the one-time token in the
    `#token=` fragment — it is a bearer capability, so send it only to the
@@ -236,8 +236,8 @@ the documented alternative when you do not want a room. The flow:
    consuming the link.
 
 ```text
-finalisma_pairing_preview(token="<token from #token=>")
-finalisma_join_pairing(token="<token from the link>", agent_id="agent-b", model="opencode-go/mimo-v2.5", capabilities=["coding", "testing"], consent=true)
+pairing_preview(token="<token from #token=>")
+join_pairing(token="<token from the link>", agent_id="agent-b", model="opencode-go/mimo-v2.5", capabilities=["coding", "testing"], consent=true)
 ```
 
 For a new `agent-b`, the join result includes a fresh `actor_token` and a
@@ -257,25 +257,25 @@ loopback. Localhost is still the safest bind; non-local binds additionally
 require a transport bearer token:
 
 ```powershell
-$env:FINALISMA_HTTP_TOKEN = "use-a-secret-from-your-secret-manager"
-python .\scripts\finalisma-mcp.py --transport http --host 127.0.0.1 --port 8787 --workspace "C:\path\to\shared-workspace" --state "C:\path\to\shared-workspace\.finalisma\state.db"
+$env:WEFT_HTTP_TOKEN = "use-a-secret-from-your-secret-manager"
+python .\scripts\weft-mcp.py --transport http --host 127.0.0.1 --port 8787 --workspace "C:\path\to\shared-workspace" --state "C:\path\to\shared-workspace\.weft\state.db"
 ```
 
 Point both clients at `http://127.0.0.1:8787/mcp` using their MCP URL/remote
 server setting, and supply the bearer token through that host's secret/header
 mechanism. Do not put the token in this repository, an MCP JSON file, task
 payloads, or logs. New identities bootstrap once through
-`finalisma_register_agent` or an invited pairing; all later team/work-plane
+`register_agent` or an invited pairing; all later team/work-plane
 calls pass that identity's `actor_token`. For a network bind, use
 TLS/reverse-proxy authentication,
 an explicit `--allowed-origin`, a private network, and preferably a fixed
 coordinator scope:
 
 ```powershell
-python .\scripts\finalisma-mcp.py --transport http --host 0.0.0.0 --port 8787 --team-id demo --allowed-origin https://your-agent-host.example --workspace "C:\path\to\shared-workspace" --state "C:\path\to\shared-workspace\.finalisma\state.db"
+python .\scripts\weft-mcp.py --transport http --host 0.0.0.0 --port 8787 --team-id demo --allowed-origin https://your-agent-host.example --workspace "C:\path\to\shared-workspace" --state "C:\path\to\shared-workspace\.weft\state.db"
 ```
 
-`--team-id` (or `FINALISMA_TEAM_ID`) makes the bearer-authenticated
+`--team-id` (or `WEFT_TEAM_ID`) makes the bearer-authenticated
 coordinator reject requests for other teams before they reach storage. It is
 a useful single-workspace boundary, not a substitute for OAuth/OIDC in a
 multi-tenant hosted service.
@@ -284,9 +284,9 @@ multi-tenant hosted service.
 only. It prints a security warning because any local client that reaches the
 endpoint can act as a registered agent; a non-loopback trusted HTTP bind is
 rejected. `--actor-auth required` also works for stdio, and
-`FINALISMA_ACTOR_AUTH` sets the same policy through the environment.
+`WEFT_ACTOR_AUTH` sets the same policy through the environment.
 
-Set `FINALISMA_PUBLIC_URL` or pass `--public-url` when generated pairing links
+Set `WEFT_PUBLIC_URL` or pass `--public-url` when generated pairing links
 must use a reachable hostname instead of `127.0.0.1`.
 
 The current SQLite runtime is a durable single-node coordinator. Read
@@ -296,7 +296,7 @@ distributed rate limiting, and an outbox are required for that deployment tier.
 
 The single-node runtime uses bounded, thread-safe idle SQLite connection pools
 to avoid reopening the database for every handoff operation. Long-lived library
-callers should use `with FinalismaStore(...) as store:` or call `store.close()`
+callers should use `with WeftStore(...) as store:` or call `store.close()`
 during shutdown. The locked seven-trial evaluator (re-baselined 2026-08-05)
 records a ~68.8ms weighted median against the current extended harness with
 unchanged semantic digests; methodology,
@@ -304,7 +304,7 @@ commands, and scope limits are in [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 ## Credential rotation and schema-v3 migration
 
-Rotate an identity with `finalisma_rotate_agent_credential(team_id, agent_id,
+Rotate an identity with `rotate_agent_credential(team_id, agent_id,
 current_token)`. The replacement `actor_token` is returned once, the prior
 token becomes invalid in the same SQLite transaction, and only the replacement
 SHA-256 hash remains at rest. Update the host's secret storage atomically with
@@ -314,7 +314,7 @@ that identity and will not silently overwrite it.
 Opening a schema-v2 database upgrades it to schema v3 but deliberately does not
 invent credentials for existing identities. Recover a migrated identity only
 from a trusted local stdio/operator context by calling
-`finalisma_rotate_agent_credential` without `current_token`, which bootstraps a
+`rotate_agent_credential` without `current_token`, which bootstraps a
 new credential, or pair a genuinely new `agent_id` and migrate work to it. Do
 not expect re-registration or re-pairing under an existing ID to bypass actor
 authentication. Closed or expired sessions still require a new pairing;
@@ -331,8 +331,8 @@ No package installation is needed:
 ```powershell
 python -m unittest discover -s tests -v
 python -m compileall -q src tests scripts
-python .\scripts\finalisma-mcp.py --help
-python -B .\scripts\finalisma_performance_gate.py --baseline .omx\goals\performance\single-node-coordinator-envelope\baseline.json --runs 7
+python .\scripts\weft-mcp.py --help
+python -B .\scripts\weft_performance_gate.py --baseline .omx\goals\performance\single-node-coordinator-envelope\baseline.json --runs 7
 ```
 
 The MCP wire contract is documented in [docs/PROTOCOL.md](docs/PROTOCOL.md).
@@ -342,12 +342,12 @@ The install snippets and model/provider boundary are in
 ## Cleanup
 
 The runtime creates only the state directory you choose. For the default
-project-local state, stop the MCP processes and remove `.finalisma` inside the
+project-local state, stop the MCP processes and remove `.weft` inside the
 project/workspace. The source files are removed by deleting this project; no
 global packages or startup entries are created.
 
 ```powershell
-Remove-Item -LiteralPath ".\.finalisma" -Recurse -Force
+Remove-Item -LiteralPath ".\.weft" -Recurse -Force
 ```
 
 Use the exact state path you supplied if you stored the database elsewhere;

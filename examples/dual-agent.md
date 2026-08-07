@@ -1,7 +1,7 @@
 # Two-agent quickstart
 
 This is the shortest interoperability test after both MCP hosts have loaded
-the same `finalisma` server entry. Every command below was verified in a timed
+the same `weft` server entry. Every command below was verified in a timed
 run on 2026-08-05 — first verified handoff completed in 0.17s wall-clock.
 
 ## Agent A

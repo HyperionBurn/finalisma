@@ -1,4 +1,4 @@
-"""Tests for the Finalisma SDK — stdlib-only Python client.
+"""Tests for the Weft SDK — stdlib-only Python client.
 
 Strategy: spin up the REAL weft_mcp HTTP server on an ephemeral localhost
 port in setUp, then drive a FULL two-agent flow through the SDK.  This proves

@@ -1,20 +1,20 @@
 # Wave G — Identity Design
 
-**Status:** Authoritative spec for identity in the `src/finalisma_cloud/` plane.
+**Status:** Authoritative spec for identity in the `src/weft_cloud/` plane.
 **Source of truth:** `docs/PRODUCT_ROADMAP.md` §4 (ship gate), §5 (Wave G — Identity).
 **Scope:** Email + password auth, local sessions, orgs, membership, roles, invites — all behind the Wave F storage interface. Stage 1 (THIS WAVE): tokens generated properly but written to a local outbox (no external email). Stage 2 (later): real transactional email + OIDC behind a `Mailer` interface swap.
-**Hard boundary:** `src/finalisma_mcp/` stays stdlib-only, untouched. No direct `sqlite3` in identity business logic — everything goes through `StorageBackend`.
+**Hard boundary:** `src/weft_mcp/` stays stdlib-only, untouched. No direct `sqlite3` in identity business logic — everything goes through `StorageBackend`.
 
 ---
 
 ## 1. Plane Boundary
 
-All identity lives in `src/finalisma_cloud/`, behind the Wave F `StorageBackend` interface. The coordinator plane (`finalisma_mcp/`) is untouched and stays stdlib-only.
+All identity lives in `src/weft_cloud/`, behind the Wave F `StorageBackend` interface. The coordinator plane (`weft_mcp/`) is untouched and stays stdlib-only.
 
 ### 1.1 Proposed module layout
 
 ```
-src/finalisma_cloud/
+src/weft_cloud/
   identity/
     __init__.py        # package marker
     accounts.py        # AccountStore: signup, password hashing (scrypt), verification, reset
@@ -226,7 +226,7 @@ row = tx.execute("SELECT * FROM cloud_identity_sessions WHERE token_hash = ?", (
 ### 5.1 The `Mailer` interface
 
 ```python
-# src/finalisma_cloud/identity/mailer.py
+# src/weft_cloud/identity/mailer.py
 
 from abc import ABC, abstractmethod
 
@@ -439,7 +439,7 @@ The accepter cannot escalate beyond the invite's role. Even if the accepter is a
 ### 8.2 `SessionContext` — the auth analog of `TenantContext`
 
 ```python
-# src/finalisma_cloud/identity/context.py
+# src/weft_cloud/identity/context.py
 
 from dataclasses import dataclass
 
@@ -585,7 +585,7 @@ These are the **deliverable tests**. Each specifies: the call, the expected erro
 | --- | --- | --- | --- |
 | 26 | Trigger any auth failure | Assert: exception message does not contain raw password or raw token | No raw secret in error strings |
 | 27 | Inspect any serialised response (account, session, invite) | Assert: no field contains raw password or raw token | No raw secret in responses |
-| 28 | Grep source: `grep -rn "password\|token" src/finalisma_cloud/identity` | Hits only field names/params, never values | No raw secret in code paths |
+| 28 | Grep source: `grep -rn "password\|token" src/weft_cloud/identity` | Hits only field names/params, never values | No raw secret in code paths |
 
 ---
 
@@ -607,7 +607,7 @@ This is a **product promise** (PRODUCT_ROADMAP.md §4: "secrets never in logs or
 
 4. **Grep proof:**
    ```bash
-   grep -rn "password\|token" src/finalisma_cloud/identity/
+   grep -rn "password\|token" src/weft_cloud/identity/
    ```
    Must only hit:
    - Field names: `password_hash`, `token_hash`, `verification_token_hash`, `reset_token_hash`
@@ -769,7 +769,7 @@ Identity migrations extend the existing `MIGRATIONS` list in `migrations.py`. Th
 
 6. **Email uniqueness is per-tenant, not global.** A global `UNIQUE(email)` constraint would prevent the same email from existing in two orgs. The orchestrator must verify: the unique index is `UNIQUE(tenant_id, email)`, not `UNIQUE(email)`.
 
-7. **No raw token or password in any log, error, or serialised response.** The orchestrator must run the grep proof (`grep -rn "password\|token" src/finalisma_cloud/identity/`) and verify only field-name hits. The negative test must assert no raw secret in any exception message.
+7. **No raw token or password in any log, error, or serialised response.** The orchestrator must run the grep proof (`grep -rn "password\|token" src/weft_cloud/identity/`) and verify only field-name hits. The negative test must assert no raw secret in any exception message.
 
 8. **The `cloud_identity_*` migrations must be idempotent.** Every `CREATE TABLE` must use `IF NOT EXISTS`. Every `INSERT` into `schema_migrations` must use `ON CONFLICT DO NOTHING`. The orchestrator must audit each migration SQL.
 

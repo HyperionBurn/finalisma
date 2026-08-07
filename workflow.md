@@ -117,8 +117,8 @@ Rules that earn their place every time:
 ### CEO verification gate — never accept a report at face value
 ```bash
 python -B -m unittest discover -s tests          # exact count and result
-python -B scripts/finalisma-smoke.py             # evidence_passed: true
-python -B scripts/finalisma_performance_gate.py  # no regression
+python -B scripts/weft-smoke.py             # evidence_passed: true
+python -B scripts/weft_performance_gate.py  # no regression
 netstat -ano | grep <port>                       # no stray listeners
 git --no-pager diff --stat <before> <after> -- <files-that-must-not-change>
 ```

@@ -1,9 +1,9 @@
 # Wave F — Cloud Spine Design
 
-**Status:** Authoritative spec for the `src/finalisma_cloud/` plane.
+**Status:** Authoritative spec for the `src/weft_cloud/` plane.
 **Source of truth:** `docs/PRODUCT_ROADMAP.md` §1 (settled 2026-08-05), §4 (ship gate).
 **Scope:** The hosted-service plane that wraps the coordinator as a multi-tenant SaaS.
-**Hard boundary:** `src/finalisma_mcp/` stays stdlib-only, forever. This plane may take pinned
+**Hard boundary:** `src/weft_mcp/` stays stdlib-only, forever. This plane may take pinned
 dependencies but **v1 aims for zero new runtime deps** (stdlib SQLite-WAL).
 
 ---
@@ -14,8 +14,8 @@ dependencies but **v1 aims for zero new runtime deps** (stdlib SQLite-WAL).
 
 | Package | Role | Dependencies |
 | --- | --- | --- |
-| `src/finalisma_mcp/` | The **coordinator**: protocol engine, task lifecycle, rooms, roster, outbox, tenancy primitives. Pure stdlib. | none, ever |
-| `src/finalisma_cloud/` | The **cloud spine**: hosted-service plane. Wraps the coordinator's data as a multi-tenant HTTP service. Owns tenant bindings, quotas, rate limits, cloud event mirror, migrations, and the storage interface. | stdlib for v1 (SQLite). Pinned deps only if/when Postgres lands. |
+| `src/weft_mcp/` | The **coordinator**: protocol engine, task lifecycle, rooms, roster, outbox, tenancy primitives. Pure stdlib. | none, ever |
+| `src/weft_cloud/` | The **cloud spine**: hosted-service plane. Wraps the coordinator's data as a multi-tenant HTTP service. Owns tenant bindings, quotas, rate limits, cloud event mirror, migrations, and the storage interface. | stdlib for v1 (SQLite). Pinned deps only if/when Postgres lands. |
 
 The coordinator is the engine; the cloud plane is the product that sits on top. The cloud plane
 **never** re-implements coordinator logic — it composes the coordinator's MCP tools (via the
@@ -26,7 +26,7 @@ path that adopts an existing coordinator database.
 ### 1.2 Package layout
 
 ```
-src/finalisma_cloud/
+src/weft_cloud/
   __init__.py          # package marker
   storage.py           # StorageBackend ABC + SqliteWalBackend (THE interface)
   tenancy.py           # TenantContext guard + storage-boundary tenancy enforcement
@@ -47,9 +47,9 @@ allowed in a later wave but must be pinned and justified.
 | `sqlite3` | stdlib | WAL backend for v1 |
 | Everything else | none | Zero new runtime deps for v1 |
 
-> **Rule:** Any dependency added to `src/finalisma_cloud/` must be (a) justified in one line,
+> **Rule:** Any dependency added to `src/weft_cloud/` must be (a) justified in one line,
 > (b) pinned to an exact version, and (c) isolated to the cloud plane — never re-exported
-> into `src/finalisma_mcp/`.
+> into `src/weft_mcp/`.
 
 ---
 
@@ -62,7 +62,7 @@ handlers, quota enforcement, migration orchestration) imports **only** the inter
 ### 2.1 The ABC
 
 ```python
-# src/finalisma_cloud/storage.py
+# src/weft_cloud/storage.py
 
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
@@ -298,7 +298,7 @@ method on the storage interface.
 ### 4.1 Versioned migration registry
 
 ```python
-# src/finalisma_cloud/migrations.py
+# src/weft_cloud/migrations.py
 
 @dataclass
 class Migration:
@@ -332,7 +332,7 @@ def apply_migrations(backend: StorageBackend) -> None:
 
 ### 4.2 The v3→cloud upgrade path
 
-The hosted service adopts a design-partner's existing `.finalisma/state.db` (schema v3).
+The hosted service adopts a design-partner's existing `.weft/state.db` (schema v3).
 The cloud migration **adds** cloud-plane tables; it does **not** alter any coordinator table.
 
 **Cloud-plane tables (additive):**
@@ -613,7 +613,7 @@ the invariant it protects.
 
 ```mermaid
 graph TD
-    subgraph CloudPlane["src/finalisma_cloud/"]
+    subgraph CloudPlane["src/weft_cloud/"]
         Server["server.py<br/>(HTTP handlers)"]
         Guard["tenancy.py<br/>TenantContext guard"]
         Quota["quotas.py + rate_limit.py<br/>PlanLimits + RateLimiter seam"]

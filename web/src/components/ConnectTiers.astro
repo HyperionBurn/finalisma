@@ -15,7 +15,7 @@ const tiers = [
     label: 'MCP stdio',
     code: `{
   "mcp": {
-    "finalisma": {
+    "weft": {
       "type": "local",
       "command": ["python", "-B", "scripts/weft-mcp.py",
         "--transport", "stdio", "--team-id", "demo"],
@@ -131,9 +131,9 @@ result = client._call("room_join", {
     opacity: 0;
     margin-left: 0.1ch;
   }
-  .code-block.is-typing .code-block__caret { opacity: 1; animation: finalisma-blink 1s steps(1) infinite; }
+  .code-block.is-typing .code-block__caret { opacity: 1; animation: weft-blink 1s steps(1) infinite; }
   .code-block.is-done .code-block__caret { opacity: 0; }
-  @keyframes finalisma-blink { 50% { opacity: 0; } }
+  @keyframes weft-blink { 50% { opacity: 0; } }
   @media (prefers-reduced-motion: reduce) {
     .code-block__caret { display: none !important; }
   }

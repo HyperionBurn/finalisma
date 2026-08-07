@@ -149,19 +149,19 @@ def main(argv: list[str] | None = None) -> int:
     demo_html = (SITE / "demo.html").read_text(encoding="utf-8")
     for marker in (
         '"@type": "VideoObject"',
-        'content="/assets/finalisma-demo.mp4"',
+        'content="/assets/weft-demo.mp4"',
         'content="index,follow,max-video-preview:-1,max-image-preview:large"',
         'property="og:site_name" content="Finalisma"',
-        'name="twitter:image" content="/assets/finalisma-demo-poster.png"',
+        'name="twitter:image" content="/assets/weft-demo-poster.png"',
     ):
         if marker not in demo_html:
             failures.append(f"recorded demo missing search/share metadata: {marker}")
 
     video_assets = {
-        "MP4": SITE / "assets" / "finalisma-demo.mp4",
-        "WebM": SITE / "assets" / "finalisma-demo.webm",
-        "poster": SITE / "assets" / "finalisma-demo-poster.png",
-        "captions": SITE / "assets" / "finalisma-demo.vtt",
+        "MP4": SITE / "assets" / "weft-demo.mp4",
+        "WebM": SITE / "assets" / "weft-demo.webm",
+        "poster": SITE / "assets" / "weft-demo-poster.png",
+        "captions": SITE / "assets" / "weft-demo.vtt",
         "transcript": SITE / "assets" / "demo-transcript.json",
     }
     for label, asset in video_assets.items():

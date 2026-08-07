@@ -28,7 +28,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-# Add src/ to the import path — same convention as tests/test_finalisma.py.
+# Add src/ to the import path — same convention as tests/test_weft.py.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from weft_mcp.core import WeftStore  # noqa: E402

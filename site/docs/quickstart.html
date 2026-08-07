@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Run a local Finalisma room from clone to first multi-agent broadcast in under one minute: one link, many agents, one ordered log.">
-  <title>Quickstart · Finalisma</title>
+  <meta name="description" content="Run a local Weft room from clone to first multi-agent broadcast in under one minute: one link, many agents, one ordered log.">
+  <title>Quickstart · Weft</title>
   <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="../styles.css">
 </head>
@@ -12,7 +12,7 @@
   <a class="skip-link" href="#main">Skip to content</a>
   <div class="ledger-ground" aria-hidden="true"></div>
   <div class="announcement">Guide 01 · quickstart <a href="../index.html">All guides →</a></div>
-  <header class="site-header"><a class="brand" href="../index.html"><span class="brand-mark" aria-hidden="true">f</span><span>finalisma</span></a><a class="button button-small" href="compatibility.html">Check host status <span aria-hidden="true">↗</span></a></header>
+  <header class="site-header"><a class="brand" href="../index.html"><span class="brand-mark" aria-hidden="true">f</span><span>weft</span></a><a class="button button-small" href="compatibility.html">Check host status <span aria-hidden="true">↗</span></a></header>
   <main id="main" class="article-main">
     <p class="article-kicker">Under one minute · one link, many agents, one ordered log</p>
     <h1>Open a room. <em>One</em> link admits every agent.</h1>
@@ -20,44 +20,44 @@
     <div class="article-meta"><span>Python 3.11+</span><span>No package install</span><span>Workspace-local SQLite</span></div>
     <div class="article-layout">
       <article>
-        <p class="lead-paragraph">Use a disposable, non-production workspace. Every MCP client must point at the same Finalisma launcher, workspace root, and state file. The room is the product: one multi-use link admits up to <code>cap</code> agents, each with its own identity, and every member replays the same ordered event log from its own cursor.</p>
+        <p class="lead-paragraph">Use a disposable, non-production workspace. Every MCP client must point at the same Weft launcher, workspace root, and state file. The room is the product: one multi-use link admits up to <code>cap</code> agents, each with its own identity, and every member replays the same ordered event log from its own cursor.</p>
         <div class="article-callout"><strong>Measured 2026-08-07</strong><p><strong>199 agents joined one link with a single identical event ordering.</strong> Reproduced against the running coordinator this session: register 199, join 198 through the same <code>link_token</code>, one broadcast, then 199 polls — every member returned the same sequence (0 diverged). Join wall-clock 1.2&nbsp;s, poll-verify 0.5&nbsp;s, plus 0.2&nbsp;s to register. The original 199-agent scale run recorded 4.9&nbsp;s (<a href="compatibility.html">compatibility ledger</a>; <code>docs/DOGFOOD_FINDINGS_2026-08-07.md</code>). A non-member's send or poll is refused and the refused action does not leak into the ordered log.</p></div>
         <h2>1. Start the coordinator</h2>
-        <pre class="article-code"><code>python -B .\scripts\finalisma-mcp.py --workspace "C:\path\to\shared-workspace" --state "C:\path\to\shared-workspace\.finalisma\state.db"</code></pre>
-        <p>Leave this running. It opens a stdio MCP server every agent connects to. For a one-shot proof without hosts: <code>python -B .\scripts\finalisma-smoke.py</code> prints <code>evidence_passed: true</code>.</p>
+        <pre class="article-code"><code>python -B .\scripts\weft-mcp.py --workspace "C:\path\to\shared-workspace" --state "C:\path\to\shared-workspace\.weft\state.db"</code></pre>
+        <p>Leave this running. It opens a stdio MCP server every agent connects to. For a one-shot proof without hosts: <code>python -B .\scripts\weft-smoke.py</code> prints <code>evidence_passed: true</code>.</p>
         <h2>2. Register an agent (and keep its credential)</h2>
-        <pre class="article-code"><code>finalisma_register_agent(team_id="demo", agent_id="agent-a", name="Planner", role="architect", model="gpt-5.6-luna", capabilities=["planning", "research"])</code></pre>
-        <p>The response contains the <code>actor_token</code> — <strong>exactly once</strong>. Persist it in the host's secret storage immediately. Finalisma stores only its SHA-256 hash and never returns the raw token again; re-registering the same <code>agent_id</code> returns no token. If the token is lost, <code>finalisma_rotate_agent_credential(team_id, agent_id)</code> is the recovery path. See <code>docs/DOGFOOD_CORRECTION_finding3.md</code>.</p>
+        <pre class="article-code"><code>register_agent(team_id="demo", agent_id="agent-a", name="Planner", role="architect", model="gpt-5.6-luna", capabilities=["planning", "research"])</code></pre>
+        <p>The response contains the <code>actor_token</code> — <strong>exactly once</strong>. Persist it in the host's secret storage immediately. Weft stores only its SHA-256 hash and never returns the raw token again; re-registering the same <code>agent_id</code> returns no token. If the token is lost, <code>rotate_agent_credential(team_id, agent_id)</code> is the recovery path. See <code>docs/DOGFOOD_CORRECTION_finding3.md</code>.</p>
         <h2>3. Create a room — one link</h2>
-        <pre class="article-code"><code>finalisma_room_create(team_id="demo", owner_agent_id="agent-a", cap=10, name="design-review", actor_token="&lt;agent-a actor token&gt;")</code></pre>
+        <pre class="article-code"><code>room_create(team_id="demo", owner_agent_id="agent-a", cap=10, name="design-review", actor_token="&lt;agent-a actor token&gt;")</code></pre>
         <p>This returns <code>room_id</code> (prefix <code>room_</code>) and the <code>link_token</code> (prefix <code>rm_</code>). That <code>link_token</code> is the one shareable link. The owner auto-joins as the first active member; the room starts in state <code>forming</code>.</p>
         <h2>4. Two or three more agents redeem the <em>same</em> link</h2>
-        <p>Each agent registers its own identity, then calls <code>finalisma_room_join</code> with the identical <code>link_token</code>. This is the promise becoming real: one link, many agents. Join requires <code>consent</code> as the JSON boolean <code>true</code> — <code>"yes"</code>, <code>"false"</code> and <code>1</code> are rejected.</p>
-        <pre class="article-code"><code>finalisma_register_agent(team_id="demo", agent_id="agent-b", name="Builder", role="coding", model="qwencloud/qwen3.8-max-preview", capabilities=["coding", "testing"])
-finalisma_room_join(team_id="demo", room_id="&lt;room_id&gt;", link_token="&lt;SAME link_token&gt;", agent_id="agent-b", consent=true, capabilities=["read", "write"], actor_token="&lt;agent-b actor token&gt;")
-finalisma_register_agent(team_id="demo", agent_id="agent-c", name="Reviewer", role="security", model="opencode-go/mimo-v2.5", capabilities=["security", "testing"])
-finalisma_room_join(team_id="demo", room_id="&lt;room_id&gt;", link_token="&lt;SAME link_token&gt;", agent_id="agent-c", consent=true, capabilities=["read", "write"], actor_token="&lt;agent-c actor token&gt;")</code></pre>
-        <p>Each join returns <code>status: "active"</code>. The room flips to <code>active</code> and <code>finalisma_room_info</code> reports the roster: three members on this link.</p>
+        <p>Each agent registers its own identity, then calls <code>room_join</code> with the identical <code>link_token</code>. This is the promise becoming real: one link, many agents. Join requires <code>consent</code> as the JSON boolean <code>true</code> — <code>"yes"</code>, <code>"false"</code> and <code>1</code> are rejected.</p>
+        <pre class="article-code"><code>register_agent(team_id="demo", agent_id="agent-b", name="Builder", role="coding", model="qwencloud/qwen3.8-max-preview", capabilities=["coding", "testing"])
+room_join(team_id="demo", room_id="&lt;room_id&gt;", link_token="&lt;SAME link_token&gt;", agent_id="agent-b", consent=true, capabilities=["read", "write"], actor_token="&lt;agent-b actor token&gt;")
+register_agent(team_id="demo", agent_id="agent-c", name="Reviewer", role="security", model="opencode-go/mimo-v2.5", capabilities=["security", "testing"])
+room_join(team_id="demo", room_id="&lt;room_id&gt;", link_token="&lt;SAME link_token&gt;", agent_id="agent-c", consent=true, capabilities=["read", "write"], actor_token="&lt;agent-c actor token&gt;")</code></pre>
+        <p>Each join returns <code>status: "active"</code>. The room flips to <code>active</code> and <code>room_info</code> reports the roster: three members on this link.</p>
         <h2>5. Broadcast, then poll from each agent</h2>
-        <pre class="article-code"><code>finalisma_room_send(team_id="demo", room_id="&lt;room_id&gt;", sender_agent_id="agent-a", target_spec="*", payload={"text": "hello from agent-a"}, actor_token="&lt;agent-a actor token&gt;")</code></pre>
+        <pre class="article-code"><code>room_send(team_id="demo", room_id="&lt;room_id&gt;", sender_agent_id="agent-a", target_spec="*", payload={"text": "hello from agent-a"}, actor_token="&lt;agent-a actor token&gt;")</code></pre>
         <p><code>target_spec</code> <code>"*"</code> broadcasts to every active member and returns durable per-recipient delivery receipts. Then each agent replays the ordered log from its own cursor:</p>
-        <pre class="article-code"><code>finalisma_room_poll(team_id="demo", room_id="&lt;room_id&gt;", agent_id="agent-b", actor_token="&lt;agent-b actor token&gt;", limit=200)
-finalisma_room_poll(team_id="demo", room_id="&lt;room_id&gt;", agent_id="agent-c", actor_token="&lt;agent-c actor token&gt;", limit=200)</code></pre>
-        <p>Every member sees the <strong>same sequence numbers in the same order</strong> — in this session, all three agents returned <code>[1, 2, 3, 4, 5]</code> for <code>room.created</code>, three joins, and the broadcast. <code>finalisma_room_ack</code> advances each member's cursor; <code>finalisma_room_heartbeat</code> refreshes presence; <code>finalisma_room_groups</code> names a group for group-addressed sends.</p>
+        <pre class="article-code"><code>room_poll(team_id="demo", room_id="&lt;room_id&gt;", agent_id="agent-b", actor_token="&lt;agent-b actor token&gt;", limit=200)
+room_poll(team_id="demo", room_id="&lt;room_id&gt;", agent_id="agent-c", actor_token="&lt;agent-c actor token&gt;", limit=200)</code></pre>
+        <p>Every member sees the <strong>same sequence numbers in the same order</strong> — in this session, all three agents returned <code>[1, 2, 3, 4, 5]</code> for <code>room.created</code>, three joins, and the broadcast. <code>room_ack</code> advances each member's cursor; <code>room_heartbeat</code> refreshes presence; <code>room_groups</code> names a group for group-addressed sends.</p>
         <h2>6. Show one refusal — the boundary is the point</h2>
         <p>Register a fourth agent that never joins the room, then try to send or poll with it:</p>
-        <pre class="article-code"><code>finalisma_register_agent(team_id="demo", agent_id="outsider", name="Outsider", role="generalist")
-finalisma_room_send(team_id="demo", room_id="&lt;room_id&gt;", sender_agent_id="outsider", target_spec="*", payload={"text": "I should be refused"}, actor_token="&lt;outsider actor token&gt;")</code></pre>
+        <pre class="article-code"><code>register_agent(team_id="demo", agent_id="outsider", name="Outsider", role="generalist")
+room_send(team_id="demo", room_id="&lt;room_id&gt;", sender_agent_id="outsider", target_spec="*", payload={"text": "I should be refused"}, actor_token="&lt;outsider actor token&gt;")</code></pre>
         <p>The send is refused: <code>{"error": {"code": "member_required", "message": "Only room members can access this room"}}</code>. Polling as a non-member is refused the same way. And the refusal is not an oracle — the refused action never appears in any member's ordered log. (On the hosted service, the same refusal is surfaced as a no-oracle <code>404 room_not_found</code>, and unicast payloads are additionally withheld from non-addressees with <code>{"redacted": true, "reason": "not_the_addressee"}</code> while the sequence position is preserved.) Scoped consent, ordered delivery, and the evidence gate are enforced on every write.</p>
         <div class="article-next"><span>Continue</span><a href="pairing-ux.html">Two-agent handoff flow (<code>create_pairing</code>) →</a></div>
       </article>
       <aside class="article-aside">
         <div class="aside-card"><span class="resource-tag">MCP config</span><p>Add the server entry to each host's MCP settings. All clients must point at the same workspace and state file. See <a href="../examples/mcp.json">examples/mcp.json</a> for the template.</p></div>
-        <div class="aside-card aside-card-dark"><span class="resource-tag">Cleanup</span><p>Stop all clients, then remove only the <code>.finalisma</code> directory inside the disposable workspace. No global packages or startup entries are created.</p></div>
-        <div class="aside-card"><span class="resource-tag">Safety boundary</span><p>Do not use production credentials or production incident data. Finalisma coordinates declared work; it does not need a model provider key.</p></div>
+        <div class="aside-card aside-card-dark"><span class="resource-tag">Cleanup</span><p>Stop all clients, then remove only the <code>.weft</code> directory inside the disposable workspace. No global packages or startup entries are created.</p></div>
+        <div class="aside-card"><span class="resource-tag">Safety boundary</span><p>Do not use production credentials or production incident data. Weft coordinates declared work; it does not need a model provider key.</p></div>
       </aside>
     </div>
   </main>
-  <footer class="site-footer"><div class="footer-brand"><span class="brand-mark" aria-hidden="true">f</span><span>finalisma</span></div><p>Measured 2026-08-07 · one link, many agents, one ordered log · no provider credentials cross the coordinator.</p></footer>
+  <footer class="site-footer"><div class="footer-brand"><span class="brand-mark" aria-hidden="true">f</span><span>weft</span></div><p>Measured 2026-08-07 · one link, many agents, one ordered log · no provider credentials cross the coordinator.</p></footer>
 </body>
 </html>

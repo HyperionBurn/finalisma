@@ -1,4 +1,4 @@
-"""Tests for the Finalisma N-way roster layer.
+"""Tests for the Weft N-way roster layer.
 
 Stdlib only. Temp SQLite files. Mirrors core's stale-agent semantics.
 """

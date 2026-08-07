@@ -5,7 +5,7 @@ can identify the product without relying on visual styling alone.
 
 ## Canonical facts
 
-- **Product:** Finalisma
+- **Product:** Weft
 - **Category:** secure agent-to-agent coordination layer / MCP server
 - **Initial wedge:** evidence-backed handoffs for AI-native engineering teams
 - **First workflow:** incident triage and pull-request review

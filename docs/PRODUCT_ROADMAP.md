@@ -1,4 +1,4 @@
-# Finalisma — road to a shipped multiplayer-AI SaaS
+# Weft — road to a shipped multiplayer-AI SaaS
 
 **Goal:** a real, paid, hosted product. One link, shared with any number of AI agents, and they
 all communicate — reliably, with governance. Not a demo, not a pilot, not self-hosted-only.
@@ -16,8 +16,8 @@ multi-tenant SaaS needs shared storage, real auth, billing, and a web app. Those
 
 | Plane | Package | Promise | Dependencies |
 | --- | --- | --- | --- |
-| **Coordinator** (self-hosted, embedded in agent hosts) | `src/finalisma_mcp/` | Stays **stdlib-only, SQLite, zero deps**. This is a genuine differentiator and it now has a real MCP host validation behind it. | none, ever |
-| **Cloud** (the hosted product) | `src/finalisma_cloud/` | Multi-tenant, **SQLite-WAL for v1** (Postgres later, driven by measured load), OIDC, billing, dashboard, real-time relay. | allowed, pinned |
+| **Coordinator** (self-hosted, embedded in agent hosts) | `src/weft_mcp/` | Stays **stdlib-only, SQLite, zero deps**. This is a genuine differentiator and it now has a real MCP host validation behind it. | none, ever |
+| **Cloud** (the hosted product) | `src/weft_cloud/` | Multi-tenant, **SQLite-WAL for v1** (Postgres later, driven by measured load), OIDC, billing, dashboard, real-time relay. | allowed, pinned |
 
 > **2026-08-05 decision (Wave F) — v1 hosted runs on SQLite-WAL, single instance.**
 > Supersedes the earlier "Multi-tenant, Postgres" wording for the v1 milestone only.
@@ -28,7 +28,7 @@ multi-tenant SaaS needs shared storage, real auth, billing, and a web app. Those
 > comfortably covers a design-partner-scale hosted service. Postgres becomes a **scale
 > decision driven by measured load**, not an upfront tax. The hard requirement this
 > decision places on the code: the storage layer MUST sit behind an explicit interface
-> (`src/finalisma_cloud/` persistence protocol/ABC) so a Postgres backend can be added
+> (`src/weft_cloud/` persistence protocol/ABC) so a Postgres backend can be added
 > later without touching business logic. Tenancy, migrations, quotas, and crash-durability
 > are enforced in Wave F regardless of the storage engine.
 
@@ -36,7 +36,7 @@ The coordinator is the protocol engine and stays pure. The cloud plane wraps it 
 service. A customer can self-host the coordinator for free, or use the hosted product. That is
 the open-core shape, and it keeps every existing truthfulness claim intact.
 
-**Nothing in `src/finalisma_mcp/` may gain a runtime dependency.** If a cloud feature seems to
+**Nothing in `src/weft_mcp/` may gain a runtime dependency.** If a cloud feature seems to
 need one there, it belongs in the cloud plane instead.
 
 ---
@@ -68,7 +68,7 @@ An agent connects by **one** of four tiers. The link must work for all of them.
 1. **MCP stdio** — validated against a real host (see `docs/INTEROP_VALIDATION_2026-08-05.md`).
 2. **MCP Streamable HTTP** — remote hosts.
 3. **Bridge adapters** (`bridge.py`) — webhook, polling, clipboard bootstrap for hosts without MCP.
-4. **SDK** (`finalisma_sdk`) — anything that can run Python.
+4. **SDK** (`weft_sdk`) — anything that can run Python.
 
 A tier is only "supported" when a captured transcript exists in the repo. No exceptions.
 
@@ -120,7 +120,7 @@ Each wave ends green: full suite, smoke, perf gate, and committed per step.
 | Wave | Outcome |
 | --- | --- |
 | **E — Rooms** | Room object over roster/outbox: N-agent multi-use links, presence, addressing, reconnect. Coordinator plane, still stdlib-only. |
-| **F — Cloud spine** | `finalisma_cloud`: storage interface (SQLite-WAL backend now, Postgres later), tenancy enforced at the storage boundary, migrations, quotas/rate limits, crash durability. |
+| **F — Cloud spine** | `weft_cloud`: storage interface (SQLite-WAL backend now, Postgres later), tenancy enforced at the storage boundary, migrations, quotas/rate limits, crash durability. |
 | **G — Identity** | Email + OIDC auth, orgs, roles, invites, sessions, rotation. |
 | **H — Web app** | Dashboard: rooms, live stream, audit, connect-an-agent, member management. |
 | **I — Billing** | Plans, metering, checkout, limits enforced server-side. |

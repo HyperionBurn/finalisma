@@ -3,15 +3,15 @@
   "duration_seconds": 42,
   "resolution": "1280x720",
   "webm": {
-    "path": "site\\assets\\finalisma-demo.webm",
+    "path": "site\\assets\\weft-demo.webm",
     "bytes": 3459479
   },
   "mp4": {
-    "path": "site\\assets\\finalisma-demo.mp4",
+    "path": "site\\assets\\weft-demo.mp4",
     "bytes": 6772088
   },
   "poster": {
-    "path": "site\\assets\\finalisma-demo-poster.png",
+    "path": "site\\assets\\weft-demo-poster.png",
     "bytes": 65278
   },
   "mp4_encoder": "h264_mf",

@@ -1,4 +1,4 @@
-# Finalisma website completion audit
+# Weft website completion audit
 
 Date: 2026-07-31  
 Objective: `go all in on the website`
@@ -39,7 +39,7 @@ implementation substitution, not a claim that GSAP is installed.
 
 ## Exact external inputs still required
 
-1. Public HTTPS origin, such as `https://finalisma.example`.
+1. Public HTTPS origin, such as `https://weft.example`.
 2. Founder-owned HTTPS application endpoint or `mailto:` destination.
 
 Once both are real, run:
