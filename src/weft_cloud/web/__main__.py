@@ -1,17 +1,17 @@
 """Finalisma Web App — runnable entry point.
 
-``python -m finalisma_cloud.web`` binds the browser front-end (the same
+``python -m weft_cloud.web`` binds the browser front-end (the same
 ``FinalismaWebApp`` the 93 web-contract tests drive) to a real HTTP port so the
 marketing site's signup CTA has something to point at. Without this module the
 web app is green but undeployable: it is the last thing between "works" and
 "deployable".
 
 Architecture (per docs/DEPLOY.md):
-  - ``src/finalisma_mcp/`` stays stdlib-only forever — UNTOUCHED by this module.
-  - ``src/finalisma_cloud/`` MAY take dependencies, but this entry point stays
+  - ``src/weft_mcp/`` stays stdlib-only forever — UNTOUCHED by this module.
+  - ``src/weft_cloud/`` MAY take dependencies, but this entry point stays
     stdlib-only to keep the dependency-free promise intact for v1.
-  - Transport is the same idiom as ``finalisma_mcp/server.py`` and
-    ``finalisma_cloud/service.py``: ``http.server.ThreadingHTTPServer`` +
+  - Transport is the same idiom as ``weft_mcp/server.py`` and
+    ``weft_cloud/service.py``: ``http.server.ThreadingHTTPServer`` +
     ``BaseHTTPRequestHandler`` (``app.handler``).
 
 The launcher sequence is deliberately the one verified by hand before this
@@ -28,9 +28,9 @@ import sys
 import http.server
 from typing import Any, Mapping
 
-from finalisma_cloud.identity.schema import ensure_schema
-from finalisma_cloud.storage import SqliteWalBackend
-from finalisma_cloud.web.app import FinalismaWebApp
+from weft_cloud.identity.schema import ensure_schema
+from weft_cloud.storage import SqliteWalBackend
+from weft_cloud.web.app import FinalismaWebApp
 
 # Secrets are never logged. No secret ever appears in a default configuration.
 
@@ -41,7 +41,7 @@ def runtime_config(
 ) -> dict[str, Any]:
     """Resolve runtime settings for the web app launcher.
 
-    Same precedence and discipline as ``finalisma_cloud.service.runtime_config``
+    Same precedence and discipline as ``weft_cloud.service.runtime_config``
     (argv → environment → defaults), so containers configure entirely through
     the environment while a developer can still pass a positional port:
 

@@ -1,4 +1,4 @@
-"""TDD tests for finalisma_mcp.bridge — universal adapters for non-MCP hosts.
+"""TDD tests for weft_mcp.bridge — universal adapters for non-MCP hosts.
 
 Covers: WebhookBridge, PollingBridge, ClipboardBridge, HttpBridgeClient,
 actor-auth binding, signature verification, one-use enforcement.
@@ -22,8 +22,8 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from finalisma_mcp.core import FinalismaStore, FinalismaError
-from finalisma_mcp.bridge import (
+from weft_mcp.core import FinalismaStore, FinalismaError
+from weft_mcp.bridge import (
     WebhookBridge,
     PollingBridge,
     ClipboardBridge,
@@ -385,7 +385,7 @@ class HttpBridgeClientTests(unittest.TestCase):
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        from finalisma_mcp.server import FinalismaDispatcher, _MCPRequestHandler, _Metrics, _WindowRateLimiter
+        from weft_mcp.server import FinalismaDispatcher, _MCPRequestHandler, _Metrics, _WindowRateLimiter
         self.store = _make_store(self.temp.name)
         self.dispatcher = FinalismaDispatcher(self.store)
         cred = _register_agent(self.store, "team-1", "agent-1")
@@ -599,7 +599,7 @@ class BridgeInitTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         store = _make_store(temp.name)
         # init should be idempotent and create bridge tables
-        from finalisma_mcp.bridge import init_bridge
+        from weft_mcp.bridge import init_bridge
         init_bridge(store)
         init_bridge(store)  # idempotent
         with store._read() as conn:

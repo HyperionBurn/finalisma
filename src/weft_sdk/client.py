@@ -1,7 +1,7 @@
 """Finalisma SDK — stdlib-only Python client for the Finalisma MCP protocol.
 
 The SDK talks to a Finalisma MCP coordinator over JSON-RPC using stdlib
-http.client.  It never imports finalisma_mcp — it is a pure client of the
+http.client.  It never imports weft_mcp — it is a pure client of the
 protocol documented in README.md and docs/PROTOCOL.md.
 """
 

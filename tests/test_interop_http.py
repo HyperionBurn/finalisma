@@ -1,7 +1,7 @@
 """Finalisma MCP Streamable HTTP protocol integration test.
 
 Spawns the coordinator over HTTP, drives a genuine remote JSON-RPC client
-against POST /mcp (no finalisma_mcp internals imported), asserts the full
+against POST /mcp (no weft_mcp internals imported), asserts the full
 pairing + verified-handoff lifecycle completes, and asserts the one-use
 pairing link reuse is refused. Reuses the driver module's spawn/flow helpers
 so the test exercises the exact same wire path as the committed transcript.
@@ -153,7 +153,7 @@ class TestInteropHTTP(unittest.TestCase):
             [
                 sys.executable,
                 "-B",
-                "scripts/finalisma-mcp.py",
+                "scripts/weft-mcp.py",
                 "--transport",
                 "http",
                 "--host",
@@ -191,7 +191,7 @@ class TestInteropHTTP(unittest.TestCase):
     def test_http_handoff_lifecycle(self) -> None:
         result = _run_http_handoff(self.port, self.workspace)
         self.assertEqual(result["protocol_version"], "2025-11-25")
-        self.assertEqual(result["server_info"], {"name": "finalisma-mcp", "version": "0.1.0"})
+        self.assertEqual(result["server_info"], {"name": "weft-mcp", "version": "0.1.0"})
         self.assertGreaterEqual(result["tool_count"], 58)
         self.assertEqual(result["join_state"], "active")
         self.assertEqual(result["task_status"], "done")

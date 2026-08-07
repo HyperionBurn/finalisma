@@ -16,7 +16,7 @@ from pathlib import Path
 _REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO / "src"))
 
-from finalisma_mcp import roster  # noqa: E402
+from weft_mcp import roster  # noqa: E402
 
 
 class RosterFreshDbTests(unittest.TestCase):
@@ -206,7 +206,7 @@ class RosterCoexistenceWithCoreTests(unittest.TestCase):
             pass
 
     def test_core_then_roster_same_db(self):
-        from finalisma_mcp.core import FinalismaStore
+        from weft_mcp.core import FinalismaStore
 
         store = FinalismaStore(state_path=self.db_path, workspace_path=self.db_path + ".ws")
         try:

@@ -14,7 +14,7 @@ import uuid
 from abc import ABC, abstractmethod
 from typing import Any
 
-from finalisma_cloud.storage import utc_now_iso
+from weft_cloud.storage import utc_now_iso
 
 
 def _new_id(prefix: str) -> str:

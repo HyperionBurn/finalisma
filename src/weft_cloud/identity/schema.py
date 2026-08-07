@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from finalisma_cloud.migrations import apply_migrations
+from weft_cloud.migrations import apply_migrations
 
 
 def ensure_schema(backend: Any) -> None:

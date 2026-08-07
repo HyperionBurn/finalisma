@@ -1,7 +1,7 @@
 """Identity sessions integration tests (TDD — RED deliverable).
 
 These tests exercise the Wave G session contract through the real identity
-API (finalisma_cloud.identity). The identity modules do not exist yet, so
+API (weft_cloud.identity). The identity modules do not exist yet, so
 this file must FAIL at import time.
 
 Per AGENTS.md: no mocks for the SQLite layer. make_backend() returns a real
@@ -23,12 +23,12 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from finalisma_cloud.storage import StorageBackend, SqliteWalBackend
+from weft_cloud.storage import StorageBackend, SqliteWalBackend
 
 # The identity package does not exist yet — this import is the RED gate.
-from finalisma_cloud.identity import accounts, sessions
-from finalisma_cloud.identity.context import SessionContext, RoleError
-from finalisma_cloud.identity.tokens import AuthError
+from weft_cloud.identity import accounts, sessions
+from weft_cloud.identity.context import SessionContext, RoleError
+from weft_cloud.identity.tokens import AuthError
 
 
 def _sha256(text: str) -> str:
@@ -56,7 +56,7 @@ class SessionContractTests(unittest.TestCase):
         # cloud_002..cloud_006 on the backend. If that entry point is not
         # the final name, the orchestrator must wire it.
         try:
-            from finalisma_cloud.identity import ensure_schema
+            from weft_cloud.identity import ensure_schema
             ensure_schema(self.backend)
         except ImportError:
             # Fallback: apply migrations directly via the backend so tests

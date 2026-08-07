@@ -26,7 +26,7 @@ ABSOLUTE_ROUTE_HREF = r'href="https?://[^"]+/signup"'
 sys.path.insert(0, str(ROOT))
 
 _SITE_SPEC = importlib.util.spec_from_file_location(
-    "finalisma_site", ROOT / "scripts" / "finalisma-site.py"
+    "finalisma_site", ROOT / "scripts" / "weft-site.py"
 )
 assert _SITE_SPEC and _SITE_SPEC.loader
 _SITE_MODULE = importlib.util.module_from_spec(_SITE_SPEC)
@@ -291,7 +291,7 @@ class LaunchSurfaceTests(unittest.TestCase):
                     continue
                 href_path = reference.split("#", 1)[0].split("?", 1)[0]
                 # App-front-door references are external to this static
-                # bundle — the web app (finalisma_cloud/web/app.py) serves
+                # bundle — the web app (weft_cloud/web/app.py) serves
                 # them, not the site's path tree. The built index.html now
                 # points at an absolute app origin (already excluded by the
                 # scheme check above); preserved legacy pages restored
@@ -435,7 +435,7 @@ class LaunchSurfaceTests(unittest.TestCase):
             self.assertEqual(status, 404)
             self.assertIn("This path is not in the account.", missing)
 
-            for path in ("/../src/finalisma_mcp/core.py", "/docs/%2e%2e/src/finalisma_mcp/core.py"):
+            for path in ("/../src/weft_mcp/core.py", "/docs/%2e%2e/src/weft_mcp/core.py"):
                 with self.subTest(path=path):
                     status, body, _ = get(path)
                     self.assertEqual(status, 404)

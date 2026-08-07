@@ -1,7 +1,7 @@
 """Finalisma SDK-tier validation driver.
 
 Spawns the coordinator over Streamable HTTP (the SDK tier's real transport),
-drives it through the SDK (`import finalisma_sdk`), exercises the full two-party
+drives it through the SDK (`import weft_sdk`), exercises the full two-party
 pairing + verified-handoff lifecycle AND the N-agent Room product claim, then
 tears the child down in a finally block.
 
@@ -27,7 +27,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from finalisma_sdk import FinalismaClient, FinalismaError  # noqa: E402
+from weft_sdk import FinalismaClient, FinalismaError  # noqa: E402
 
 TEAM_ID = "demo"
 N_ROOM_AGENTS = 3
@@ -72,7 +72,7 @@ def main() -> int:
         [
             sys.executable,
             "-B",
-            "scripts/finalisma-mcp.py",
+            "scripts/weft-mcp.py",
             "--transport",
             "http",
             "--host",
@@ -324,7 +324,7 @@ def main() -> int:
         result = {
             "status": status,
             "transport": "http",
-            "sdk_tier": "finalisma_sdk.FinalismaClient over Streamable HTTP (public API only)",
+            "sdk_tier": "weft_sdk.FinalismaClient over Streamable HTTP (public API only)",
             "protocol_version": proto.get("protocolVersion"),
             "server_info": proto.get("serverInfo"),
             "pairing_join_state": jr_b2.state,

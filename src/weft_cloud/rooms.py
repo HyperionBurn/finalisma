@@ -27,7 +27,7 @@ import time as _time
 import uuid
 from typing import Any
 
-from finalisma_cloud.storage import StorageBackend, utc_now_iso
+from weft_cloud.storage import StorageBackend, utc_now_iso
 
 from .identity.context import SessionContext, require_db_role
 from .identity.tokens import AuthError, hash_token

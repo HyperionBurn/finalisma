@@ -1,6 +1,6 @@
 """Migration-upgrade integration tests (Wave F — Cloud Spine).
 
-RED deliverable: these tests import ``finalisma_cloud.migrations`` which does
+RED deliverable: these tests import ``weft_cloud.migrations`` which does
 not exist yet, so the suite MUST fail on import. When the cloud plane is built,
 the tests below verify the v3→cloud upgrade contract against a REAL schema-v3
 coordinator database (no mocks, real storage):
@@ -31,10 +31,10 @@ from pathlib import Path
 # Add src/ to the import path — same convention as tests/test_finalisma.py.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from finalisma_mcp.core import FinalismaStore  # noqa: E402
+from weft_mcp.core import FinalismaStore  # noqa: E402
 
 # This import is the RED gate: the module does not exist yet.
-from finalisma_cloud.migrations import apply_migrations  # noqa: E402
+from weft_cloud.migrations import apply_migrations  # noqa: E402
 
 
 COORDINATOR_TABLES = (

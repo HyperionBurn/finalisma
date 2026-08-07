@@ -5,7 +5,7 @@ real MCP JSON-RPC over POST /mcp using stdlib http.client (initialize /
 tools/list / tools/call), exercises the full pairing + verified-handoff
 lifecycle, includes a deliberate negative case, and tears the child down in a
 finally block. This is a genuine remote client: it does NOT import
-finalisma_mcp internals or call the dispatcher directly.
+weft_mcp internals or call the dispatcher directly.
 
 Run:  timeout 180 python -B scripts/interop-validate-http.py
 """
@@ -129,7 +129,7 @@ def main() -> int:
         [
             sys.executable,
             "-B",
-            "scripts/finalisma-mcp.py",
+            "scripts/weft-mcp.py",
             "--transport",
             "http",
             "--host",

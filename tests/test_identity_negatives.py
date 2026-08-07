@@ -3,7 +3,7 @@
 Authoritative spec: docs/IDENTITY_DESIGN.md section 9 (all 28 negative cases)
 and section 10 (no-secrets-in-logs).
 
-This file imports from finalisma_cloud.identity — which does NOT exist yet.
+This file imports from weft_cloud.identity — which does NOT exist yet.
 Every test here encodes a refusal that MUST fire. The refusals ARE the
 deliverable. This file must FAIL now with ModuleNotFoundError; when the
 identity plane is implemented, each test must pass without weakening.
@@ -21,19 +21,19 @@ import time
 import unittest
 from pathlib import Path
 
-# Add src/ to sys.path so finalisma_cloud is importable (mirrors test_tenancy_negative.py).
+# Add src/ to sys.path so weft_cloud is importable (mirrors test_tenancy_negative.py).
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 # --- identity-plane imports: these modules do NOT exist yet (RED) ---
-from finalisma_cloud.identity.accounts import AccountStore
-from finalisma_cloud.identity.sessions import SessionStore
-from finalisma_cloud.identity.orgs import OrgStore
-from finalisma_cloud.identity.invites import InviteStore
-from finalisma_cloud.identity.context import SessionContext, RoleError
-from finalisma_cloud.identity.tokens import generate_token, hash_token
+from weft_cloud.identity.accounts import AccountStore
+from weft_cloud.identity.sessions import SessionStore
+from weft_cloud.identity.orgs import OrgStore
+from weft_cloud.identity.invites import InviteStore
+from weft_cloud.identity.context import SessionContext, RoleError
+from weft_cloud.identity.tokens import generate_token, hash_token
 
 # --- existing cloud-plane primitives (Wave F) ---
-from finalisma_cloud.storage import SqliteWalBackend
+from weft_cloud.storage import SqliteWalBackend
 
 
 # ---------------------------------------------------------------------------
@@ -645,7 +645,7 @@ class IdentityNegatives(unittest.TestCase):
             self.assertNotIn(session_token, serialised)
 
     def test_17_grep_proof_no_raw_secrets_in_source(self):
-        """#28: grep src/finalisma_cloud/identity/ for 'password'/'token'.
+        """#28: grep src/weft_cloud/identity/ for 'password'/'token'.
 
         Any hit must be a field name / param / comment — never a raw secret
         value. We verify by asserting that the actual test passwords and tokens
@@ -653,7 +653,7 @@ class IdentityNegatives(unittest.TestCase):
         """
         import glob as _glob
 
-        identity_dir = Path(__file__).resolve().parent.parent / "src" / "finalisma_cloud" / "identity"
+        identity_dir = Path(__file__).resolve().parent.parent / "src" / "weft_cloud" / "identity"
         if not identity_dir.exists():
             self.skipTest("identity module not yet created (RED phase)")
 

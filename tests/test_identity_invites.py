@@ -1,7 +1,7 @@
 """Wave G — Identity: invites contract (RED).
 
 Drives the invites module through the real identity API against a real
-SqliteWalBackend on a temp file. The ``finalisma_cloud.identity.invites``
+SqliteWalBackend on a temp file. The ``weft_cloud.identity.invites``
 module does not exist yet, so the import fails — that ModuleNotFoundError is
 the RED deliverable.
 
@@ -38,11 +38,11 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 # These imports are the RED line — the identity package does not exist yet.
-from finalisma_cloud.identity import invites, orgs, sessions  # noqa: E402
-from finalisma_cloud.identity.context import RoleError, SessionContext  # noqa: E402
-from finalisma_cloud.identity.tokens import AuthError  # noqa: E402
-from finalisma_cloud.migrations import apply_migrations  # noqa: E402
-from finalisma_cloud.storage import SqliteWalBackend  # noqa: E402
+from weft_cloud.identity import invites, orgs, sessions  # noqa: E402
+from weft_cloud.identity.context import RoleError, SessionContext  # noqa: E402
+from weft_cloud.identity.tokens import AuthError  # noqa: E402
+from weft_cloud.migrations import apply_migrations  # noqa: E402
+from weft_cloud.storage import SqliteWalBackend  # noqa: E402
 
 
 def _sha256(text: str) -> str:
@@ -67,7 +67,7 @@ def make_backend() -> SqliteWalBackend:
 
 def _seed_owner(backend: SqliteWalBackend, tenant_id: str, email: str, password: str):
     """signup + owner membership + owner session context. Returns ctx."""
-    from finalisma_cloud.identity import accounts
+    from weft_cloud.identity import accounts
 
     account_id, _ = accounts.signup(backend, tenant_id, email, password)
     with backend.transaction() as tx:
@@ -152,7 +152,7 @@ class IdentityInvitesContractTests(unittest.TestCase):
     # -- 3. the accepted account can authenticate with the given password --
 
     def test_accepted_account_can_authenticate(self) -> None:
-        from finalisma_cloud.identity import accounts
+        from weft_cloud.identity import accounts
 
         _, raw_token = invites.create(self.owner_ctx, "guest@example.com", role="member")
         new_account_id, _ = invites.accept(
@@ -225,7 +225,7 @@ class IdentityInvitesContractTests(unittest.TestCase):
     # -- 9. member cannot create invites (admin/owner only) --
 
     def test_member_create_invite_raises_forbidden(self) -> None:
-        from finalisma_cloud.identity import accounts
+        from weft_cloud.identity import accounts
 
         member_id, _ = accounts.signup(
             self.backend, self.tenant_id, "member@example.com", self.PASSWORD
@@ -250,7 +250,7 @@ class IdentityInvitesContractTests(unittest.TestCase):
 
     def test_accept_lands_in_invite_tenant_only(self) -> None:
         tenant_b = _new_id("tenant")
-        from finalisma_cloud.identity import accounts
+        from weft_cloud.identity import accounts
 
         backend = self.backend
         owner_b_ctx = _seed_owner(backend, tenant_b, "owner-b@example.com", self.PASSWORD)
@@ -277,7 +277,7 @@ class IdentityInvitesContractTests(unittest.TestCase):
         """Layer-2 guard: even a SessionContext hand-built with role='owner'
         is refused when the DB membership is only 'member'. The role gate
         re-derives the actor's role from cloud_identity_members."""
-        from finalisma_cloud.identity import accounts
+        from weft_cloud.identity import accounts
 
         member_id, _ = accounts.signup(
             self.backend, self.tenant_id, "lowpriv@example.com", self.PASSWORD

@@ -1,7 +1,7 @@
 """Wave G — Identity: accounts contract (RED).
 
 Drives the accounts module through the real identity API against a real
-SqliteWalBackend on a temp file. The ``finalisma_cloud.identity`` package does
+SqliteWalBackend on a temp file. The ``weft_cloud.identity`` package does
 not exist yet, so the import fails — that ModuleNotFoundError is the deliverable.
 
 Authoritative spec: docs/IDENTITY_DESIGN.md sections 3, 5, 9.1, 12.
@@ -16,10 +16,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from finalisma_cloud.identity import accounts  # noqa: E402 — RED: package absent
-from finalisma_cloud.identity.mailer import LocalOutboxMailer  # noqa: E402
-from finalisma_cloud.migrations import apply_migrations  # noqa: E402
-from finalisma_cloud.storage import SqliteWalBackend  # noqa: E402
+from weft_cloud.identity import accounts  # noqa: E402 — RED: package absent
+from weft_cloud.identity.mailer import LocalOutboxMailer  # noqa: E402
+from weft_cloud.migrations import apply_migrations  # noqa: E402
+from weft_cloud.storage import SqliteWalBackend  # noqa: E402
 
 
 def _new_id(prefix: str) -> str:

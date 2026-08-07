@@ -23,7 +23,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from finalisma_sdk import FinalismaClient, FinalismaError
+from weft_sdk import FinalismaClient, FinalismaError
 
 
 def _pick_free_port() -> int:
@@ -64,7 +64,7 @@ class SdkInteropTest(unittest.TestCase):
             [
                 sys.executable,
                 "-B",
-                "scripts/finalisma-mcp.py",
+                "scripts/weft-mcp.py",
                 "--transport",
                 "http",
                 "--host",

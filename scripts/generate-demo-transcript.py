@@ -12,7 +12,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from finalisma_mcp.core import FinalismaError, FinalismaStore  # noqa: E402
+from weft_mcp.core import FinalismaError, FinalismaStore  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:

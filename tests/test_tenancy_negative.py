@@ -8,7 +8,7 @@ and audit. They drive the real StorageBackend interface with two real
 tenants on real SQLite files (no mocks — per AGENTS.md test discipline).
 
 This file imports the StorageBackend ABC, TenantContext, TenantIsolationError,
-and a make_backend() seam from src/finalisma_cloud/, which does NOT exist yet.
+and a make_backend() seam from src/weft_cloud/, which does NOT exist yet.
 It MUST fail at import time until that module is implemented.
 """
 
@@ -22,9 +22,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 # --- The imports: wired by the orchestrator to the real cloud plane. ---
-from finalisma_cloud.storage import StorageBackend, SqliteWalBackend
-from finalisma_cloud.tenancy import TenantContext, TenantIsolationError
-from finalisma_cloud.quotas import PlanLimits
+from weft_cloud.storage import StorageBackend, SqliteWalBackend
+from weft_cloud.tenancy import TenantContext, TenantIsolationError
+from weft_cloud.quotas import PlanLimits
 
 
 def make_backend(db_path: Path) -> StorageBackend:

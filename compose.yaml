@@ -47,7 +47,7 @@ services:
   # probe the web port; GET /login returns 200 without a session.
   finalisma-web:
     image: finalisma-cloud:local
-    command: ["python", "-B", "-m", "finalisma_cloud.web"]
+    command: ["python", "-B", "-m", "weft_cloud.web"]
     ports:
       - "127.0.0.1:18789:18789"
     environment:

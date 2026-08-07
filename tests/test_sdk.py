@@ -1,6 +1,6 @@
 """Tests for the Finalisma SDK — stdlib-only Python client.
 
-Strategy: spin up the REAL finalisma_mcp HTTP server on an ephemeral localhost
+Strategy: spin up the REAL weft_mcp HTTP server on an ephemeral localhost
 port in setUp, then drive a FULL two-agent flow through the SDK.  This proves
 the SDK speaks the protocol correctly against the production server code.
 """
@@ -19,10 +19,10 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from finalisma_mcp.core import FinalismaStore
-from finalisma_mcp.server import FinalismaDispatcher, _MCPRequestHandler, _Metrics, _WindowRateLimiter
+from weft_mcp.core import FinalismaStore
+from weft_mcp.server import FinalismaDispatcher, _MCPRequestHandler, _Metrics, _WindowRateLimiter
 
-from finalisma_sdk import (
+from weft_sdk import (
     FinalismaClient,
     FinalismaError,
     AuthError,

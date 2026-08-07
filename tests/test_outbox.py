@@ -16,7 +16,7 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from threading import Thread
 
-from finalisma_mcp import outbox
+from weft_mcp import outbox
 
 
 class OutboxTests(unittest.TestCase):

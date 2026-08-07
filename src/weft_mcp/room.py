@@ -546,8 +546,8 @@ class RoomStore:
 
     def room_send(self, team_id: str, room_id: str, sender_agent_id: str, target_spec: Any,
                   payload: Any, actor_token: str, exclude_sender: bool = True) -> dict[str, Any]:
-        import finalisma_mcp.roster as _roster
-        import finalisma_mcp.outbox as _outbox
+        import weft_mcp.roster as _roster
+        import weft_mcp.outbox as _outbox
         with self._transaction() as conn:
             room = self._require_room(conn, room_id)
             self._validate_actor(conn, team_id, sender_agent_id, actor_token, None)
@@ -620,7 +620,7 @@ class RoomStore:
 
     def receipts(self, team_id: str, room_id: str, agent_id: str, entry_ids: Sequence[str],
                  actor_token: str) -> dict[str, Any]:
-        import finalisma_mcp.outbox as _outbox
+        import weft_mcp.outbox as _outbox
         with self._transaction() as conn:
             self._require_room(conn, room_id)
             self._validate_actor(conn, team_id, agent_id, actor_token, None)

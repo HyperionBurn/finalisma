@@ -6,10 +6,10 @@ addressing) into a product a person can sign up for and paste a link into N
 agents.
 
 Architecture (per docs/PRODUCT_ROADMAP.md §1):
-  - ``src/finalisma_mcp/`` stays stdlib-only forever — UNTOUCHED by this module.
-  - ``src/finalisma_cloud/`` MAY take dependencies, but this service stays
+  - ``src/weft_mcp/`` stays stdlib-only forever — UNTOUCHED by this module.
+  - ``src/weft_cloud/`` MAY take dependencies, but this service stays
     stdlib-only to keep the dependency-free promise intact for v1.
-  - HTTP transport uses the same idiom as ``finalisma_mcp/server.py``:
+  - HTTP transport uses the same idiom as ``weft_mcp/server.py``:
     ``http.server.ThreadingHTTPServer`` + ``BaseHTTPRequestHandler``.
 
 The service is a thin JSON-RPC-over-HTTP layer. Every request authenticates
@@ -32,7 +32,7 @@ from http import HTTPStatus
 from typing import Any, Mapping
 from urllib.parse import urlsplit
 
-from finalisma_cloud.identity import (
+from weft_cloud.identity import (
     AccountStore,
     AuthError,
     InviteStore,
@@ -42,9 +42,9 @@ from finalisma_cloud.identity import (
     SessionStore,
     ensure_identity_schema,
 )
-from finalisma_cloud.identity.schema import ensure_schema as _ensure_identity_schema
-from finalisma_cloud.rooms import CloudRoomService, RoomError
-from finalisma_cloud.storage import SqliteWalBackend, StorageBackend
+from weft_cloud.identity.schema import ensure_schema as _ensure_identity_schema
+from weft_cloud.rooms import CloudRoomService, RoomError
+from weft_cloud.storage import SqliteWalBackend, StorageBackend
 
 # Secrets are never logged. Tokens are hashed at rest, never stored raw.
 # The service never echoes a raw token or password in any response or error.
@@ -207,7 +207,7 @@ class FinalismaCloudService:
         ctx = self._authenticate(handler)
         token = _bearer_token(handler)
         if token:
-            from finalisma_cloud.identity.tokens import hash_token
+            from weft_cloud.identity.tokens import hash_token
             token_hash = hash_token(token)
             with self.backend.transaction() as tx:
                 row = tx.execute(
@@ -495,7 +495,7 @@ class FinalismaCloudService:
 class _CloudHTTPHandler(BaseHTTPRequestHandler):
     """Routes HTTP requests to the service.
 
-    Same idiom as ``finalisma_mcp/server.py``'s ``_MCPRequestHandler``:
+    Same idiom as ``weft_mcp/server.py``'s ``_MCPRequestHandler``:
     ``BaseHTTPRequestHandler`` with a class-level ``service`` reference.
     """
 

@@ -1,4 +1,4 @@
-"""CLI entry point for ``python -m finalisma_mcp``."""
+"""CLI entry point for ``python -m weft_mcp``."""
 
 from __future__ import annotations
 

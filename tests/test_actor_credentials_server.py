@@ -14,9 +14,9 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from finalisma_mcp.__main__ import _resolve_actor_auth
-from finalisma_mcp.core import FinalismaError, FinalismaStore
-from finalisma_mcp.server import FinalismaDispatcher, TOOLS, _MCPRequestHandler, _Metrics, _WindowRateLimiter, run_stdio
+from weft_mcp.__main__ import _resolve_actor_auth
+from weft_mcp.core import FinalismaError, FinalismaStore
+from weft_mcp.server import FinalismaDispatcher, TOOLS, _MCPRequestHandler, _Metrics, _WindowRateLimiter, run_stdio
 
 
 class ActorCredentialTransportTests(unittest.TestCase):

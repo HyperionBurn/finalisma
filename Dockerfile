@@ -5,7 +5,7 @@
 # A deliberate small, boring image: the cloud service is stdlib-only with zero
 # runtime dependencies, so there is no build step, no package install and no
 # network access at runtime. The image carries only the source packages
-# (finalisma_cloud, plus the stdlib-only finalisma_mcp / finalisma_sdk).
+# (weft_cloud, plus the stdlib-only weft_mcp / weft_sdk).
 #
 # SINGLE-INSTANCE BOUNDARY: state is SQLite in WAL mode, which supports exactly
 # ONE writer. This image must be run as a single process bound to a persistent
@@ -48,4 +48,4 @@ EXPOSE 18788
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD python -c "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('FINALISMA_PORT','18788')+'/healthz', timeout=3)"
 
-CMD ["python", "-B", "-m", "finalisma_cloud.service"]
+CMD ["python", "-B", "-m", "weft_cloud.service"]

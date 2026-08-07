@@ -1,6 +1,6 @@
 """Identity — orgs, membership, roles, structural role enforcement (Wave G).
 
-RED deliverable: the finalisma_cloud.identity package does not exist yet, so
+RED deliverable: the weft_cloud.identity package does not exist yet, so
 this suite fails at import. When the orchestrator wires the modules, every
 test here asserts a contract from docs/IDENTITY_DESIGN.md §6, §8, §9.4.
 
@@ -22,16 +22,16 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from finalisma_cloud.storage import StorageBackend, SqliteWalBackend
+from weft_cloud.storage import StorageBackend, SqliteWalBackend
 
 # These imports are the RED line — the package does not exist yet.
-from finalisma_cloud.identity import (
+from weft_cloud.identity import (
     accounts,
     sessions,
     orgs,
     context,
 )
-from finalisma_cloud.identity.context import RoleError, SessionContext
+from weft_cloud.identity.context import RoleError, SessionContext
 
 
 def make_backend() -> StorageBackend:
@@ -192,7 +192,7 @@ class OrgsRolesStructuralEnforcementTests(unittest.TestCase):
         orgs.set_role(self.owner_ctx, promotee_id, "admin")
 
         # The old session token must now be refused.
-        from finalisma_cloud.identity.sessions import AuthError
+        from weft_cloud.identity.sessions import AuthError
 
         with self.assertRaises(AuthError) as ctx_exc:
             sessions.validate(self.backend, old_token)

@@ -34,7 +34,7 @@ from . import metrics_activation as _metrics_activation
 from .room import RoomStore, RoomError
 from .bridge import WebhookBridge, PollingBridge, ClipboardBridge
 
-SERVER_NAME = "finalisma-mcp"
+SERVER_NAME = "weft-mcp"
 SERVER_VERSION = "0.1.0"
 MAX_JSON_RPC_BYTES = 512 * 1024
 REQUEST_TIMEOUT_SECONDS = 30
@@ -1610,7 +1610,7 @@ class _MCPRequestHandler(BaseHTTPRequestHandler):
     rate_limiter: _WindowRateLimiter
     hub_state: _ServerHubState
 
-    server_version = "finalisma-mcp/0.1.0"
+    server_version = "weft-mcp/0.1.0"
 
     def log_message(self, format: str, *args: Any) -> None:
         # Avoid leaking tool payloads or credentials into a console transcript.

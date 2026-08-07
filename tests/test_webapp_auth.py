@@ -1,6 +1,6 @@
 """Wave H — web auth routes integration contract (RED).
 
-Drives real HTTP against an in-process server. The finalisma_cloud.web package
+Drives real HTTP against an in-process server. The weft_cloud.web package
 does not exist yet — this file must fail at import with ModuleNotFoundError.
 """
 
@@ -19,9 +19,9 @@ from urllib.parse import urlencode
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from finalisma_cloud.storage import SqliteWalBackend
-from finalisma_cloud.identity.schema import ensure_schema
-from finalisma_cloud.web.app import FinalismaWebApp  # RED: package absent
+from weft_cloud.storage import SqliteWalBackend
+from weft_cloud.identity.schema import ensure_schema
+from weft_cloud.web.app import FinalismaWebApp  # RED: package absent
 
 SITE_DIR = str(ROOT / "site")
 
@@ -173,7 +173,7 @@ class TestLogin(unittest.TestCase):
         self.email = f"login{time.time_ns()}@example.com"
         self.password = "login-password-ok"
         # Pre-create a verified account directly via identity plane.
-        from finalisma_cloud.identity.accounts import _create_account
+        from weft_cloud.identity.accounts import _create_account
 
         self.driver.backend.create_tenant("tenant-x", self.email, "free")
         _create_account(self.driver.backend, "tenant-x", self.email, self.password, email_verified=1)
@@ -277,7 +277,7 @@ class TestResetPassword(unittest.TestCase):
         self.email = f"reset{time.time_ns()}@example.com"
         self.old_password = "old-password-ok-long"
         self.driver.backend.create_tenant("tenant-r", self.email, "free")
-        from finalisma_cloud.identity.accounts import _create_account
+        from weft_cloud.identity.accounts import _create_account
 
         _create_account(
             self.driver.backend, "tenant-r", self.email, self.old_password, email_verified=1
@@ -372,7 +372,7 @@ class TestLogout(unittest.TestCase):
         self.email = f"logout{time.time_ns()}@example.com"
         self.password = "logout-password-ok"
         self.driver.backend.create_tenant("tenant-l", self.email, "free")
-        from finalisma_cloud.identity.accounts import _create_account
+        from weft_cloud.identity.accounts import _create_account
 
         _create_account(
             self.driver.backend, "tenant-l", self.email, self.password, email_verified=1
@@ -440,7 +440,7 @@ class TestNoSecretsInHtml(unittest.TestCase):
         self.email = f"secrets{time.time_ns()}@example.com"
         self.password = "secret-password-do-not-leak"
         self.driver.backend.create_tenant("tenant-s", self.email, "free")
-        from finalisma_cloud.identity.accounts import _create_account
+        from weft_cloud.identity.accounts import _create_account
 
         _create_account(
             self.driver.backend, "tenant-s", self.email, self.password, email_verified=1

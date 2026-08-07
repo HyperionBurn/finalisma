@@ -3,7 +3,7 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "finalisma-mcp"
+name = "weft-mcp"
 version = "0.1.0"
 description = "A dependency-free MCP bridge for reliable agent-to-agent teams."
 readme = "README.md"
@@ -13,11 +13,11 @@ authors = [{ name = "Finalisma" }]
 dependencies = []
 
 [project.scripts]
-finalisma-mcp = "finalisma_mcp.__main__:main"
+weft-mcp = "weft_mcp.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["finalisma_mcp*", "finalisma_sdk*", "finalisma_cloud*"]
+include = ["weft_mcp*", "weft_sdk*", "weft_cloud*"]
 
 [tool.finalisma]
 protocol = "finalisma.a2a/1.0"

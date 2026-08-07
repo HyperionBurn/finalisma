@@ -25,8 +25,8 @@ from pathlib import Path
 # Ensure the src package is importable.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from finalisma_cloud.service import FinalismaCloudService, _CloudHTTPHandler
-from finalisma_cloud.storage import SqliteWalBackend
+from weft_cloud.service import FinalismaCloudService, _CloudHTTPHandler
+from weft_cloud.storage import SqliteWalBackend
 
 
 def _post(base: str, path: str, body: dict, token: str | None = None) -> tuple[int, dict]:

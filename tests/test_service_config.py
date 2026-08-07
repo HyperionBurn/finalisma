@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from finalisma_cloud.service import runtime_config
+from weft_cloud.service import runtime_config
 
 
 class TestRuntimeConfig(unittest.TestCase):

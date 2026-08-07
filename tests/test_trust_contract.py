@@ -12,8 +12,8 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from finalisma_mcp.core import FinalismaError, FinalismaStore
-from finalisma_mcp.server import FinalismaDispatcher, _MCPRequestHandler, _Metrics, _WindowRateLimiter, handle_json_rpc
+from weft_mcp.core import FinalismaError, FinalismaStore
+from weft_mcp.server import FinalismaDispatcher, _MCPRequestHandler, _Metrics, _WindowRateLimiter, handle_json_rpc
 
 
 class StrictConsentTests(unittest.TestCase):

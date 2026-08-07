@@ -10,7 +10,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from finalisma_mcp.core import FinalismaStore
+from weft_mcp.core import FinalismaStore
 
 
 class _TraceStore(FinalismaStore):
@@ -52,7 +52,7 @@ class PerformanceHotPathTests(unittest.TestCase):
             connection.set_trace_callback(statements.append)
             return connection
 
-        with mock.patch("finalisma_mcp.core.sqlite3.connect", side_effect=traced_connect):
+        with mock.patch("weft_mcp.core.sqlite3.connect", side_effect=traced_connect):
             store = FinalismaStore(self.root / "state.db", self.root / "workspace")
             initialization = list(statements)
             statements.clear()

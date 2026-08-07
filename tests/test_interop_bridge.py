@@ -5,7 +5,7 @@ spawn the REAL coordinator over stdio, register an agent through its MCP
 surface, then exercise the REAL bridge adapters against the coordinator's
 database. Happy paths + deliberate negative refusals.
 
-These tests compose the real bridge classes from src/finalisma_mcp/bridge.py;
+These tests compose the real bridge classes from src/weft_mcp/bridge.py;
 they do NOT fabricate state through core.py store methods.
 """
 
@@ -24,8 +24,8 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from finalisma_mcp.core import FinalismaStore, FinalismaError
-from finalisma_mcp.bridge import (
+from weft_mcp.core import FinalismaStore, FinalismaError
+from weft_mcp.bridge import (
     WebhookBridge,
     PollingBridge,
     ClipboardBridge,
@@ -110,7 +110,7 @@ class BridgeInteropTests(unittest.TestCase):
             [
                 sys.executable,
                 "-B",
-                "scripts/finalisma-mcp.py",
+                "scripts/weft-mcp.py",
                 "--transport",
                 "stdio",
                 "--team-id",

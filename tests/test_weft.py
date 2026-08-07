@@ -15,8 +15,8 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from finalisma_mcp.core import FinalismaError, FinalismaStore
-from finalisma_mcp.server import FinalismaDispatcher, _MCPRequestHandler, _Metrics, _WindowRateLimiter, handle_json_rpc, run_stdio
+from weft_mcp.core import FinalismaError, FinalismaStore
+from weft_mcp.server import FinalismaDispatcher, _MCPRequestHandler, _Metrics, _WindowRateLimiter, handle_json_rpc, run_stdio
 
 
 class FinalismaStoreTests(unittest.TestCase):
@@ -299,7 +299,7 @@ class FinalismaStoreTests(unittest.TestCase):
             pool.shutdown(wait=True)
 
     def test_pairing_expiry_rejects_join_without_leaking_token(self) -> None:
-        with patch("finalisma_mcp.core._epoch", side_effect=[1000.0, 2000.0]):
+        with patch("weft_mcp.core._epoch", side_effect=[1000.0, 2000.0]):
             pairing = self.store.create_pairing("agent-a", "demo", ttl_seconds=60)
             with self.assertRaises(FinalismaError) as expired:
                 self.store.join_pairing(pairing["join_token"], "agent-b", consent=True)
@@ -372,7 +372,7 @@ class MCPProtocolTests(unittest.TestCase):
             body = json.loads(response.read())
             connection.close()
             self.assertEqual(response.status, 200)
-            self.assertEqual(body["result"]["serverInfo"]["name"], "finalisma-mcp")
+            self.assertEqual(body["result"]["serverInfo"]["name"], "weft-mcp")
 
             connection = HTTPConnection(host, port, timeout=5)
             connection.request("POST", "/mcp", request, {"Content-Type": "application/json", "Authorization": "Bearer test-token", "Origin": "https://untrusted.example"})

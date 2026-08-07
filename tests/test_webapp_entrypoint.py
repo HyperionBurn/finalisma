@@ -1,6 +1,6 @@
 """The web app has a runnable entry point that boots and serves.
 
-``python -m finalisma_cloud.web`` is the deployable launcher — the missing
+``python -m weft_cloud.web`` is the deployable launcher — the missing
 piece that took the web app from "green but not startable" to deployable. This
 file is its regression guard: it starts the REAL module as a subprocess (the
 same way a container would), asserts the public pages serve 200, then shuts it
@@ -9,7 +9,7 @@ binds" and nothing notices.
 
 Also covers ``runtime_config`` for the web launcher: same argv > env > default
 precedence and fail-loud-on-bad-port discipline as the cloud service
-(``finalisma_cloud.service.runtime_config``), so the two entry points stay
+(``weft_cloud.service.runtime_config``), so the two entry points stay
 consistent.
 """
 
@@ -28,7 +28,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from finalisma_cloud.web.__main__ import runtime_config  # noqa: E402
+from weft_cloud.web.__main__ import runtime_config  # noqa: E402
 
 SITE_DIR = str(ROOT / "site")
 
@@ -113,7 +113,7 @@ class TestWebEntryPointBootsAndServes(unittest.TestCase):
             })
             with open(stderr_path, "wb") as stderr_fh:
                 proc = subprocess.Popen(
-                    [sys.executable, "-B", "-m", "finalisma_cloud.web"],
+                    [sys.executable, "-B", "-m", "weft_cloud.web"],
                     cwd=str(ROOT),
                     env=env,
                     stdout=subprocess.DEVNULL,

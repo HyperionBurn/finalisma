@@ -2,7 +2,7 @@
 
 Spawns the REAL coordinator over stdio (MCP's primary transport), registers
 an agent through its MCP surface, then exercises the REAL bridge adapters
-(WebhookBridge, PollingBridge, ClipboardBridge) from src/finalisma_mcp/bridge.py
+(WebhookBridge, PollingBridge, ClipboardBridge) from src/weft_mcp/bridge.py
 against that live coordinator's database. This is the "hosts with no MCP"
 path: the bridge adapters are how non-MCP AI products reach the coordinator.
 
@@ -26,8 +26,8 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from finalisma_mcp.core import FinalismaStore, FinalismaError
-from finalisma_mcp.bridge import (
+from weft_mcp.core import FinalismaStore, FinalismaError
+from weft_mcp.bridge import (
     WebhookBridge,
     PollingBridge,
     ClipboardBridge,
@@ -132,7 +132,7 @@ def main() -> int:
         [
             sys.executable,
             "-B",
-            "scripts/finalisma-mcp.py",
+            "scripts/weft-mcp.py",
             "--transport",
             "stdio",
             "--team-id",

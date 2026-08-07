@@ -1,6 +1,6 @@
 """Wave H — web org/member routes integration contract (RED).
 
-The finalisma_cloud.web package does not exist yet — this file must fail at
+The weft_cloud.web package does not exist yet — this file must fail at
 import with ModuleNotFoundError.
 
 Drives real HTTP against an in-process FinalismaWebApp server. Route contract
@@ -22,9 +22,9 @@ from urllib.parse import urlencode
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from finalisma_cloud.storage import SqliteWalBackend
-from finalisma_cloud.identity.schema import ensure_schema
-from finalisma_cloud.web.app import FinalismaWebApp  # RED: package absent
+from weft_cloud.storage import SqliteWalBackend
+from weft_cloud.identity.schema import ensure_schema
+from weft_cloud.web.app import FinalismaWebApp  # RED: package absent
 
 SITE_DIR = str(ROOT / "site")
 

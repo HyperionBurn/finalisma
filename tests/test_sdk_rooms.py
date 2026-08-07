@@ -27,7 +27,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 # --- These imports are the contract. They WILL raise ImportError until the
 #     orchestrator adds the room API surface + dataclasses to the SDK. ---
-from finalisma_sdk import (  # noqa: E402  (expected AttributeError/ImportError)
+from weft_sdk import (  # noqa: E402  (expected AttributeError/ImportError)
     FinalismaClient,
     FinalismaError,
     RoomResult,
@@ -39,7 +39,7 @@ from finalisma_sdk import (  # noqa: E402  (expected AttributeError/ImportError)
     RoomEvent,
 )
 
-# Names that MUST be exported from finalisma_sdk for the tests to even load.
+# Names that MUST be exported from weft_sdk for the tests to even load.
 _REQUIRED_EXPORTS = [
     "RoomResult",
     "RoomJoinResult",
@@ -92,7 +92,7 @@ class _RoomHarness:
             [
                 sys.executable,
                 "-B",
-                "scripts/finalisma-mcp.py",
+                "scripts/weft-mcp.py",
                 "--transport",
                 "http",
                 "--host",
@@ -170,10 +170,10 @@ class SdkRoomsContractTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         # Fail fast with a clear message if the SDK hasn't exported the names.
-        missing = [n for n in _REQUIRED_EXPORTS if not hasattr(sys.modules["finalisma_sdk"], n)]
+        missing = [n for n in _REQUIRED_EXPORTS if not hasattr(sys.modules["weft_sdk"], n)]
         if missing:
             raise ImportError(
-                f"finalisma_sdk is missing room dataclasses: {missing} — "
+                f"weft_sdk is missing room dataclasses: {missing} — "
                 "this test is RED until the SDK-ROOMS wave implements them.",
             )
         cls.harness = _RoomHarness()

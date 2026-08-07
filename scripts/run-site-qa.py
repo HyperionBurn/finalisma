@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 _site_spec = importlib.util.spec_from_file_location(
-    "finalisma_site", ROOT / "scripts" / "finalisma-site.py"
+    "finalisma_site", ROOT / "scripts" / "weft-site.py"
 )
 assert _site_spec and _site_spec.loader
 _site_module = importlib.util.module_from_spec(_site_spec)

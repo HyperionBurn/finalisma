@@ -1,4 +1,4 @@
-"""Targeted hardening tests for src/finalisma_mcp/core.py."""
+"""Targeted hardening tests for src/weft_mcp/core.py."""
 from __future__ import annotations
 
 import sys
@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from finalisma_mcp.core import FinalismaError, FinalismaStore
+from weft_mcp.core import FinalismaError, FinalismaStore
 
 
 class SessionReadNoWriteTest(unittest.TestCase):
@@ -42,7 +42,7 @@ class SessionReadNoWriteTest(unittest.TestCase):
 
         # Force the session to appear expired by mocking _epoch to a far-future time.
         future = 2_000_000_000.0
-        with patch("finalisma_mcp.core._epoch", return_value=future):
+        with patch("weft_mcp.core._epoch", return_value=future):
             with self.assertRaises(FinalismaError) as ctx:
                 self.store.session_poll(session_token, "a2", after_seq=0)
             self.assertEqual(ctx.exception.code, "session_expired")
@@ -60,7 +60,7 @@ class SessionReadNoWriteTest(unittest.TestCase):
         session_id = self.joined["session_id"]
 
         future = 2_000_000_000.0
-        with patch("finalisma_mcp.core._epoch", return_value=future):
+        with patch("weft_mcp.core._epoch", return_value=future):
             with self.assertRaises(FinalismaError) as ctx:
                 self.store.session_status(session_token, "a2")
             self.assertEqual(ctx.exception.code, "session_expired")
@@ -76,7 +76,7 @@ class SessionReadNoWriteTest(unittest.TestCase):
         session_token = self.joined["session_token"]
 
         future = 2_000_000_000.0
-        with patch("finalisma_mcp.core._epoch", return_value=future):
+        with patch("weft_mcp.core._epoch", return_value=future):
             with self.assertRaises(FinalismaError) as ctx:
                 self.store.session_send(
                     session_token, "a2", "test.event", {"v": 1}, "send-expire-test"

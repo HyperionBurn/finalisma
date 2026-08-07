@@ -1,6 +1,6 @@
 """Wave H — web room dashboard + connect-an-agent routes integration contract (RED).
 
-The finalisma_cloud.web package does not exist yet — this file must fail at
+The weft_cloud.web package does not exist yet — this file must fail at
 import with ModuleNotFoundError.
 
 Drives real HTTP against an in-process ThreadingHTTPServer. Contract per
@@ -8,7 +8,7 @@ WEBAPP_DESIGN.md §3.3, §6, §7, §9.3, §9.6, §10:
 
 - FinalismaWebApp(backend, static_dir=..., state_dir=...) exposes .handler
   (a BaseHTTPRequestHandler subclass).
-- The app creates rooms by instantiating finalisma_mcp.room.RoomStore on a
+- The app creates rooms by instantiating weft_mcp.room.RoomStore on a
   per-tenant coordinator DB under state_dir (the app owns this).
 - Owner (admin+) creates rooms; members view; cross-tenant is 404 (never 403);
   CSRF gates every state-changing POST; raw link token only on the connect page.
@@ -30,9 +30,9 @@ from urllib.parse import urlencode
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from finalisma_cloud.storage import SqliteWalBackend
-from finalisma_cloud.identity.schema import ensure_schema
-from finalisma_cloud.web.app import FinalismaWebApp  # RED: package absent
+from weft_cloud.storage import SqliteWalBackend
+from weft_cloud.identity.schema import ensure_schema
+from weft_cloud.web.app import FinalismaWebApp  # RED: package absent
 
 SITE_DIR = str(ROOT / "site")
 

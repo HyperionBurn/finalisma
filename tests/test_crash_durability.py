@@ -29,16 +29,16 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-import finalisma_mcp.outbox as _outbox
-from finalisma_mcp.core import FinalismaStore
-from finalisma_mcp.room import RoomStore
+import weft_mcp.outbox as _outbox
+from weft_mcp.core import FinalismaStore
+from weft_mcp.room import RoomStore
 
 # RED trigger: this import fails with ModuleNotFoundError until the cloud plane
-# (src/finalisma_cloud/) is implemented. The tests below exercise crash recovery
+# (src/weft_cloud/) is implemented. The tests below exercise crash recovery
 # THROUGH the cloud storage backend — not just the coordinator directly — so the
 # whole file fails to load until the cloud plane exists.
-from finalisma_cloud.storage import SqliteWalBackend  # noqa: F401
-from finalisma_cloud.migrations import apply_migrations  # noqa: F401
+from weft_cloud.storage import SqliteWalBackend  # noqa: F401
+from weft_cloud.migrations import apply_migrations  # noqa: F401
 
 
 TEAM_ID = "crash-team"
@@ -65,7 +65,7 @@ class CrashTestDriver:
             [
                 sys.executable,
                 "-B",
-                "scripts/finalisma-mcp.py",
+                "scripts/weft-mcp.py",
                 "--transport",
                 "stdio",
                 "--team-id",
@@ -145,7 +145,7 @@ class CrashTestDriver:
 class TestCrashDurability(unittest.TestCase):
     """Real kill tests for crash durability (design §7.5).
 
-    These tests FAIL now with ModuleNotFoundError for ``finalisma_cloud`` — that
+    These tests FAIL now with ModuleNotFoundError for ``weft_cloud`` — that
     is the RED deliverable. The orchestrator wires the cloud plane to make them
     pass.
     """
@@ -518,7 +518,7 @@ class TestCrashDurability(unittest.TestCase):
         """The cloud plane's SqliteWalBackend must survive a kill and replay WAL.
 
         This test is the RED trigger for the cloud plane — the module-level import
-        of ``finalisma_cloud.storage`` fails with ModuleNotFoundError until the
+        of ``weft_cloud.storage`` fails with ModuleNotFoundError until the
         cloud plane is implemented.
         """
         backend = SqliteWalBackend(self.state_path)
