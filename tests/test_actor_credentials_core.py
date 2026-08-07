@@ -253,7 +253,7 @@ class ActorCredentialCoreTests(unittest.TestCase):
         secured = self.store(require_actor_auth=True)
 
         def unauth_code(agent_id: str) -> str:
-            with self.assertRaises(FinalismaError) as caught:
+            with self.assertRaises(WeftError) as caught:
                 secured.rotate_agent_credential("team", agent_id)
             return caught.exception.code
 
@@ -263,7 +263,7 @@ class ActorCredentialCoreTests(unittest.TestCase):
         self.assertEqual(real, "actor_auth_required")
 
         def bad_token_code(agent_id: str) -> str:
-            with self.assertRaises(FinalismaError) as caught:
+            with self.assertRaises(WeftError) as caught:
                 secured.rotate_agent_credential("team", agent_id, "fst_actor_bogus_token_value_which_is_long")
             return caught.exception.code
 
