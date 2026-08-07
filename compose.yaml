@@ -5,14 +5,18 @@
 #
 #     docker compose up -d --build
 #
-# SINGLE-INSTANCE CONSTRAINT (do not violate): the store is SQLite in WAL mode,
-# which supports exactly ONE writer. This service must run as a single instance
-# bound to one persistent disk. It must NOT be scaled or placed behind a load
-# balancer — that requires changing the storage layer. See docs/DEPLOY.md.
+# TWO PROCESSES, ONE STORE: the agent-facing API (finalisma-cloud) and the
+# browser front-end (finalisma-web) are separate containers from the same
+# image, and BOTH open the SAME SQLite database file (/data/finalisma-cloud.db)
+# in WAL mode. SQLite-WAL supports many concurrent readers and exactly ONE
+# writer, so the single-writer constraint now spans both processes: each
+# service must run as a single instance, the two must share one persistent
+# disk, and neither may be scaled behind a load balancer. See docs/DEPLOY.md.
 #
 # The marketing site (site/, web/) is deliberately NOT part of this stack: it is
 # static content served separately for preview and is not part of the SaaS
-# backend. Keeping the stack to one service keeps local bring-up honest.
+# backend. The image does NOT carry the built site, so the web container leaves
+# FINALISMA_WEB_STATIC_DIR unset and serves no static files.
 #
 # No secrets live here. All configuration comes from the environment, and the
 # defaults in this file contain nothing secret.
@@ -31,6 +35,34 @@ services:
       FINALISMA_DB_PATH: "/data/finalisma-cloud.db"
     volumes:
       - finalisma-cloud-data:/data
+    restart: unless-stopped
+
+  # Browser front-end: signup/login/rooms over the SAME database the agent API
+  # uses. A second container from the same image; the default CMD stays the
+  # cloud service, this service overrides it to the web entry point. Both
+  # containers mount the same named volume and point at the same SQLite file,
+  # which is safe only because both open it in WAL mode (one writer, many
+  # readers). The image's baked-in HEALTHCHECK probes FINALISMA_PORT/healthz,
+  # which nothing in this container listens on, so it is overridden here to
+  # probe the web port; GET /login returns 200 without a session.
+  finalisma-web:
+    image: finalisma-cloud:local
+    command: ["python", "-B", "-m", "finalisma_cloud.web"]
+    ports:
+      - "127.0.0.1:18789:18789"
+    environment:
+      FINALISMA_WEB_HOST: "0.0.0.0"
+      FINALISMA_WEB_PORT: "18789"
+      FINALISMA_WEB_DB_PATH: "/data/finalisma-cloud.db"
+      FINALISMA_WEB_STATE_DIR: "/data"
+    volumes:
+      - finalisma-cloud-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('FINALISMA_WEB_PORT','18789')+'/login', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
     restart: unless-stopped
 
 volumes:

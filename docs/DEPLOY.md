@@ -1,18 +1,34 @@
 # Deploying Finalisma Cloud
 
-`src/finalisma_cloud/service.py` is the hosted SaaS surface: accounts, orgs,
-sessions, and multi-agent rooms over one HTTP API (`/v1/*`, plus `/healthz`).
-This runbook gets it into a container with durable state. Commands are meant to
-be executed verbatim from the repository root.
+Two processes make up the hosted SaaS surface, and both share ONE SQLite
+database file:
+
+- `src/finalisma_cloud/service.py` — the agent-facing API: accounts, orgs,
+  sessions, and multi-agent rooms over `/v1/*`, plus `/healthz`.
+- `src/finalisma_cloud/web` — the browser front-end (signup/login/rooms) via
+  `python -m finalisma_cloud.web`.
+
+This runbook gets both into containers with durable state. Commands are meant
+to be executed verbatim from the repository root.
 
 ## Read this first: the single-instance constraint
 
-State is SQLite in WAL mode. SQLite-WAL supports exactly **one writer**, so
-this deployment is **one instance** and must **never be scaled horizontally**
-behind a load balancer. You run one container bound to one persistent disk;
-durability comes from the volume mount, not from replicas. Do not autoscale it.
-Making it a real multi-node service is a storage-layer change (Postgres) and is
-out of scope here — do not pretend otherwise.
+State is SQLite in WAL mode. SQLite-WAL supports exactly **one writer** and
+many concurrent readers — *across processes*. That means the constraint now
+spans **both** services: `finalisma-cloud` and `finalisma-web` both open the
+same `/data/finalisma-cloud.db` file, so they must run as **one writer pair on
+one persistent disk**. Never scale either of them horizontally, never place
+either behind a load balancer, and never point the two services at different
+disks — two processes on different machines sharing one SQLite file is unsafe
+(WAL requires the `-wal`/`-shm` sidecars on a real local filesystem). One
+machine, one disk, exactly one instance of each process. Making this a real
+multi-node service is a storage-layer change (Postgres) and is out of scope
+here — do not pretend otherwise.
+
+Both services run schema bootstrap at startup (`initialize()` +
+`ensure_schema`). This is safe to do concurrently: migration check-and-apply
+runs inside a `BEGIN IMMEDIATE` write transaction, so the second process sees
+the migrations already applied instead of racing them.
 
 ## Requirements
 
@@ -25,25 +41,43 @@ out of scope here — do not pretend otherwise.
 docker compose up -d --build
 ```
 
-Wait for it to become healthy:
+Wait for both to become healthy:
 
 ```bash
 docker compose ps
-# NAME                IMAGE                 COMMAND   SERVICE           STATUS
-# finalisma-cloud-1   finalisma-cloud:local ...       finalisma-cloud   Up 3 seconds (healthy)
+# NAME                 IMAGE                COMMAND              SERVICE           STATUS
+# finalisma-cloud-1    finalisma-cloud:local python -m finalisma… finalisma-cloud   Up 3 seconds (healthy)
+# finalisma-web-1      finalisma-cloud:local python -m finalisma… finalisma-web     Up 3 seconds (healthy)
 ```
+
+Both containers come from the same image (`finalisma-cloud:local`); the web
+container overrides the default command to run `python -B -m
+finalisma_cloud.web`. Both mount the same named volume and open the same
+database file.
 
 ## 2. Verify
 
-Health probe from the host:
+Health probe from the host for the agent API:
 
 ```bash
 curl -fsS http://127.0.0.1:18788/healthz
 # {"status":"ok","service":"finalisma-cloud"}
 ```
 
+The browser front-end is published on the loopback only, at
+`127.0.0.1:18789`:
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18789/signup   # 200
+curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18789/login    # 200
+curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18789/rooms    # 303 → /login
+```
+
+The web container has no `/healthz`; its healthcheck probes `GET /login`
+(200 without a session) instead.
+
 Acceptance proof — this drives a real signup → one room → 4 agents → ordered
-broadcast → unicast → refusal flow **against the containerised service** (it
+broadcast → unicast → refusal flow **against the containerised agent API** (it
 already targets `127.0.0.1:18788`, which compose publishes):
 
 ```bash
@@ -63,17 +97,41 @@ and the image contains no secrets.
 | `FINALISMA_PORT` | `18788` | HTTP port. |
 | `FINALISMA_DB_PATH` | `./data/finalisma-cloud.db` | SQLite path. In the container this is the `/data` mount point. |
 
+The web front-end is configured the same way, with `FINALISMA_WEB_*` variables:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `FINALISMA_WEB_HOST` | `127.0.0.1` | Bind address. `0.0.0.0` inside a container. |
+| `FINALISMA_WEB_PORT` | `18789` | HTTP port. |
+| `FINALISMA_WEB_DB_PATH` | `./data/finalisma-web.db` | **Must equal the agent API's `FINALISMA_DB_PATH`** — both processes share one store. In the container: `/data/finalisma-cloud.db`. |
+| `FINALISMA_WEB_STATE_DIR` | `./data` | Scratch/state directory (unused by the current web code, kept for parity). |
+| `FINALISMA_WEB_STATIC_DIR` | `./site` | Built marketing site, if any. The image does **not** carry the site, so compose leaves this unset; the web container serves no static files and unmatched GETs return 404. |
+
 Precedence is argv > env > default, so the legacy launch form
 (`python -B src/finalisma_cloud/service.py <port> <db-path>`) keeps working
 unchanged. A malformed or out-of-range port fails at startup rather than
 silently binding a default.
 
-Run it without a container:
+Run the agent API without a container:
 
 ```bash
 FINALISMA_HOST=0.0.0.0 FINALISMA_PORT=18788 FINALISMA_DB_PATH=./data/cloud.db \
   PYTHONPATH=src python -B -m finalisma_cloud.service
 ```
+
+Run the web front-end without a container (against the same database file so
+the two processes share state):
+
+```bash
+FINALISMA_WEB_HOST=127.0.0.1 FINALISMA_WEB_PORT=18789 \
+  FINALISMA_WEB_DB_PATH=./data/cloud.db FINALISMA_WEB_STATE_DIR=./data \
+  PYTHONPATH=src python -B -m finalisma_cloud.web
+```
+
+Both running like this is the single-writer pair described above: they must
+stay on one machine, and `./data/cloud.db` is the one shared file. In local
+development you may point `FINALISMA_WEB_STATIC_DIR` at `./site` to serve the
+built marketing pages from the web app.
 
 ### Secret hygiene
 
@@ -84,8 +142,9 @@ secrets manager (`fly secrets set`, Docker secrets, etc.) — never via compose,
 
 ## 4. Back up the volume
 
-The database lives in the named volume `finalisma-cloud-data`. Back up with the
-service stopped so the WAL is fully checkpointed:
+The database lives in the named volume `finalisma-cloud-data`, shared by both
+services. Back up with **both** services stopped so the WAL is fully
+checkpointed:
 
 ```bash
 docker compose stop
@@ -107,6 +166,7 @@ Logs:
 
 ```bash
 docker compose logs -f finalisma-cloud
+docker compose logs -f finalisma-web
 ```
 
 ## 5. Roll back
@@ -126,24 +186,28 @@ git checkout <your-branch> && git stash pop   # when you want your work back
 
 ## 6. Hosting recommendation
 
-Ship this as **one VM with one persistent disk**. Because the store is
-single-writer, the platform must give you exactly one process and durable
-filesystem storage:
+Ship this as **one VM with one persistent disk** running **both** processes
+against that one disk. Because the store is a single SQLite file shared by two
+processes, the platform must give you exactly one instance of each, co-located
+on durable filesystem storage:
 
-- **Fly.io — recommended.** A single-machine app whose `fly.toml` pins
-  `min_machines_running = 1` and `max_machines_running = 1`, plus a persistent
-  volume mounted at `/data` (`fly volumes create`). It deploys this Dockerfile
-  directly, performs health checks, and makes the single-instance boundary
-  explicit. Never enable autoscaling or a second machine — that violates the
-  single-writer constraint.
-- **Render.** A single web service with a mounted disk is the same shape and a
-  fine alternative if you already use it.
 - **Plain VPS** (DigitalOcean, Hetzner, …) running `docker compose up -d` is
-  the cheapest and gives identical guarantees, at the cost of managing the
-  machine yourself.
+  the cleanest fit: compose starts both containers on the same machine, sharing
+  one volume. Cheapest, and the two-process single-writer pair is explicit.
+- **Fly.io.** A single-machine app whose `fly.toml` pins
+  `min_machines_running = 1` and `max_machines_running = 1`, plus a persistent
+  volume mounted at `/data` (`fly volumes create`). Because there are now two
+  processes, run both in that one machine (e.g. both `[processes]` in one app,
+  or one app per process only if both machines share the same volume — verify
+  that with your provider; the two must never land on different disks). Never
+  enable autoscaling or a second machine — that violates the single-writer
+  constraint.
+- **Render.** A single service with a mounted disk is the same shape and a fine
+  alternative if you already use it; put both processes in that one service.
 
 Avoid serverless/shared-filesystem platforms and autoscaling groups: they
-assume stateless horizontally-scaled workers, which this storage cannot do.
+assume stateless horizontally-scaled workers, which this storage cannot do, and
+a network filesystem breaks WAL's locking guarantees.
 
 Deciding on a provider and signing up is the founder's call — nothing in this
 repo creates accounts or pushes images anywhere.
@@ -158,11 +222,20 @@ Executed and confirmed on the authoring machine:
   exit 0, `PROOF COMPLETE`.
 - Legacy argv form (`service.py <port> <db-path>`) → healthy, and argv won over
   a conflicting `FINALISMA_PORT` env var.
-- 518 tests, 0 new failures (baseline pre-existing failures unchanged).
+- `PYTHONPATH=src python -B -m finalisma_cloud.web` with env config → prints
+  `finalisma-web listening on http://127.0.0.1:<port>` and serves `GET /signup`
+  → 200, `GET /login` → 200; a non-integer `FINALISMA_WEB_PORT` exits 2 with
+  `finalisma-web: FINALISMA_WEB_PORT must be an integer`.
+- Both processes started against one shared database file; the shared-store
+  suite `tests/test_webapp_entrypoint.py` (6 tests) passes.
+- 524 tests, 2 pre-existing branch-drift failures unchanged (a cloud link_token
+  prefix and a marketing launch-surface string; both reproduced on a clean
+  tree, outside these files).
 
 Not executed on the authoring machine (no Docker runtime installed):
 `docker build`, `docker compose up`, the volume backup/restore and the
 `/healthz`-from-outside-container check. Those commands are written to the
-documented contract and the container entry command above was verified, but the
-image build itself should be treated as untested until it runs where Docker
-exists.
+documented contract, `compose.yaml` was validated by parsing it as YAML (both
+services resolve, web `command`/port/volume/healthcheck as intended), and the
+container entry commands above were verified, but the image build itself should
+be treated as untested until it runs where Docker exists.
