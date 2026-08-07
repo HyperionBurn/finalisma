@@ -22,7 +22,7 @@ import datetime as dt
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 def utc_now_iso() -> str:
@@ -34,6 +34,13 @@ class Migration:
     migration_id: str
     name: str
     up_sql: str
+    # Optional guard: when supplied, ``apply_migrations`` checks it BEFORE
+    # running ``up_sql``. If it returns True the migration's effect is already
+    # present (e.g. a column added by an earlier code path) and the migration
+    # is recorded as applied without re-running its SQL. This keeps
+    # ALTER-based migrations forward-only and idempotent, matching the
+    # CREATE TABLE IF NOT EXISTS pattern used by the earlier migrations.
+    already_applied: Callable[[Any], bool] | None = None
 
 
 _CLOUD_TABLES_SQL = """
@@ -238,6 +245,7 @@ CREATE TABLE IF NOT EXISTS cloud_room_event_log (
     seq INTEGER NOT NULL,
     origin_agent TEXT NOT NULL,
     kind TEXT NOT NULL,
+    message_kind TEXT,
     payload_json TEXT NOT NULL,
     idempotency_key TEXT NOT NULL,
     trace_id TEXT,
@@ -269,6 +277,25 @@ CREATE TABLE IF NOT EXISTS cloud_room_group_members (
     PRIMARY KEY (tenant_id, room_id, group_name, agent_id)
 );
 """
+
+
+_ROOM_MESSAGE_KIND_SQL = """
+-- Forward-only upgrade for databases created before message_kind existed.
+-- The cloud_008 migration is guarded by already_applied (column present),
+-- so this ALTER only ever runs against a table that actually lacks the column.
+ALTER TABLE cloud_room_event_log ADD COLUMN message_kind TEXT;
+"""
+
+
+def _has_room_message_kind(execute: Callable[[str, tuple], Any]) -> bool:
+    """True when cloud_room_event_log already has the message_kind column."""
+    try:
+        row = execute(
+            "SELECT 1 FROM pragma_table_info('cloud_room_event_log') WHERE name = 'message_kind'"
+        ).fetchone()
+        return row is not None
+    except Exception:
+        return False
 
 
 MIGRATIONS: list[Migration] = [
@@ -307,6 +334,12 @@ MIGRATIONS: list[Migration] = [
         "cloud room lifecycle + event log + addressing",
         _ROOM_TABLES_SQL,
     ),
+    Migration(
+        "cloud_008_room_message_kind",
+        "cloud room event log message_kind column",
+        _ROOM_MESSAGE_KIND_SQL,
+        already_applied=_has_room_message_kind,
+    ),
 ]
 
 
@@ -335,6 +368,15 @@ def apply_migrations(store_or_backend: Any) -> None:
                 (migration.migration_id,),
             ).fetchone()
             if applied:
+                continue
+            if migration.already_applied is not None and migration.already_applied(execute):
+                # The migration's effect is already present (e.g. a column added
+                # by an earlier code path); record it as applied and move on.
+                execute(
+                    "INSERT INTO schema_migrations(migration_id, applied_at) VALUES (?, ?)",
+                    (migration.migration_id, utc_now_iso()),
+                )
+                commit()
                 continue
             try:
                 executescript(migration.up_sql)

@@ -354,10 +354,12 @@ class FinalismaCloudService:
         agent_id = body.get("agent_id", ctx.account_id)
         after_seq = body.get("after_seq")
         limit = body.get("limit", 100)
+        message_kinds = body.get("message_kinds")
         if not room_id:
             raise _ServiceError("invalid_argument", "room_id is required")
         tenant_id = self._room_tenant(room_id, agent_id)
-        result = self.rooms.poll(tenant_id, room_id, agent_id, after_seq, limit)
+        result = self.rooms.poll(tenant_id, room_id, agent_id, after_seq, limit,
+                                 message_kinds=message_kinds)
         return _json_response(HTTPStatus.OK, result)
 
     def handle_room_ack(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
@@ -379,12 +381,14 @@ class FinalismaCloudService:
         target_spec = body.get("target_spec", "*")
         payload = body.get("payload", {})
         exclude_sender = body.get("exclude_sender", True)
+        message_kind = body.get("message_kind")
         sender_agent_id = body.get("sender_agent_id", ctx.account_id)
         if not room_id:
             raise _ServiceError("invalid_argument", "room_id is required")
         tenant_id = self._room_tenant(room_id, sender_agent_id)
         result = self.rooms.room_send(
             tenant_id, room_id, sender_agent_id, target_spec, payload, exclude_sender,
+            message_kind=message_kind,
         )
         return _json_response(HTTPStatus.OK, result)
 

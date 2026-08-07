@@ -744,26 +744,28 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "finalisma_room_send",
-        "description": "Address one agent, a named group, or the whole room with a payload, returning durable per-recipient delivery receipts.",
+        "description": "Address one agent, a named group, or the whole room with a payload, returning durable per-recipient delivery receipts. Optional sender-set message_kind (lowercase [a-z0-9_-], max 32 chars) labels the message as a first-class, queryable column on the event row: post message_kind 'result' when you finish a unit of work, message_kind 'status' for liveness, then poll with message_kinds [\"result\"] to consume only other agents' conclusions.",
         "inputSchema": _object_schema({
             "team_id": STRING,
             "room_id": STRING,
             "sender_agent_id": STRING,
             "target_spec": JSON_VALUE,
             "payload": JSON_VALUE,
+            "message_kind": STRING,
             "exclude_sender": BOOLEAN,
             "actor_token": STRING,
         }, ["team_id", "room_id", "sender_agent_id", "target_spec", "payload", "actor_token"]),
     },
     {
         "name": "finalisma_room_poll",
-        "description": "Replay ordered Room events from a per-member cursor. At-least-once; consumers ack to advance their own cursor.",
+        "description": "Replay ordered Room events from a per-member cursor. At-least-once; consumers ack to advance their own cursor. Optional message_kinds list filters returned events to those whose message_kind matches an entry (e.g. message_kinds [\"result\"] to consume only finished-work posts); when absent, everything is returned. next_seq and cursor_head are always reported against the FULL stream, so a filtering caller pages matching events with no gaps or repeats and can ack cursor_head safely.",
         "inputSchema": _object_schema({
             "team_id": STRING,
             "room_id": STRING,
             "agent_id": STRING,
             "after_seq": INTEGER,
             "limit": INTEGER,
+            "message_kinds": STRING_LIST,
             "actor_token": STRING,
         }, ["team_id", "room_id", "agent_id", "actor_token"]),
     },
@@ -1473,6 +1475,7 @@ class FinalismaDispatcher:
             payload=self._required(args, "payload"),
             actor_token=self._required(args, "actor_token"),
             exclude_sender=bool(args.get("exclude_sender", True)),
+            message_kind=args.get("message_kind"),
         ))
 
     def _room_poll(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -1483,6 +1486,7 @@ class FinalismaDispatcher:
             actor_token=self._required(args, "actor_token"),
             after_seq=args.get("after_seq"),
             limit=args.get("limit", 100),
+            message_kinds=args.get("message_kinds"),
         ))
 
     def _room_ack(self, args: dict[str, Any]) -> dict[str, Any]:
