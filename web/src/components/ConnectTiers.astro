@@ -1,24 +1,25 @@
 ---
 /**
  * ConnectTiers.astro — Four connection tiers as switchable copy-paste config blocks.
- * Real config strings from INTEROP docs.
+ * Each tier keeps ONE short representative snippet (≤8 lines). The full config is
+ * server-rendered into data-full for no-JS / a11y; a client script typewriter-reveals
+ * it on scroll-in (skipped under prefers-reduced-motion).
+ * Funnel lane (2026-08-07): the section closes with a real link to the web app
+ * (signup) so the four transport tiers lead somewhere actionable.
  */
+import { APP_LOGIN_URL, APP_SIGNUP_URL } from '../lib/app';
 
 const tiers = [
   {
     id: 'stdio',
     label: 'MCP stdio',
     code: `{
-  "$schema": "https://opencode.ai/config.json",
   "mcp": {
     "finalisma": {
       "type": "local",
       "command": ["python", "-B", "scripts/finalisma-mcp.py",
-        "--transport", "stdio", "--team-id", "demo",
-        "--workspace", "./ws",
-        "--state", "./ws/.finalisma/state.db"],
-      "enabled": true,
-      "timeout": 10000
+        "--transport", "stdio", "--team-id", "demo"],
+      "enabled": true
     }
   }
 }`,
@@ -29,38 +30,21 @@ const tiers = [
     code: `POST /mcp HTTP/1.1
 Host: 127.0.0.1:18787
 Content-Type: application/json
-Authorization: Bearer &lt;actor_token&gt;
-Team: &lt;tenant_id&gt;
+Authorization: Bearer <actor_token>
+Team: <tenant_id>
 
-{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{}}}
-
-# Response:
-# {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25",
-#   "serverInfo":{"name":"finalisma-mcp","version":"0.1.0"}}}`,
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`,
   },
   {
     id: 'bridge',
     label: 'Bridge adapters',
-    code: `from finalisma_mcp.bridge import ClipboardBridge, PollingBridge, WebhookBridge
+    code: `from finalisma_mcp.bridge import ClipboardBridge
 
-# Clipboard: one-shot bootstrap snippet
+# One-shot bootstrap snippet — parsed once, then refused:
 clipboard = ClipboardBridge(coordinator_db=db)
-snippet = clipboard.generate_bootstrap(pairing_id="pair_...", nonce="d67ec2fe...")
-# 2nd parse refused: "Bootstrap snippet has already been consumed"
-
-# Polling: at-most-once cursor delivery
-polling = PollingBridge(coordinator_db=db)
-events = polling.get_pending(agent_id="agent-a", token="fst_...", cursor=0)
-polling.ack(agent_id="agent-a", cursor=1)
-# wrong token refused: "Actor token mismatch"
-
-# Webhook: HMAC-signed delivery
-webhook = WebhookBridge(coordinator_db=db, signing_secret="whsec_...")
-webhook.register_webhook(agent_id="agent-a", url="https://example.com/hook")
-webhook.deliver(event={"type": "task_verified"})
-# no signing_secret refused:
-# "deliver requires the real webhook signing secret;
-#  the stored hash cannot be used as the signing key"`,
+snippet = clipboard.generate_bootstrap(
+    pairing_id="pair_...", nonce="d67ec2fe...")
+# 2nd parse refused: "Bootstrap snippet has already been consumed"`,
   },
   {
     id: 'sdk',
@@ -69,24 +53,13 @@ webhook.deliver(event={"type": "task_verified"})
 
 client = FinalismaClient(
     coordinator_url="http://127.0.0.1:18787/mcp",
-    agent_id="agent-a",
-    team_id="demo",
+    agent_id="agent-a", team_id="demo",
     actor_token="fst_...",
 )
 
-# Join a room
 result = client._call("finalisma_room_join", {
     "room_id": "room_8cc840e0fd9044b7ab2154af9e9c1222",
-    "agent_id": "agent-a",
-    "consent": True,
-})
-# → {"status": "active", "cursor": 0}
-
-# Send to a group
-client._call("finalisma_room_send", {
-    "room_id": "room_8cc840e0fd9044b7ab2154af9e9c1222",
-    "target": "builders",
-    "message": {"kind": "task_update", "task_id": "task_..."},
+    "agent_id": "agent-a", "consent": True,
 })`,
   },
 ];
@@ -126,18 +99,83 @@ client._call("finalisma_room_send", {
           hidden={i !== 0 ? true : undefined}
         >
           <div class="bezel__core">
-            <pre class="code-block" data-code-block><code>{tier.code}</code></pre>
+            <pre class="code-block is-typewriter" data-code-block data-full={tier.code}><code>{tier.code}</code><span class="code-block__caret" aria-hidden="true"></span></pre>
             <button class="btn btn-sm group" data-copy={tier.id} type="button">Copy config<span class="btn__icon" aria-hidden="true">→</span></button>
           </div>
         </div>
       ))}
     </div>
     <div class="copy-status" aria-live="polite" data-tier-copy-status></div>
+
+    <div class="connect-cta scroll-in" style="--delay:320ms">
+      <p class="connect-cta__lede">
+        Four transports, one room. Create an account and open one — then your
+        agents join through the transport they already speak.
+      </p>
+      <div class="connect-cta__actions">
+        <a class="btn btn-accent btn-lg group" href={APP_SIGNUP_URL}>Open a room<span class="btn__icon" aria-hidden="true">→</span></a>
+        <a class="connect-cta__login" href={APP_LOGIN_URL}>Log in</a>
+      </div>
+    </div>
   </div>
 </section>
 
+<style>
+  .code-block.is-typewriter { position: relative; }
+  .code-block__caret {
+    display: inline-block;
+    width: 0.55ch;
+    height: 1em;
+    vertical-align: -0.15em;
+    background: currentColor;
+    opacity: 0;
+    margin-left: 0.1ch;
+  }
+  .code-block.is-typing .code-block__caret { opacity: 1; animation: finalisma-blink 1s steps(1) infinite; }
+  .code-block.is-done .code-block__caret { opacity: 0; }
+  @keyframes finalisma-blink { 50% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    .code-block__caret { display: none !important; }
+  }
+
+  /* Funnel lane: closing CTA for the connect section */
+  .connect-cta {
+    margin-top: 2rem;
+    padding: 2rem;
+    border: 1px solid var(--color-hairline);
+    border-radius: var(--radius-card);
+    background: color-mix(in srgb, var(--color-surface-2) 80%, transparent);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.25rem;
+    text-align: center;
+  }
+  .connect-cta__lede {
+    margin: 0;
+    max-width: 44ch;
+    color: var(--color-text-muted);
+  }
+  .connect-cta__actions {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .connect-cta__login {
+    color: var(--color-text-muted);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    font-weight: 600;
+    font-size: 0.95rem;
+    transition: color var(--dur-fast) var(--ease-out);
+  }
+  .connect-cta__login:hover { color: var(--color-accent); }
+</style>
+
 <script>
-  // Tier tab switching + copy
+  // Tier tab switching + copy + code-block typewriter
   (function () {
     const tabList = document.querySelector('[data-tier-tabs]');
     const tabs = document.querySelectorAll('[data-tier-tab]');
@@ -170,13 +208,19 @@ client._call("finalisma_room_send", {
       });
     });
 
-    // Copy buttons
-    document.querySelectorAll('[data-copy]').forEach((btn) => {
+    // Copy buttons — always use the FULL source string (data-full), not the
+    // partially-revealed DOM text, so copying mid-type still gets everything.
+    // Scope to THIS section's tier panels: [data-tier-tabs] is a sibling of
+    // the panels, so match copy buttons inside the tier-panels container only.
+    // (A bare `[data-copy]` selector also catches LiveDemo's data-copy="link"
+    // button, which would double-handle it and overwrite the copied link.)
+    document.querySelectorAll('.tier-panels [data-copy]').forEach((btn) => {
       btn.addEventListener('click', async () => {
         const tierId = btn.getAttribute('data-copy');
         const panel = document.querySelector(`[data-tier-panel="${tierId}"]`);
-        const codeEl = panel?.querySelector('code');
-        const text = codeEl?.textContent || '';
+        const block = panel?.querySelector('[data-code-block]');
+        const full = block?.getAttribute('data-full') || '';
+        const text = full;
         try {
           if (navigator.clipboard?.writeText) {
             await navigator.clipboard.writeText(text);
@@ -197,6 +241,54 @@ client._call("finalisma_room_send", {
           if (statusEl) statusEl.textContent = 'Copy failed — select and copy manually.';
         }
       });
+    });
+
+    // Typewriter reveal per code block on scroll-in.
+    const reduced =
+      window.matchMedia &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    document.querySelectorAll('[data-code-block]').forEach((block) => {
+      const full = block.getAttribute('data-full') || '';
+      const code = block.querySelector('code');
+
+      if (reduced || !('IntersectionObserver' in window) || !code) {
+        block.classList.add('is-done');
+        return;
+      }
+
+      // Start empty; reveal line by line when scrolled into view.
+      code.textContent = '';
+      block.classList.add('is-typing');
+
+      const lines = full.split('\n');
+      let lineIdx = 0;
+      let timer: number | undefined;
+
+      function typeNext() {
+        if (lineIdx >= lines.length) {
+          block.classList.remove('is-typing');
+          block.classList.add('is-done');
+          return;
+        }
+        if (lineIdx > 0) code.appendChild(document.createTextNode('\n'));
+        code.appendChild(document.createTextNode(lines[lineIdx]));
+        lineIdx += 1;
+        timer = window.setTimeout(typeNext, 140);
+      }
+
+      const io = new IntersectionObserver(
+        (entries, obs) => {
+          for (const entry of entries) {
+            if (entry.isIntersecting) {
+              obs.unobserve(entry.target);
+              timer = window.setTimeout(typeNext, 180);
+            }
+          }
+        },
+        { threshold: 0.25 }
+      );
+      io.observe(block);
     });
   })();
 </script>

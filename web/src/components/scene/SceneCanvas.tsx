@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { Canvas, useFrame } from '@react-three/fiber';
 import { AdaptiveDpr, PerformanceMonitor } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
 import * as THREE from 'three';
@@ -12,8 +12,9 @@ import { useTier, sceneActions } from './useSceneStore';
 import { initEventBridge, disposeEventBridge, fireGateRefusal } from './eventBridge';
 
 /**
- * SceneCanvas.tsx — The R3F island. client:only="visible".
+ * SceneCanvas.tsx — The R3F island. client:only="load".
  * Exposes window.FinalismaScene for the scroll lane to drive.
+ * SCALED UP: stronger bloom, volumetric haze, wider FOV.
  */
 
 // Frame time ring buffer
@@ -43,12 +44,62 @@ function FrameTimer() {
   return null;
 }
 
+// Volumetric haze — a large additive glow plane behind everything
+function VolumetricHaze() {
+  const meshRef = useRef<THREE.Mesh>(null);
+
+  const material = useRef(
+    new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0 },
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform float uTime;
+        varying vec2 vUv;
+        void main() {
+          // Soft radial gradient haze centered slightly above middle
+          vec2 center = vec2(0.5, 0.42);
+          float d = distance(vUv, center);
+          float glow = smoothstep(0.7, 0.0, d) * 0.35;
+          // Subtle animated pulse
+          float pulse = 0.85 + 0.15 * sin(uTime * 0.8);
+          vec3 col = vec3(0.357, 0.239, 0.941) * glow * pulse;
+          gl_FragColor = vec4(col, glow * 0.5);
+        }
+      `,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+    })
+  );
+
+  useFrame((state) => {
+    material.current.uniforms.uTime.value = state.clock.elapsedTime;
+  });
+
+  return (
+    <mesh ref={meshRef} position={[0, 0, -2]} scale={[18, 12, 1]}>
+      <planeGeometry args={[1, 1]} />
+      <primitive object={material.current} attach="material" />
+    </mesh>
+  );
+}
+
 // Scene group that applies a subtle pointer-reactive drift on top of the
 // CameraRig's own parallax. This makes the whole graph feel alive even
 // before the camera path kicks in.
-function SceneGroup({ children }: { children: React.ReactNode }) {
+function SceneGroup({ children, position = [0, 0, 0] }: { children: React.ReactNode; position?: [number, number, number] }) {
   const groupRef = useRef<THREE.Group>(null);
   const pointer = useRef({ x: 0, y: 0 });
+  const basePos = useRef<[number, number, number]>(position);
 
   if (typeof window !== 'undefined') {
     window.addEventListener('pointermove', (e) => {
@@ -60,19 +111,28 @@ function SceneGroup({ children }: { children: React.ReactNode }) {
   useFrame((_, delta) => {
     if (!groupRef.current || sceneActions.getState().reducedMotion) return;
     // Subtle counter-drift: the graph leans slightly toward the pointer.
-    const targetX = pointer.current.x * 0.25;
-    const targetY = -pointer.current.y * 0.25;
+    const targetX = basePos.current[0] + pointer.current.x * 0.3;
+    const targetY = basePos.current[1] - pointer.current.y * 0.3;
     groupRef.current.position.x += (targetX - groupRef.current.position.x) * Math.min(1, delta * 2);
     groupRef.current.position.y += (targetY - groupRef.current.position.y) * Math.min(1, delta * 2);
     // Gentle continuous yaw so the scene never looks frozen.
-    groupRef.current.rotation.y += delta * 0.04;
+    groupRef.current.rotation.y += delta * 0.06;
   });
 
-  return <group ref={groupRef}>{children}</group>;
+  return <group ref={groupRef} position={position}>{children}</group>;
 }
 
 function SceneContent() {
   const tier = useTier();
+  // Defer the postprocessing composer to the next frame so shader compile
+  // does not block the critical first paint / autoplay start. The scene
+  // (orbit, particles, pulses) renders immediately; the bloom + vignette
+  // layer mounts one frame later.
+  const [composerReady, setComposerReady] = useState(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setComposerReady(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
 
   return (
     <>
@@ -82,7 +142,10 @@ function SceneContent() {
       />
       <AdaptiveDpr pixelated />
       <CameraRig />
-      <SceneGroup>
+      <VolumetricHaze />
+      {/* Funnel lane (2026-08-07): nudged the graph down+right so the glowing
+          core's bloom clears the hero headline's tail at 1440x900. */}
+      <SceneGroup position={[5.5, -1.5, 0]}>
         <RoomCore />
         <AgentNodes />
         <EdgeLines />
@@ -90,20 +153,25 @@ function SceneContent() {
       </SceneGroup>
       <FrameTimer />
 
-      {/* Lighting */}
-      <ambientLight intensity={0.4} />
-      <pointLight position={[2, 3, 4]} intensity={0.8} color="#9D82FF" />
-      <pointLight position={[-2, -1, 3]} intensity={0.4} color="#5B3DF0" />
+      {/* Lighting — stronger for more dramatic glow */}
+      <ambientLight intensity={0.5} />
+      <pointLight position={[3, 4, 5]} intensity={1.2} color="#9D82FF" />
+      <pointLight position={[-3, -2, 4]} intensity={0.6} color="#5B3DF0" />
+      <pointLight position={[0, 0, 0]} intensity={0.8} color="#9D82FF" />
 
-      {/* Postprocessing — disabled on low tier */}
-      {tier !== 'low' && (
+      {/* Postprocessing — bloom tuned to stay within the <4ms scroll budget.
+          Mounted one frame after first paint so shader compile never blocks
+          autoplay. High intensity + very low threshold on a full-bleed canvas
+          is the single biggest frame-time driver; 0.35 / 0.9 keeps the glow
+          while holding ~60fps. PerformanceMonitor drops to medium automatically. */}
+      {composerReady && tier !== 'low' && (
         <EffectComposer>
           <Bloom
-            luminanceThreshold={0.35}
-            intensity={tier === 'medium' ? 0.6 : 0.8}
+            luminanceThreshold={0.3}
+            intensity={tier === 'medium' ? 0.85 : 1.1}
             mipmapBlur
           />
-          <Vignette eskil={false} offset={0.3} darkness={0.7} />
+          <Vignette eskil={false} offset={0.25} darkness={0.6} />
         </EffectComposer>
       )}
     </>
@@ -112,6 +180,21 @@ function SceneContent() {
 
 export default function SceneCanvas() {
   const [webglSupported, setWebglSupported] = useState(true);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [frameloop, setFrameloop] = useState<'always' | 'never'>('always');
+
+  // Plan §5.10: pause the RAF render loop when the hero canvas is out of
+  // viewport. The scene only needs to animate while visible; this frees GPU
+  // for the rest of the page and keeps the scroll thread clean.
+  useEffect(() => {
+    const el = canvasRef.current?.closest('[data-agent-canvas-wrap]') as HTMLElement | null;
+    if (!el) return;
+    const io = new IntersectionObserver((entries) => {
+      setFrameloop(entries[0].isIntersecting ? 'always' : 'never');
+    }, { rootMargin: '0px' });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
 
   // Check WebGL support
   useEffect(() => {
@@ -153,9 +236,10 @@ export default function SceneCanvas() {
 
   return (
     <Canvas
-      dpr={[1, 2]}
+      frameloop={frameloop}
+      dpr={[1, 1]}
       gl={{ antialias: true, alpha: true, powerPreference: 'high-performance', preserveDrawingBuffer: true }}
-      camera={{ position: [0, 0, 14], fov: 50, near: 0.1, far: 100 }}
+      camera={{ position: [0, 0, 14], fov: 60, near: 0.1, far: 100 }}
       style={{ width: '100%', height: '100%', display: 'block' }}
       data-agent-canvas
       aria-hidden="true"

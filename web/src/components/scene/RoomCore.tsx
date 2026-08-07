@@ -20,7 +20,7 @@ export default function RoomCore() {
 
   const geometry = useMemo(() => {
     // Luminous core — sphere reads as a glowing orb, not a cube
-    const geo = new THREE.SphereGeometry(1.1, 48, 48);
+     const geo = new THREE.SphereGeometry(1.4, 48, 48);
     return geo;
   }, []);
 

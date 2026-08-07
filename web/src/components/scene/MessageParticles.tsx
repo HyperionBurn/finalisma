@@ -11,20 +11,22 @@ import { useProgress, useTier, sceneActions } from './useSceneStore';
  * Fires a CONTINUOUS self-sustaining loop (unicast → group → broadcast → refuse,
  * repeating) on a timer so the scene is alive at progress 0 without any scroll.
  * Progress-based beat fires are kept as an additional enhancement.
+ *
+ * SCALED UP: larger particles, longer trails (stretched via size), more of them.
  */
 
 const AGENT_ORBITS = [
-  { radius: 3.2, height: 0.8, phase: 0.0, speed: 0.28 },
-  { radius: 2.6, height: -1.2, phase: 1.6, speed: 0.22 },
-  { radius: 4.0, height: 0.1, phase: 3.2, speed: 0.18 },
-  { radius: 2.4, height: 1.4, phase: 4.8, speed: 0.24 },
-  { radius: 4.2, height: -0.7, phase: 5.6, speed: 0.20 },
+  { radius: 5.4, height: 1.4, phase: 0.0, speed: 0.42 },
+  { radius: 4.4, height: -2.0, phase: 1.6, speed: 0.34 },
+  { radius: 6.6, height: 0.3, phase: 3.2, speed: 0.28 },
+  { radius: 4.0, height: 2.4, phase: 4.8, speed: 0.38 },
+  { radius: 6.9, height: -1.2, phase: 5.6, speed: 0.30 },
 ];
 
 const ROOM_POS: [number, number, number] = [0, 0, 0];
 
-// Particle pool sizes per tier
-const POOL_SIZES = { high: 60, medium: 30, low: 12 };
+// Particle pool sizes per tier — MORE particles for flashier scene
+const POOL_SIZES = { high: 90, medium: 50, low: 20 };
 
 interface Particle {
   active: boolean;
@@ -48,7 +50,7 @@ function agentLivePos(i: number, time: number, reducedMotion: boolean, progress:
   const orbit = AGENT_ORBITS[i];
   const angle = reducedMotion ? orbit.phase : orbit.phase + time * orbit.speed;
   const r = orbit.radius * (0.85 + Math.min(progress, 1) * 0.15);
-  const bob = reducedMotion ? 0 : Math.sin(time * 1.5 + i * 1.2) * 0.08;
+  const bob = reducedMotion ? 0 : Math.sin(time * 1.5 + i * 1.2) * 0.12;
   return new THREE.Vector3(
     Math.cos(angle) * r,
     orbit.height + bob,
@@ -130,12 +132,12 @@ export default function MessageParticles() {
     const time = state.clock.elapsedTime;
 
     // ---- Continuous idle particle loop ----
-    // Fire a repeating sequence every ~1.6s. Each "beat" of the sequence
+    // Fire a repeating sequence every ~1.2s. Each "beat" of the sequence
     // fires one message type. Under reduced motion we skip the timer but
     // still allow a single static frame (no particles in flight).
     if (!sceneActions.getState().reducedMotion) {
       idleTimerRef.current += delta;
-      const stepDuration = 1.5; // seconds between sequence steps
+      const stepDuration = 1.2; // seconds between sequence steps (faster = flashier)
       if (idleTimerRef.current >= stepDuration) {
         idleTimerRef.current -= stepDuration;
         const step = idleStepRef.current % 4;
@@ -225,7 +227,7 @@ export default function MessageParticles() {
       // Position interpolation (slight arc)
       const pos = new THREE.Vector3().lerpVectors(particle.from, particle.to, tNorm);
       // Arc offset
-      const arcHeight = Math.sin(tNorm * Math.PI) * 0.3;
+      const arcHeight = Math.sin(tNorm * Math.PI) * 0.4;
       pos.y += arcHeight;
 
       positions[idx] = pos.x;
@@ -241,8 +243,8 @@ export default function MessageParticles() {
       const opacity = tNorm < 0.2 ? tNorm / 0.2 : tNorm > 0.8 ? (1 - tNorm) / 0.2 : 1;
       opacities[i] = opacity;
 
-      // Size
-      sizes[i] = 12 + Math.sin(tNorm * Math.PI) * 6;
+      // Size — LARGER particles with a "trail" feel via wider size range
+      sizes[i] = 18 + Math.sin(tNorm * Math.PI) * 10;
     }
 
     // Mark attributes for update

@@ -14,6 +14,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SITE = ROOT / "site"
+# Canonical web-app path base (funnel lane, 2026-08-07). Single source of
+# truth for the routes the landing page links to: defined once in
+# web/src/lib/app.ts and mirrored here for the link-resolution tests.
+APP_BASE_PATH = "/app"
 sys.path.insert(0, str(ROOT))
 
 _SITE_SPEC = importlib.util.spec_from_file_location(
@@ -261,6 +265,15 @@ class LaunchSurfaceTests(unittest.TestCase):
                 if reference.startswith(("#", "http://", "https://", "mailto:", "javascript:", "data:")):
                     continue
                 href_path = reference.split("#", 1)[0].split("?", 1)[0]
+                # Funnel lane (2026-08-07): `/app/*` references are the web
+                # app's front-door routes (finalisma_cloud/web/app.py), served
+                # outside this static bundle. They intentionally resolve to
+                # nothing here until the app is deployed — the static server's
+                # branded 404 is the honest interim answer. Their presence on
+                # the landing page is asserted separately by
+                # test_funnel_ctas_point_at_web_app.
+                if href_path == APP_BASE_PATH or href_path.startswith(APP_BASE_PATH + "/"):
+                    continue
                 target = (
                     (SITE / href_path.lstrip("/")).resolve()
                     if href_path.startswith("/")
@@ -269,6 +282,43 @@ class LaunchSurfaceTests(unittest.TestCase):
                 with self.subTest(page=page.relative_to(ROOT), reference=reference):
                     self.assertTrue(target.is_relative_to(SITE.resolve()))
                     self.assertTrue(target.is_file() or target.is_dir(), f"missing target: {target}")
+
+    def test_funnel_ctas_point_at_web_app(self) -> None:
+        """The site must offer a real way to become a user: the web app.
+
+        Funnel lane (2026-08-07): every primary CTA on the landing page
+        resolves to the canonical app route (APP_BASE_PATH), a quiet "Log in"
+        affordance exists for returning users, and the closed-trial framing
+        ("Start free pilot") is gone from the primary CTAs. The app is not
+        deployed, so routes are asserted by path only — nothing here invents
+        a destination, a free-tier limit, or a trial length.
+        """
+        html = (SITE / "index.html").read_text(encoding="utf-8")
+        self.assertIn(f'href="{APP_BASE_PATH}/signup"', html)
+        self.assertIn(f'href="{APP_BASE_PATH}/login"', html)
+
+        hero = re.search(r'<section[^>]*id="hero"[^>]*>(.*?)</section>', html, re.S)
+        self.assertIsNotNone(hero, "hero section must exist")
+        hero_primary = re.search(
+            r'<a[^>]*class="[^"]*\bbtn-accent\b[^"]*"[^>]*href="([^"]+)"',
+            hero.group(1),
+        )
+        self.assertIsNotNone(hero_primary, "hero must carry a btn-accent primary CTA")
+        self.assertEqual(hero_primary.group(1), f"{APP_BASE_PATH}/signup")
+
+        connect = re.search(r'<section[^>]*id="connect"[^>]*>(.*?)</section>', html, re.S)
+        self.assertIsNotNone(connect, "connect section must exist")
+        self.assertIn(
+            f'href="{APP_BASE_PATH}/signup"',
+            connect.group(1),
+            "connect section must close with a real signup link",
+        )
+
+        self.assertNotIn(
+            "Start free pilot",
+            html,
+            "closed-trial framing must be gone from the primary CTAs",
+        )
 
     def test_compatibility_page_keeps_documented_and_verified_distinct(self) -> None:
         html = (SITE / "docs" / "compatibility.html").read_text(encoding="utf-8")

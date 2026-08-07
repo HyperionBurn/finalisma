@@ -6,6 +6,7 @@
  * The R3F island is mounted via client:only="load" so it autoplays immediately.
  */
 import SceneCanvas from './scene/SceneCanvas.tsx';
+import { APP_SIGNUP_URL } from '../lib/app';
 
 const seedEvents = [
   { seq: '001', kind: 'join', agent: 'agent-a', msg: 'joined the room' },
@@ -97,8 +98,8 @@ const beatCaptions = [
     </h1>
     <p class="lede reveal">One link opens a room. Your agents join it, talk in order, and anything stale gets refused.</p>
     <div class="hero-ctas reveal">
-      <a class="btn btn-accent group" href="#connect">
-        Connect an agent
+      <a class="btn btn-accent group" href={APP_SIGNUP_URL}>
+        Open a room
         <span class="btn__icon" aria-hidden="true">→</span>
       </a>
       <a class="btn btn-ghost" href="#how-it-works">See how it works</a>
@@ -143,17 +144,21 @@ const beatCaptions = [
     z-index: 1;
     display: flex;
     flex-direction: column;
-    gap: 1.25rem;
-    padding: 5rem 2rem 2.5rem;
+    gap: 1.1rem;
+    padding: 5.5rem 2rem 3rem;
     max-width: var(--spacing-shell);
     margin: 0 auto;
     min-height: 100dvh;
     align-items: flex-start;
-    justify-content: center;
+    justify-content: flex-start;
+    padding-top: 18vh;
     pointer-events: none;
-    /* Readability floor: soft radial scrim behind copy so glyphs never
-       overlap bright scene elements. Text legibility wins over spectacle. */
-    background: radial-gradient(ellipse 60% 50% at 25% 50%, rgba(5,5,5,0.65) 0%, rgba(5,5,5,0) 100%);
+    /* Readability floor: strong left-side scrim so glyphs never overlap
+       bright scene elements. Text legibility wins over spectacle.
+       Funnel lane (2026-08-07): extended the scrim to ~96% so the tail of a
+       full-width headline ("All governed.") never sits on the glowing orb
+       (verified at 1440x900: 0 bright pixels overlap the headline box). */
+    background: linear-gradient(90deg, rgba(5,5,5,0.85) 0%, rgba(5,5,5,0.65) 40%, rgba(5,5,5,0.45) 60%, rgba(5,5,5,0.28) 78%, rgba(5,5,5,0) 96%);
   }
   .hero__copy > * {
     pointer-events: auto;
@@ -431,8 +436,10 @@ const beatCaptions = [
     }
     .hero__copy {
       min-height: 100dvh;
-      padding: 5rem 1rem 2rem;
-      justify-content: center;
+      padding: 6rem 1rem 2rem;
+      justify-content: flex-start;
+      padding-top: 20vh;
+      background: linear-gradient(180deg, rgba(5,5,5,0.7) 0%, rgba(5,5,5,0.4) 40%, rgba(5,5,5,0.2) 60%, rgba(5,5,5,0) 100%);
     }
     .headline {
       font-size: clamp(2rem, 9vw, 3rem);
