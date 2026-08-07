@@ -201,3 +201,8 @@ Hit while containerising `finalisma_cloud/service.py` and driving `prove-multiag
    Desktop needs admin + a GUI engine start (WSL2), so the image build could not be verified.
    The deploy lane documented this in `docs/DEPLOY.md` rather than installing software
    without the founder's call.
+9. **A `ThreadingHTTPServer` child can outlive its parent driver on Windows.** After
+   several driver runs, `netstat` showed a leftover `python.exe` still listening on the
+   service port even though each driver's `finally` called `terminate()`/`kill()`. Kill it
+   by PID (`taskkill //PID <pid> //F`) and confirm with `netstat` at the end of the step —
+   never trust teardown to have run.
