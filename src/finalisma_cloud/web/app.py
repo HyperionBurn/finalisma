@@ -591,6 +591,11 @@ class FinalismaWebApp:
                                   '<p>Invalid or expired reset token.</p>'))
 
     def handle_post_logout(self, handler: BaseHTTPRequestHandler) -> None:
+        # If not authenticated, just redirect to login (no crash).
+        ctx = self._session_context(handler)
+        if ctx is None:
+            self._redirect(handler, "/login")
+            return
         form = self._read_form(handler)
         try:
             self._validate_csrf(handler, form)
@@ -1261,7 +1266,14 @@ def _build_handler(app: FinalismaWebApp) -> type[BaseHTTPRequestHandler]:
             # --- Everything below requires auth ---
             ctx = app._session_context(self)
             if ctx is None:
-                app._redirect(self, "/login")
+                # Clear any stale session cookie and redirect to login.
+                self.send_response(HTTPStatus.SEE_OTHER)
+                self.send_header("Location", "/login")
+                app._clear_session_cookie(self)
+                self.send_header("Content-Length", "0")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
                 return
 
             # --- Authenticated routes ---
