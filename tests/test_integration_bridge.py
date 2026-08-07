@@ -19,12 +19,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from weft_mcp.core import FinalismaError, FinalismaStore
-from weft_mcp.server import FinalismaDispatcher, TOOLS
+from weft_mcp.core import WeftError, WeftStore
+from weft_mcp.server import WeftDispatcher, TOOLS
 
 
 class BridgeIntegrationTests(unittest.TestCase):
-    """End-to-end bridge contract exercised via FinalismaDispatcher.call_tool."""
+    """End-to-end bridge contract exercised via WeftDispatcher.call_tool."""
 
     BRIDGE_TOOL_NAMES = {
         "finalisma_bridge_poll",
@@ -36,8 +36,8 @@ class BridgeIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
-        self.store = FinalismaStore(root / "state.db", root, require_actor_auth=True)
-        self.dispatcher = FinalismaDispatcher(self.store)
+        self.store = WeftStore(root / "state.db", root, require_actor_auth=True)
+        self.dispatcher = WeftDispatcher(self.store)
         # Real registration flow to obtain a bound actor token.
         registered = self.dispatcher.call_tool(
             "finalisma_register_agent",
@@ -77,10 +77,10 @@ class BridgeIntegrationTests(unittest.TestCase):
         self.assertNotIn(secret_ref, serialized)
 
     # ------------------------------------------------------------------
-    # 2. webhook_register with WRONG actor_token raises FinalismaError.
+    # 2. webhook_register with WRONG actor_token raises WeftError.
     # ------------------------------------------------------------------
     def test_webhook_register_wrong_token_raises(self) -> None:
-        with self.assertRaises(FinalismaError) as ctx:
+        with self.assertRaises(WeftError) as ctx:
             self._call_bridge(
                 "finalisma_bridge_webhook_register",
                 team_id=self.team_id,
@@ -178,7 +178,7 @@ class BridgeIntegrationTests(unittest.TestCase):
     # 6. Wrong-token negative: bridge_poll with bad token raises.
     # ------------------------------------------------------------------
     def test_bridge_poll_wrong_token_raises(self) -> None:
-        with self.assertRaises(FinalismaError) as ctx:
+        with self.assertRaises(WeftError) as ctx:
             self._call_bridge(
                 "finalisma_bridge_poll",
                 team_id=self.team_id,

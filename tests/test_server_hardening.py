@@ -12,19 +12,19 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from weft_mcp.core import FinalismaStore
-from weft_mcp.server import FinalismaDispatcher, _MCPRequestHandler, _Metrics, _WindowRateLimiter
+from weft_mcp.core import WeftStore
+from weft_mcp.server import WeftDispatcher, _MCPRequestHandler, _Metrics, _WindowRateLimiter
 
 
 class PublicJoinScopeTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
-        self.store = FinalismaStore(root / "state.db", root)
-        self.unscoped = FinalismaDispatcher(self.store)
+        self.store = WeftStore(root / "state.db", root)
+        self.unscoped = WeftDispatcher(self.store)
         self.unscoped.call_tool("finalisma_register_agent", {"team_id": "team-a", "agent_id": "agent-a"})
         self.unscoped.call_tool("finalisma_register_agent", {"team_id": "team-b", "agent_id": "agent-b"})
-        self.scoped = FinalismaDispatcher(self.store, team_scope="team-a")
+        self.scoped = WeftDispatcher(self.store, team_scope="team-a")
 
     def tearDown(self) -> None:
         self.store.close()

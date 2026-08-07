@@ -1,6 +1,6 @@
 """Integration tests for the metrics_activation module via the REAL MCP surface.
 
-These tests drive metrics through FinalismaDispatcher.call_tool — never through
+These tests drive metrics through WeftDispatcher.call_tool — never through
 metrics_activation.py's Python API directly. The finalisma_metrics_* tools do
 not exist yet; this file is the RED phase of TDD. The orchestrator will wire
 the tools after this test is written.
@@ -20,8 +20,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from weft_mcp.core import FinalismaStore
-from weft_mcp.server import FinalismaDispatcher, TOOLS
+from weft_mcp.core import WeftStore
+from weft_mcp.server import WeftDispatcher, TOOLS
 
 
 # The five activation funnel stages, in funnel order.
@@ -48,8 +48,8 @@ class MetricsIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
-        self.store = FinalismaStore(root / "state.db", root, require_actor_auth=True)
-        self.dispatcher = FinalismaDispatcher(self.store)
+        self.store = WeftStore(root / "state.db", root, require_actor_auth=True)
+        self.dispatcher = WeftDispatcher(self.store)
         self.team_id = "team-metrics-1"
         self.agent_id = "agent-metrics-1"
         self.workspace_id = "ws-1"

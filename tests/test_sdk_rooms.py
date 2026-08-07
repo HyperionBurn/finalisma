@@ -1,12 +1,12 @@
 """SDK-tier RED integration tests for the Wave SDK-ROOMS public room API.
 
-Drives a REAL coordinator over HTTP using ONLY the public FinalismaClient
+Drives a REAL coordinator over HTTP using ONLY the public WeftClient
 room methods — the private `_call` is never used here. These tests lock the
-contract the SDK-ROOMS orchestrator must implement on FinalismaClient.
+contract the SDK-ROOMS orchestrator must implement on WeftClient.
 
 Run:  python -B -m unittest tests.test_sdk_rooms -v   (<30s)
 
-Expected: FAIL RED — the public room API does not exist yet on FinalismaClient.
+Expected: FAIL RED — the public room API does not exist yet on WeftClient.
 That is the whole point: this file is the TDD contract, written before the
 implementation.
 """
@@ -28,8 +28,8 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 # --- These imports are the contract. They WILL raise ImportError until the
 #     orchestrator adds the room API surface + dataclasses to the SDK. ---
 from weft_sdk import (  # noqa: E402  (expected AttributeError/ImportError)
-    FinalismaClient,
-    FinalismaError,
+    WeftClient,
+    WeftError,
     RoomResult,
     RoomJoinResult,
     RoomInfo,
@@ -83,7 +83,7 @@ class _RoomHarness:
         self.port = _pick_free_port()
         self.base_url = f"http://127.0.0.1:{self.port}/mcp"
         self.proc: subprocess.Popen | None = None
-        self.clients: dict[str, FinalismaClient] = {}
+        self.clients: dict[str, WeftClient] = {}
         self.tokens: dict[str, str] = {}
         self._live.append(self)
 
@@ -104,7 +104,7 @@ class _RoomHarness:
                 "--workspace",
                 str(self.workspace),
                 "--state",
-                str(self.workspace / ".finalisma" / "state.db"),
+                str(self.workspace / ".weft" / "state.db"),
             ],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
@@ -118,11 +118,11 @@ class _RoomHarness:
         # Register N distinct agents; each registers to get its own actor_token.
         for i in range(n_agents):
             name = f"agent-{i}"
-            bootstrap = FinalismaClient(self.base_url, name, "demo")
+            bootstrap = WeftClient(self.base_url, name, "demo")
             reg = bootstrap.register(name=name, role="generalist")
             self.tokens[name] = reg["actor_token"]
             bootstrap.close()
-            self.clients[name] = FinalismaClient(
+            self.clients[name] = WeftClient(
                 self.base_url, name, "demo", actor_token=self.tokens[name],
             )
 
@@ -394,7 +394,7 @@ class SdkRoomsContractTest(unittest.TestCase):
         res = a.create_room(cap=4, name="neg")
 
         # agent-3 never joins — must be refused on room_info.
-        with self.assertRaises(FinalismaError) as ctx:
+        with self.assertRaises(WeftError) as ctx:
             self.harness.clients["agent-3"].room_info(res.room_id)
         self.assertEqual(ctx.exception.code, "member_required")
 
@@ -428,7 +428,7 @@ class SdkRoomsContractTest(unittest.TestCase):
         for m in required_methods:
             self.assertTrue(
                 callable(getattr(a, m, None)),
-                f"FinalismaClient missing public room method: {m}",
+                f"WeftClient missing public room method: {m}",
             )
 
 

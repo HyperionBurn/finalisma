@@ -15,15 +15,15 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from weft_mcp.core import FinalismaError, FinalismaStore
-from weft_mcp.server import FinalismaDispatcher, _MCPRequestHandler, _Metrics, _WindowRateLimiter, handle_json_rpc, run_stdio
+from weft_mcp.core import WeftError, WeftStore
+from weft_mcp.server import WeftDispatcher, _MCPRequestHandler, _Metrics, _WindowRateLimiter, handle_json_rpc, run_stdio
 
 
-class FinalismaStoreTests(unittest.TestCase):
+class WeftStoreTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
-        self.store = FinalismaStore(self.root / ".finalisma" / "state.db", self.root, heartbeat_timeout=30)
+        self.store = WeftStore(self.root / ".weft" / "state.db", self.root, heartbeat_timeout=30)
         self.store.register_agent("demo", "agent-a", "Planner", "architect", "gpt-5.6-luna", ["planning", "research"])
         self.store.register_agent("demo", "agent-b", "Builder", "coding", "qwen-3.8-max", ["coding", "testing"])
 
@@ -75,7 +75,7 @@ class FinalismaStoreTests(unittest.TestCase):
         def claim(agent_id: str):
             try:
                 return (agent_id, "ok", self.store.claim_task("demo", agent_id, task_id))
-            except FinalismaError as exc:
+            except WeftError as exc:
                 return (agent_id, exc.code, None)
 
         with ThreadPoolExecutor(max_workers=2) as pool:
@@ -91,7 +91,7 @@ class FinalismaStoreTests(unittest.TestCase):
         artifact = self.root / "artifact.txt"
         created = self.store.create_task("demo", "agent-a", "Publish artifact", "Create the artifact", scope=["artifact.txt"], preferred_agent="agent-b")
         claimed = self.store.claim_task("demo", "agent-b", created["task"]["task_id"])
-        with self.assertRaises(FinalismaError) as stale:
+        with self.assertRaises(WeftError) as stale:
             self.store.update_task("demo", "agent-b", claimed["task_id"], progress=20, fencing_token=claimed["fencing_token"] + 1)
         self.assertEqual(stale.exception.code, "stale_fencing_token")
 
@@ -147,15 +147,15 @@ class FinalismaStoreTests(unittest.TestCase):
         self.store.send_message("demo", "agent-a", "team.notice", {"private": "demo"}, recipient_id="agent-b", idempotency_key="demo-msg-1")
         other_inbox = self.store.read_inbox("other", "agent-b", acknowledge=False)
         self.assertEqual(other_inbox["count"], 0)
-        with self.assertRaises(FinalismaError) as unknown_agent:
+        with self.assertRaises(WeftError) as unknown_agent:
             self.store.send_message("demo", "agent-c", "team.notice", {"private": "spoof"}, recipient_id="agent-a")
         self.assertEqual(unknown_agent.exception.code, "agent_not_registered")
-        with self.assertRaises(FinalismaError) as wrong_team:
+        with self.assertRaises(WeftError) as wrong_team:
             self.store.read_inbox("other", "agent-a")
         self.assertEqual(wrong_team.exception.code, "agent_not_registered")
 
     def test_workspace_containment_and_secret_gate(self) -> None:
-        with self.assertRaises(FinalismaError) as outside:
+        with self.assertRaises(WeftError) as outside:
             self.store.create_task("demo", "agent-a", "Escape", "No", scope=["..\\outside.txt"])
         self.assertEqual(outside.exception.code, "path_outside_workspace")
         secret = self.root / "secret.txt"
@@ -170,7 +170,7 @@ class FinalismaStoreTests(unittest.TestCase):
         nested: dict[str, object] = {}
         for _ in range(1_100):
             nested = {"next": nested}
-        with self.assertRaises(FinalismaError) as invalid:
+        with self.assertRaises(WeftError) as invalid:
             self.store.send_message("demo", "agent-a", "payload.test", nested, idempotency_key="deep-payload-1")
         self.assertEqual(invalid.exception.code, "invalid_json")
 
@@ -186,12 +186,12 @@ class FinalismaStoreTests(unittest.TestCase):
         self.assertNotIn(pairing["initiator_session_token"].encode("utf-8"), raw_db)
         preview = self.store.pairing_preview(pairing["join_token"])
         self.assertEqual(preview["status"], "issued")
-        with self.assertRaises(FinalismaError) as no_consent:
+        with self.assertRaises(WeftError) as no_consent:
             self.store.join_pairing(pairing["join_token"], "agent-b", model="longcat/LongCat-2.0")
         self.assertEqual(no_consent.exception.code, "consent_required")
         joined = self.store.join_pairing(pairing["join_token"], "agent-b", model="longcat/LongCat-2.0", consent=True)
         self.assertEqual(joined["state"], "active")
-        with self.assertRaises(FinalismaError) as replay:
+        with self.assertRaises(WeftError) as replay:
             self.store.join_pairing(pairing["join_token"], "agent-c", consent=True)
         self.assertEqual(replay.exception.code, "pairing_unavailable")
 
@@ -204,11 +204,11 @@ class FinalismaStoreTests(unittest.TestCase):
         self.assertEqual([event["seq"] for event in inbox_b["events"]], [1])
         self.assertEqual(inbox_b["events"][0]["origin_agent"], "agent-a")
         self.store.session_ack(joined["session_token"], "agent-b", 1)
-        with self.assertRaises(FinalismaError) as spoof:
+        with self.assertRaises(WeftError) as spoof:
             self.store.session_poll(joined["session_token"], "agent-a", after_seq=0)
         self.assertEqual(spoof.exception.code, "session_forbidden")
         self.store.close_session(pairing["initiator_session_token"], "agent-a")
-        with self.assertRaises(FinalismaError) as closed:
+        with self.assertRaises(WeftError) as closed:
             self.store.session_send(joined["session_token"], "agent-b", "task.progress", {"progress": 1}, "pairing-event-2")
         self.assertEqual(closed.exception.code, "session_closed")
 
@@ -243,7 +243,7 @@ class FinalismaStoreTests(unittest.TestCase):
             try:
                 result = self.store.join_pairing(pairing["join_token"], f"joiner-{index}", consent=True)
                 return ("ok", result["session_id"])
-            except FinalismaError as exc:
+            except WeftError as exc:
                 return (exc.code, None)
 
         with ThreadPoolExecutor(max_workers=5) as pool:
@@ -256,7 +256,7 @@ class FinalismaStoreTests(unittest.TestCase):
         joined = self.store.join_pairing(pairing["join_token"], "agent-b", consent=True)
         self.store.session_send(pairing["initiator_session_token"], "agent-a", "task.handoff", {"task": "restart"}, "restart-event-1")
 
-        reopened = FinalismaStore(self.store.state_path, self.root, heartbeat_timeout=30)
+        reopened = WeftStore(self.store.state_path, self.root, heartbeat_timeout=30)
         replay = reopened.session_poll(joined["session_token"], "agent-b", after_seq=0)
         self.assertEqual([event["seq"] for event in replay["events"]], [1])
         self.assertEqual(reopened.session_ack(joined["session_token"], "agent-b", 1)["last_ack_seq"], 1)
@@ -301,15 +301,15 @@ class FinalismaStoreTests(unittest.TestCase):
     def test_pairing_expiry_rejects_join_without_leaking_token(self) -> None:
         with patch("weft_mcp.core._epoch", side_effect=[1000.0, 2000.0]):
             pairing = self.store.create_pairing("agent-a", "demo", ttl_seconds=60)
-            with self.assertRaises(FinalismaError) as expired:
+            with self.assertRaises(WeftError) as expired:
                 self.store.join_pairing(pairing["join_token"], "agent-b", consent=True)
         self.assertEqual(expired.exception.code, "pairing_expired")
         self.assertNotIn(pairing["join_token"].encode("utf-8"), self.store.state_path.read_bytes())
 
     def test_public_url_rejects_non_http_and_credential_bearing_values(self) -> None:
         for invalid_url in ("javascript:alert(1)", "https://user:pass@example.com", "https://example.com/path?token=secret", "https://example.com/#token"):
-            with self.subTest(invalid_url=invalid_url), self.assertRaises(FinalismaError) as invalid:
-                FinalismaStore(self.root / "invalid.db", self.root / "invalid-workspace", public_base_url=invalid_url)
+            with self.subTest(invalid_url=invalid_url), self.assertRaises(WeftError) as invalid:
+                WeftStore(self.root / "invalid.db", self.root / "invalid-workspace", public_base_url=invalid_url)
             self.assertEqual(invalid.exception.code, "invalid_public_url")
 
 
@@ -317,7 +317,7 @@ class MCPProtocolTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
-        self.dispatcher = FinalismaDispatcher(FinalismaStore(root / "state.db", root))
+        self.dispatcher = WeftDispatcher(WeftStore(root / "state.db", root))
 
     def tearDown(self) -> None:
         self.dispatcher.store.close()
@@ -337,7 +337,7 @@ class MCPProtocolTests(unittest.TestCase):
         self.assertIn("opencode-go/mimo-v2.5", model_ids)
 
     def test_pairing_requires_team_id_on_unscoped_dispatcher(self) -> None:
-        with self.assertRaises(FinalismaError) as missing_team:
+        with self.assertRaises(WeftError) as missing_team:
             self.dispatcher.call_tool("finalisma_create_pairing", {"initiator_id": "agent-a"})
         self.assertEqual(missing_team.exception.code, "invalid_argument")
 
@@ -348,7 +348,7 @@ class MCPProtocolTests(unittest.TestCase):
         self.assertEqual(json.loads(output_stream.getvalue())["result"], {})
 
     def test_streamable_http_post_and_origin_guard(self) -> None:
-        handler = type("TestFinalismaHTTPHandler", (_MCPRequestHandler,), {})
+        handler = type("TestWeftHTTPHandler", (_MCPRequestHandler,), {})
         handler.dispatcher = self.dispatcher
         handler.token = "test-token"
         handler.allowed_origins = {"http://localhost"}
@@ -429,27 +429,27 @@ class MCPProtocolTests(unittest.TestCase):
             thread.join(timeout=5)
 
     def test_dispatcher_team_scope_is_a_hard_boundary(self) -> None:
-        scoped = FinalismaDispatcher(self.dispatcher.store, team_scope="demo")
+        scoped = WeftDispatcher(self.dispatcher.store, team_scope="demo")
         registered = scoped.call_tool("finalisma_register_agent", {"team_id": "demo", "agent_id": "scoped-agent", "role": "reviewer"})
         self.assertEqual(registered["agent_id"], "scoped-agent")
         implicit = scoped.call_tool("finalisma_register_agent", {"agent_id": "scoped-agent-2", "role": "reviewer"})
         self.assertEqual(implicit["agent_id"], "scoped-agent-2")
         scoped_status = scoped.call_tool("finalisma_team_status", {})
         self.assertEqual(scoped_status["team_id"], "demo")
-        with self.assertRaises(FinalismaError) as forbidden:
+        with self.assertRaises(WeftError) as forbidden:
             scoped.call_tool("finalisma_team_status", {"team_id": "other"})
         self.assertEqual(forbidden.exception.code, "team_scope_forbidden")
-        with self.assertRaises(FinalismaError) as pairing_forbidden:
+        with self.assertRaises(WeftError) as pairing_forbidden:
             scoped.call_tool("finalisma_create_pairing", {"team_id": "other", "initiator_id": "scoped-agent"})
         self.assertEqual(pairing_forbidden.exception.code, "team_scope_forbidden")
 
         self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "other", "agent_id": "other-initiator", "role": "architect"})
         other_pairing = self.dispatcher.call_tool("finalisma_create_pairing", {"team_id": "other", "initiator_id": "other-initiator"})
-        with self.assertRaises(FinalismaError) as pair_capability_forbidden:
+        with self.assertRaises(WeftError) as pair_capability_forbidden:
             scoped.call_tool("finalisma_pairing_preview", {"token": other_pairing["join_token"]})
         self.assertEqual(pair_capability_forbidden.exception.code, "team_scope_forbidden")
         other_joined = self.dispatcher.call_tool("finalisma_join_pairing", {"token": other_pairing["join_token"], "agent_id": "other-joiner", "consent": True})
-        with self.assertRaises(FinalismaError) as session_capability_forbidden:
+        with self.assertRaises(WeftError) as session_capability_forbidden:
             scoped.call_tool("finalisma_session_status", {"session_token": other_joined["session_token"], "agent_id": "other-joiner"})
         self.assertEqual(session_capability_forbidden.exception.code, "team_scope_forbidden")
 
@@ -538,7 +538,7 @@ class MCPProtocolTests(unittest.TestCase):
             metrics = response.read().decode("utf-8")
             connection.close()
             self.assertEqual(response.status, 200)
-            self.assertIn("finalisma_http_responses_total", metrics)
+            self.assertIn("weft_http_responses_total", metrics)
         finally:
             server.shutdown()
             server.server_close()

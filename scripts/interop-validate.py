@@ -46,7 +46,7 @@ def main() -> int:
             "--workspace",
             str(workspace),
             "--state",
-            str(workspace / ".finalisma" / "state.db"),
+            str(workspace / ".weft" / "state.db"),
         ],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,

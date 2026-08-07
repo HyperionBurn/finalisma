@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 _site_spec = importlib.util.spec_from_file_location(
-    "finalisma_site", ROOT / "scripts" / "weft-site.py"
+    "weft_site", ROOT / "scripts" / "weft-site.py"
 )
 assert _site_spec and _site_spec.loader
 _site_module = importlib.util.module_from_spec(_site_spec)
@@ -42,7 +42,7 @@ def main() -> int:
         host, port = server.server_address
         url = f"http://{host}:{port}/"
         env = dict(os.environ)
-        env["FINALISMA_SITE_URL"] = url
+        env["WEFT_SITE_URL"] = url
         result = subprocess.run(
             ["node", str(ROOT / "scripts" / "capture-site-qa.cjs")],
             env=env,

@@ -1,8 +1,8 @@
 """Integration test: ordered replay + per-member cursor + reconnect contract.
 
-RED deliverable for the room tools. Drives the real MCP surface (FinalismaDispatcher)
+RED deliverable for the room tools. Drives the real MCP surface (WeftDispatcher)
 with a real SQLite store (require_actor_auth=True). Every finalisma_room_* call here
-MUST fail with FinalismaError("unknown_tool", ...) until the room tools are wired.
+MUST fail with WeftError("unknown_tool", ...) until the room tools are wired.
 
 Contracts asserted from docs/ROOMS_DESIGN.md §5 and §8:
   - room_event_log: ordered, append-only, UNIQUE(room_id, seq).
@@ -20,8 +20,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from weft_mcp.core import FinalismaStore
-from weft_mcp.server import FinalismaDispatcher, TOOLS
+from weft_mcp.core import WeftStore
+from weft_mcp.server import WeftDispatcher, TOOLS
 
 
 class RoomReconnectIntegrationTests(unittest.TestCase):
@@ -30,8 +30,8 @@ class RoomReconnectIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
-        self.store = FinalismaStore(root / "state.db", root, require_actor_auth=True)
-        self.dispatcher = FinalismaDispatcher(self.store)
+        self.store = WeftStore(root / "state.db", root, require_actor_auth=True)
+        self.dispatcher = WeftDispatcher(self.store)
 
         # Register three agents under one team.
         reg_a1 = self.dispatcher.call_tool(

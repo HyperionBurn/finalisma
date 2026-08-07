@@ -10,10 +10,10 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from weft_mcp.core import FinalismaStore
+from weft_mcp.core import WeftStore
 
 
-class _TraceStore(FinalismaStore):
+class _TraceStore(WeftStore):
     def __init__(self, *args, **kwargs):
         self.statements: list[str] = []
         super().__init__(*args, **kwargs)
@@ -24,7 +24,7 @@ class _TraceStore(FinalismaStore):
         return connection
 
 
-class _ConnectionCountStore(FinalismaStore):
+class _ConnectionCountStore(WeftStore):
     def __init__(self, *args, **kwargs):
         self.connections_created = 0
         super().__init__(*args, **kwargs)
@@ -53,7 +53,7 @@ class PerformanceHotPathTests(unittest.TestCase):
             return connection
 
         with mock.patch("weft_mcp.core.sqlite3.connect", side_effect=traced_connect):
-            store = FinalismaStore(self.root / "state.db", self.root / "workspace")
+            store = WeftStore(self.root / "state.db", self.root / "workspace")
             initialization = list(statements)
             statements.clear()
             with store._read() as connection:
@@ -71,7 +71,7 @@ class PerformanceHotPathTests(unittest.TestCase):
         self.assertEqual(subsequent_wal_sets, [])
 
     def test_read_context_enforces_query_only_mode(self) -> None:
-        store = FinalismaStore(self.root / "state.db", self.root / "workspace")
+        store = WeftStore(self.root / "state.db", self.root / "workspace")
         with store._read() as connection:
             with self.assertRaises(sqlite3.OperationalError):
                 connection.execute("CREATE TABLE forbidden_write(value TEXT)")

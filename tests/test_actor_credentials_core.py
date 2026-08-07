@@ -10,23 +10,23 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from weft_mcp.core import FinalismaError, FinalismaStore
+from weft_mcp.core import WeftError, WeftStore
 
 
 class ActorCredentialCoreTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
-        self.state_path = self.root / ".finalisma" / "state.db"
-        self.stores: list[FinalismaStore] = []
+        self.state_path = self.root / ".weft" / "state.db"
+        self.stores: list[WeftStore] = []
 
     def tearDown(self) -> None:
         for store in self.stores:
             store.close()
         self.temp.cleanup()
 
-    def store(self, *, require_actor_auth: bool = False) -> FinalismaStore:
-        store = FinalismaStore(
+    def store(self, *, require_actor_auth: bool = False) -> WeftStore:
+        store = WeftStore(
             self.state_path,
             self.root,
             heartbeat_timeout=30,
@@ -35,8 +35,8 @@ class ActorCredentialCoreTests(unittest.TestCase):
         self.stores.append(store)
         return store
 
-    def assert_error(self, code: str, call, *args, **kwargs) -> FinalismaError:
-        with self.assertRaises(FinalismaError) as caught:
+    def assert_error(self, code: str, call, *args, **kwargs) -> WeftError:
+        with self.assertRaises(WeftError) as caught:
             call(*args, **kwargs)
         self.assertEqual(caught.exception.code, code)
         return caught.exception
@@ -222,7 +222,7 @@ class ActorCredentialCoreTests(unittest.TestCase):
             try:
                 result = secured.rotate_agent_credential("team", "agent-a", old_token)
                 return ("ok", result["actor_token"])
-            except FinalismaError as exc:
+            except WeftError as exc:
                 return (exc.code, None)
 
         with ThreadPoolExecutor(max_workers=2) as pool:

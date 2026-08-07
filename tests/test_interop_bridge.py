@@ -24,7 +24,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from weft_mcp.core import FinalismaStore, FinalismaError
+from weft_mcp.core import WeftStore, WeftError
 from weft_mcp.bridge import (
     WebhookBridge,
     PollingBridge,
@@ -94,7 +94,7 @@ class BridgeInteropTests(unittest.TestCase):
     """End-to-end bridge adapter tests against a real spawned coordinator."""
 
     proc: subprocess.Popen | None = None
-    bridge_store: FinalismaStore | None = None
+    bridge_store: WeftStore | None = None
     webhook_receiver: _WebhookReceiver | None = None
     actor_token: str = ""
     _scratch: tempfile.TemporaryDirectory | None = None
@@ -104,7 +104,7 @@ class BridgeInteropTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls._scratch = tempfile.TemporaryDirectory(prefix="finalisma-interop-bridge-test-")
         workspace = Path(cls._scratch.name)
-        state_path = workspace / ".finalisma" / "state.db"
+        state_path = workspace / ".weft" / "state.db"
 
         cls.proc = subprocess.Popen(
             [
@@ -142,7 +142,7 @@ class BridgeInteropTests(unittest.TestCase):
         cls.actor_token = reg["actor_token"]
 
         # open bridge store against coordinator's DB
-        cls.bridge_store = FinalismaStore(
+        cls.bridge_store = WeftStore(
             str(state_path),
             str(workspace),
             require_actor_auth=True,
@@ -254,7 +254,7 @@ class BridgeInteropTests(unittest.TestCase):
         )
         raw = json.dumps(bootstrap)
         clipboard.parse_bootstrap(raw)  # first: ok
-        with self.assertRaises(FinalismaError) as ctx:
+        with self.assertRaises(WeftError) as ctx:
             clipboard.parse_bootstrap(raw)  # second: refused
         self.assertEqual(ctx.exception.code, "bootstrap_reused")
 
@@ -284,12 +284,12 @@ class BridgeInteropTests(unittest.TestCase):
 
     def test_polling_wrong_token_refused(self) -> None:
         polling = PollingBridge(self.bridge_store)
-        with self.assertRaises((FinalismaError, BridgeAuthError)):
+        with self.assertRaises((WeftError, BridgeAuthError)):
             polling.get_pending(TEAM_ID, "bridge-agent", cursor=0, actor_token="not-a-valid-token")
 
     def test_polling_nonmember_refused(self) -> None:
         polling = PollingBridge(self.bridge_store)
-        with self.assertRaises((FinalismaError, BridgeAuthError)):
+        with self.assertRaises((WeftError, BridgeAuthError)):
             polling.get_pending(TEAM_ID, "ghost-agent", cursor=0, actor_token=self.actor_token)
 
     # ------------------------------------------------------------------
@@ -354,7 +354,7 @@ class BridgeInteropTests(unittest.TestCase):
             secret_ref=secret,
             actor_token=self.actor_token,
         )
-        with self.assertRaises(FinalismaError) as ctx:
+        with self.assertRaises(WeftError) as ctx:
             webhook.deliver(wh["webhook_id"], {"kind": "x"}, signing_secret=None)
         self.assertEqual(ctx.exception.code, "signing_secret_required")
 

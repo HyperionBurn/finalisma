@@ -2,7 +2,7 @@
 
 RED deliverable — these tests assert the finalisma_room_* MCP surface per
 docs/ROOMS_DESIGN.md §4 (presence), §8 (tool surface), §9 (negative cases).
-Every finalisma_room_* call MUST fail with FinalismaError("unknown_tool", ...)
+Every finalisma_room_* call MUST fail with WeftError("unknown_tool", ...)
 until the orchestrator wires the room tools into the dispatcher and TOOLS list.
 """
 
@@ -16,8 +16,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from weft_mcp.core import FinalismaError, FinalismaStore
-from weft_mcp.server import FinalismaDispatcher, TOOLS
+from weft_mcp.core import WeftError, WeftStore
+from weft_mcp.server import WeftDispatcher, TOOLS
 
 
 class RoomPresenceIntegrationTests(unittest.TestCase):
@@ -26,8 +26,8 @@ class RoomPresenceIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
-        self.store = FinalismaStore(root / "state.db", root, require_actor_auth=True)
-        self.dispatcher = FinalismaDispatcher(self.store)
+        self.store = WeftStore(root / "state.db", root, require_actor_auth=True)
+        self.dispatcher = WeftDispatcher(self.store)
         self.team = "team-presence"
         # Register three agents and capture their actor tokens.
         reg_a1 = self.dispatcher.call_tool(

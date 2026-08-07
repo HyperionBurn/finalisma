@@ -16,7 +16,7 @@
 # The marketing site (site/, web/) is deliberately NOT part of this stack: it is
 # static content served separately for preview and is not part of the SaaS
 # backend. The image does NOT carry the built site, so the web container leaves
-# FINALISMA_WEB_STATIC_DIR unset and serves no static files.
+# WEFT_WEB_STATIC_DIR unset and serves no static files.
 #
 # No secrets live here. All configuration comes from the environment, and the
 # defaults in this file contain nothing secret.
@@ -30,9 +30,9 @@ services:
     ports:
       - "127.0.0.1:18788:18788"
     environment:
-      FINALISMA_HOST: "0.0.0.0"
-      FINALISMA_PORT: "18788"
-      FINALISMA_DB_PATH: "/data/finalisma-cloud.db"
+      WEFT_HOST: "0.0.0.0"
+      WEFT_PORT: "18788"
+      WEFT_DB_PATH: "/data/finalisma-cloud.db"
     volumes:
       - finalisma-cloud-data:/data
     restart: unless-stopped
@@ -42,7 +42,7 @@ services:
   # cloud service, this service overrides it to the web entry point. Both
   # containers mount the same named volume and point at the same SQLite file,
   # which is safe only because both open it in WAL mode (one writer, many
-  # readers). The image's baked-in HEALTHCHECK probes FINALISMA_PORT/healthz,
+  # readers). The image's baked-in HEALTHCHECK probes WEFT_PORT/healthz,
   # which nothing in this container listens on, so it is overridden here to
   # probe the web port; GET /login returns 200 without a session.
   finalisma-web:
@@ -51,14 +51,14 @@ services:
     ports:
       - "127.0.0.1:18789:18789"
     environment:
-      FINALISMA_WEB_HOST: "0.0.0.0"
-      FINALISMA_WEB_PORT: "18789"
-      FINALISMA_WEB_DB_PATH: "/data/finalisma-cloud.db"
-      FINALISMA_WEB_STATE_DIR: "/data"
+      WEFT_WEB_HOST: "0.0.0.0"
+      WEFT_WEB_PORT: "18789"
+      WEFT_WEB_DB_PATH: "/data/finalisma-cloud.db"
+      WEFT_WEB_STATE_DIR: "/data"
     volumes:
       - finalisma-cloud-data:/data
     healthcheck:
-      test: ["CMD", "python", "-c", "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('FINALISMA_WEB_PORT','18789')+'/login', timeout=3)"]
+      test: ["CMD", "python", "-c", "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('WEFT_WEB_PORT','18789')+'/login', timeout=3)"]
       interval: 30s
       timeout: 5s
       start_period: 10s

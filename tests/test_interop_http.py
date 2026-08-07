@@ -165,7 +165,7 @@ class TestInteropHTTP(unittest.TestCase):
                 "--workspace",
                 str(cls.workspace),
                 "--state",
-                str(cls.workspace / ".finalisma" / "state.db"),
+                str(cls.workspace / ".weft" / "state.db"),
                 "--actor-auth",
                 "trust",
             ],

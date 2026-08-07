@@ -141,7 +141,7 @@ def main() -> int:
             "--workspace",
             str(workspace),
             "--state",
-            str(workspace / ".finalisma" / "state.db"),
+            str(workspace / ".weft" / "state.db"),
             "--actor-auth",
             "trust",
         ],

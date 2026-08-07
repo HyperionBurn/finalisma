@@ -2,7 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
-const playwrightPath = process.env.FINALISMA_PLAYWRIGHT
+const playwrightPath = process.env.WEFT_PLAYWRIGHT
   || "C:/Users/Wasif/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright";
 const { chromium } = require(playwrightPath);
 
@@ -105,7 +105,7 @@ const lighthouseChecks = (page) => page.evaluate(() => {
 
 const root = path.resolve(__dirname, "..");
 const outputDir = path.join(root, "artifacts", "design-qa");
-const siteUrl = process.env.FINALISMA_SITE_URL || "http://127.0.0.1:4175/";
+const siteUrl = process.env.WEFT_SITE_URL || "http://127.0.0.1:4175/";
 const origin = new URL(siteUrl).origin;
 fs.mkdirSync(outputDir, { recursive: true });
 
@@ -214,7 +214,7 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
 (async () => {
   const browser = await chromium.launch({
     headless: true,
-    executablePath: process.env.FINALISMA_CHROMIUM_PATH || undefined
+    executablePath: process.env.WEFT_CHROMIUM_PATH || undefined
   });
   const signals = { consoleErrors: [], failedRequests: [], badResponses: [] };
 
@@ -263,7 +263,7 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
   });
 
   // Wait for the R3F island to mount and animate (up to ~6s), then measure frame times.
-  await desktop.waitForFunction(() => window.FinalismaScene || window.__finalismaFrameTimes, null, { timeout: 15000 }).catch(() => {});
+  await desktop.waitForFunction(() => window.WeftScene || window.__finalismaFrameTimes, null, { timeout: 15000 }).catch(() => {});
   await desktop.waitForTimeout(2500);
   const frameTimes = await desktop.evaluate(() => Array.isArray(window.__finalismaFrameTimes) ? window.__finalismaFrameTimes.slice() : []);
   const sorted = [...frameTimes].sort((a, b) => a - b);
@@ -278,8 +278,8 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
 
   // Drive the gate refusal so the harness can assert the moat beat.
   const gateAfterTrigger = await desktop.evaluate(() => {
-    if (window.FinalismaScene && typeof window.FinalismaScene.fireGateRefusal === "function") {
-      window.FinalismaScene.fireGateRefusal();
+    if (window.WeftScene && typeof window.WeftScene.fireGateRefusal === "function") {
+      window.WeftScene.fireGateRefusal();
       return true;
     }
     return false;

@@ -22,7 +22,7 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from weft_mcp.core import FinalismaStore, FinalismaError
+from weft_mcp.core import WeftStore, WeftError
 from weft_mcp.bridge import (
     WebhookBridge,
     PollingBridge,
@@ -36,7 +36,7 @@ from weft_mcp.bridge import (
 
 def _make_store(tmpdir):
     root = Path(tmpdir)
-    return FinalismaStore(root / "state.db", root, require_actor_auth=True)
+    return WeftStore(root / "state.db", root, require_actor_auth=True)
 
 
 def _register_agent(store, team_id, agent_id, actor_token=None):
@@ -88,7 +88,7 @@ class WebhookBridgeTests(unittest.TestCase):
             )
 
     def test_register_webhook_rejects_bad_url(self):
-        with self.assertRaises(FinalismaError):
+        with self.assertRaises(WeftError):
             self.bridge.register_webhook(
                 team_id="team-1",
                 agent_id="agent-1",
@@ -172,7 +172,7 @@ class WebhookBridgeTests(unittest.TestCase):
             actor_token=self.actor_token,
         )
         event = {"kind": "task.dispatch", "payload": {"title": "hello"}, "agent_id": "agent-1"}
-        with self.assertRaises(FinalismaError):
+        with self.assertRaises(WeftError):
             self.bridge.deliver(
                 webhook_id=reg["webhook_id"],
                 event=event,
@@ -344,7 +344,7 @@ class ClipboardBridgeTests(unittest.TestCase):
             "join_token": "fst_actor_xxx",
             "join_url": "http://127.0.0.1:8787/v1/join/fst_actor_xxx",
         }
-        with self.assertRaises(FinalismaError):
+        with self.assertRaises(WeftError):
             self.bridge.parse_bootstrap(json.dumps(bad_snippet2))
 
     def test_one_use_enforcement(self):
@@ -365,7 +365,7 @@ class ClipboardBridgeTests(unittest.TestCase):
         # First parse succeeds
         self.bridge.parse_bootstrap(json.dumps(snippet))
         # Second parse of the same nonce fails (one-use)
-        with self.assertRaises(FinalismaError):
+        with self.assertRaises(WeftError):
             self.bridge.parse_bootstrap(json.dumps(snippet))
 
     def test_generate_requires_actor_auth(self):
@@ -385,9 +385,9 @@ class HttpBridgeClientTests(unittest.TestCase):
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        from weft_mcp.server import FinalismaDispatcher, _MCPRequestHandler, _Metrics, _WindowRateLimiter
+        from weft_mcp.server import WeftDispatcher, _MCPRequestHandler, _Metrics, _WindowRateLimiter
         self.store = _make_store(self.temp.name)
-        self.dispatcher = FinalismaDispatcher(self.store)
+        self.dispatcher = WeftDispatcher(self.store)
         cred = _register_agent(self.store, "team-1", "agent-1")
         self.actor_token = cred["actor_token"]
 
@@ -450,7 +450,7 @@ class HttpBridgeClientTests(unittest.TestCase):
             actor_token=self.actor_token,
         )
         join_url = pairing["join_url"]
-        with self.assertRaises(FinalismaError):
+        with self.assertRaises(WeftError):
             self.client.join_link(
                 join_url=join_url,
                 agent_id="agent-2",
@@ -536,7 +536,7 @@ class HttpBridgeClientTests(unittest.TestCase):
         bad_url = join_url.split("#token=")[0] + "#token=" + pairing["join_token"]
         # This is the correct form — now try a bad one
         bad_path_url = f"{self.base_url}/v1/join/{pairing['join_token']}"
-        with self.assertRaises(FinalismaError):
+        with self.assertRaises(WeftError):
             self.client.preview_link(bad_path_url)
 
 

@@ -19,6 +19,6 @@ weft-mcp = "weft_mcp.__main__:main"
 where = ["src"]
 include = ["weft_mcp*", "weft_sdk*", "weft_cloud*"]
 
-[tool.finalisma]
+[tool.weft]
 protocol = "finalisma.a2a/1.0"
 mcp_protocol = "2025-11-25"

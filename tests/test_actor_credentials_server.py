@@ -15,16 +15,16 @@ from urllib.parse import urlsplit
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from weft_mcp.__main__ import _resolve_actor_auth
-from weft_mcp.core import FinalismaError, FinalismaStore
-from weft_mcp.server import FinalismaDispatcher, TOOLS, _MCPRequestHandler, _Metrics, _WindowRateLimiter, run_stdio
+from weft_mcp.core import WeftError, WeftStore
+from weft_mcp.server import WeftDispatcher, TOOLS, _MCPRequestHandler, _Metrics, _WindowRateLimiter, run_stdio
 
 
 class ActorCredentialTransportTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
-        self.store = FinalismaStore(root / "state.db", root, require_actor_auth=True)
-        self.dispatcher = FinalismaDispatcher(self.store)
+        self.store = WeftStore(root / "state.db", root, require_actor_auth=True)
+        self.dispatcher = WeftDispatcher(self.store)
         self.agent_a = self.dispatcher.call_tool(
             "finalisma_register_agent",
             {"team_id": "demo", "agent_id": "agent-a", "role": "architect"},
@@ -66,15 +66,15 @@ class ActorCredentialTransportTests(unittest.TestCase):
 
     def test_required_mode_issues_and_enforces_bound_actor_tokens(self) -> None:
         self.assertTrue(self.token_a.startswith("fst_actor_"))
-        with self.assertRaises(FinalismaError) as missing:
+        with self.assertRaises(WeftError) as missing:
             self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "demo", "agent_id": "agent-a", "role": "architect"})
         self.assertEqual(missing.exception.code, "actor_auth_required")
 
-        with self.assertRaises(FinalismaError) as wrong:
+        with self.assertRaises(WeftError) as wrong:
             self.dispatcher.call_tool("finalisma_create_task", {"team_id": "demo", "created_by": "agent-a", "title": "Wrong proof", "actor_token": "fst_actor_wrong_token_value_which_is_long_enough"})
         self.assertEqual(wrong.exception.code, "actor_auth_invalid")
 
-        with self.assertRaises(FinalismaError) as cross_agent:
+        with self.assertRaises(WeftError) as cross_agent:
             self.dispatcher.call_tool("finalisma_create_task", {"team_id": "demo", "created_by": "agent-b", "title": "Spoof agent", "actor_token": self.token_a})
         self.assertEqual(cross_agent.exception.code, "actor_auth_invalid")
 
@@ -89,7 +89,7 @@ class ActorCredentialTransportTests(unittest.TestCase):
             "finalisma_create_pairing",
             {"team_id": "demo", "initiator_id": "agent-a", "actor_token": self.token_a},
         )
-        with self.assertRaises(FinalismaError) as overwrite:
+        with self.assertRaises(WeftError) as overwrite:
             self.dispatcher.call_tool(
                 "finalisma_join_pairing",
                 {"token": missing_proof_pairing["join_token"], "agent_id": "agent-b", "consent": True},
@@ -132,15 +132,15 @@ class ActorCredentialTransportTests(unittest.TestCase):
         )
         replacement = rotated["actor_token"]
         self.assertNotEqual(replacement, self.token_a)
-        with self.assertRaises(FinalismaError) as stale:
+        with self.assertRaises(WeftError) as stale:
             self.dispatcher.call_tool("finalisma_create_task", {"team_id": "demo", "created_by": "agent-a", "title": "Stale", "actor_token": self.token_a})
         self.assertEqual(stale.exception.code, "actor_auth_invalid")
         created = self.dispatcher.call_tool("finalisma_create_task", {"team_id": "demo", "created_by": "agent-a", "title": "Rotated", "actor_token": replacement})
         self.assertTrue(created["created"])
 
     def test_trusted_stdio_and_cli_actor_auth_resolution(self) -> None:
-        trusted_store = FinalismaStore(Path(self.temp.name) / "trusted.db", Path(self.temp.name) / "trusted-workspace")
-        trusted_dispatcher = FinalismaDispatcher(trusted_store)
+        trusted_store = WeftStore(Path(self.temp.name) / "trusted.db", Path(self.temp.name) / "trusted-workspace")
+        trusted_dispatcher = WeftDispatcher(trusted_store)
         trusted_dispatcher.call_tool("finalisma_register_agent", {"team_id": "trusted", "agent_id": "local-agent"})
         request = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "finalisma_create_task", "arguments": {"team_id": "trusted", "created_by": "local-agent", "title": "No token in stdio trust mode"}}}
         output = io.StringIO()
@@ -153,7 +153,7 @@ class ActorCredentialTransportTests(unittest.TestCase):
         with redirect_stderr(warning):
             self.assertFalse(_resolve_actor_auth("http", "trust", "localhost"))
         self.assertIn("security warning", warning.getvalue())
-        with self.assertRaises(FinalismaError) as rejected:
+        with self.assertRaises(WeftError) as rejected:
             _resolve_actor_auth("http", "trust", "0.0.0.0")
         self.assertEqual(rejected.exception.code, "actor_auth_trust_forbidden")
 

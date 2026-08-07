@@ -3,7 +3,7 @@
 The weft_cloud.web package does not exist yet — this file must fail at
 import with ModuleNotFoundError.
 
-Drives real HTTP against an in-process FinalismaWebApp server. Route contract
+Drives real HTTP against an in-process WeftWebApp server. Route contract
 from docs/WEBAPP_DESIGN.md sections 3.1, 3.2, 4, 8, 9.2, 9.3, 10.
 """
 
@@ -24,15 +24,15 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from weft_cloud.storage import SqliteWalBackend
 from weft_cloud.identity.schema import ensure_schema
-from weft_cloud.web.app import FinalismaWebApp  # RED: package absent
+from weft_cloud.web.app import WeftWebApp  # RED: package absent
 
 SITE_DIR = str(ROOT / "site")
 
 
 class WebAppDriver:
-    """In-process HTTP driver for FinalismaWebApp.
+    """In-process HTTP driver for WeftWebApp.
 
-    Contract: FinalismaWebApp(backend, static_dir=..., state_dir=...)
+    Contract: WeftWebApp(backend, static_dir=..., state_dir=...)
     exposes .handler (a BaseHTTPRequestHandler subclass) and is driven on
     ("127.0.0.1", 0) with finally teardown.
     """
@@ -44,7 +44,7 @@ class WebAppDriver:
         self.backend = SqliteWalBackend(str(Path(self._tmp.name) / "cloud.db"))
         self.backend.initialize()
         ensure_schema(self.backend)
-        self.app = FinalismaWebApp(
+        self.app = WeftWebApp(
             self.backend,
             static_dir=SITE_DIR,
             state_dir=str(Path(self._tmp.name) / "state"),

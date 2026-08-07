@@ -1,7 +1,7 @@
 """Runtime-config resolution for the cloud service launcher.
 
-Containers configure through the environment (``FINALISMA_HOST``,
-``FINALISMA_PORT``, ``FINALISMA_DB_PATH``); the original positional argv form
+Containers configure through the environment (``WEFT_HOST``,
+``WEFT_PORT``, ``WEFT_DB_PATH``); the original positional argv form
 (``service.py <port> <db-path>``) must keep working so nothing that already
 depends on it changes behaviour. Precedence is argv > env > default, and a
 bad port fails loudly instead of silently defaulting.
@@ -29,9 +29,9 @@ class TestRuntimeConfig(unittest.TestCase):
 
     def test_env_overrides_defaults(self) -> None:
         cfg = runtime_config(argv=[], environ={
-            "FINALISMA_HOST": "0.0.0.0",
-            "FINALISMA_PORT": "19001",
-            "FINALISMA_DB_PATH": "/data/cloud.db",
+            "WEFT_HOST": "0.0.0.0",
+            "WEFT_PORT": "19001",
+            "WEFT_DB_PATH": "/data/cloud.db",
         })
         self.assertEqual(cfg, {
             "host": "0.0.0.0",
@@ -41,9 +41,9 @@ class TestRuntimeConfig(unittest.TestCase):
 
     def test_argv_overrides_env(self) -> None:
         cfg = runtime_config(argv=["19999", "/tmp/argv.db"], environ={
-            "FINALISMA_HOST": "0.0.0.0",
-            "FINALISMA_PORT": "19001",
-            "FINALISMA_DB_PATH": "/data/cloud.db",
+            "WEFT_HOST": "0.0.0.0",
+            "WEFT_PORT": "19001",
+            "WEFT_DB_PATH": "/data/cloud.db",
         })
         self.assertEqual(cfg, {
             "host": "0.0.0.0",
@@ -52,14 +52,14 @@ class TestRuntimeConfig(unittest.TestCase):
         })
 
     def test_argv_port_only_keeps_env_db_path(self) -> None:
-        cfg = runtime_config(argv=["12345"], environ={"FINALISMA_DB_PATH": "/data/x.db"})
+        cfg = runtime_config(argv=["12345"], environ={"WEFT_DB_PATH": "/data/x.db"})
         self.assertEqual(cfg["port"], 12345)
         self.assertEqual(cfg["db_path"], "/data/x.db")
         self.assertEqual(cfg["host"], "127.0.0.1")
 
     def test_invalid_env_port_raises(self) -> None:
         with self.assertRaises(ValueError):
-            runtime_config(argv=[], environ={"FINALISMA_PORT": "not-a-number"})
+            runtime_config(argv=[], environ={"WEFT_PORT": "not-a-number"})
 
     def test_out_of_range_port_raises(self) -> None:
         with self.assertRaises(ValueError):

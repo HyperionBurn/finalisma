@@ -7,7 +7,7 @@
         "--workspace",
         "C:\\ABSOLUTE\\PATH\\shared-workspace",
         "--state",
-        "C:\\ABSOLUTE\\PATH\\shared-workspace\\.finalisma\\state.db"
+        "C:\\ABSOLUTE\\PATH\\shared-workspace\\.weft\\state.db"
       ]
     }
   }

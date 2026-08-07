@@ -11,7 +11,7 @@ from urllib.parse import unquote, urlsplit
 
 
 class QuietSiteHandler(SimpleHTTPRequestHandler):
-    server_version = "FinalismaSite/0.1"
+    server_version = "WeftSite/0.1"
 
     def translate_path(self, path: str) -> str:
         """Mount the self-contained static launch site at /."""
@@ -78,9 +78,9 @@ class QuietSiteHandler(SimpleHTTPRequestHandler):
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Serve the dependency-free Finalisma launch site")
-    parser.add_argument("--host", default=os.environ.get("FINALISMA_SITE_HOST", "127.0.0.1"))
-    parser.add_argument("--port", type=int, default=int(os.environ.get("FINALISMA_SITE_PORT", "4173")))
-    parser.add_argument("--site-root", default=os.environ.get("FINALISMA_SITE_ROOT"))
+    parser.add_argument("--host", default=os.environ.get("WEFT_SITE_HOST", "127.0.0.1"))
+    parser.add_argument("--port", type=int, default=int(os.environ.get("WEFT_SITE_PORT", "4173")))
+    parser.add_argument("--site-root", default=os.environ.get("WEFT_SITE_ROOT"))
     return parser
 
 

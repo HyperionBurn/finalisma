@@ -23,7 +23,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from weft_sdk import FinalismaClient, FinalismaError
+from weft_sdk import WeftClient, WeftError
 
 
 def _pick_free_port() -> int:
@@ -49,7 +49,7 @@ class SdkInteropTest(unittest.TestCase):
     proc: subprocess.Popen | None = None
     workspace: Path | None = None
     base_url: str = ""
-    clients: dict[str, FinalismaClient] = {}
+    clients: dict[str, WeftClient] = {}
     tokens: dict[str, str] = {}
     room_id: str = ""
     link_token: str = ""
@@ -76,7 +76,7 @@ class SdkInteropTest(unittest.TestCase):
                 "--workspace",
                 str(cls.workspace),
                 "--state",
-                str(cls.workspace / ".finalisma" / "state.db"),
+                str(cls.workspace / ".weft" / "state.db"),
             ],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
@@ -89,11 +89,11 @@ class SdkInteropTest(unittest.TestCase):
         _wait_tcp("127.0.0.1", port)
         # Register 4 agents (3 room members + 1 outsider) with proper token binding.
         for name in ["agent-a", "agent-b", "agent-c", "agent-outsider"]:
-            bootstrap = FinalismaClient(cls.base_url, name, "demo")
+            bootstrap = WeftClient(cls.base_url, name, "demo")
             reg = bootstrap.register(name=name, role="generalist")
             cls.tokens[name] = reg["actor_token"]
             bootstrap.close()
-            cls.clients[name] = FinalismaClient(cls.base_url, name, "demo", actor_token=cls.tokens[name])
+            cls.clients[name] = WeftClient(cls.base_url, name, "demo", actor_token=cls.tokens[name])
         # Create one room shared by the Part B tests; owner auto-joins.
         room = cls.clients["agent-a"]._call(
             "finalisma_room_create", owner_agent_id="agent-a", cap=4, name="t-sdk",
@@ -230,7 +230,7 @@ class SdkInteropTest(unittest.TestCase):
             self.assertEqual(acked["last_ack_seq"], head)
 
         # Reconnect: fresh client reusing agent-b's identity+token.
-        reconnected = FinalismaClient(
+        reconnected = WeftClient(
             self.base_url, "agent-b", "demo", actor_token=self.tokens["agent-b"],
         )
         try:
@@ -254,14 +254,14 @@ class SdkInteropTest(unittest.TestCase):
         """Non-member refused (member_required); actor-overwrite refused (actor_auth_invalid)."""
         room_id = self.room_id
         # Non-member poll
-        with self.assertRaises(FinalismaError) as ctx:
+        with self.assertRaises(WeftError) as ctx:
             self.clients["agent-outsider"]._call(
                 "finalisma_room_poll", room_id=room_id, agent_id="agent-outsider",
             )
         self.assertEqual(ctx.exception.code, "member_required")
 
         # Non-member info
-        with self.assertRaises(FinalismaError) as ctx:
+        with self.assertRaises(WeftError) as ctx:
             self.clients["agent-outsider"]._call(
                 "finalisma_room_info", room_id=room_id, agent_id="agent-outsider",
             )
@@ -269,9 +269,9 @@ class SdkInteropTest(unittest.TestCase):
 
         # Actor-overwrite: existing agent-b identity with a DIFFERENT token.
         bogus = "rm_" + secrets.token_urlsafe(32)
-        impostor = FinalismaClient(self.base_url, "agent-b", "demo", actor_token=bogus)
+        impostor = WeftClient(self.base_url, "agent-b", "demo", actor_token=bogus)
         try:
-            with self.assertRaises(FinalismaError) as ctx:
+            with self.assertRaises(WeftError) as ctx:
                 impostor._call(
                     "finalisma_room_join", room_id=room_id, link_token=self.link_token,
                     agent_id="agent-b", consent=True,

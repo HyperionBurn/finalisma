@@ -1,7 +1,7 @@
 """Finalisma Web App — runnable entry point.
 
 ``python -m weft_cloud.web`` binds the browser front-end (the same
-``FinalismaWebApp`` the 93 web-contract tests drive) to a real HTTP port so the
+``WeftWebApp`` the 93 web-contract tests drive) to a real HTTP port so the
 marketing site's signup CTA has something to point at. Without this module the
 web app is green but undeployable: it is the last thing between "works" and
 "deployable".
@@ -16,7 +16,7 @@ Architecture (per docs/DEPLOY.md):
 
 The launcher sequence is deliberately the one verified by hand before this
 module existed: initialize the SQLite-WAL backend, ensure identity schema, then
-construct ``FinalismaWebApp(backend, static_dir=..., state_dir=...)`` and serve
+construct ``WeftWebApp(backend, static_dir=..., state_dir=...)`` and serve
 ``app.handler``. Do not reorder it casually — it is the regression contract
 ``tests/test_webapp_entrypoint.py`` encodes.
 """
@@ -30,7 +30,7 @@ from typing import Any, Mapping
 
 from weft_cloud.identity.schema import ensure_schema
 from weft_cloud.storage import SqliteWalBackend
-from weft_cloud.web.app import FinalismaWebApp
+from weft_cloud.web.app import WeftWebApp
 
 # Secrets are never logged. No secret ever appears in a default configuration.
 
@@ -45,11 +45,11 @@ def runtime_config(
     (argv → environment → defaults), so containers configure entirely through
     the environment while a developer can still pass a positional port:
 
-    - ``FINALISMA_WEB_HOST``        (default ``127.0.0.1``)
-    - ``FINALISMA_WEB_PORT``        (default ``18789``)
-    - ``FINALISMA_WEB_DB_PATH``     (default ``./data/finalisma-web.db``)
-    - ``FINALISMA_WEB_STATIC_DIR``  (default ``./site``)
-    - ``FINALISMA_WEB_STATE_DIR``   (default ``./data``)
+    - ``WEFT_WEB_HOST``        (default ``127.0.0.1``)
+    - ``WEFT_WEB_PORT``        (default ``18789``)
+    - ``WEFT_WEB_DB_PATH``     (default ``./data/finalisma-web.db``)
+    - ``WEFT_WEB_STATIC_DIR``  (default ``./site``)
+    - ``WEFT_WEB_STATE_DIR``   (default ``./data``)
 
     A malformed or out-of-range port raises ``ValueError`` so a misconfigured
     deploy fails loudly at startup instead of silently binding a default.
@@ -68,12 +68,12 @@ def runtime_config(
             raise ValueError(f"{name} must be in 1..65535, got {value}")
         return value
 
-    host = environ.get("FINALISMA_WEB_HOST", "127.0.0.1").strip() or "127.0.0.1"
-    port = _port("FINALISMA_WEB_PORT", environ.get("FINALISMA_WEB_PORT"), 18789)
-    db_path = environ.get("FINALISMA_WEB_DB_PATH", "./data/finalisma-web.db").strip() \
+    host = environ.get("WEFT_WEB_HOST", "127.0.0.1").strip() or "127.0.0.1"
+    port = _port("WEFT_WEB_PORT", environ.get("WEFT_WEB_PORT"), 18789)
+    db_path = environ.get("WEFT_WEB_DB_PATH", "./data/finalisma-web.db").strip() \
         or "./data/finalisma-web.db"
-    static_dir = environ.get("FINALISMA_WEB_STATIC_DIR", "./site").strip() or "./site"
-    state_dir = environ.get("FINALISMA_WEB_STATE_DIR", "./data").strip() or "./data"
+    static_dir = environ.get("WEFT_WEB_STATIC_DIR", "./site").strip() or "./site"
+    state_dir = environ.get("WEFT_WEB_STATE_DIR", "./data").strip() or "./data"
 
     if len(argv) >= 1:
         port = _port("port", argv[0], port)
@@ -100,7 +100,7 @@ def serve(
     backend = SqliteWalBackend(db_path)
     backend.initialize()
     ensure_schema(backend)
-    app = FinalismaWebApp(backend, static_dir=static_dir, state_dir=state_dir)
+    app = WeftWebApp(backend, static_dir=static_dir, state_dir=state_dir)
     server = http.server.ThreadingHTTPServer((host, port), app.handler)
     # Report the ACTUAL bound address so port=0 (test) prints a usable URL.
     actual_host, actual_port = server.server_address

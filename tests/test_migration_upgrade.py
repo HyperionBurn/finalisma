@@ -31,7 +31,7 @@ from pathlib import Path
 # Add src/ to the import path — same convention as tests/test_finalisma.py.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from weft_mcp.core import FinalismaStore  # noqa: E402
+from weft_mcp.core import WeftStore  # noqa: E402
 
 # This import is the RED gate: the module does not exist yet.
 from weft_cloud.migrations import apply_migrations  # noqa: E402
@@ -93,11 +93,11 @@ class MigrationUpgradeTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _seed_v3_database(self) -> None:
-        """Open a real FinalismaStore, register agents, create tasks, emit
+        """Open a real WeftStore, register agents, create tasks, emit
         session events. Records the actor tokens so tests can re-authenticate
         after the migration."""
         self.actor_tokens: dict[str, str] = {}
-        with FinalismaStore(self.state_path, self.workspace) as store:
+        with WeftStore(self.state_path, self.workspace) as store:
             # Two agents — each gets an actor credential on first registration.
             reg_a = store.register_agent(
                 "team-1",
@@ -199,7 +199,7 @@ class MigrationUpgradeTests(unittest.TestCase):
         self.assertGreater(session_events_before, 0, "expected at least one session event seeded")
 
         # Apply the cloud migration.
-        with FinalismaStore(self.state_path, self.workspace) as store:
+        with WeftStore(self.state_path, self.workspace) as store:
             apply_migrations(store)
 
         # File must have grown (new tables appended), not been replaced.
@@ -249,7 +249,7 @@ class MigrationUpgradeTests(unittest.TestCase):
 
         # Existing actor tokens still authenticate — call a store operation
         # that requires actor auth with the pre-migration token.
-        with FinalismaStore(self.state_path, self.workspace, require_actor_auth=True) as store:
+        with WeftStore(self.state_path, self.workspace, require_actor_auth=True) as store:
             # rotate_agent_credential requires actor auth; proves the token works.
             rotated = store.rotate_agent_credential(
                 "team-1",
@@ -271,7 +271,7 @@ class MigrationUpgradeTests(unittest.TestCase):
             }
 
         # Apply the cloud migration.
-        with FinalismaStore(self.state_path, self.workspace) as store:
+        with WeftStore(self.state_path, self.workspace) as store:
             apply_migrations(store)
 
         # Coordinator tables must have the EXACT same column set as before.
@@ -290,7 +290,7 @@ class MigrationUpgradeTests(unittest.TestCase):
     # ------------------------------------------------------------------
     def test_migration_idempotent(self) -> None:
         # First application.
-        with FinalismaStore(self.state_path, self.workspace) as store:
+        with WeftStore(self.state_path, self.workspace) as store:
             apply_migrations(store)
 
         with self._connect_ro() as conn:
@@ -302,7 +302,7 @@ class MigrationUpgradeTests(unittest.TestCase):
         self.assertGreaterEqual(version_after_first, 1)
 
         # Second application — must be a no-op.
-        with FinalismaStore(self.state_path, self.workspace) as store:
+        with WeftStore(self.state_path, self.workspace) as store:
             apply_migrations(store)
 
         with self._connect_ro() as conn:

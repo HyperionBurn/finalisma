@@ -20,11 +20,11 @@ from typing import Any, Callable
 from urllib.parse import unquote, urlsplit
 
 from .core import (
-    FINALISMA_VERSION,
+    WEFT_VERSION,
     MCP_PROTOCOL_VERSION,
     SUPPORTED_MCP_VERSIONS,
-    FinalismaError,
-    FinalismaStore,
+    WeftError,
+    WeftStore,
     _validate_id,
 )
 from . import tenancy as _tenancy
@@ -62,7 +62,7 @@ class _Metrics:
     def render(self) -> str:
         with self._lock:
             rows = list(self._counters.items())
-        lines = ["# HELP finalisma_http_responses_total Finalisma HTTP responses by status.", "# TYPE finalisma_http_responses_total counter"]
+        lines = ["# HELP weft_http_responses_total Finalisma HTTP responses by status.", "# TYPE weft_http_responses_total counter"]
         for (name, labels), value in sorted(rows):
             label_text = "" if not labels else "{" + ",".join(f'{key}="{val}"' for key, val in labels) + "}"
             lines.append(f"{name}{label_text} {value}")
@@ -826,10 +826,10 @@ TOOLS: list[dict[str, Any]] = [
 ]
 
 
-class FinalismaDispatcher:
+class WeftDispatcher:
     """Map MCP tool calls to the transport-neutral store."""
 
-    def __init__(self, store: FinalismaStore, team_scope: str | None = None):
+    def __init__(self, store: WeftStore, team_scope: str | None = None):
         self.store = store
         self.team_scope = _validate_id(team_scope, "team_scope") if team_scope is not None else None
         self._db_path = str(store.state_path)
@@ -845,7 +845,7 @@ class FinalismaDispatcher:
     @staticmethod
     def _required(args: dict[str, Any], key: str) -> Any:
         if key not in args:
-            raise FinalismaError("invalid_argument", f"Missing required argument '{key}'")
+            raise WeftError("invalid_argument", f"Missing required argument '{key}'")
         return args[key]
 
     def _apply_team_scope(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -854,7 +854,7 @@ class FinalismaDispatcher:
             return args
         requested = args.get("team_id")
         if requested is not None and requested != self.team_scope:
-            raise FinalismaError("team_scope_forbidden", "This coordinator is scoped to a different team")
+            raise WeftError("team_scope_forbidden", "This coordinator is scoped to a different team")
         scoped = dict(args)
         scoped["team_id"] = self.team_scope
         return scoped
@@ -865,7 +865,7 @@ class FinalismaDispatcher:
         if name in {"finalisma_pairing_preview", "finalisma_join_pairing"}:
             preview = self.store.pairing_preview(self._required(args, "token"))
             if preview["team_id"] != self.team_scope:
-                raise FinalismaError("team_scope_forbidden", "This coordinator is scoped to a different team")
+                raise WeftError("team_scope_forbidden", "This coordinator is scoped to a different team")
         elif name in {
             "finalisma_session_send",
             "finalisma_session_poll",
@@ -879,11 +879,11 @@ class FinalismaDispatcher:
                 self._required(args, "agent_id"),
             )
             if status["team_id"] != self.team_scope:
-                raise FinalismaError("team_scope_forbidden", "This coordinator is scoped to a different team")
+                raise WeftError("team_scope_forbidden", "This coordinator is scoped to a different team")
 
     def call_tool(self, name: str, args: dict[str, Any]) -> Any:
         if not isinstance(args, dict):
-            raise FinalismaError("invalid_argument", "Tool arguments must be a JSON object")
+            raise WeftError("invalid_argument", "Tool arguments must be a JSON object")
         args = self._apply_team_scope(args)
         self._assert_capability_scope(name, args)
         if name == "finalisma_protocol":
@@ -892,7 +892,7 @@ class FinalismaDispatcher:
             return self.store.model_catalog()
         if name == "finalisma_create_pairing":
             if self.team_scope is None and not args.get("team_id"):
-                raise FinalismaError("invalid_argument", "team_id is required unless the coordinator is scoped with --team-id")
+                raise WeftError("invalid_argument", "team_id is required unless the coordinator is scoped with --team-id")
             return self.store.create_pairing(
                 initiator_id=self._required(args, "initiator_id"),
                 team_id=args.get("team_id"),
@@ -1175,7 +1175,7 @@ class FinalismaDispatcher:
             return self._room_receipts(args)
         if name == "finalisma_room_revoke_link":
             return self._room_revoke_link(args)
-        raise FinalismaError("unknown_tool", f"Unknown tool '{name}'")
+        raise WeftError("unknown_tool", f"Unknown tool '{name}'")
 
     # ------------------------------------------------------------------
     # Tenancy surface
@@ -1186,7 +1186,7 @@ class FinalismaDispatcher:
         try:
             org_id = _tenancy.create_org(self._db_path, org_name)
         except ValueError as exc:
-            raise FinalismaError("invalid_argument", str(exc)) from exc
+            raise WeftError("invalid_argument", str(exc)) from exc
         orgs = {o["org_id"]: o for o in _tenancy.list_orgs(self._db_path)}
         org = orgs.get(org_id, {})
         return {"org_id": org_id, "name": org.get("name", org_name), "created_at": org.get("created_at", "")}
@@ -1198,7 +1198,7 @@ class FinalismaDispatcher:
         try:
             _tenancy.add_member(self._db_path, org_id, agent_id, role)
         except ValueError as exc:
-            raise FinalismaError("invalid_argument", str(exc)) from exc
+            raise WeftError("invalid_argument", str(exc)) from exc
         return {"org_id": org_id, "agent_id": agent_id, "role": role, "added": True}
 
     def _tenancy_is_member(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -1211,7 +1211,7 @@ class FinalismaDispatcher:
         try:
             _tenancy.assert_scope(self._db_path, org_id, agent_id, actor_key_hex)
         except _tenancy.ScopeError as exc:
-            raise FinalismaError("tenancy_scope_forbidden", str(exc)) from exc
+            raise WeftError("tenancy_scope_forbidden", str(exc)) from exc
         return {"ok": True}
 
     # ------------------------------------------------------------------
@@ -1259,7 +1259,7 @@ class FinalismaDispatcher:
         try:
             _roster.add_to_group(roster_id, group_name, agent_id)
         except ValueError as exc:
-            raise FinalismaError("invalid_argument", str(exc)) from exc
+            raise WeftError("invalid_argument", str(exc)) from exc
         return {"group_name": group_name, "agent_id": agent_id, "added": True}
 
     # ------------------------------------------------------------------
@@ -1271,7 +1271,7 @@ class FinalismaDispatcher:
         recipients = self._required(args, "recipients")
         team_id = self._required(args, "team_id")
         if not isinstance(recipients, list) or not recipients:
-            raise FinalismaError("invalid_argument", "recipients must be a non-empty list")
+            raise WeftError("invalid_argument", "recipients must be a non-empty list")
         if "envelope_id" not in envelope:
             envelope["envelope_id"] = "oev_" + _uuid_hex()
         entry_ids = _outbox.enqueue(envelope, recipients, roster_or_team_id=team_id)
@@ -1296,7 +1296,7 @@ class FinalismaDispatcher:
         try:
             return _outbox.mark_retry(entry_id, "retry requested")
         except KeyError as exc:
-            raise FinalismaError("not_found", str(exc)) from exc
+            raise WeftError("not_found", str(exc)) from exc
 
     def _outbox_stats(self, args: dict[str, Any]) -> dict[str, Any]:
         return _outbox.stats()
@@ -1311,7 +1311,7 @@ class FinalismaDispatcher:
         event_type = self._required(args, "event_type")
         metadata = args.get("metadata") or {}
         if not isinstance(metadata, dict):
-            raise FinalismaError("invalid_argument", "metadata must be an object")
+            raise WeftError("invalid_argument", "metadata must be an object")
         if "workspace_id" not in metadata:
             metadata = dict(metadata)
             metadata["workspace_id"] = "default"
@@ -1322,7 +1322,7 @@ class FinalismaDispatcher:
         try:
             _metrics_activation.record_event(team_id, agent_id, event_type, metadata, event_id=event_id)
         except ValueError as exc:
-            raise FinalismaError("invalid_argument", str(exc)) from exc
+            raise WeftError("invalid_argument", str(exc)) from exc
         return {"recorded": True, "event_id": event_id}
 
     def _metrics_funnel(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -1395,14 +1395,14 @@ class FinalismaDispatcher:
     @staticmethod
     def _room_actor_hash(actor_token: str) -> str:
         if not isinstance(actor_token, str) or len(actor_token) < 16:
-            raise FinalismaError("actor_auth_invalid", "Actor token is invalid")
+            raise WeftError("actor_auth_invalid", "Actor token is invalid")
         return hashlib.sha256(actor_token.encode("utf-8")).hexdigest()
 
     def _room_call(self, fn):
         try:
             return fn()
         except RoomError as exc:
-            raise FinalismaError(exc.code, exc.message) from exc
+            raise WeftError(exc.code, exc.message) from exc
 
     def _room_create(self, args: dict[str, Any]) -> dict[str, Any]:
         team_id = self._required(args, "team_id")
@@ -1539,7 +1539,7 @@ def _json_rpc_error(request_id: Any, code: int, message: str, data: Any | None =
     return {"jsonrpc": "2.0", "id": request_id, "error": error}
 
 
-def handle_json_rpc(dispatcher: FinalismaDispatcher, request: dict[str, Any]) -> dict[str, Any] | None:
+def handle_json_rpc(dispatcher: WeftDispatcher, request: dict[str, Any]) -> dict[str, Any] | None:
     """Handle one MCP JSON-RPC request; return None for notifications."""
     if not isinstance(request, dict) or request.get("jsonrpc") != "2.0":
         return _json_rpc_error(request.get("id") if isinstance(request, dict) else None, -32600, "Invalid JSON-RPC request")
@@ -1572,7 +1572,7 @@ def handle_json_rpc(dispatcher: FinalismaDispatcher, request: dict[str, Any]) ->
         try:
             result = dispatcher.call_tool(name, params.get("arguments") or {})
             tool_result = {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, indent=2)}], "structuredContent": result}
-        except FinalismaError as exc:
+        except WeftError as exc:
             tool_result = {"isError": True, "content": [{"type": "text", "text": json.dumps({"error": exc.as_dict()}, ensure_ascii=False)}]}
         except Exception as exc:  # pragma: no cover - defensive last-resort boundary
             print(f"Finalisma internal error: {type(exc).__name__}", file=sys.stderr)
@@ -1583,7 +1583,7 @@ def handle_json_rpc(dispatcher: FinalismaDispatcher, request: dict[str, Any]) ->
     return _json_rpc_error(request_id, -32601, f"Method not found: {method}")
 
 
-def run_stdio(dispatcher: FinalismaDispatcher, input_stream: Any = None, output_stream: Any = None) -> None:
+def run_stdio(dispatcher: WeftDispatcher, input_stream: Any = None, output_stream: Any = None) -> None:
     input_stream = input_stream or sys.stdin
     output_stream = output_stream or sys.stdout
     for raw_line in input_stream:
@@ -1604,7 +1604,7 @@ def run_stdio(dispatcher: FinalismaDispatcher, input_stream: Any = None, output_
 
 
 class _MCPRequestHandler(BaseHTTPRequestHandler):
-    dispatcher: FinalismaDispatcher
+    dispatcher: WeftDispatcher
     token: str | None
     allowed_origins: set[str]
     rate_limiter: _WindowRateLimiter
@@ -1634,7 +1634,7 @@ class _MCPRequestHandler(BaseHTTPRequestHandler):
         encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         metrics = getattr(self, "metrics", None)
         if metrics is not None:
-            metrics.inc("finalisma_http_responses_total", {"status": str(status)})
+            metrics.inc("weft_http_responses_total", {"status": str(status)})
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(encoded)))
@@ -1651,7 +1651,7 @@ class _MCPRequestHandler(BaseHTTPRequestHandler):
         encoded = body.encode("utf-8")
         metrics = getattr(self, "metrics", None)
         if metrics is not None:
-            metrics.inc("finalisma_http_responses_total", {"status": str(status)})
+            metrics.inc("weft_http_responses_total", {"status": str(status)})
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(encoded)))
@@ -1665,7 +1665,7 @@ class _MCPRequestHandler(BaseHTTPRequestHandler):
     def _send_rate_limited(self, retry_after: int) -> None:
         metrics = getattr(self, "metrics", None)
         if metrics is not None:
-            metrics.inc("finalisma_http_responses_total", {"status": str(HTTPStatus.TOO_MANY_REQUESTS)})
+            metrics.inc("weft_http_responses_total", {"status": str(HTTPStatus.TOO_MANY_REQUESTS)})
         self.send_response(HTTPStatus.TOO_MANY_REQUESTS)
         self.send_header("Content-Type", "application/json")
         self.send_header("Retry-After", str(retry_after))
@@ -1718,7 +1718,7 @@ class _MCPRequestHandler(BaseHTTPRequestHandler):
             return
         try:
             join_target = self._join_target(path)
-        except FinalismaError as exc:
+        except WeftError as exc:
             self._send_json(HTTPStatus.GONE, {"error": exc.as_dict()})
             return
         if join_target:
@@ -1735,7 +1735,7 @@ class _MCPRequestHandler(BaseHTTPRequestHandler):
                     self._send_json(HTTPStatus.CONFLICT, preview)
                 else:
                     self._send_json(HTTPStatus.OK, {"service": "finalisma", "action": "consent_then_join", "pairing": preview, "next": "POST this URL with the fragment token in the JSON body, plus agent_id, capabilities, and consent=true"})
-            except FinalismaError as exc:
+            except WeftError as exc:
                 self._send_json(HTTPStatus.NOT_FOUND, {"error": exc.as_dict()})
             return
         if path == "/mcp":
@@ -1774,7 +1774,7 @@ class _MCPRequestHandler(BaseHTTPRequestHandler):
             _, pairing_key = join_target
             token = args.get("token")
             if not token:
-                raise FinalismaError("invalid_token", "Join requires the token from the URL fragment in the JSON body")
+                raise WeftError("invalid_token", "Join requires the token from the URL fragment in the JSON body")
             # HTTP joins bypass the MCP dispatcher, so apply its same hard team
             # boundary before consuming a bearer-style pairing capability.
             self.dispatcher._assert_capability_scope("finalisma_join_pairing", {"token": token})
@@ -1791,7 +1791,7 @@ class _MCPRequestHandler(BaseHTTPRequestHandler):
                 actor_token=args.get("actor_token"),
             )
             self._send_json(HTTPStatus.OK, result)
-        except FinalismaError as exc:
+        except WeftError as exc:
             status = HTTPStatus.UNAUTHORIZED if exc.code in {"pairing_not_found", "invalid_token"} else HTTPStatus.CONFLICT if exc.code in {"pairing_unavailable", "pairing_race"} else HTTPStatus.GONE if exc.code in {"pairing_expired", "session_expired"} else HTTPStatus.FORBIDDEN if exc.code in {"consent_required", "pairing_self_join", "session_forbidden", "team_scope_forbidden", "actor_auth_required", "actor_auth_invalid"} else HTTPStatus.BAD_REQUEST
             self._send_json(status, {"error": exc.as_dict()})
 
@@ -1807,7 +1807,7 @@ class _MCPRequestHandler(BaseHTTPRequestHandler):
             return None
         pairing_key = unquote(path[len(join_prefix):])
         if not pairing_key.startswith("pair_"):
-            raise FinalismaError("legacy_join_url_rejected", "Join URLs must contain a public pairing ID; send the one-time token in the JSON body")
+            raise WeftError("legacy_join_url_rejected", "Join URLs must contain a public pairing ID; send the one-time token in the JSON body")
         return join_prefix, pairing_key
 
     def _handle_mcp_post(self) -> None:
@@ -1958,12 +1958,12 @@ class _BoundedHTTPServer(ThreadingHTTPServer):
             self._handler_slots.release()
 
 
-def run_http(dispatcher: FinalismaDispatcher, host: str, port: int, token: str | None, allowed_origins: set[str]) -> None:
+def run_http(dispatcher: WeftDispatcher, host: str, port: int, token: str | None, allowed_origins: set[str]) -> None:
     if host not in {"127.0.0.1", "localhost", "::1"} and not token:
-        raise FinalismaError("http_auth_required", "A non-localhost HTTP bind requires FINALISMA_HTTP_TOKEN")
+        raise WeftError("http_auth_required", "A non-localhost HTTP bind requires WEFT_HTTP_TOKEN")
     if host not in {"127.0.0.1", "localhost", "::1"}:
         print("Finalisma warning: HTTP transport is plaintext; put a TLS-terminating reverse proxy in front before network exposure.", file=sys.stderr)
-    handler = type("FinalismaHTTPHandler", (_MCPRequestHandler,), {})
+    handler = type("WeftHTTPHandler", (_MCPRequestHandler,), {})
     handler.dispatcher = dispatcher
     handler.token = token
     handler.allowed_origins = allowed_origins

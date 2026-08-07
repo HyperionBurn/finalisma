@@ -1,9 +1,9 @@
 """Integration tests for the Room addressing + delivery-receipt contract.
 
 RED deliverable — the finalisma_room_* tools are not wired yet. Every
-finalisma_room_* call_tool MUST raise FinalismaError("unknown_tool", ...).
+finalisma_room_* call_tool MUST raise WeftError("unknown_tool", ...).
 These tests assert the full addressing contract through the real MCP
-surface (FinalismaDispatcher.call_tool) against a real store with
+surface (WeftDispatcher.call_tool) against a real store with
 require_actor_auth=True. No mocks.
 
 Authoritative spec: docs/ROOMS_DESIGN.md §6 (addressing + receipts),
@@ -19,8 +19,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from weft_mcp.core import FinalismaError, FinalismaStore
-from weft_mcp.server import FinalismaDispatcher, TOOLS
+from weft_mcp.core import WeftError, WeftStore
+from weft_mcp.server import WeftDispatcher, TOOLS
 
 
 TEAM_ID = "wave-e"
@@ -36,8 +36,8 @@ class RoomAddressingIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
-        self.store = FinalismaStore(root / "state.db", root, require_actor_auth=True)
-        self.dispatcher = FinalismaDispatcher(self.store)
+        self.store = WeftStore(root / "state.db", root, require_actor_auth=True)
+        self.dispatcher = WeftDispatcher(self.store)
 
         # Register three agents and capture their actor tokens.
         reg_a1 = self.dispatcher.call_tool(

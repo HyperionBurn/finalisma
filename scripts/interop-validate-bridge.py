@@ -26,7 +26,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from weft_mcp.core import FinalismaStore, FinalismaError
+from weft_mcp.core import WeftStore, WeftError
 from weft_mcp.bridge import (
     WebhookBridge,
     PollingBridge,
@@ -124,7 +124,7 @@ def _make_handler_class():
 def main() -> int:
     scratch = tempfile.TemporaryDirectory(prefix="finalisma-interop-bridge-")
     workspace = Path(scratch.name)
-    state_path = workspace / ".finalisma" / "state.db"
+    state_path = workspace / ".weft" / "state.db"
     transcript: list[str] = []
     started = time.monotonic()
 
@@ -184,7 +184,7 @@ def main() -> int:
     # coordinator uses. WAL mode allows a second process to open it
     # concurrently; the coordinator owns writes, the driver's store is the
     # bridge adapters' view of state.
-    bridge_store: FinalismaStore | None = None
+    bridge_store: WeftStore | None = None
     webhook_receiver: WebhookReceiver | None = None
 
     try:
@@ -212,7 +212,7 @@ def main() -> int:
         transcript.append(f"# register_agent: agent_id=bridge-agent token={actor_token[:8]}...")
 
         # ---- open bridge store against the coordinator's DB -----------
-        bridge_store = FinalismaStore(
+        bridge_store = WeftStore(
             str(state_path),
             str(workspace),
             require_actor_auth=True,
@@ -257,7 +257,7 @@ def main() -> int:
                 transcript.append("# clipboard.parse_bootstrap (1st): accepted, nonce consumed")
             else:
                 transcript.append("# clipboard.parse_bootstrap (1st): unexpected payload")
-        except FinalismaError as exc:
+        except WeftError as exc:
             transcript.append(f"# clipboard.parse_bootstrap (1st) FAILED unexpectedly: {exc}")
 
         # Second parse refused (one-shot enforcement)
@@ -266,7 +266,7 @@ def main() -> int:
         try:
             clipboard.parse_bootstrap(bootstrap_raw)
             transcript.append("# clipboard.parse_bootstrap (2nd): NOT refused (unexpected)")
-        except FinalismaError as exc:
+        except WeftError as exc:
             clipboard_one_shot_refused = True
             clipboard_refusal_text = str(exc)
             transcript.append(f"# clipboard.parse_bootstrap (2nd) refused: {exc}")
@@ -329,7 +329,7 @@ def main() -> int:
                 actor_token="wrong-token-not-valid",
             )
             transcript.append("# polling.get_pending (wrong token): NOT refused (unexpected)")
-        except (FinalismaError, BridgeAuthError) as exc:
+        except (WeftError, BridgeAuthError) as exc:
             polling_wrong_token_refused = True
             polling_wrong_token_text = str(exc)
             transcript.append(f"# polling.get_pending (wrong token) refused: {exc}")
@@ -345,7 +345,7 @@ def main() -> int:
                 actor_token=actor_token,
             )
             transcript.append("# polling.get_pending (non-member): NOT refused (unexpected)")
-        except (FinalismaError, BridgeAuthError) as exc:
+        except (WeftError, BridgeAuthError) as exc:
             polling_nonmember_refused = True
             polling_nonmember_text = str(exc)
             transcript.append(f"# polling.get_pending (non-member) refused: {exc}")
@@ -418,7 +418,7 @@ def main() -> int:
                 signing_secret=None,
             )
             transcript.append("# webhook.deliver (no signing_secret): NOT refused (unexpected — HIGH-1 regression)")
-        except FinalismaError as exc:
+        except WeftError as exc:
             webhook_no_secret_refused = True
             webhook_no_secret_text = str(exc)
             transcript.append(f"# webhook.deliver (no signing_secret) refused: {exc}")

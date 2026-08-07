@@ -8,16 +8,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from weft_mcp.core import FinalismaError, FinalismaStore
-from weft_mcp.server import FinalismaDispatcher, TOOLS
+from weft_mcp.core import WeftError, WeftStore
+from weft_mcp.server import WeftDispatcher, TOOLS
 
 
 class TenancyIntegrationTests(unittest.TestCase):
     """Integration tests for the tenancy module driven through the REAL MCP
-    JSON-RPC surface (FinalismaDispatcher.call_tool).
+    JSON-RPC surface (WeftDispatcher.call_tool).
 
     The tenancy tool handlers are not wired yet, so every finalisma_org_*
-    call_tool must raise FinalismaError("unknown_tool", ...). That RED is the
+    call_tool must raise WeftError("unknown_tool", ...). That RED is the
     deliverable.
     """
 
@@ -31,8 +31,8 @@ class TenancyIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
-        self.store = FinalismaStore(root / "state.db", root, require_actor_auth=True)
-        self.dispatcher = FinalismaDispatcher(self.store)
+        self.store = WeftStore(root / "state.db", root, require_actor_auth=True)
+        self.dispatcher = WeftDispatcher(self.store)
 
     def tearDown(self) -> None:
         self.store.close()
@@ -126,7 +126,7 @@ class TenancyIntegrationTests(unittest.TestCase):
 
         # Do NOT add agent-a as a member.
         actor_key = hashlib.sha256((org_id + "agent-a").encode("utf-8")).hexdigest()
-        with self.assertRaises(FinalismaError) as ctx:
+        with self.assertRaises(WeftError) as ctx:
             self.dispatcher.call_tool(
                 "finalisma_org_assert_scope",
                 {"team_id": "team-1", "org_id": org_id, "agent_id": "agent-a", "actor_key_hex": actor_key},
@@ -157,7 +157,7 @@ class TenancyIntegrationTests(unittest.TestCase):
 
         # agent-b uses its OWN (org_b) key but tries to assert against org_a.
         wrong_key = hashlib.sha256((org_b_id + "agent-b").encode("utf-8")).hexdigest()
-        with self.assertRaises(FinalismaError) as ctx:
+        with self.assertRaises(WeftError) as ctx:
             self.dispatcher.call_tool(
                 "finalisma_org_assert_scope",
                 {"team_id": "team-1", "org_id": org_a_id, "agent_id": "agent-b", "actor_key_hex": wrong_key},
@@ -225,14 +225,14 @@ class TenancyIntegrationTests(unittest.TestCase):
         self.assertTrue(scope_b["ok"])
 
         # Cross-org: agent-a's key fails against org_b and vice versa.
-        with self.assertRaises(FinalismaError) as cross_a_in_b:
+        with self.assertRaises(WeftError) as cross_a_in_b:
             self.dispatcher.call_tool(
                 "finalisma_org_assert_scope",
                 {"team_id": "team-1", "org_id": org_b_id, "agent_id": "agent-a", "actor_key_hex": key_a},
             )
         self.assertEqual(cross_a_in_b.exception.code, "tenancy_scope_forbidden")
 
-        with self.assertRaises(FinalismaError) as cross_b_in_a:
+        with self.assertRaises(WeftError) as cross_b_in_a:
             self.dispatcher.call_tool(
                 "finalisma_org_assert_scope",
                 {"team_id": "team-1", "org_id": org_a_id, "agent_id": "agent-b", "actor_key_hex": key_b},

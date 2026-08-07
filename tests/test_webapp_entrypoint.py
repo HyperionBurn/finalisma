@@ -63,11 +63,11 @@ class TestWebRuntimeConfig(unittest.TestCase):
 
     def test_env_overrides_defaults(self) -> None:
         cfg = runtime_config(argv=[], environ={
-            "FINALISMA_WEB_HOST": "0.0.0.0",
-            "FINALISMA_WEB_PORT": "19010",
-            "FINALISMA_WEB_DB_PATH": "/data/web.db",
-            "FINALISMA_WEB_STATIC_DIR": "/app/site",
-            "FINALISMA_WEB_STATE_DIR": "/data/state",
+            "WEFT_WEB_HOST": "0.0.0.0",
+            "WEFT_WEB_PORT": "19010",
+            "WEFT_WEB_DB_PATH": "/data/web.db",
+            "WEFT_WEB_STATIC_DIR": "/app/site",
+            "WEFT_WEB_STATE_DIR": "/data/state",
         })
         self.assertEqual(cfg, {
             "host": "0.0.0.0",
@@ -79,8 +79,8 @@ class TestWebRuntimeConfig(unittest.TestCase):
 
     def test_argv_overrides_env(self) -> None:
         cfg = runtime_config(argv=["19020", "/tmp/argv.db"], environ={
-            "FINALISMA_WEB_PORT": "19010",
-            "FINALISMA_WEB_DB_PATH": "/data/web.db",
+            "WEFT_WEB_PORT": "19010",
+            "WEFT_WEB_DB_PATH": "/data/web.db",
         })
         self.assertEqual(cfg["port"], 19020)
         self.assertEqual(cfg["db_path"], "/tmp/argv.db")
@@ -88,7 +88,7 @@ class TestWebRuntimeConfig(unittest.TestCase):
 
     def test_invalid_env_port_raises(self) -> None:
         with self.assertRaises(ValueError):
-            runtime_config(argv=[], environ={"FINALISMA_WEB_PORT": "not-a-number"})
+            runtime_config(argv=[], environ={"WEFT_WEB_PORT": "not-a-number"})
 
     def test_out_of_range_port_raises(self) -> None:
         with self.assertRaises(ValueError):
@@ -105,11 +105,11 @@ class TestWebEntryPointBootsAndServes(unittest.TestCase):
             env = dict(os.environ)
             env.update({
                 "PYTHONPATH": str(ROOT / "src"),
-                "FINALISMA_WEB_HOST": "127.0.0.1",
-                "FINALISMA_WEB_PORT": str(port),
-                "FINALISMA_WEB_DB_PATH": db_path,
-                "FINALISMA_WEB_STATIC_DIR": SITE_DIR,
-                "FINALISMA_WEB_STATE_DIR": state_dir,
+                "WEFT_WEB_HOST": "127.0.0.1",
+                "WEFT_WEB_PORT": str(port),
+                "WEFT_WEB_DB_PATH": db_path,
+                "WEFT_WEB_STATIC_DIR": SITE_DIR,
+                "WEFT_WEB_STATE_DIR": state_dir,
             })
             with open(stderr_path, "wb") as stderr_fh:
                 proc = subprocess.Popen(

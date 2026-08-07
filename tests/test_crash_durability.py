@@ -30,7 +30,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 import weft_mcp.outbox as _outbox
-from weft_mcp.core import FinalismaStore
+from weft_mcp.core import WeftStore
 from weft_mcp.room import RoomStore
 
 # RED trigger: this import fails with ModuleNotFoundError until the cloud plane
@@ -153,8 +153,8 @@ class TestCrashDurability(unittest.TestCase):
     def setUp(self) -> None:
         self.scratch = tempfile.TemporaryDirectory(prefix=SCRATCH_PREFIX)
         self.workspace = Path(self.scratch.name)
-        self.state_path = str(self.workspace / ".finalisma" / "state.db")
-        os.makedirs(self.workspace / ".finalisma", exist_ok=True)
+        self.state_path = str(self.workspace / ".weft" / "state.db")
+        os.makedirs(self.workspace / ".weft", exist_ok=True)
         self.driver = CrashTestDriver(self.workspace, self.state_path)
 
     def tearDown(self) -> None:

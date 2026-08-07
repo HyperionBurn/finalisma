@@ -20,7 +20,7 @@ from urllib.parse import urlsplit
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "site"
 DEFAULT_OUTPUT = ROOT / "artifacts" / "release-site"
-CONTACT_MARKER = "<!-- FINALISMA_DEPLOY_CONTACT -->"
+CONTACT_MARKER = "<!-- WEFT_DEPLOY_CONTACT -->"
 NOINDEX_PATTERN = re.compile(r'<meta\s+name="robots"\s+content="[^"]*noindex', re.I)
 
 

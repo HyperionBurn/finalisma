@@ -26,7 +26,7 @@ ABSOLUTE_ROUTE_HREF = r'href="https?://[^"]+/signup"'
 sys.path.insert(0, str(ROOT))
 
 _SITE_SPEC = importlib.util.spec_from_file_location(
-    "finalisma_site", ROOT / "scripts" / "weft-site.py"
+    "weft_site", ROOT / "scripts" / "weft-site.py"
 )
 assert _SITE_SPEC and _SITE_SPEC.loader
 _SITE_MODULE = importlib.util.module_from_spec(_SITE_SPEC)
@@ -257,25 +257,25 @@ class LaunchSurfaceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="finalisma-release-test-", dir=temp_root) as temporary:
             output = Path(temporary) / "site"
             result = _RELEASE_MODULE.build_release(
-                origin="https://finalisma.test",
+                origin="https://weft.test",
                 contact_url="mailto:founder@example.invalid",
                 output=output,
             )
             built_home = (output / "index.html").read_text(encoding="utf-8")
             built_demo = (output / "demo.html").read_text(encoding="utf-8")
-            self.assertEqual(result["origin"], "https://finalisma.test")
-            self.assertIn('href="https://finalisma.test/"', built_home)
-            self.assertIn('property="og:url" content="https://finalisma.test/"', built_home)
-            self.assertIn('name="twitter:image" content="https://finalisma.test/assets/og-card.png"', built_home)
+            self.assertEqual(result["origin"], "https://weft.test")
+            self.assertIn('href="https://weft.test/"', built_home)
+            self.assertIn('property="og:url" content="https://weft.test/"', built_home)
+            self.assertIn('name="twitter:image" content="https://weft.test/assets/og-card.png"', built_home)
             self.assertIn('data-founder-contact href="mailto:founder@example.invalid"', built_home)
-            self.assertIn('"contentUrl": "https://finalisma.test/assets/finalisma-demo.mp4"', built_demo)
-            self.assertIn("https://finalisma.test/demo.html", (output / "sitemap.xml").read_text(encoding="utf-8"))
-            self.assertIn("Sitemap: https://finalisma.test/sitemap.xml", (output / "robots.txt").read_text(encoding="utf-8"))
+            self.assertIn('"contentUrl": "https://weft.test/assets/finalisma-demo.mp4"', built_demo)
+            self.assertIn("https://weft.test/demo.html", (output / "sitemap.xml").read_text(encoding="utf-8"))
+            self.assertIn("Sitemap: https://weft.test/sitemap.xml", (output / "robots.txt").read_text(encoding="utf-8"))
             self.assertTrue((output / "release-manifest.json").is_file())
         for invalid_origin in (
-            "http://finalisma.test",
-            "https://user:secret@finalisma.test",
-            "https://finalisma.test/subpath",
+            "http://weft.test",
+            "https://user:secret@weft.test",
+            "https://weft.test/subpath",
         ):
             with self.subTest(invalid_origin=invalid_origin), self.assertRaises(ValueError):
                 _RELEASE_MODULE.normalize_origin(invalid_origin)
@@ -377,7 +377,7 @@ class LaunchSurfaceTests(unittest.TestCase):
         self.assertIn('content="index,follow,max-video-preview:-1,max-image-preview:large"', demo)
         self.assertIn('property="og:site_name" content="Finalisma"', demo)
         self.assertIn('name="twitter:image" content="/assets/finalisma-demo-poster.png"', demo)
-        self.assertEqual(transcript["schema"], "finalisma.public-demo/v1")
+        self.assertEqual(transcript["schema"], "weft.public-demo/v1")
         self.assertEqual(len(transcript["frames"]), 10)
         self.assertTrue(transcript["credentials_redacted"])
         self.assertFalse(transcript["proof"]["raw_credentials_in_output"])

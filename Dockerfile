@@ -11,17 +11,17 @@
 # ONE writer. This image must be run as a single process bound to a persistent
 # disk (/data). It must NOT be scaled behind a load balancer. See docs/DEPLOY.md.
 #
-# Configuration is via the environment only (FINALISMA_HOST, FINALISMA_PORT,
-# FINALISMA_DB_PATH). No secret is ever baked into this image.
+# Configuration is via the environment only (WEFT_HOST, WEFT_PORT,
+# WEFT_DB_PATH). No secret is ever baked into this image.
 
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app/src \
-    FINALISMA_HOST=0.0.0.0 \
-    FINALISMA_PORT=18788 \
-    FINALISMA_DB_PATH=/data/finalisma-cloud.db
+    WEFT_HOST=0.0.0.0 \
+    WEFT_PORT=18788 \
+    WEFT_DB_PATH=/data/finalisma-cloud.db
 
 WORKDIR /app
 
@@ -46,6 +46,6 @@ EXPOSE 18788
 
 # Stdlib-only health probe hitting /healthz (no curl/wget in the slim image).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD python -c "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('FINALISMA_PORT','18788')+'/healthz', timeout=3)"
+  CMD python -c "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('WEFT_PORT','18788')+'/healthz', timeout=3)"
 
 CMD ["python", "-B", "-m", "weft_cloud.service"]

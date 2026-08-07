@@ -12,9 +12,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from weft_mcp.core import FinalismaStore
+from weft_mcp.core import WeftStore
 from weft_mcp.server import (
-    FinalismaDispatcher,
+    WeftDispatcher,
     _MCPRequestHandler,
     _Metrics,
     _ServerHubState,
@@ -91,8 +91,8 @@ class MultiClientSessionTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
-        self.store = FinalismaStore(root / "state.db", root)
-        self.dispatcher = FinalismaDispatcher(self.store)
+        self.store = WeftStore(root / "state.db", root)
+        self.dispatcher = WeftDispatcher(self.store)
         self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-a"})
         self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-b"})
 
@@ -204,8 +204,8 @@ class ReconnectResilienceTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
-        self.store = FinalismaStore(root / "state.db", root)
-        self.dispatcher = FinalismaDispatcher(self.store)
+        self.store = WeftStore(root / "state.db", root)
+        self.dispatcher = WeftDispatcher(self.store)
         self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-a"})
         self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-b"})
 
@@ -281,8 +281,8 @@ class IdleDisconnectTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
-        self.store = FinalismaStore(root / "state.db", root)
-        self.dispatcher = FinalismaDispatcher(self.store)
+        self.store = WeftStore(root / "state.db", root)
+        self.dispatcher = WeftDispatcher(self.store)
         self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-a"})
         self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-b"})
 
@@ -352,8 +352,8 @@ class ServerHubRateLimitingTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
-        self.store = FinalismaStore(root / "state.db", root)
-        self.dispatcher = FinalismaDispatcher(self.store)
+        self.store = WeftStore(root / "state.db", root)
+        self.dispatcher = WeftDispatcher(self.store)
         self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-a"})
         self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-b"})
 
@@ -395,8 +395,8 @@ class ServerHubMetricsTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
-        self.store = FinalismaStore(root / "state.db", root)
-        self.dispatcher = FinalismaDispatcher(self.store)
+        self.store = WeftStore(root / "state.db", root)
+        self.dispatcher = WeftDispatcher(self.store)
         self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-a"})
         self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-b"})
 
@@ -434,8 +434,8 @@ class HTTPTransportHardeningTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
-        self.store = FinalismaStore(root / "state.db", root)
-        self.dispatcher = FinalismaDispatcher(self.store)
+        self.store = WeftStore(root / "state.db", root)
+        self.dispatcher = WeftDispatcher(self.store)
         self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-a"})
         self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-b"})
 

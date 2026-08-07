@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from weft_cloud.storage import SqliteWalBackend
 from weft_cloud.identity.schema import ensure_schema
-from weft_cloud.web.app import FinalismaWebApp  # RED: package absent
+from weft_cloud.web.app import WeftWebApp  # RED: package absent
 
 SITE_DIR = str(Path(__file__).resolve().parents[1] / "site")
 
@@ -32,7 +32,7 @@ class WebAppDriver:
         self.backend = SqliteWalBackend(str(Path(self._tmp.name) / "cloud.db"))
         self.backend.initialize()
         ensure_schema(self.backend)
-        self.app = FinalismaWebApp(
+        self.app = WeftWebApp(
             self.backend, static_dir=SITE_DIR, state_dir=str(Path(self._tmp.name) / "state")
         )
         import http.server

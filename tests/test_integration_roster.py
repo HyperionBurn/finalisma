@@ -1,7 +1,7 @@
 """Integration tests for the Finalisma N-way roster MCP surface.
 
 Drives roster through the REAL MCP JSON-RPC dispatcher via
-``FinalismaDispatcher.call_tool`` — never ``roster.py``'s Python API directly.
+``WeftDispatcher.call_tool`` — never ``roster.py``'s Python API directly.
 
 These tests are RED by design: the ``finalisma_roster_*`` tools are not yet
 registered on the dispatcher. The orchestrator wires them; these tests lock
@@ -20,8 +20,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from weft_mcp.core import FinalismaStore
-from weft_mcp.server import FinalismaDispatcher, TOOLS
+from weft_mcp.core import WeftStore
+from weft_mcp.server import WeftDispatcher, TOOLS
 
 
 # The five roster tool names the orchestrator must register.
@@ -41,8 +41,8 @@ class RosterIntegrationTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
         # Mirror the reference harness exactly.
-        self.store = FinalismaStore(root / "state.db", root, require_actor_auth=True)
-        self.dispatcher = FinalismaDispatcher(self.store)
+        self.store = WeftStore(root / "state.db", root, require_actor_auth=True)
+        self.dispatcher = WeftDispatcher(self.store)
         self.team_id = "demo"
         # Owner + two joining agents.
         self.owner = "owner-agent"

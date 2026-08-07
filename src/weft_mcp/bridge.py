@@ -26,8 +26,8 @@ import urllib.error
 from typing import Any, Sequence
 
 from .core import (
-    FinalismaError,
-    FinalismaStore,
+    WeftError,
+    WeftStore,
     _validate_id,
 )
 
@@ -36,14 +36,14 @@ from .core import (
 # Errors
 # ---------------------------------------------------------------------------
 
-class BridgeAuthError(FinalismaError):
+class BridgeAuthError(WeftError):
     """Raised when bridge actor authentication fails."""
 
     def __init__(self, message: str = "Actor authentication failed") -> None:
         super().__init__("actor_auth_invalid", message)
 
 
-class BridgeSignatureError(FinalismaError):
+class BridgeSignatureError(WeftError):
     """Raised when webhook signature verification fails."""
 
     def __init__(self, message: str = "Signature verification failed") -> None:
@@ -61,7 +61,7 @@ def _now_epoch() -> float:
 def _token_hash(token: str) -> str:
     """SHA-256 hash of a secret — only hashes are stored."""
     if not isinstance(token, str) or len(token) < 8:
-        raise FinalismaError("invalid_token", "Secret must be a string of at least 8 bytes")
+        raise WeftError("invalid_token", "Secret must be a string of at least 8 bytes")
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
@@ -71,13 +71,13 @@ def _hmac_sign(secret: bytes, timestamp: str, body: Any) -> str:
     return "sha256=" + hmac_mod.new(secret, payload_str.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
-def _authorize_actor(store: FinalismaStore, team_id: str, agent_id: str, actor_token: str | None) -> None:
+def _authorize_actor(store: WeftStore, team_id: str, agent_id: str, actor_token: str | None) -> None:
     """Validate actor credential or raise BridgeAuthError."""
     if actor_token is None:
         raise BridgeAuthError("actor_token is required")
     try:
         supplied_hash = _token_hash(actor_token)
-    except FinalismaError:
+    except WeftError:
         raise BridgeAuthError("Actor token is invalid")
     with store._read() as conn:
         row = conn.execute(
@@ -136,7 +136,7 @@ CREATE TABLE IF NOT EXISTS bridge_bootstrap_nonces (
 """
 
 
-def init_bridge(store: FinalismaStore) -> None:
+def init_bridge(store: WeftStore) -> None:
     """Idempotently create bridge schema tables."""
     with store._transaction() as conn:
         conn.executescript(BRIDGE_SCHEMA_STATEMENTS)
@@ -154,7 +154,7 @@ class WebhookBridge:
     ``X-Finalisma-Timestamp``.
     """
 
-    def __init__(self, store: FinalismaStore) -> None:
+    def __init__(self, store: WeftStore) -> None:
         self.store = store
         init_bridge(store)
 
@@ -172,9 +172,9 @@ class WebhookBridge:
         _authorize_actor(self.store, team_id, agent_id, actor_token)
 
         if not isinstance(url, str) or not url.startswith(("http://", "https://")):
-            raise FinalismaError("invalid_argument", "Webhook URL must be an http(s) URL")
+            raise WeftError("invalid_argument", "Webhook URL must be an http(s) URL")
         if len(secret_ref) < 8:
-            raise FinalismaError("invalid_argument", "Webhook secret must be at least 8 bytes")
+            raise WeftError("invalid_argument", "Webhook secret must be at least 8 bytes")
 
         webhook_id = f"wh_{secrets.token_hex(16)}"
         secret_hash = _token_hash(secret_ref)
@@ -212,7 +212,7 @@ class WebhookBridge:
                 (webhook_id,),
             ).fetchone()
         if row is None:
-            raise FinalismaError("not_found", f"Webhook '{webhook_id}' not found or inactive")
+            raise WeftError("not_found", f"Webhook '{webhook_id}' not found or inactive")
 
         url = row["url"]
         secret_hash = row["secret_hash"]
@@ -222,7 +222,7 @@ class WebhookBridge:
         # with DB read access forge valid webhook signatures. The caller must
         # supply the real secret from its own secret store.
         if signing_secret is None:
-            raise FinalismaError(
+            raise WeftError(
                 "signing_secret_required",
                 "deliver requires the real webhook signing secret; the stored hash cannot be used as the signing key",
             )
@@ -296,7 +296,7 @@ class PollingBridge:
     acknowledged events are not re-delivered.
     """
 
-    def __init__(self, store: FinalismaStore) -> None:
+    def __init__(self, store: WeftStore) -> None:
         self.store = store
         init_bridge(store)
 
@@ -384,7 +384,7 @@ class PollingBridge:
         _authorize_actor(self.store, team_id, agent_id, actor_token)
 
         if not event_ids:
-            raise FinalismaError("invalid_argument", "At least one event_id is required")
+            raise WeftError("invalid_argument", "At least one event_id is required")
 
         now = _utc_now()
         with self.store._transaction() as conn:
@@ -423,7 +423,7 @@ class ClipboardBridge:
     enforces one-use via nonce tracking.
     """
 
-    def __init__(self, store: FinalismaStore) -> None:
+    def __init__(self, store: WeftStore) -> None:
         self.store = store
         init_bridge(store)
 
@@ -442,7 +442,7 @@ class ClipboardBridge:
         _authorize_actor(self.store, team_id, agent_id, actor_token)
 
         if not isinstance(endpoint, str) or not endpoint.startswith(("http://", "https://")):
-            raise FinalismaError("invalid_argument", "endpoint must be an http(s) URL")
+            raise WeftError("invalid_argument", "endpoint must be an http(s) URL")
 
         nonce = secrets.token_hex(16)
         now = _utc_now()
@@ -472,10 +472,10 @@ class ClipboardBridge:
         try:
             snippet = json.loads(raw)
         except json.JSONDecodeError as exc:
-            raise FinalismaError("invalid_argument", "Bootstrap must be valid JSON") from exc
+            raise WeftError("invalid_argument", "Bootstrap must be valid JSON") from exc
 
         if not isinstance(snippet, dict):
-            raise FinalismaError("invalid_argument", "Bootstrap must be a JSON object")
+            raise WeftError("invalid_argument", "Bootstrap must be a JSON object")
 
         # Reject token-bearing URL paths
         join_url = snippet.get("join_url", "")
@@ -484,7 +484,7 @@ class ClipboardBridge:
             # The path after /v1/join/ should be the pairing_id only (no token)
             pairing_part = path_part.split("#")[0]
             if not pairing_part.startswith("pair_"):
-                raise FinalismaError(
+                raise WeftError(
                     "legacy_join_url_rejected",
                     "Join URLs must contain a public pairing ID; token in path is forbidden",
                 )
@@ -498,9 +498,9 @@ class ClipboardBridge:
                     (nonce,),
                 ).fetchone()
                 if row is None:
-                    raise FinalismaError("invalid_argument", "Unknown or expired bootstrap nonce")
+                    raise WeftError("invalid_argument", "Unknown or expired bootstrap nonce")
                 if row["consumed_at"] is not None:
-                    raise FinalismaError("bootstrap_reused", "Bootstrap snippet has already been consumed")
+                    raise WeftError("bootstrap_reused", "Bootstrap snippet has already been consumed")
                 conn.execute(
                     "UPDATE bridge_bootstrap_nonces SET consumed_at = ? WHERE nonce = ?",
                     (_utc_now(), nonce),
@@ -531,7 +531,7 @@ class HttpBridgeClient:
         from urllib.parse import urlsplit
         parsed = urlsplit(self.base_url)
         if parsed.scheme != "http":
-            raise FinalismaError("invalid_argument", "Only http is supported in this bridge client")
+            raise WeftError("invalid_argument", "Only http is supported in this bridge client")
         port = parsed.port or 80
         return parsed.hostname or "127.0.0.1", port, parsed.path
 
@@ -551,9 +551,9 @@ class HttpBridgeClient:
             try:
                 error_data = json.loads(resp_body)
                 error = error_data.get("error", {})
-                raise FinalismaError(error.get("code", "http_error"), error.get("message", f"HTTP {resp.status}"))
+                raise WeftError(error.get("code", "http_error"), error.get("message", f"HTTP {resp.status}"))
             except json.JSONDecodeError:
-                raise FinalismaError("http_error", f"HTTP {resp.status}")
+                raise WeftError("http_error", f"HTTP {resp.status}")
         if not resp_body:
             return {}
         return json.loads(resp_body)
@@ -563,14 +563,14 @@ class HttpBridgeClient:
         from urllib.parse import urlsplit
         fragment = urlsplit(join_url).fragment
         if not fragment.startswith("token="):
-            raise FinalismaError("invalid_token", "Join URL must contain a #token= fragment")
+            raise WeftError("invalid_token", "Join URL must contain a #token= fragment")
         token = fragment[len("token="):]
         path = urlsplit(join_url).path
         if not path.startswith(("/v1/join/", "/join/")):
-            raise FinalismaError("invalid_argument", "URL path must be a /v1/join/<id> or /join/<id> path")
+            raise WeftError("invalid_argument", "URL path must be a /v1/join/<id> or /join/<id> path")
         pairing_key = path.split("/")[-1]
         if not pairing_key.startswith("pair_"):
-            raise FinalismaError("legacy_join_url_rejected", "Join URLs must contain a public pairing ID")
+            raise WeftError("legacy_join_url_rejected", "Join URLs must contain a public pairing ID")
         return pairing_key, token
 
     def preview_link(self, join_url: str) -> dict[str, Any]:
@@ -590,7 +590,7 @@ class HttpBridgeClient:
     ) -> dict[str, Any]:
         """Join a pairing via link with explicit consent."""
         if consent is not True:
-            raise FinalismaError("consent_required", "consent must be the JSON boolean true")
+            raise WeftError("consent_required", "consent must be the JSON boolean true")
         pairing_key, token = self._extract_pairing_and_token(join_url)
         body = {
             "token": token,
@@ -667,9 +667,9 @@ class HttpBridgeClient:
             try:
                 error_data = json.loads(error_text)
                 error = error_data.get("error", {})
-                raise FinalismaError(error.get("code", "tool_error"), error.get("message", "Tool call failed"))
+                raise WeftError(error.get("code", "tool_error"), error.get("message", "Tool call failed"))
             except json.JSONDecodeError:
-                raise FinalismaError("tool_error", error_text)
+                raise WeftError("tool_error", error_text)
         structured = result.get("structuredContent")
         if structured is not None:
             return structured

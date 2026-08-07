@@ -25,8 +25,8 @@ from pathlib import Path
 from typing import Any, Iterator, Sequence
 from urllib.parse import quote, urlsplit
 
-FINALISMA_PROTOCOL = "finalisma.a2a"
-FINALISMA_VERSION = "1.0"
+WEFT_PROTOCOL = "finalisma.a2a"
+WEFT_VERSION = "1.0"
 MCP_PROTOCOL_VERSION = "2025-11-25"
 SUPPORTED_MCP_VERSIONS = ("2025-11-25", "2024-11-05")
 MAX_PAYLOAD_BYTES = 256 * 1024
@@ -105,7 +105,7 @@ SECRET_PATTERNS = (
 )
 
 
-class FinalismaError(RuntimeError):
+class WeftError(RuntimeError):
     """A safe, structured error returned to the MCP client."""
 
     def __init__(self, code: str, message: str, details: Any | None = None):
@@ -134,7 +134,7 @@ def _json(value: Any) -> str:
     while pending:
         current, depth = pending.pop()
         if depth > MAX_JSON_DEPTH:
-            raise FinalismaError("invalid_json", f"Value exceeds the maximum JSON nesting depth of {MAX_JSON_DEPTH}")
+            raise WeftError("invalid_json", f"Value exceeds the maximum JSON nesting depth of {MAX_JSON_DEPTH}")
         if isinstance(current, dict):
             pending.extend((child, depth + 1) for child in current.values())
         elif isinstance(current, (list, tuple)):
@@ -142,9 +142,9 @@ def _json(value: Any) -> str:
     try:
         encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     except (TypeError, ValueError, RecursionError) as exc:
-        raise FinalismaError("invalid_json", "Value must be JSON serializable and not deeply nested") from exc
+        raise WeftError("invalid_json", "Value must be JSON serializable and not deeply nested") from exc
     if len(encoded.encode("utf-8")) > MAX_PAYLOAD_BYTES:
-        raise FinalismaError("payload_too_large", f"Payload exceeds {MAX_PAYLOAD_BYTES} bytes")
+        raise WeftError("payload_too_large", f"Payload exceeds {MAX_PAYLOAD_BYTES} bytes")
     return encoded
 
 
@@ -154,7 +154,7 @@ def _parse_json(raw: str | None, default: Any) -> Any:
     try:
         return json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise FinalismaError("corrupt_state", "Persisted JSON is invalid") from exc
+        raise WeftError("corrupt_state", "Persisted JSON is invalid") from exc
 
 
 def _new_id(prefix: str) -> str:
@@ -163,7 +163,7 @@ def _new_id(prefix: str) -> str:
 
 def _validate_id(value: str, field: str) -> str:
     if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", value):
-        raise FinalismaError("invalid_id", f"{field} must be 1-128 safe identifier characters")
+        raise WeftError("invalid_id", f"{field} must be 1-128 safe identifier characters")
     return value
 
 
@@ -180,11 +180,11 @@ def _safe_int(value: Any, default: int, minimum: int, maximum: int) -> int:
     if value is None:
         return default
     if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
-        raise FinalismaError("invalid_argument", f"Expected integer between {minimum} and {maximum}")
+        raise WeftError("invalid_argument", f"Expected integer between {minimum} and {maximum}")
     return value
 
 
-class FinalismaStore:
+class WeftStore:
     """SQLite-backed shared state for multiple independent MCP processes."""
 
     def __init__(
@@ -196,12 +196,12 @@ class FinalismaStore:
         require_actor_auth: bool = False,
     ):
         if not isinstance(require_actor_auth, bool):
-            raise FinalismaError("invalid_argument", "require_actor_auth must be a boolean")
+            raise WeftError("invalid_argument", "require_actor_auth must be a boolean")
         self.state_path = Path(state_path).expanduser().resolve()
         self.workspace = Path(workspace_path).expanduser().resolve()
         self.heartbeat_timeout = _safe_int(heartbeat_timeout, 1800, 30, 86_400)
         self.require_actor_auth = require_actor_auth
-        configured_public_url = (public_base_url or os.environ.get("FINALISMA_PUBLIC_URL") or "http://127.0.0.1:8787").strip()
+        configured_public_url = (public_base_url or os.environ.get("WEFT_PUBLIC_URL") or "http://127.0.0.1:8787").strip()
         self.public_base_url = self._normalize_public_base_url(configured_public_url)
         self._connection_pools: dict[bool, queue.LifoQueue[sqlite3.Connection]] = {
             False: queue.LifoQueue(maxsize=CONNECTION_POOL_SIZE),
@@ -218,17 +218,17 @@ class FinalismaStore:
     def _normalize_public_base_url(value: str) -> str:
         """Validate the URL embedded in a bearer-capability pairing link."""
         if not isinstance(value, str) or not value or any(character.isspace() for character in value):
-            raise FinalismaError("invalid_public_url", "public_base_url must be an absolute HTTP(S) URL")
+            raise WeftError("invalid_public_url", "public_base_url must be an absolute HTTP(S) URL")
         try:
             parsed = urlsplit(value)
             hostname = parsed.hostname
             _ = parsed.port
         except ValueError as exc:
-            raise FinalismaError("invalid_public_url", "public_base_url must be an absolute HTTP(S) URL") from exc
+            raise WeftError("invalid_public_url", "public_base_url must be an absolute HTTP(S) URL") from exc
         if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc or not hostname:
-            raise FinalismaError("invalid_public_url", "public_base_url must be an absolute HTTP(S) URL")
+            raise WeftError("invalid_public_url", "public_base_url must be an absolute HTTP(S) URL")
         if parsed.username is not None or parsed.password is not None or parsed.query or parsed.fragment:
-            raise FinalismaError("invalid_public_url", "public_base_url cannot contain credentials, a query, or a fragment")
+            raise WeftError("invalid_public_url", "public_base_url cannot contain credentials, a query, or a fragment")
         return value.rstrip("/")
 
     def _connect(self, *, query_only: bool = False) -> sqlite3.Connection:
@@ -251,7 +251,7 @@ class FinalismaStore:
     def _acquire_connection(self, *, query_only: bool = False) -> sqlite3.Connection:
         with self._connection_pool_lock:
             if self._closed:
-                raise RuntimeError("FinalismaStore is closed")
+                raise RuntimeError("WeftStore is closed")
             try:
                 connection = self._connection_pools[query_only].get_nowait()
             except queue.Empty:
@@ -331,7 +331,7 @@ class FinalismaStore:
         except sqlite3.Error:
             pass
 
-    def __enter__(self) -> FinalismaStore:
+    def __enter__(self) -> WeftStore:
         return self
 
     def __exit__(self, _exc_type: object, _exc: object, _traceback: object) -> None:
@@ -378,9 +378,9 @@ class FinalismaStore:
                 try:
                     existing_version = int(schema_row["value"])
                 except (TypeError, ValueError) as exc:
-                    raise FinalismaError("corrupt_state", "Persisted schema version is invalid") from exc
+                    raise WeftError("corrupt_state", "Persisted schema version is invalid") from exc
                 if existing_version > SCHEMA_VERSION:
-                    raise FinalismaError(
+                    raise WeftError(
                         "unsupported_schema",
                         f"State database schema {existing_version} is newer than supported schema {SCHEMA_VERSION}",
                     )
@@ -598,13 +598,13 @@ class FinalismaStore:
             "SELECT * FROM agents WHERE team_id = ? AND agent_id = ?", (team_id, agent_id)
         ).fetchone()
         if row is None:
-            raise FinalismaError("agent_not_registered", f"Agent '{agent_id}' is not registered in team '{team_id}'")
+            raise WeftError("agent_not_registered", f"Agent '{agent_id}' is not registered in team '{team_id}'")
         return row
 
     @staticmethod
     def _token_hash(token: str) -> str:
         if not isinstance(token, str) or len(token) < 16 or len(token) > 512:
-            raise FinalismaError("invalid_token", "Token must be a non-empty opaque capability")
+            raise WeftError("invalid_token", "Token must be a non-empty opaque capability")
         return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
     def _require_actor_credential(
@@ -617,20 +617,20 @@ class FinalismaStore:
         """Validate an agent credential without exposing token material."""
         if actor_token is None:
             if self.require_actor_auth:
-                raise FinalismaError("actor_auth_required", "A valid actor token is required")
+                raise WeftError("actor_auth_required", "A valid actor token is required")
             return None
         try:
             supplied_hash = self._token_hash(actor_token)
-        except FinalismaError as exc:
-            raise FinalismaError("actor_auth_invalid", "Actor token is invalid") from exc
+        except WeftError as exc:
+            raise WeftError("actor_auth_invalid", "Actor token is invalid") from exc
         row = connection.execute(
             "SELECT * FROM agent_credentials WHERE team_id = ? AND agent_id = ?",
             (team_id, agent_id),
         ).fetchone()
         if row is None or row["revoked_at"] is not None:
-            raise FinalismaError("actor_auth_invalid", "Actor token is invalid")
+            raise WeftError("actor_auth_invalid", "Actor token is invalid")
         if not secrets.compare_digest(row["token_hash"], supplied_hash):
-            raise FinalismaError("actor_auth_invalid", "Actor token is invalid")
+            raise WeftError("actor_auth_invalid", "Actor token is invalid")
         return row
 
     def _authorize_actor(
@@ -644,11 +644,11 @@ class FinalismaStore:
         if not self.require_actor_auth and actor_token is None:
             return self._require_agent(connection, team_id, agent_id)
         if actor_token is None:
-            raise FinalismaError("actor_auth_required", "A valid actor token is required")
+            raise WeftError("actor_auth_required", "A valid actor token is required")
         try:
             supplied_hash = self._token_hash(actor_token)
-        except FinalismaError as exc:
-            raise FinalismaError("actor_auth_invalid", "Actor token is invalid") from exc
+        except WeftError as exc:
+            raise WeftError("actor_auth_invalid", "Actor token is invalid") from exc
         row = connection.execute(
             """
             SELECT agents.*, credentials.token_hash AS credential_token_hash,
@@ -662,9 +662,9 @@ class FinalismaStore:
             (team_id, agent_id),
         ).fetchone()
         if row is None or row["credential_revoked_at"] is not None:
-            raise FinalismaError("actor_auth_invalid", "Actor token is invalid")
+            raise WeftError("actor_auth_invalid", "Actor token is invalid")
         if not secrets.compare_digest(row["credential_token_hash"], supplied_hash):
-            raise FinalismaError("actor_auth_invalid", "Actor token is invalid")
+            raise WeftError("actor_auth_invalid", "Actor token is invalid")
         return row
 
     def _authorize_optional_actor(
@@ -676,7 +676,7 @@ class FinalismaStore:
     ) -> sqlite3.Row | None:
         if agent_id is None:
             if self.require_actor_auth or actor_token is not None:
-                raise FinalismaError("actor_auth_required", "agent_id and a valid actor token are required")
+                raise WeftError("actor_auth_required", "agent_id and a valid actor token are required")
             return None
         _validate_id(agent_id, "agent_id")
         return self._authorize_actor(connection, team_id, agent_id, actor_token)
@@ -729,10 +729,10 @@ class FinalismaStore:
     ) -> sqlite3.Row:
         _validate_id(agent_id, "agent_id")
         if not isinstance(role, str) or not role.strip():
-            raise FinalismaError("invalid_argument", "role must be a non-empty string")
+            raise WeftError("invalid_argument", "role must be a non-empty string")
         capabilities = list(capabilities or [])
         if len(capabilities) > 64 or any(not isinstance(item, str) for item in capabilities):
-            raise FinalismaError("invalid_argument", "capabilities must contain at most 64 strings")
+            raise WeftError("invalid_argument", "capabilities must contain at most 64 strings")
         now = _epoch()
         connection.execute(
             """
@@ -769,7 +769,7 @@ class FinalismaStore:
 
     def _canonical_path(self, raw_path: str) -> str:
         if not isinstance(raw_path, str) or not raw_path.strip():
-            raise FinalismaError("invalid_path", "Workspace paths must be non-empty strings")
+            raise WeftError("invalid_path", "Workspace paths must be non-empty strings")
         candidate = Path(raw_path)
         if not candidate.is_absolute():
             candidate = self.workspace / candidate
@@ -777,9 +777,9 @@ class FinalismaStore:
             resolved = candidate.resolve(strict=False)
             relative = resolved.relative_to(self.workspace)
         except ValueError as exc:
-            raise FinalismaError("path_outside_workspace", "Path must remain inside the configured workspace") from exc
+            raise WeftError("path_outside_workspace", "Path must remain inside the configured workspace") from exc
         if str(relative) in ("", "."):
-            raise FinalismaError("invalid_path", "The workspace root itself is not a file scope")
+            raise WeftError("invalid_path", "The workspace root itself is not a file scope")
         return relative.as_posix()
 
     def _canonical_scope(self, raw_scope: Sequence[str] | str | None) -> list[str]:
@@ -787,7 +787,7 @@ class FinalismaStore:
             return []
         values = [raw_scope] if isinstance(raw_scope, str) else list(raw_scope)
         if len(values) > 256:
-            raise FinalismaError("invalid_argument", "A task may declare at most 256 scope paths")
+            raise WeftError("invalid_argument", "A task may declare at most 256 scope paths")
         result: list[str] = []
         for value in values:
             path = self._canonical_path(value)
@@ -1039,9 +1039,9 @@ class FinalismaStore:
         _validate_id(team_id, "team_id")
         _validate_id(created_by, "created_by")
         if not isinstance(title, str) or not title.strip() or len(title) > 240:
-            raise FinalismaError("invalid_argument", "title must be 1-240 characters")
+            raise WeftError("invalid_argument", "title must be 1-240 characters")
         if not isinstance(description, str) or len(description) > MAX_PAYLOAD_BYTES:
-            raise FinalismaError("invalid_argument", "description is too long")
+            raise WeftError("invalid_argument", "description is too long")
         if preferred_agent is not None:
             _validate_id(preferred_agent, "preferred_agent")
         normalized = _normalize_objective(title, description)
@@ -1049,7 +1049,7 @@ class FinalismaStore:
         canonical_scope = self._canonical_scope(scope)
         priority = _safe_int(priority, 2, 0, 3)
         if idempotency_key is not None and (not isinstance(idempotency_key, str) or len(idempotency_key) > 160):
-            raise FinalismaError("invalid_argument", "idempotency_key must be at most 160 characters")
+            raise WeftError("invalid_argument", "idempotency_key must be at most 160 characters")
         with self._transaction() as connection:
             self._authorize_actor(connection, team_id, created_by, actor_token)
             if idempotency_key:
@@ -1077,7 +1077,7 @@ class FinalismaStore:
                     (team_id, preferred_agent),
                 ).fetchone()
                 if agent is None:
-                    raise FinalismaError("agent_unavailable", f"Agent '{preferred_agent}' is not active in team '{team_id}'")
+                    raise WeftError("agent_unavailable", f"Agent '{preferred_agent}' is not active in team '{team_id}'")
             task_id = _new_id("task")
             timestamp = _utc_now()
             row = connection.execute(
@@ -1112,11 +1112,11 @@ class FinalismaStore:
             self._recover_expired_leases(connection, team_id)
             row = connection.execute("SELECT * FROM tasks WHERE team_id = ? AND task_id = ?", (team_id, task_id)).fetchone()
             if row is None:
-                raise FinalismaError("task_not_found", f"Task '{task_id}' was not found")
+                raise WeftError("task_not_found", f"Task '{task_id}' was not found")
             if row["status"] in {"done", "cancelled", "verified"}:
-                raise FinalismaError("task_not_claimable", f"Task '{task_id}' is already {row['status']}")
+                raise WeftError("task_not_claimable", f"Task '{task_id}' is already {row['status']}")
             if row["claimed_by"] and row["claimed_by"] != agent_id and row["status"] in {"assigned", "in_progress", "review"}:
-                raise FinalismaError("task_claim_conflict", "Task is already leased to another agent", {"claimed_by": row["claimed_by"], "fencing_token": row["fencing_token"]})
+                raise WeftError("task_claim_conflict", "Task is already leased to another agent", {"claimed_by": row["claimed_by"], "fencing_token": row["fencing_token"]})
             scope = _parse_json(row["scope_json"], [])
             active_rows = connection.execute(
                 "SELECT * FROM tasks WHERE team_id = ? AND task_id != ? AND status IN ('assigned','in_progress','review') AND claimed_by IS NOT NULL",
@@ -1125,7 +1125,7 @@ class FinalismaStore:
             for other in active_rows:
                 other_scope = _parse_json(other["scope_json"], [])
                 if scope and other_scope and self._scope_conflicts(scope, other_scope):
-                    raise FinalismaError("scope_lock_conflict", "Another active task owns an overlapping file scope", {"task_id": other["task_id"], "claimed_by": other["claimed_by"], "scope": other_scope})
+                    raise WeftError("scope_lock_conflict", "Another active task owns an overlapping file scope", {"task_id": other["task_id"], "claimed_by": other["claimed_by"], "scope": other_scope})
             token = secrets.randbits(51)  # <= 2^51-1, inside JS safe-integer range (2^53-1)
             lease_until = _epoch() + lease_seconds
             updated = connection.execute(
@@ -1151,30 +1151,30 @@ class FinalismaStore:
         _validate_id(agent_id, "agent_id")
         _validate_id(task_id, "task_id")
         if status is not None and status not in TASK_STATUSES:
-            raise FinalismaError("invalid_status", f"Unknown task status '{status}'")
+            raise WeftError("invalid_status", f"Unknown task status '{status}'")
         if progress is not None:
             progress = _safe_int(progress, 0, 0, 100)
         if note is not None and (not isinstance(note, str) or len(note) > 8_000):
-            raise FinalismaError("invalid_argument", "note must be at most 8000 characters")
+            raise WeftError("invalid_argument", "note must be at most 8000 characters")
         with self._transaction() as connection:
             self._authorize_actor(connection, team_id, agent_id, actor_token)
             self._recover_expired_leases(connection, team_id)
             row = connection.execute("SELECT * FROM tasks WHERE team_id = ? AND task_id = ?", (team_id, task_id)).fetchone()
             if row is None:
-                raise FinalismaError("task_not_found", f"Task '{task_id}' was not found")
+                raise WeftError("task_not_found", f"Task '{task_id}' was not found")
             if row["claimed_by"] != agent_id:
-                raise FinalismaError("not_task_owner", "Only the current lease owner may update this task")
+                raise WeftError("not_task_owner", "Only the current lease owner may update this task")
             if fencing_token is None or fencing_token != row["fencing_token"]:
-                raise FinalismaError("stale_fencing_token", "The fencing token does not match the current lease")
+                raise WeftError("stale_fencing_token", "The fencing token does not match the current lease")
             if row["lease_until"] is not None and row["lease_until"] < _epoch():
-                raise FinalismaError("lease_expired", "The task lease has expired; reclaim it before updating")
+                raise WeftError("lease_expired", "The task lease has expired; reclaim it before updating")
             if status == "done":
-                raise FinalismaError("quality_gate_required", "Use finalisma_complete_task after a passed quality gate")
+                raise WeftError("quality_gate_required", "Use finalisma_complete_task after a passed quality gate")
             next_status = status or row["status"]
             if status == "verified":
-                raise FinalismaError("quality_gate_required", "Use finalisma_verify_task to reach verified")
+                raise WeftError("quality_gate_required", "Use finalisma_verify_task to reach verified")
             if row["status"] == "verified" and next_status != "verified":
-                raise FinalismaError("invalid_transition", "A verified task can only be completed")
+                raise WeftError("invalid_transition", "A verified task can only be completed")
             fields: list[str] = ["status = ?", "progress = ?", "version = version + 1", "updated_at = ?"]
             params: list[Any] = [next_status, progress if progress is not None else row["progress"], _utc_now()]
             if next_status in {"blocked", "cancelled"}:
@@ -1209,10 +1209,10 @@ class FinalismaStore:
         if task_id is not None:
             _validate_id(task_id, "task_id")
         if not isinstance(kind, str) or not re.fullmatch(r"[a-z][a-z0-9_.:-]{1,63}", kind):
-            raise FinalismaError("invalid_message_type", "kind must be a lowercase namespaced event type")
+            raise WeftError("invalid_message_type", "kind must be a lowercase namespaced event type")
         priority = _safe_int(priority, 2, 0, 3)
         if idempotency_key is not None and (not isinstance(idempotency_key, str) or len(idempotency_key) > 160):
-            raise FinalismaError("invalid_argument", "idempotency_key must be at most 160 characters")
+            raise WeftError("invalid_argument", "idempotency_key must be at most 160 characters")
         encoded_payload = _json(payload)
         encoded_capabilities = _json(list(capabilities or []))
         with self._transaction() as connection:
@@ -1222,7 +1222,7 @@ class FinalismaStore:
             if task_id is not None:
                 task = connection.execute("SELECT task_id FROM tasks WHERE team_id = ? AND task_id = ?", (team_id, task_id)).fetchone()
                 if task is None:
-                    raise FinalismaError("task_not_found", f"Task '{task_id}' was not found")
+                    raise WeftError("task_not_found", f"Task '{task_id}' was not found")
             message_id = _new_id("msg")
             sent_at = _utc_now()
             correlation_id = correlation_id or task_id or message_id
@@ -1243,14 +1243,14 @@ class FinalismaStore:
                         (team_id, sender_id, idempotency_key),
                     ).fetchone()
                 if prior is None:
-                    raise FinalismaError("state_conflict", "Message insert conflicted with persisted state")
+                    raise WeftError("state_conflict", "Message insert conflicted with persisted state")
                 return {"sent": False, "idempotent": True, "message": self._message_dict(connection, prior, sender_id)}
             self._insert_event(connection, team_id, "message.sent", sender_id, message_id, {"kind": kind, "recipient_id": recipient_id, "task_id": task_id, "correlation_id": correlation_id})
             return {
                 "sent": True,
                 "message": {
-                    "protocol": FINALISMA_PROTOCOL,
-                    "version": FINALISMA_VERSION,
+                    "protocol": WEFT_PROTOCOL,
+                    "version": WEFT_VERSION,
                     "message_id": message_id,
                     "type": kind,
                     "task_id": task_id,
@@ -1284,8 +1284,8 @@ class FinalismaStore:
                 (row["team_id"], row["message_id"], viewer_id),
             ).fetchone() is not None
         return {
-            "protocol": FINALISMA_PROTOCOL,
-            "version": FINALISMA_VERSION,
+            "protocol": WEFT_PROTOCOL,
+            "version": WEFT_VERSION,
             "message_id": row["message_id"],
             "type": row["kind"],
             "task_id": row["task_id"],
@@ -1361,9 +1361,9 @@ class FinalismaStore:
                 (team_id, message_id),
             ).fetchone()
             if message is None:
-                raise FinalismaError("message_not_found", f"Message '{message_id}' was not found")
+                raise WeftError("message_not_found", f"Message '{message_id}' was not found")
             if message["recipient_id"] is not None and message["recipient_id"] != agent_id:
-                raise FinalismaError("message_forbidden", "Message is addressed to a different agent")
+                raise WeftError("message_forbidden", "Message is addressed to a different agent")
             inserted = connection.execute(
                 "INSERT OR IGNORE INTO message_reads(team_id, message_id, agent_id, read_at) VALUES (?, ?, ?, ?)",
                 (team_id, message_id, agent_id, _utc_now()),
@@ -1438,9 +1438,9 @@ class FinalismaStore:
         if reviewer_id is not None:
             _validate_id(reviewer_id, "reviewer_id")
         if not isinstance(checks, Sequence) or isinstance(checks, (str, bytes)) or not checks:
-            raise FinalismaError("quality_gate_failed", "At least one machine-readable check is required")
+            raise WeftError("quality_gate_failed", "At least one machine-readable check is required")
         if len(checks) > 64:
-            raise FinalismaError("invalid_argument", "At most 64 checks may be submitted")
+            raise WeftError("invalid_argument", "At most 64 checks may be submitted")
         with self._transaction() as connection:
             self._authorize_actor(connection, team_id, agent_id, actor_token)
             if reviewer_id:
@@ -1448,13 +1448,13 @@ class FinalismaStore:
             self._recover_expired_leases(connection, team_id)
             task = connection.execute("SELECT * FROM tasks WHERE team_id = ? AND task_id = ?", (team_id, task_id)).fetchone()
             if task is None:
-                raise FinalismaError("task_not_found", f"Task '{task_id}' was not found")
+                raise WeftError("task_not_found", f"Task '{task_id}' was not found")
             if task["claimed_by"] != agent_id:
-                raise FinalismaError("not_task_owner", "Only the current lease owner may submit evidence")
+                raise WeftError("not_task_owner", "Only the current lease owner may submit evidence")
             if fencing_token != task["fencing_token"]:
-                raise FinalismaError("stale_fencing_token", "The fencing token does not match the current lease")
+                raise WeftError("stale_fencing_token", "The fencing token does not match the current lease")
             if task["lease_until"] is not None and task["lease_until"] < _epoch():
-                raise FinalismaError("lease_expired", "The task lease has expired; reclaim it before verification")
+                raise WeftError("lease_expired", "The task lease has expired; reclaim it before verification")
             declared_scope = _parse_json(task["scope_json"], [])
             file_records: list[dict[str, Any]] = []
             scope_violations: list[str] = []
@@ -1483,10 +1483,10 @@ class FinalismaStore:
             check_failures: list[str] = []
             for check in checks:
                 if not isinstance(check, dict) or not isinstance(check.get("name"), str):
-                    raise FinalismaError("quality_gate_failed", "Each check must include a name and status")
+                    raise WeftError("quality_gate_failed", "Each check must include a name and status")
                 status = check.get("status")
                 if status not in {"passed", "failed", "unknown"}:
-                    raise FinalismaError("quality_gate_failed", "Check status must be passed, failed, or unknown")
+                    raise WeftError("quality_gate_failed", "Check status must be passed, failed, or unknown")
                 if status != "passed":
                     check_failures.append(check["name"])
                 normalized_checks.append({
@@ -1532,18 +1532,18 @@ class FinalismaStore:
         _validate_id(agent_id, "agent_id")
         _validate_id(task_id, "task_id")
         if not isinstance(summary, str) or len(summary) > 8_000:
-            raise FinalismaError("invalid_argument", "summary must be at most 8000 characters")
+            raise WeftError("invalid_argument", "summary must be at most 8000 characters")
         with self._transaction() as connection:
             self._authorize_actor(connection, team_id, agent_id, actor_token)
             task = connection.execute("SELECT * FROM tasks WHERE team_id = ? AND task_id = ?", (team_id, task_id)).fetchone()
             if task is None:
-                raise FinalismaError("task_not_found", f"Task '{task_id}' was not found")
+                raise WeftError("task_not_found", f"Task '{task_id}' was not found")
             if task["claimed_by"] != agent_id or fencing_token != task["fencing_token"]:
-                raise FinalismaError("stale_fencing_token", "Only the current lease owner may complete this task")
+                raise WeftError("stale_fencing_token", "Only the current lease owner may complete this task")
             if task["status"] != "verified":
-                raise FinalismaError("quality_gate_required", "Task must have a passed quality gate before completion", {"status": task["status"]})
+                raise WeftError("quality_gate_required", "Task must have a passed quality gate before completion", {"status": task["status"]})
             if task["lease_until"] is not None and task["lease_until"] < _epoch():
-                raise FinalismaError("lease_expired", "The task lease has expired; renew it before completion")
+                raise WeftError("lease_expired", "The task lease has expired; renew it before completion")
             metadata = _parse_json(task["metadata_json"], {})
             if summary:
                 metadata["completion_summary"] = summary
@@ -1572,9 +1572,9 @@ class FinalismaStore:
         ttl_seconds = _safe_int(ttl_seconds, 900, 60, 3_600)
         capabilities = list(capabilities_offered or [])
         if len(capabilities) > 64 or any(not isinstance(item, str) for item in capabilities):
-            raise FinalismaError("invalid_argument", "capabilities_offered must contain at most 64 strings")
+            raise WeftError("invalid_argument", "capabilities_offered must contain at most 64 strings")
         if invitee_hint is not None and len(invitee_hint) > 160:
-            raise FinalismaError("invalid_argument", "invitee_hint must be at most 160 characters")
+            raise WeftError("invalid_argument", "invitee_hint must be at most 160 characters")
         raw_token = self._random_token("fst_pair")
         token_hash = self._token_hash(raw_token)
         raw_initiator_session_token = self._random_token("fst_session")
@@ -1642,7 +1642,7 @@ class FinalismaStore:
         with self._read() as connection:
             row = connection.execute("SELECT * FROM pairings WHERE token_hash = ?", (token_hash,)).fetchone()
             if row is None:
-                raise FinalismaError("pairing_not_found", "Pairing link is invalid or has been revoked")
+                raise WeftError("pairing_not_found", "Pairing link is invalid or has been revoked")
             return self._pairing_preview_dict(row)
 
     def pairing_preview_by_id(self, pairing_id: str, public: bool = False) -> dict[str, Any]:
@@ -1650,7 +1650,7 @@ class FinalismaStore:
         with self._read() as connection:
             row = connection.execute("SELECT * FROM pairings WHERE pairing_id = ?", (pairing_id,)).fetchone()
             if row is None:
-                raise FinalismaError("pairing_not_found", "Pairing link is invalid or has been revoked")
+                raise WeftError("pairing_not_found", "Pairing link is invalid or has been revoked")
             return self._pairing_preview_dict(row, public=public)
 
     def join_pairing(
@@ -1667,24 +1667,24 @@ class FinalismaStore:
         actor_token: str | None = None,
     ) -> dict[str, Any]:
         if not isinstance(consent, bool):
-            raise FinalismaError("invalid_consent", "consent must be the JSON boolean true")
+            raise WeftError("invalid_consent", "consent must be the JSON boolean true")
         if consent is not True:
-            raise FinalismaError("consent_required", "Joining a team requires explicit consent=true")
+            raise WeftError("consent_required", "Joining a team requires explicit consent=true")
         token_hash = self._token_hash(token)
         _validate_id(agent_id, "agent_id")
         session_ttl_seconds = _safe_int(session_ttl_seconds, 86_400, 300, 604_800)
         with self._transaction() as connection:
             pairing = connection.execute("SELECT * FROM pairings WHERE token_hash = ?", (token_hash,)).fetchone()
             if pairing is None:
-                raise FinalismaError("pairing_not_found", "Pairing link is invalid or has been revoked")
+                raise WeftError("pairing_not_found", "Pairing link is invalid or has been revoked")
             now = _epoch()
             if pairing["status"] != "issued":
-                raise FinalismaError("pairing_unavailable", f"Pairing is {pairing['status']}")
+                raise WeftError("pairing_unavailable", f"Pairing is {pairing['status']}")
             if pairing["expires_at"] < now:
                 connection.execute("UPDATE pairings SET status = 'expired' WHERE pairing_id = ?", (pairing["pairing_id"],))
-                raise FinalismaError("pairing_expired", "Pairing link has expired; request a new link")
+                raise WeftError("pairing_expired", "Pairing link has expired; request a new link")
             if pairing["created_by"] == agent_id:
-                raise FinalismaError("pairing_self_join", "The initiator cannot join its own pairing link")
+                raise WeftError("pairing_self_join", "The initiator cannot join its own pairing link")
             existing_agent = connection.execute(
                 "SELECT * FROM agents WHERE team_id = ? AND agent_id = ?",
                 (pairing["team_id"], agent_id),
@@ -1693,13 +1693,13 @@ class FinalismaStore:
                 self._authorize_actor(connection, pairing["team_id"], agent_id, actor_token)
             initiator_credential = connection.execute("SELECT * FROM pairing_credentials WHERE pairing_id = ?", (pairing["pairing_id"],)).fetchone()
             if initiator_credential is None:
-                raise FinalismaError("pairing_corrupt", "Pairing is missing its initiator credential")
+                raise WeftError("pairing_corrupt", "Pairing is missing its initiator credential")
             changed = connection.execute(
                 "UPDATE pairings SET status = 'consumed', consumed_at = ?, consumed_by = ? WHERE pairing_id = ? AND status = 'issued' AND expires_at >= ?",
                 (_utc_now(), agent_id, pairing["pairing_id"], now),
             ).rowcount
             if changed != 1:
-                raise FinalismaError("pairing_race", "Pairing link was consumed by another join attempt")
+                raise WeftError("pairing_race", "Pairing link was consumed by another join attempt")
             self._ensure_team(connection, pairing["team_id"])
             self._upsert_agent(connection, pairing["team_id"], agent_id, name, role, model, capabilities, metadata)
             issued_actor_token = None
@@ -1767,22 +1767,22 @@ class FinalismaStore:
             (token_hash,),
         ).fetchone()
         if row is None:
-            raise FinalismaError("session_unauthorized", "Session token is invalid")
+            raise WeftError("session_unauthorized", "Session token is invalid")
         if row["state"] != "active":
-            raise FinalismaError("session_closed", f"Session is {row['state']}")
+            raise WeftError("session_closed", f"Session is {row['state']}")
         if row["expires_at"] < _epoch() or row["credential_expires_at"] < _epoch():
             if expire_if_stale:
                 connection.execute("UPDATE sessions SET state = 'expired', closed_at = ? WHERE session_id = ?", (_utc_now(), row["session_id"]))
-            raise FinalismaError("session_expired", "Session has expired; create a new pairing")
+            raise WeftError("session_expired", "Session has expired; create a new pairing")
         if agent_id != row["credential_agent"]:
-            raise FinalismaError("session_forbidden", "Session credential is bound to a different agent")
+            raise WeftError("session_forbidden", "Session credential is bound to a different agent")
         return row
 
     @staticmethod
     def _session_event_dict(row: sqlite3.Row) -> dict[str, Any]:
         return {
-            "protocol": FINALISMA_PROTOCOL,
-            "version": FINALISMA_VERSION,
+            "protocol": WEFT_PROTOCOL,
+            "version": WEFT_VERSION,
             "session_id": row["session_id"],
             "seq": row["seq"],
             "event_id": row["event_id"],
@@ -1803,9 +1803,9 @@ class FinalismaStore:
         trace_id: str | None = None,
     ) -> dict[str, Any]:
         if not isinstance(kind, str) or not re.fullmatch(r"[a-z][a-z0-9_.:-]{1,63}", kind):
-            raise FinalismaError("invalid_message_type", "kind must be a lowercase namespaced event type")
+            raise WeftError("invalid_message_type", "kind must be a lowercase namespaced event type")
         if not isinstance(idempotency_key, str) or not 8 <= len(idempotency_key) <= 160:
-            raise FinalismaError("invalid_argument", "idempotency_key must be 8-160 characters")
+            raise WeftError("invalid_argument", "idempotency_key must be 8-160 characters")
         payload_json = _json(payload)
         with self._transaction() as connection:
             session = self._require_session(connection, session_token, agent_id)
@@ -1831,8 +1831,8 @@ class FinalismaStore:
             return {
                 "sent": True,
                 "event": {
-                    "protocol": FINALISMA_PROTOCOL,
-                    "version": FINALISMA_VERSION,
+                    "protocol": WEFT_PROTOCOL,
+                    "version": WEFT_VERSION,
                     "session_id": session["session_id"],
                     "seq": seq,
                     "event_id": event_id,
@@ -1872,7 +1872,7 @@ class FinalismaStore:
         with self._transaction() as connection:
             session = self._require_session(connection, session_token, agent_id)
             if seq > session["cursor_head"]:
-                raise FinalismaError("invalid_cursor", "Cannot acknowledge an event beyond the session head")
+                raise WeftError("invalid_cursor", "Cannot acknowledge an event beyond the session head")
             cursor = connection.execute(
                 """
                 INSERT INTO session_cursors(session_id, agent_id, last_ack_seq, updated_at)
@@ -1933,7 +1933,7 @@ class FinalismaStore:
             connection.execute("SELECT 1").fetchone()
             sessions = connection.execute("SELECT COUNT(*) FROM sessions WHERE state = 'active' AND expires_at >= ?", (_epoch(),)).fetchone()[0]
             schema = connection.execute("SELECT value FROM schema_meta WHERE key = 'schema_version'").fetchone()
-            return {"status": "ok", "service": "finalisma", "protocol": FINALISMA_PROTOCOL, "version": FINALISMA_VERSION, "schema_version": int(schema["value"]) if schema else None, "active_sessions": sessions}
+            return {"status": "ok", "service": "finalisma", "protocol": WEFT_PROTOCOL, "version": WEFT_VERSION, "schema_version": int(schema["value"]) if schema else None, "active_sessions": sessions}
 
     def team_status(
         self,
@@ -1971,8 +1971,8 @@ class FinalismaStore:
 
     def protocol_info(self) -> dict[str, Any]:
         return {
-            "protocol": FINALISMA_PROTOCOL,
-            "version": FINALISMA_VERSION,
+            "protocol": WEFT_PROTOCOL,
+            "version": WEFT_VERSION,
             "mcp_protocol": MCP_PROTOCOL_VERSION,
             "tagline": "Connect two agents. Get a team.",
             "guarantees": [

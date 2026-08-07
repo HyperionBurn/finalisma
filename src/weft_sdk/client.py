@@ -23,7 +23,7 @@ from urllib.parse import urlsplit
 # Error types
 # ---------------------------------------------------------------------------
 
-class FinalismaError(RuntimeError):
+class WeftError(RuntimeError):
     """Structured error returned by the SDK."""
 
     def __init__(self, code: str, message: str, details: Any | None = None):
@@ -33,27 +33,27 @@ class FinalismaError(RuntimeError):
         self.details: Any | None = details
 
 
-class AuthError(FinalismaError):
+class AuthError(WeftError):
     """Raised when the server rejects an actor credential."""
     pass
 
 
-class EvidenceError(FinalismaError):
+class EvidenceError(WeftError):
     """Raised when the quality gate rejects submitted evidence."""
     pass
 
 
-class NotFoundError(FinalismaError):
+class NotFoundError(WeftError):
     """Raised when a referenced entity does not exist."""
     pass
 
 
-class ConflictError(FinalismaError):
+class ConflictError(WeftError):
     """Raised when a state conflict (duplicate, race, stale token) occurs."""
     pass
 
 
-class TimeoutError(FinalismaError):
+class TimeoutError(WeftError):
     """Raised on transport timeout."""
     pass
 
@@ -91,7 +91,7 @@ _ERROR_MAP = {
 
 
 def _raise_structured(code: str, message: str, details: Any | None = None) -> None:
-    cls = _ERROR_MAP.get(code, FinalismaError)
+    cls = _ERROR_MAP.get(code, WeftError)
     raise cls(code, message, details)
 
 
@@ -344,7 +344,7 @@ class _JsonRpcTransport:
                 if status != 200:
                     # Do NOT embed the coordinator response body into the raised
                     # exception — it can carry tokens. Redact it to status only.
-                    raise FinalismaError(
+                    raise WeftError(
                         "http_error",
                         f"HTTP {status} from coordinator",
                         {"status": status, "body": "<redacted>"},
@@ -356,7 +356,7 @@ class _JsonRpcTransport:
                     _raise_structured(err.get("code", "remote_error"), err.get("message", "Remote JSON-RPC error"), err.get("data"))
                 result = envelope.get("result", {})
                 if isinstance(result, dict) and result.get("isError"):
-                    # FinalismaError returned as tool error content
+                    # WeftError returned as tool error content
                     content = result.get("content", [])
                     text = content[0].get("text", "") if content else ""
                     try:
@@ -364,7 +364,7 @@ class _JsonRpcTransport:
                         err = inner.get("error", {})
                         _raise_structured(err.get("code", "tool_error"), err.get("message", "Tool call failed"), err.get("details"))
                     except (json.JSONDecodeError, IndexError):
-                        raise FinalismaError("tool_error", text or "Tool call failed")
+                        raise WeftError("tool_error", text or "Tool call failed")
                 return result.get("structuredContent") if isinstance(result, dict) and "structuredContent" in result else result
             except (http.client.HTTPException, ConnectionError, TimeoutError, OSError) as exc:
                 last_exc = exc
@@ -376,14 +376,14 @@ class _JsonRpcTransport:
 
 
 # ---------------------------------------------------------------------------
-# FinalismaClient
+# WeftClient
 # ---------------------------------------------------------------------------
 
-class FinalismaClient:
+class WeftClient:
     """Ergonomic stdlib-only Python SDK for the Finalisma A2A protocol.
 
     Token hygiene: the actor_token is accepted as a constructor argument or via
-    the FINALISMA_ACTOR_TOKEN environment variable.  It is NEVER logged and
+    the WEFT_ACTOR_TOKEN environment variable.  It is NEVER logged and
     NEVER appears in __repr__.
     """
 
@@ -399,13 +399,13 @@ class FinalismaClient:
         self.coordinator_url = coordinator_url
         self.agent_id = agent_id
         self.team_id = team_id
-        self._actor_token = actor_token or os.environ.get("FINALISMA_ACTOR_TOKEN")
+        self._actor_token = actor_token or os.environ.get("WEFT_ACTOR_TOKEN")
         self._transport = _JsonRpcTransport(coordinator_url, bearer_token=bearer_token, timeout=timeout)
 
     # -- representation -----------------------------------------------------
 
     def __repr__(self) -> str:
-        return f"FinalismaClient(coordinator_url={self.coordinator_url!r}, agent_id={self.agent_id!r}, team_id={self.team_id!r})"
+        return f"WeftClient(coordinator_url={self.coordinator_url!r}, agent_id={self.agent_id!r}, team_id={self.team_id!r})"
 
     # -- low-level RPC ------------------------------------------------------
 
@@ -497,7 +497,7 @@ class FinalismaClient:
             qs = parse_qs(fragment)
             token = qs.get("token", [""])[0]
         if not token:
-            raise FinalismaError("invalid_pairing_url", "Pairing URL must contain a #token= fragment")
+            raise WeftError("invalid_pairing_url", "Pairing URL must contain a #token= fragment")
         target_agent = agent_id or self.agent_id
         params: dict[str, Any] = {
             "token": token,
@@ -554,8 +554,8 @@ class FinalismaClient:
             return result["task"]["task_id"]
         # The server may return created=False without a duplicate when blocked
         if not result.get("created") and not result.get("idempotent"):
-            raise FinalismaError("task_creation_failed", "Task was not created", result)
-        raise FinalismaError("task_creation_failed", "Task was not created", result)
+            raise WeftError("task_creation_failed", "Task was not created", result)
+        raise WeftError("task_creation_failed", "Task was not created", result)
 
     def claim(self, task_id: str, lease_seconds: int | None = None) -> TaskResult:
         result = self._call("finalisma_claim_task", task_id=task_id, lease_seconds=lease_seconds)
@@ -597,7 +597,7 @@ class FinalismaClient:
         required = ("sender_id", "kind", "payload")
         for key in required:
             if key not in envelope:
-                raise FinalismaError("invalid_envelope", f"Envelope must include '{key}'")
+                raise WeftError("invalid_envelope", f"Envelope must include '{key}'")
         return self._call("finalisma_send_message", **envelope)
 
     # -- rooms (Wave SDK-ROOMS) ---------------------------------------------
@@ -723,7 +723,7 @@ class FinalismaClient:
         """
         target_spec = kwargs.pop("target_spec", target)
         if target_spec is None:
-            raise FinalismaError("invalid_argument", "send requires a target (agent id, group, '*', or list)")
+            raise WeftError("invalid_argument", "send requires a target (agent id, group, '*', or list)")
         result = self._call(
             "finalisma_room_send",
             room_id=room_id,
@@ -869,7 +869,7 @@ class FinalismaClient:
         elif result.get("idempotent"):
             evt = result["event"]
         else:
-            raise FinalismaError("session_send_failed", "Failed to send session event")
+            raise WeftError("session_send_failed", "Failed to send session event")
         return SessionEvent(
             session_id=evt["session_id"],
             seq=evt["seq"],
@@ -922,7 +922,7 @@ class FinalismaClient:
     def close(self) -> None:
         self._transport.close()
 
-    def __enter__(self) -> "FinalismaClient":
+    def __enter__(self) -> "WeftClient":
         return self
 
     def __exit__(self, *exc: Any) -> None:

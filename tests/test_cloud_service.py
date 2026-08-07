@@ -1,6 +1,6 @@
 """Cloud service integration tests — the product claim, end-to-end.
 
-Drives the REAL ``FinalismaCloudService`` over REAL HTTP (via a
+Drives the REAL ``WeftCloudService`` over REAL HTTP (via a
 ``ThreadingHTTPServer`` on a background thread) — never against mocks or
 in-process fakes. Covers the full account → room → multi-agent flow plus the
 negative cases that prove enforcement.
@@ -25,7 +25,7 @@ from pathlib import Path
 # Ensure the src package is importable.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from weft_cloud.service import FinalismaCloudService, _CloudHTTPHandler
+from weft_cloud.service import WeftCloudService, _CloudHTTPHandler
 from weft_cloud.storage import SqliteWalBackend
 
 
@@ -69,7 +69,7 @@ class CloudServiceTestBase(unittest.TestCase):
     def setUp(self) -> None:
         self.tmpdir = tempfile.mkdtemp(prefix="finalisma-test-")
         self.db_path = str(Path(self.tmpdir) / "test.db")
-        self.service = FinalismaCloudService(SqliteWalBackend(self.db_path))
+        self.service = WeftCloudService(SqliteWalBackend(self.db_path))
         self.port = 18800 + (hash(self.tmpdir) % 1000)
         self.server = threading.Thread(
             target=self._serve, daemon=True,

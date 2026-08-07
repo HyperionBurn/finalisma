@@ -19,12 +19,12 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from weft_mcp.core import FinalismaStore
-from weft_mcp.server import FinalismaDispatcher, _MCPRequestHandler, _Metrics, _WindowRateLimiter
+from weft_mcp.core import WeftStore
+from weft_mcp.server import WeftDispatcher, _MCPRequestHandler, _Metrics, _WindowRateLimiter
 
 from weft_sdk import (
-    FinalismaClient,
-    FinalismaError,
+    WeftClient,
+    WeftError,
     AuthError,
     EvidenceError,
     NotFoundError,
@@ -40,8 +40,8 @@ from weft_sdk import (
 class _ServerHarness:
     """Start the real MCP HTTP handler on an ephemeral port."""
 
-    def __init__(self, store: FinalismaStore, allowed_origin: str | None = None):
-        self.dispatcher = FinalismaDispatcher(store)
+    def __init__(self, store: WeftStore, allowed_origin: str | None = None):
+        self.dispatcher = WeftDispatcher(store)
         handler = type("SDKHandler", (_MCPRequestHandler,), {})
         handler.dispatcher = self.dispatcher
         handler.token = None
@@ -70,11 +70,11 @@ class SDKFullFlowTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
-        self.store = FinalismaStore(root / "state.db", root, heartbeat_timeout=60)
+        self.store = WeftStore(root / "state.db", root, heartbeat_timeout=60)
         self.harness = _ServerHarness(self.store)
         # Agent A and B clients
-        self.client_a = FinalismaClient(self.harness.base_url, "agent-a", "demo")
-        self.client_b = FinalismaClient(self.harness.base_url, "agent-b", "demo")
+        self.client_a = WeftClient(self.harness.base_url, "agent-a", "demo")
+        self.client_b = WeftClient(self.harness.base_url, "agent-b", "demo")
 
     def tearDown(self) -> None:
         self.client_a.close()
@@ -110,16 +110,16 @@ class SDKFullFlowTests(unittest.TestCase):
         self.assertNotIn("fst_actor", text)
 
     def test_env_var_token_hygiene(self) -> None:
-        # The SDK should pick up FINALISMA_ACTOR_TOKEN from env when not passed
+        # The SDK should pick up WEFT_ACTOR_TOKEN from env when not passed
         import os as _os
-        _os.environ["FINALISMA_TEST_TOKEN"] = "fst_actor_env_token_value_here_1234567890"
+        _os.environ["WEFT_TEST_TOKEN"] = "fst_actor_env_token_value_here_1234567890"
         try:
-            c = FinalismaClient(self.harness.base_url, "env-agent", "demo",
-                                 actor_token=_os.environ["FINALISMA_TEST_TOKEN"])
+            c = WeftClient(self.harness.base_url, "env-agent", "demo",
+                                 actor_token=_os.environ["WEFT_TEST_TOKEN"])
             self.assertEqual(c._actor_token, "fst_actor_env_token_value_here_1234567890")
             self.assertNotIn("env_token", repr(c))
         finally:
-            _os.environ.pop("FINALISMA_TEST_TOKEN", None)
+            _os.environ.pop("WEFT_TEST_TOKEN", None)
 
     # ------------------------------------------------------------------
     # Full two-agent pairing + task lifecycle
@@ -243,7 +243,7 @@ class SDKFullFlowTests(unittest.TestCase):
         self.assertEqual(self.client_a._actor_token, rotation.actor_token)
 
         # Old token should now be rejected — use a separate client with old token
-        stale_client = FinalismaClient(self.harness.base_url, "agent-a", "demo", actor_token=old_token)
+        stale_client = WeftClient(self.harness.base_url, "agent-a", "demo", actor_token=old_token)
         try:
             with self.assertRaises(AuthError):
                 stale_client.heartbeat()
@@ -263,7 +263,7 @@ class SDKFullFlowTests(unittest.TestCase):
         reg = self.client_a.register(role="architect")
         self.client_a._actor_token = reg["actor_token"]  # real token
         # Now create a second client with the SAME agent_id but wrong token
-        malicious = FinalismaClient(self.harness.base_url, "agent-a", "demo",
+        malicious = WeftClient(self.harness.base_url, "agent-a", "demo",
                                       actor_token="fst_actor_wrong_token_value_that_is_long_enough_1234567890")
         try:
             with self.assertRaises(AuthError):
@@ -282,7 +282,7 @@ class SDKFullFlowTests(unittest.TestCase):
         conn.execute("UPDATE pairings SET expires_at = 0 WHERE pairing_id = ?", (pairing.pairing_id,))
         conn.commit()
         conn.close()
-        with self.assertRaises((ConflictError, NotFoundError, FinalismaError)):
+        with self.assertRaises((ConflictError, NotFoundError, WeftError)):
             self.client_b.join_pairing(pairing.join_url, consent=True)
 
     def test_evidence_failure_raises_evidence_error(self) -> None:
@@ -322,7 +322,7 @@ class SDKFullFlowTests(unittest.TestCase):
         self.assertEqual(task.status, "in_progress")
 
     def test_pairing_url_without_token_rejected(self) -> None:
-        with self.assertRaises(FinalismaError) as ctx:
+        with self.assertRaises(WeftError) as ctx:
             self.client_b.join_pairing("http://127.0.0.1:8787/v1/join/pair_abc", consent=True)
         self.assertEqual(ctx.exception.code, "invalid_pairing_url")
 
@@ -363,8 +363,8 @@ class SDKFullFlowTests(unittest.TestCase):
         t = threading.Thread(target=srv.serve_forever, daemon=True)
         t.start()
         try:
-            client = FinalismaClient(f"http://127.0.0.1:{port}/mcp", "agent-a", "demo")
-            with self.assertRaises(FinalismaError) as ctx:
+            client = WeftClient(f"http://127.0.0.1:{port}/mcp", "agent-a", "demo")
+            with self.assertRaises(WeftError) as ctx:
                 client.connect()
             rendered = str(ctx.exception)
             self.assertNotIn(SECRET_TOKEN, rendered)
@@ -417,7 +417,7 @@ class SDKRetryTests(unittest.TestCase):
         thread.start()
         host, port = server.server_address
         try:
-            client = FinalismaClient(f"http://{host}:{port}/mcp", "agent-a", "demo")
+            client = WeftClient(f"http://{host}:{port}/mcp", "agent-a", "demo")
             result = client.connect()
             self.assertEqual(result["protocol"], "finalisma.a2a")
             self.assertGreaterEqual(call_count["n"], 3)

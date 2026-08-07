@@ -206,9 +206,9 @@ class RosterCoexistenceWithCoreTests(unittest.TestCase):
             pass
 
     def test_core_then_roster_same_db(self):
-        from weft_mcp.core import FinalismaStore
+        from weft_mcp.core import WeftStore
 
-        store = FinalismaStore(state_path=self.db_path, workspace_path=self.db_path + ".ws")
+        store = WeftStore(state_path=self.db_path, workspace_path=self.db_path + ".ws")
         try:
             store.register_agent(team_id="demo", agent_id="core-agent", role="tester")
             # Now init the roster layer on the same file.

@@ -1,8 +1,8 @@
 """Finalisma SDK — stdlib-only Python client for the Finalisma A2A protocol."""
 
 from .client import (
-    FinalismaClient,
-    FinalismaError,
+    WeftClient,
+    WeftError,
     AuthError,
     EvidenceError,
     NotFoundError,
@@ -23,8 +23,8 @@ from .client import (
 )
 
 __all__ = [
-    "FinalismaClient",
-    "FinalismaError",
+    "WeftClient",
+    "WeftError",
     "AuthError",
     "EvidenceError",
     "NotFoundError",

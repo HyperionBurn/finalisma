@@ -27,8 +27,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from weft_mcp.core import FinalismaStore
-from weft_mcp.server import FinalismaDispatcher, TOOLS
+from weft_mcp.core import WeftStore
+from weft_mcp.server import WeftDispatcher, TOOLS
 
 
 def _v1_envelope(sender: str = "agent-a", recipient: str = "agent-b", type_: str = "task.progress") -> dict:
@@ -51,8 +51,8 @@ class OutboxIntegrationTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
         # Mirror test_actor_credentials_server.py harness exactly.
-        self.store = FinalismaStore(root / "state.db", root, require_actor_auth=True)
-        self.dispatcher = FinalismaDispatcher(self.store)
+        self.store = WeftStore(root / "state.db", root, require_actor_auth=True)
+        self.dispatcher = WeftDispatcher(self.store)
         self.team_id = "team-outbox"
 
     def tearDown(self) -> None:
@@ -189,8 +189,8 @@ class OutboxIntegrationTests(unittest.TestCase):
         # Close current store to flush WAL, then reopen a fresh one on the same db.
         self.store.close()
         root = Path(self.temp.name)
-        reopened = FinalismaStore(root / "state.db", root, require_actor_auth=True)
-        new_dispatcher = FinalismaDispatcher(reopened)
+        reopened = WeftStore(root / "state.db", root, require_actor_auth=True)
+        new_dispatcher = WeftDispatcher(reopened)
 
         claim = new_dispatcher.call_tool(
             "finalisma_outbox_claim",

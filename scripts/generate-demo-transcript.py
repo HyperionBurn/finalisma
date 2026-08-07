@@ -12,7 +12,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from weft_mcp.core import FinalismaError, FinalismaStore  # noqa: E402
+from weft_mcp.core import WeftError, WeftStore  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -28,7 +28,7 @@ def build_parser() -> argparse.ArgumentParser:
 def run_demo() -> dict[str, object]:
     with tempfile.TemporaryDirectory(prefix="finalisma-launch-demo-") as temporary:
         workspace = Path(temporary)
-        with FinalismaStore(workspace / "state.db", workspace) as store:
+        with WeftStore(workspace / "state.db", workspace) as store:
             agent_a = store.register_agent(
                 "incident-7f3a",
                 "agent-a",
@@ -135,8 +135,8 @@ def run_demo() -> dict[str, object]:
             digest = verified["details"]["files"][0]["sha256"]
             event_types = [event["type"] for event in reversed(status["events"])]
             return {
-                "schema": "finalisma.public-demo/v1",
-                "source": "real local FinalismaStore protocol run",
+                "schema": "weft.public-demo/v1",
+                "source": "real local WeftStore protocol run",
                 "boundary": "Agent hosts are deterministic fixtures; coordinator, SQLite state, pairing, session, lease, fencing, artifact hashing, secret scan, evidence gate, and completion are real.",
                 "credentials_redacted": True,
                 "duration_seconds": 42,
@@ -276,6 +276,6 @@ def main(argv: list[str] | None = None) -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except FinalismaError as exc:
+    except WeftError as exc:
         print(json.dumps({"status": "failed", "error": exc.as_dict()}, indent=2), file=sys.stderr)
         raise SystemExit(1) from exc

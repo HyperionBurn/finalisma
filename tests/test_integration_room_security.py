@@ -1,10 +1,10 @@
 """RED deliverable — negative-case security contract for the Room product.
 
-Every finalisma_room_* call MUST raise FinalismaError("unknown_tool", ...)
+Every finalisma_room_* call MUST raise WeftError("unknown_tool", ...)
 until the tools are wired. This file asserts the full security contract from
 docs/ROOMS_DESIGN.md §3 (multi-use link delta + compensating controls),
 §8 (tool surface + error codes), and §9 (the 15 negative cases) through the
-real MCP surface (FinalismaDispatcher + real FinalismaStore on temp SQLite).
+real MCP surface (WeftDispatcher + real WeftStore on temp SQLite).
 
 The one exception is test_stale_fencing_token_on_room_task, which uses the
 already-wired finalisma_create_task / claim_task / complete_task tools to
@@ -21,8 +21,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from weft_mcp.core import FinalismaError, FinalismaStore
-from weft_mcp.server import FinalismaDispatcher, TOOLS
+from weft_mcp.core import WeftError, WeftStore
+from weft_mcp.server import WeftDispatcher, TOOLS
 
 
 class RoomSecurityIntegrationTests(unittest.TestCase):
@@ -31,8 +31,8 @@ class RoomSecurityIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
-        self.store = FinalismaStore(root / "state.db", root, require_actor_auth=True)
-        self.dispatcher = FinalismaDispatcher(self.store)
+        self.store = WeftStore(root / "state.db", root, require_actor_auth=True)
+        self.dispatcher = WeftDispatcher(self.store)
         # Register 4 agents for the various negative scenarios.
         reg_owner = self.dispatcher.call_tool(
             "finalisma_register_agent",
@@ -64,7 +64,7 @@ class RoomSecurityIntegrationTests(unittest.TestCase):
     # After wiring, these same call sites assert the EXACT error code.
     # ------------------------------------------------------------------
     def _assert_room_tool_refused(self, tool: str, args: dict) -> None:
-        with self.assertRaises(FinalismaError) as ctx:
+        with self.assertRaises(WeftError) as ctx:
             self.dispatcher.call_tool(tool, args)
         self.assertEqual(ctx.exception.code, "unknown_tool")
 
@@ -92,7 +92,7 @@ class RoomSecurityIntegrationTests(unittest.TestCase):
             },
         )
         # Third join MUST be refused with room_full.
-        with self.assertRaises(FinalismaError) as ctx:
+        with self.assertRaises(WeftError) as ctx:
             self.dispatcher.call_tool(
                 "finalisma_room_join",
                 {
@@ -129,7 +129,7 @@ class RoomSecurityIntegrationTests(unittest.TestCase):
             },
         )
         # Join attempt with the revoked link MUST be refused with link_revoked.
-        with self.assertRaises(FinalismaError) as ctx:
+        with self.assertRaises(WeftError) as ctx:
             self.dispatcher.call_tool(
                 "finalisma_room_join",
                 {
@@ -159,7 +159,7 @@ class RoomSecurityIntegrationTests(unittest.TestCase):
         link_token = created["link_token"]
         # Wait for the link to expire.
         time.sleep(1.1)
-        with self.assertRaises(FinalismaError) as ctx:
+        with self.assertRaises(WeftError) as ctx:
             self.dispatcher.call_tool(
                 "finalisma_room_join",
                 {
@@ -183,7 +183,7 @@ class RoomSecurityIntegrationTests(unittest.TestCase):
         )
         room_id = created["room_id"]
         # agent-2 is registered but never joined — room_poll must refuse.
-        with self.assertRaises(FinalismaError) as ctx:
+        with self.assertRaises(WeftError) as ctx:
             self.dispatcher.call_tool(
                 "finalisma_room_poll",
                 {
@@ -195,7 +195,7 @@ class RoomSecurityIntegrationTests(unittest.TestCase):
             )
         self.assertEqual(ctx.exception.code, "member_required")
         # Same for room_info.
-        with self.assertRaises(FinalismaError) as ctx:
+        with self.assertRaises(WeftError) as ctx:
             self.dispatcher.call_tool(
                 "finalisma_room_info",
                 {
@@ -237,7 +237,7 @@ class RoomSecurityIntegrationTests(unittest.TestCase):
         )
         room_b_id = room_b["room_id"]
         # agent-2 (member of A) attempts to poll room B — must be refused.
-        with self.assertRaises(FinalismaError) as ctx:
+        with self.assertRaises(WeftError) as ctx:
             self.dispatcher.call_tool(
                 "finalisma_room_poll",
                 {
@@ -249,7 +249,7 @@ class RoomSecurityIntegrationTests(unittest.TestCase):
             )
         self.assertIn(ctx.exception.code, ("room_not_found", "member_required"))
         # Same for room_info.
-        with self.assertRaises(FinalismaError) as ctx:
+        with self.assertRaises(WeftError) as ctx:
             self.dispatcher.call_tool(
                 "finalisma_room_info",
                 {
@@ -261,7 +261,7 @@ class RoomSecurityIntegrationTests(unittest.TestCase):
             )
         self.assertIn(ctx.exception.code, ("room_not_found", "member_required"))
         # Same for room_send.
-        with self.assertRaises(FinalismaError) as ctx:
+        with self.assertRaises(WeftError) as ctx:
             self.dispatcher.call_tool(
                 "finalisma_room_send",
                 {
@@ -313,7 +313,7 @@ class RoomSecurityIntegrationTests(unittest.TestCase):
         )
         fencing_token = claimed["fencing_token"]
         # Complete with a STALE token (fencing_token + 1) — MUST be refused.
-        with self.assertRaises(FinalismaError) as ctx:
+        with self.assertRaises(WeftError) as ctx:
             self.dispatcher.call_tool(
                 "finalisma_complete_task",
                 {
@@ -352,7 +352,7 @@ class RoomSecurityIntegrationTests(unittest.TestCase):
             },
         )
         # A3 attempts to impersonate A2 using A2's agent_id but A3's token.
-        with self.assertRaises(FinalismaError) as ctx:
+        with self.assertRaises(WeftError) as ctx:
             self.dispatcher.call_tool(
                 "finalisma_room_join",
                 {
@@ -390,7 +390,7 @@ class RoomSecurityIntegrationTests(unittest.TestCase):
         )
         room_id = created["room_id"]
         link_token = created["link_token"]
-        with self.assertRaises(FinalismaError) as ctx:
+        with self.assertRaises(WeftError) as ctx:
             self.dispatcher.call_tool(
                 "finalisma_room_join",
                 {
@@ -428,7 +428,7 @@ class RoomSecurityIntegrationTests(unittest.TestCase):
             },
         )
         # agent-2 (non-owner) attempts to close — must be refused.
-        with self.assertRaises(FinalismaError) as ctx:
+        with self.assertRaises(WeftError) as ctx:
             self.dispatcher.call_tool(
                 "finalisma_room_close",
                 {

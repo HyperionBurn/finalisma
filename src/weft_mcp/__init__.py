@@ -1,17 +1,17 @@
 """Finalisma: a small, interoperable agent-to-agent MCP bridge."""
 
 from .core import (
-    FINALISMA_PROTOCOL,
-    FINALISMA_VERSION,
+    WEFT_PROTOCOL,
+    WEFT_VERSION,
     MCP_PROTOCOL_VERSION,
-    FinalismaError,
-    FinalismaStore,
+    WeftError,
+    WeftStore,
 )
 
 __all__ = [
-    "FINALISMA_PROTOCOL",
-    "FINALISMA_VERSION",
+    "WEFT_PROTOCOL",
+    "WEFT_VERSION",
     "MCP_PROTOCOL_VERSION",
-    "FinalismaError",
-    "FinalismaStore",
+    "WeftError",
+    "WeftStore",
 ]

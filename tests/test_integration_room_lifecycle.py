@@ -7,24 +7,24 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from weft_mcp.core import FinalismaError, FinalismaStore
-from weft_mcp.server import FinalismaDispatcher, TOOLS
+from weft_mcp.core import WeftError, WeftStore
+from weft_mcp.server import WeftDispatcher, TOOLS
 
 
 class RoomLifecycleIntegrationTests(unittest.TestCase):
     """RED deliverable — lifecycle contract for the 5 core room tools.
 
-    Every finalisma_room_* call MUST raise FinalismaError("unknown_tool", ...)
+    Every finalisma_room_* call MUST raise WeftError("unknown_tool", ...)
     until the tools are wired. This file asserts the full contract from
     docs/ROOMS_DESIGN.md §8/§9/§10 through the real MCP surface
-    (FinalismaDispatcher + real FinalismaStore on temp SQLite).
+    (WeftDispatcher + real WeftStore on temp SQLite).
     """
 
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
-        self.store = FinalismaStore(root / "state.db", root, require_actor_auth=True)
-        self.dispatcher = FinalismaDispatcher(self.store)
+        self.store = WeftStore(root / "state.db", root, require_actor_auth=True)
+        self.dispatcher = WeftDispatcher(self.store)
         # Register two agents and capture their actor tokens.
         reg_owner = self.dispatcher.call_tool(
             "finalisma_register_agent",
@@ -152,7 +152,7 @@ class RoomLifecycleIntegrationTests(unittest.TestCase):
         self.assertEqual(info["member_count"], 3)
 
         # 4th join must be refused with code "room_full".
-        with self.assertRaises(FinalismaError) as refused:
+        with self.assertRaises(WeftError) as refused:
             self.dispatcher.call_tool(
                 "finalisma_room_join",
                 {
@@ -267,7 +267,7 @@ class RoomLifecycleIntegrationTests(unittest.TestCase):
         self.assertEqual(info["state"], "closed")
 
         # Join after close REFUSED with "room_closed".
-        with self.assertRaises(FinalismaError) as refused:
+        with self.assertRaises(WeftError) as refused:
             self.dispatcher.call_tool(
                 "finalisma_room_join",
                 {
@@ -302,7 +302,7 @@ class RoomLifecycleIntegrationTests(unittest.TestCase):
             },
         )
 
-        with self.assertRaises(FinalismaError) as refused:
+        with self.assertRaises(WeftError) as refused:
             self.dispatcher.call_tool(
                 "finalisma_room_close",
                 {"team_id": "team-1", "room_id": room_id, "owner_agent_id": "member-1", "actor_token": self.member_token},

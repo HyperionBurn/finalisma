@@ -3,12 +3,12 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
-const playwrightPath = process.env.FINALISMA_PLAYWRIGHT
+const playwrightPath = process.env.WEFT_PLAYWRIGHT
   || 'C:/Users/Wasif/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright';
 const { chromium } = require(playwrightPath);
 
 const root = path.resolve(__dirname, '..');
-const siteUrl = process.env.FINALISMA_SITE_URL || 'http://127.0.0.1:4175/';
+const siteUrl = process.env.WEFT_SITE_URL || 'http://127.0.0.1:4175/';
 const tempDir = path.join(root, '.tmp', 'demo-video');
 const webmPath = path.join(root, 'site', 'assets', 'finalisma-demo.webm');
 const mp4Path = path.join(root, 'site', 'assets', 'finalisma-demo.mp4');
@@ -27,7 +27,7 @@ const findNestedFfmpeg = (directory, depth = 0) => {
 
 const findFfmpegCandidates = () => {
   const candidates = [];
-  if (process.env.FINALISMA_FFMPEG) candidates.push(process.env.FINALISMA_FFMPEG);
+  if (process.env.WEFT_FFMPEG) candidates.push(process.env.WEFT_FFMPEG);
   candidates.push(...findNestedFfmpeg('C:/Program Files/Lenovo/LegionSpace'));
   const playwrightCache = path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'ms-playwright');
   if (fs.existsSync(playwrightCache)) {

@@ -395,7 +395,7 @@ def record_from_store_event(store_event: dict[str, Any]) -> str | None:
     Args:
         store_event: a dict with keys ``event_type``, ``team_id``,
             ``actor_id``, ``object_id``, ``payload`` (as produced by
-            ``FinalismaStore._insert_event``).
+            ``WeftStore._insert_event``).
 
     Returns:
         The recorded activation event_id, or ``None`` if the store event

@@ -9,7 +9,7 @@ Rollback story: down-migrations are NOT provided (data-destructive). The
 documented rollback is a pre-upgrade backup of the state file, restored on
 failure. The backup IS the rollback.
 
-`apply_migrations` accepts anything with a `.state_path` (a FinalismaStore or a
+`apply_migrations` accepts anything with a `.state_path` (a WeftStore or a
 SqliteWalBackend) and operates on that path directly, so it upgrades a real v3
 coordinator database in place.
 
@@ -314,11 +314,11 @@ def apply_migrations(store_or_backend: Any) -> None:
     """Apply forward-only, idempotent cloud migrations to a state database.
 
     ``store_or_backend`` is anything exposing ``.state_path`` (a
-    ``FinalismaStore`` or a ``SqliteWalBackend``). Migrations are tracked in
+    ``WeftStore`` or a ``SqliteWalBackend``). Migrations are tracked in
     ``schema_migrations``; re-running is a no-op. Coordinator tables are never
     altered.
 
-    When passed a ``FinalismaStore``, the migration uses the store's own pooled
+    When passed a ``WeftStore``, the migration uses the store's own pooled
     connection lifecycle (via ``_transaction``) so no second raw connection is
     opened against a WAL file — that avoided the Windows file-lock teardown
     flake.
@@ -347,7 +347,7 @@ def apply_migrations(store_or_backend: Any) -> None:
                 rollback()
                 raise
 
-    # Prefer the store's own transaction if it exposes one (FinalismaStore).
+    # Prefer the store's own transaction if it exposes one (WeftStore).
     # The store's own close() returns the DB to DELETE journal mode, so no
     # journal-mode handling is done here — a separate connection would race
     # the store's pool and leave a handle open on Windows.

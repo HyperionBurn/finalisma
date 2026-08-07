@@ -89,7 +89,7 @@ def _bearer_token(handler: BaseHTTPRequestHandler) -> str | None:
     return None
 
 
-class FinalismaCloudService:
+class WeftCloudService:
     """The hosted SaaS: identity + rooms over one HTTP surface.
 
     Constructed with a storage backend. All state lives in that backend's
@@ -499,7 +499,7 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
     ``BaseHTTPRequestHandler`` with a class-level ``service`` reference.
     """
 
-    service: FinalismaCloudService
+    service: WeftCloudService
 
     server_version = "finalisma-cloud/0.1.0"
 
@@ -587,14 +587,14 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
         self._handle("POST", handler_fn)
 
 
-def create_service(db_path: str = ":memory:") -> FinalismaCloudService:
+def create_service(db_path: str = ":memory:") -> WeftCloudService:
     """Create a cloud service backed by a SQLite-WAL database.
 
     ``db_path=":memory:"`` is used for tests. Pass a file path for persistence.
     """
     backend = SqliteWalBackend(db_path)
     backend.initialize()
-    return FinalismaCloudService(backend)
+    return WeftCloudService(backend)
 
 
 def runtime_config(
@@ -607,9 +607,9 @@ def runtime_config(
     positional form (``service.py <port> <db-path>``) keeps working while
     containers configure entirely through the environment:
 
-    - ``FINALISMA_HOST``  (default ``127.0.0.1``)
-    - ``FINALISMA_PORT``  (default ``18788``)
-    - ``FINALISMA_DB_PATH`` (default ``./data/finalisma-cloud.db``)
+    - ``WEFT_HOST``  (default ``127.0.0.1``)
+    - ``WEFT_PORT``  (default ``18788``)
+    - ``WEFT_DB_PATH`` (default ``./data/finalisma-cloud.db``)
 
     A malformed or out-of-range port raises ``ValueError`` so a misconfigured
     deploy fails loudly at startup instead of silently binding the default.
@@ -628,9 +628,9 @@ def runtime_config(
             raise ValueError(f"{name} must be in 1..65535, got {value}")
         return value
 
-    host = environ.get("FINALISMA_HOST", "127.0.0.1").strip() or "127.0.0.1"
-    port = _port("FINALISMA_PORT", environ.get("FINALISMA_PORT"), 18788)
-    db_path = environ.get("FINALISMA_DB_PATH", "./data/finalisma-cloud.db").strip() \
+    host = environ.get("WEFT_HOST", "127.0.0.1").strip() or "127.0.0.1"
+    port = _port("WEFT_PORT", environ.get("WEFT_PORT"), 18788)
+    db_path = environ.get("WEFT_DB_PATH", "./data/finalisma-cloud.db").strip() \
         or "./data/finalisma-cloud.db"
 
     if len(argv) >= 1:
