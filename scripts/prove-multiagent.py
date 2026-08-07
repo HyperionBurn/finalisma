@@ -75,6 +75,11 @@ def show(label: str, value) -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> int:
+    # Windows consoles default to cp1252, which cannot encode the "→" in the
+    # step labels below and crashes the transcript. Force UTF-8 so the proof
+    # runs identically everywhere.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     print("=" * 70)
     print("  FINALISMA CLOUD — MULTI-AGENT PROOF")
     print("  One link, many agents, ordered delivery, gate refuses stale work")
@@ -245,10 +250,20 @@ def main() -> int:
         "after_seq": 0,
     }, agent_tokens["agent-4"])
     last_event = poll4["events"][-1] if poll4["events"] else None
-    if last_event and last_event["payload"].get("text") == "private message to agent-4":
+    # room_send stores the caller payload nested under "payload" beside routing
+    # metadata ({"payload": ..., "target_spec": ..., "targets": ...}); read the
+    # nested key, with a top-level fallback if the envelope is ever flattened.
+    last_text = None
+    if last_event and isinstance(last_event.get("payload"), dict):
+        nested = last_event["payload"].get("payload")
+        if isinstance(nested, dict):
+            last_text = nested.get("text")
+        else:
+            last_text = last_event["payload"].get("text")
+    if last_text == "private message to agent-4":
         print("  Agent 4 received the private message — CORRECT")
     else:
-        print("  FAIL: agent 4 did not receive the private message")
+        print(f"  FAIL: agent 4 did not receive the private message (got payload: {last_event and last_event.get('payload')})")
         return 1
 
     # Agent 2 should NOT see it as a targeted message (it still sees it in the
@@ -275,17 +290,20 @@ def main() -> int:
         "payload": {"text": "I should be refused"},
     }, stranger_token)
     show("stranger send result", refused)
-    if refused.get("_http_error") != 403:
-        print(f"  FAIL: expected 403 refusal, got: {refused}")
+    # The product contract accepts either refusal (see tests/test_cloud_service.py):
+    # 404 room_not_found (no oracle — does not reveal the room exists) or
+    # 403 member_required (caller resolves to the room's own tenant).
+    if refused.get("_http_error") not in (403, 404):
+        print(f"  FAIL: expected 403/404 refusal, got: {refused}")
         return 1
     error_code = refused.get("_error", {}).get("error", {}).get("code")
     error_msg = refused.get("_error", {}).get("error", {}).get("message")
     show("refusal_code", error_code)
     show("refusal_message", error_msg)
-    if error_code != "member_required":
-        print(f"  FAIL: expected member_required refusal, got: {error_code}")
+    if error_code not in ("member_required", "room_not_found"):
+        print(f"  FAIL: expected member_required/room_not_found refusal, got: {error_code}")
         return 1
-    print("  REFUSAL VERIFIED: non-member send refused with member_required")
+    print("  REFUSAL VERIFIED: non-member send refused (no oracle, reason recorded)")
 
     # Also: stranger tries to poll — should be REFUSED.
     step("7b. Refuse a non-member trying to poll")
@@ -294,8 +312,8 @@ def main() -> int:
         "agent_id": "stranger",
     }, stranger_token)
     show("stranger poll result", stranger_poll)
-    if stranger_poll.get("_http_error") != 403:
-        print(f"  FAIL: expected 403 refusal for poll, got: {stranger_poll}")
+    if stranger_poll.get("_http_error") not in (403, 404):
+        print(f"  FAIL: expected 403/404 refusal for poll, got: {stranger_poll}")
         return 1
     print("  REFUSAL VERIFIED: non-member poll refused")
 
@@ -311,7 +329,16 @@ def main() -> int:
     events = log["events"]
     print(f"  Total events: {len(events)}")
     for e in events:
-        payload_summary = e["payload"].get("text") or e["payload"].get("agent_id") or e["kind"]
+        # event_log returns raw rows (payload_json) while poll returns parsed
+        # payload; handle both so this summary print cannot crash the proof.
+        p = e.get("payload")
+        if p is None and "payload_json" in e:
+            try:
+                p = json.loads(e["payload_json"])
+            except Exception:
+                p = {}
+        p = p or {}
+        payload_summary = p.get("text") or p.get("agent_id") or e["kind"]
         print(f"    seq={e['seq']:2d}  origin={e['origin_agent']:12s}  kind={e['kind']:14s}  {payload_summary}")
 
     # Verify the refusal is NOT in the event log (it was refused before append).
@@ -346,7 +373,7 @@ def main() -> int:
     print(f"  - 4 separate agents joined via the same link")
     print("  - Broadcast received by all in the same order (seq numbers printed)")
     print("  - Unicast reached only the intended addressee")
-    print("  - Non-member action REFUSED (member_required) — reason recorded")
+    print("  - Non-member action REFUSED (403 member_required or 404 room_not_found) — reason recorded")
     print("  - Ordered event log clean (no refused actions leaked)")
     print("  - Idempotent re-join works")
     print("=" * 70)
