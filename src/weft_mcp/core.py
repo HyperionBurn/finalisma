@@ -952,7 +952,6 @@ class WeftStore:
         _validate_id(team_id, "team_id")
         _validate_id(agent_id, "agent_id")
         with self._transaction() as connection:
-            self._require_agent(connection, team_id, agent_id)
             credential = connection.execute(
                 "SELECT * FROM agent_credentials WHERE team_id = ? AND agent_id = ?",
                 (team_id, agent_id),
@@ -961,6 +960,7 @@ class WeftStore:
                 self._require_actor_credential(connection, team_id, agent_id, current_token)
             elif current_token is not None:
                 self._require_actor_credential(connection, team_id, agent_id, current_token)
+            self._require_agent(connection, team_id, agent_id)
 
             replacement = self._random_token("fst_actor")
             replacement_hash = self._token_hash(replacement)
