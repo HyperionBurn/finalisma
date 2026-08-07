@@ -9,6 +9,10 @@
  * build (astro:build:done), then runs verify-preservation.cjs to assert
  * nothing was lost.
  *
+ * The phase is explicit: --snapshot at build:start, --restore at build:done.
+ * preserve-legacy.cjs never infers its phase from leftover filesystem state —
+ * that inference is what let a crashed build eat the site.
+ *
  * Because it hooks into the Astro build lifecycle itself, it runs for ANY
  * `astro build` invocation — npm run build, raw `astro build`, or any future
  * tool that drives Astro programmatically. A guard that depends on
@@ -33,11 +37,11 @@ module.exports = function guardLegacyIntegration() {
     hooks: {
       'astro:build:start': () => {
         // Snapshot phase: copies site/* (minus excluded) → .legacy-staging/.
-        run([PRESERVE]);
+        run([PRESERVE, '--snapshot']);
       },
       'astro:build:done': () => {
         // Restore phase: copies .legacy-staging/* → site/, then removes staging.
-        run([PRESERVE]);
+        run([PRESERVE, '--restore']);
         // Assert every critical file came back.
         run([VERIFY]);
       },
