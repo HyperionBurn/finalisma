@@ -1,0 +1,540 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        margin: 0; width: 1920px; height: 1080px;
+        overflow: hidden; background: #050505;
+      }
+      body { font-family: system-ui, sans-serif; }
+
+      /* ── WORLD ──
+         #world is the only element the camera rig transforms.
+         Screen-space furniture (vignette, captions, lockup) MUST stay
+         siblings of #world — never descendants — or camera keyframes
+         will scale/translate them. See the DOM under #camera below. */
+      #world {
+        position: absolute; left: 0; top: 0;
+        width: 1920px; height: 1080px;
+        transform-origin: 0 0;
+      }
+
+      /* ── ATMOSPHERE (parallax layer) ── */
+      .atmo {
+        position: absolute; width: 2800px; height: 2800px;
+        border-radius: 50%; filter: blur(120px); opacity: 0.18;
+        pointer-events: none;
+      }
+      .atmo.violet { background: radial-gradient(circle, #7C5CFF 0%, transparent 70%); left: -600px; top: -400px; }
+      .atmo.indigo { background: radial-gradient(circle, #3B2F80 0%, transparent 70%); left: 600px; top: 200px; opacity: 0.12; }
+
+      /* ── VIGNETTE (under captions) ── */
+      #vignette {
+        position: absolute; left: 0; top: 0; width: 1920px; height: 1080px;
+        background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.6) 100%);
+        pointer-events: none; z-index: 90;
+      }
+
+       /* ── CHAT WINDOWS ── */
+       .win-shell {
+         position: absolute; width: 420px; height: 380px;
+         border-radius: 32px; padding: 7px;
+         background: rgba(255,255,255,0.05);
+         box-shadow: 0 0 0 1px rgba(255,255,255,0.11), 0 20px 60px rgba(0,0,0,0.5);
+       }
+      .win-plate {
+        width: 100%; height: 100%; border-radius: 25px;
+        background: #0A0A0C;
+        box-shadow: inset 0 1px 1px rgba(255,255,255,0.15);
+        position: relative; overflow: hidden;
+      }
+      .win-title {
+        position: absolute; top: 18px; left: 24px;
+        font-family: system-ui, sans-serif; font-size: 13px;
+        color: rgba(255,255,255,0.6); font-weight: 500;
+        letter-spacing: 0.3px; text-transform: lowercase;
+      }
+      .win-body {
+        position: absolute; top: 52px; left: 24px; right: 24px; bottom: 24px;
+        overflow: hidden;
+      }
+      .msg-row { display: flex; margin-bottom: 14px; }
+      .msg-row.right { justify-content: flex-end; }
+      .msg-bubble {
+        max-width: 320px; padding: 10px 14px; border-radius: 14px;
+        font-family: system-ui, sans-serif; font-size: 14px; line-height: 1.45;
+      }
+      .msg-bubble.user { background: rgba(70,224,255,0.15); color: rgba(255,255,255,0.97); }
+      .msg-bubble.agent { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.85); }
+
+      .input-line {
+        position: absolute; bottom: 20px; left: 24px; right: 24px;
+        font-family: system-ui, sans-serif; font-size: 14px;
+        color: rgba(255,255,255,0.97);
+        display: flex; align-items: center;
+      }
+      .caret {
+        display: inline-block; width: 2px; height: 18px;
+        background: #46E0FF; margin-left: 2px;
+        animation: blink 1s step-end infinite;
+      }
+      @keyframes blink { 50% { opacity: 0; } }
+
+       /* ── THE ROOM ── */
+       #room-group {
+         position: absolute; left: 610px; top: 120px;
+         width: 700px; height: 700px;
+         pointer-events: none;
+       }
+       #ring {
+         position: absolute; left: 200px; top: 200px;
+         width: 300px; height: 300px; border-radius: 50%;
+         border: 1px solid rgba(124,92,255,0.3);
+         box-shadow: 0 0 40px rgba(124,92,255,0.15), inset 0 0 40px rgba(124,92,255,0.08);
+         opacity: 0;
+       }
+      #ring.refused {
+        border-color: rgba(255,77,77,0.6);
+        box-shadow: 0 0 60px rgba(255,77,77,0.3), inset 0 0 40px rgba(255,77,77,0.15);
+      }
+
+      .chip {
+        position: absolute; width: 52px; height: 52px;
+        border-radius: 50%; background: rgba(124,92,255,0.2);
+        border: 1px solid rgba(124,92,255,0.5);
+        display: flex; align-items: center; justify-content: center;
+        font-family: system-ui, sans-serif; font-size: 11px;
+        color: rgba(255,255,255,0.8); opacity: 0;
+      }
+      .chip.link-pill {
+        width: 220px; height: 36px; border-radius: 18px;
+        padding: 0 16px; font-family: "IBM Plex Mono", monospace;
+        font-size: 12px; color: #46E0FF;
+        background: rgba(70,224,255,0.1);
+        border-color: rgba(70,224,255,0.4);
+        white-space: nowrap; text-align: center;
+        display: flex; align-items: center; justify-content: center;
+      }
+
+      /* ── OUTSIDE AGENT ── */
+      #outsider {
+        position: absolute; left: 150px; top: 440px;
+        width: 52px; height: 52px; border-radius: 50%;
+        background: rgba(255,77,77,0.2);
+        border: 1px solid rgba(255,77,77,0.5);
+        display: flex; align-items: center; justify-content: center;
+        font-family: system-ui, sans-serif; font-size: 10px;
+        color: rgba(255,120,120,1); opacity: 0;
+      }
+
+      /* ── REFUSED STAMP ── */
+      #refused-stamp {
+        position: absolute; left: 560px; top: 500px;
+        width: 800px; text-align: center;
+        opacity: 0; pointer-events: none;
+      }
+      #refused-stamp .big {
+        font-family: system-ui, sans-serif; font-weight: 800;
+        font-size: 88px; letter-spacing: 0.05em;
+        color: #FF4D4D;
+        text-shadow: 0 0 40px rgba(255,77,77,0.5);
+        line-height: 1;
+      }
+      #refused-stamp .reason {
+        font-family: "IBM Plex Mono", monospace; font-size: 18px;
+        color: rgba(255,77,77,0.9); margin-top: 28px;
+        letter-spacing: 0.02em;
+      }
+
+      /* ── EVENT LOG ── */
+      #log-shell {
+        position: absolute; left: 438px; top: 918px;
+        width: 1044px; height: 464px;
+        border-radius: 32px; padding: 7px;
+        background: rgba(255,255,255,0.05);
+        box-shadow: 0 0 0 1px rgba(255,255,255,0.11), 0 20px 60px rgba(0,0,0,0.5);
+        opacity: 0;
+      }
+      #log-plate {
+        width: 100%; height: 100%; border-radius: 25px;
+        background: #0A0A0C;
+        box-shadow: inset 0 1px 1px rgba(255,255,255,0.15);
+        padding: 24px 32px; overflow: hidden;
+      }
+      #log-title {
+        font-family: system-ui, sans-serif; font-size: 13px;
+        color: rgba(255,255,255,0.6); margin-bottom: 16px;
+        letter-spacing: 0.3px;
+      }
+      .log-row {
+        font-family: "IBM Plex Mono", monospace; font-size: 12px;
+        color: rgba(255,255,255,0.75); margin-bottom: 8px;
+        display: flex; gap: 12px;
+      }
+      .log-row .ts { color: rgba(255,255,255,0.45); min-width: 70px; }
+      .log-row .act { color: rgba(255,255,255,0.85); }
+      .log-row.refused .act { color: #FF4D4D; }
+      .log-row.ok .act { color: #38E8A0; }
+
+      /* ── CAPTIONS ── */
+      #captions {
+        position: absolute; left: 0; bottom: 80px; width: 1920px;
+        text-align: center; z-index: 100; pointer-events: none;
+      }
+      .caption {
+        font-family: system-ui, sans-serif; font-weight: 600;
+        font-size: 32px; letter-spacing: -0.025em;
+        color: rgba(255,255,255,0.97);
+        opacity: 0; position: absolute; left: 0; width: 100%;
+        text-shadow: 0 2px 20px rgba(0,0,0,0.6);
+      }
+
+      /* ── LOCKUP ── */
+      #lockup {
+        position: absolute; left: 0; top: 0; width: 1920px; height: 1080px;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        z-index: 110; opacity: 0; pointer-events: none;
+      }
+      #lockup-word {
+        font-family: system-ui, sans-serif; font-weight: 700;
+        font-size: 72px; letter-spacing: -0.03em;
+        color: rgba(255,255,255,0.97);
+      }
+      #lockup-tag {
+        font-family: system-ui, sans-serif; font-weight: 400;
+        font-size: 22px; letter-spacing: -0.02em;
+        color: rgba(255,255,255,0.5); margin-top: 12px;
+      }
+
+      /* ── MESSAGE DOTS (traffic) ── */
+      .m-dot {
+        position: absolute; width: 8px; height: 8px;
+        border-radius: 50%; opacity: 0;
+      }
+      .m-dot.cyan { background: #46E0FF; }
+      .m-dot.green { background: #38E8A0; }
+      .m-dot.violet { background: #7C5CFF; }
+    </style>
+  </head>
+  <body>
+    <!-- CAMERA RIG: this is what we transform for the zoom/pan -->
+    <div id="camera" data-composition-id="main" data-width="1920" data-height="1080" data-duration="30" data-start="0">
+      <div id="world">
+
+        <!-- Atmosphere -->
+        <div class="atmo violet" id="atmo1"></div>
+        <div class="atmo indigo" id="atmo2"></div>
+
+        <!-- WINDOW A (chatgpt) — x=200, y=280 -->
+         <div class="win-shell" id="winA" style="left: 200px; top: 280px;">
+           <div class="win-plate">
+             <div class="win-title">chatgpt</div>
+             <div class="win-body">
+               <div class="msg-row right"><div class="msg-bubble user" id="msg-user">ask claude to review my PR</div></div>
+               <div class="msg-row" id="msg-denial-row" style="opacity: 0;">
+                 <div class="msg-bubble agent" id="msg-denial">I can't message another assistant.</div>
+               </div>
+             </div>
+             <div class="input-line" id="input-line">
+               <span id="typed-text"></span><span class="caret" id="caret"></span>
+             </div>
+           </div>
+         </div>
+
+         <!-- WINDOW B (claude) — x=1220, y=280 -->
+         <div class="win-shell" id="winB" style="left: 1220px; top: 280px;">
+          <div class="win-plate">
+            <div class="win-title">claude</div>
+            <div class="win-body" id="winB-body"></div>
+          </div>
+        </div>
+
+        <!-- THE ROOM -->
+        <div id="room-group">
+          <div id="ring"></div>
+           <!-- Chips positioned on the ring at -90°, -18°, 54°, 126°, 198° -->
+           <!-- Ring center = (350,350) in room-group, radius = 150 -->
+           <div class="chip" id="chip-link" style="left: 324px; top: 30px;">finalisma.link/room/a1b2</div>
+           <div class="chip" id="chip-1" style="left: 490px; top: 170px;">planner</div>
+           <div class="chip" id="chip-2" style="left: 440px; top: 340px;">coder</div>
+           <div class="chip" id="chip-3" style="left: 260px; top: 340px;">reviewer</div>
+           <div class="chip" id="chip-4" style="left: 210px; top: 170px;">tester</div>
+           <div class="chip" id="chip-5" style="left: 353px; top: -35px;">deploy</div>
+        </div>
+
+        <!-- OUTSIDE AGENT -->
+        <div id="outsider">outsider</div>
+
+        <!-- REFUSED STAMP -->
+        <div id="refused-stamp" data-layout-allow-overlap>
+          <div class="big">REFUSED</div>
+          <div class="reason">stale fencing token · outside declared scope</div>
+        </div>
+
+        <!-- EVENT LOG — centered (960, 1150) -->
+        <div id="log-shell" data-layout-allow-overflow>
+          <div id="log-plate">
+            <div id="log-title">event log</div>
+            <div id="log-rows">
+               <div class="log-row ok" id="lr-1"><span class="ts">00:00:01</span><span class="act">room created — link a1b2</span></div>
+               <div class="log-row ok" id="lr-2"><span class="ts">00:00:02</span><span class="act">planner joined (chatgpt)</span></div>
+               <div class="log-row ok" id="lr-3"><span class="ts">00:00:03</span><span class="act">coder joined (claude)</span></div>
+               <div class="log-row ok" id="lr-4"><span class="ts">00:00:04</span><span class="act">reviewer joined</span></div>
+               <div class="log-row ok" id="lr-5"><span class="ts">00:00:05</span><span class="act">tester joined</span></div>
+               <div class="log-row ok" id="lr-6"><span class="ts">00:00:06</span><span class="act">msg: "review my PR" → delivered</span></div>
+                <div class="log-row refused" id="lr-7"><span class="ts">00:00:07</span><span class="act">REFUSED — stale fencing token · outside declared scope</span></div>
+               <div class="log-row ok" id="lr-8"><span class="ts">00:00:08</span><span class="act">response broadcast to room</span></div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /world -->
+
+      <!-- Vignette (screen-space — sibling of #world, never inside it) -->
+      <div id="vignette"></div>
+
+      <!-- Captions (screen-space — sibling of #world, never inside it) -->
+      <div id="captions">
+        <div class="caption" id="cap-1" style="bottom: 0;">One link. One room.</div>
+        <div class="caption" id="cap-2" style="bottom: 0;">Everything they say arrives in order.</div>
+        <div class="caption" id="cap-3" style="bottom: 0;">Forwarding is easy. Refusing is the product.</div>
+        <div class="caption" id="cap-4" style="bottom: 200px;">Every action, recorded in order.</div>
+      </div>
+
+      <!-- Lockup (screen-space — sibling of #world, never inside it) -->
+      <div id="lockup">
+        <div id="lockup-word">FINALISMA</div>
+        <div id="lockup-tag">One link. Every agent. On the record.</div>
+      </div>
+    </div><!-- /camera -->
+
+    <script>
+      // ── TIMELINE ──
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      window.__timelines["main"] = tl;
+
+      const ease = "power3.out";
+
+      // ═══════════════════════════════════════════
+      // CAMERA RIG — animates #world, not #camera
+      // transform-origin: 0 0 (already set in CSS)
+      // dx = 960 - targetX * s
+      // dy = 540 - targetY * s
+      // ═══════════════════════════════════════════
+      const world = document.getElementById("world");
+
+      function setCam(targetX, targetY, s) {
+        const dx = 960 - targetX * s;
+        const dy = 540 - targetY * s;
+        world.style.transform = `translate(${dx}px, ${dy}px) scale(${s})`;
+      }
+
+      // Initial state: t=0 keyframe
+      setCam(400, 470, 2.30);
+
+      // Proxy object drives all camera keyframes
+      const camProxy = { tx: 400, ty: 470, s: 2.30 };
+
+      function camTo(tx, ty, s, dur, easeType, startT) {
+        tl.to(camProxy, {
+          tx, ty, s, duration: dur, ease: easeType || ease,
+          onUpdate: () => setCam(camProxy.tx, camProxy.ty, camProxy.s)
+        }, startT);
+      }
+
+      // t=0.00 → 3.20: 400,470,2.30 → 405,468,2.24
+      camTo(405, 468, 2.24, 3.2, ease, 0.00);
+
+      // t=3.20 → 5.00: → 410,470,2.15
+      camTo(410, 470, 2.15, 1.8, ease, 3.20);
+
+      // t=5.00 → 8.60: → 960,470,0.86  (BIG PULL BACK)
+      camTo(960, 470, 0.86, 3.6, ease, 5.00);
+
+      // t=8.60 → 10.40: → 960,470,1.00
+      camTo(960, 470, 1.00, 1.8, ease, 8.60);
+
+      // t=10.40 → 13.00: → 966,466,1.06
+      camTo(966, 466, 1.06, 2.6, ease, 10.40);
+
+      // t=13.00 → 15.60: → 972,464,1.14
+      camTo(972, 464, 1.14, 2.6, ease, 13.00);
+
+      // t=15.60 → 17.40: → 830,470,1.06
+      camTo(830, 470, 1.06, 1.8, ease, 15.60);
+
+      // t=17.40 → 18.28: → 900,470,1.32  (PUNCH)
+      camTo(900, 470, 1.32, 0.88, "none", 17.40);
+
+      // t=18.28 → 18.40: shake frame 1 (nudge +8px)
+      camTo(908, 478, 1.32, 0.06, "none", 18.28);
+
+      // t=18.40 → 18.52: shake frame 2 (nudge -8px)
+      camTo(892, 462, 1.32, 0.06, "none", 18.34);
+
+      // t=18.40 → 21.40: → 946,474,1.56  (CREEP IN)
+      camTo(946, 474, 1.56, 3.02, ease, 18.40);
+
+      // t=21.40 → 23.20: → 960,470,0.95  (RELEASE)
+      camTo(960, 470, 0.95, 1.8, ease, 21.40);
+
+      // t=23.20 → 25.30: → 960,880,0.99  (CRANE DOWN)
+      camTo(960, 880, 0.99, 2.1, ease, 23.20);
+
+      // t=25.30 → 26.90: → 960,1150,1.02  (LOG FILLS FRAME)
+      camTo(960, 1150, 1.02, 1.6, ease, 25.30);
+
+      // t=26.90 → 28.40: → 960,800,0.60  (PULL WIDE)
+      camTo(960, 800, 0.60, 1.5, ease, 26.92);
+
+      // t=28.40 → 30.00: → 960,470,2.30  (PUSH INTO LINK)
+      camTo(960, 470, 2.30, 1.58, ease, 28.42);
+
+      // ═══════════════════════════════════════════
+      // ACT 1: THE WALL (0–7s)
+      // ═══════════════════════════════════════════
+
+      // Typing effect for "ask claude to review my PR"
+      const typedEl = document.getElementById("typed-text");
+      const fullText = "ask claude to review my PR";
+      let charIndex = 0;
+
+      // We'll use a manual typing approach driven by timeline position
+      tl.to({}, {
+        duration: 2.4,
+        onUpdate: function() {
+          const prog = this.progress();
+          const chars = Math.floor(prog * fullText.length);
+          if (chars <= fullText.length) {
+            typedEl.textContent = fullText.substring(0, chars);
+          }
+        }
+      }, 0.3);
+
+      // Denial appears at t=4.0
+      tl.to("#msg-denial-row", { opacity: 1, duration: 0.4, ease: "power1.out" }, 4.0);
+
+      // Caret stops blinking after denial
+      tl.to("#caret", { opacity: 0, duration: 0.1 }, 4.4);
+
+      // ═══════════════════════════════════════════
+      // ACT 2: THE LINK (7–14.5s)
+      // ═══════════════════════════════════════════
+
+      // Ring fades in
+      tl.to("#ring", { opacity: 1, duration: 1.0, ease: "power1.out" }, 7.5);
+
+      // Link pill appears in center
+      tl.to("#chip-link", { opacity: 1, scale: 1, duration: 0.6, ease: "back.out(1.7)" }, 8.6);
+
+      // Chips dock one by one
+       tl.to("#chip-1", { opacity: 1, scale: 1, duration: 0.4, ease: "back.out(1.7)" }, 9.5);
+       tl.to("#chip-2", { opacity: 1, scale: 1, duration: 0.4, ease: "back.out(1.7)" }, 9.9);
+       tl.to("#chip-3", { opacity: 1, scale: 1, duration: 0.4, ease: "back.out(1.7)" }, 10.3);
+       tl.to("#chip-4", { opacity: 1, scale: 1, duration: 0.4, ease: "back.out(1.7)" }, 10.7);
+       tl.to("#chip-5", { opacity: 1, scale: 1, duration: 0.4, ease: "back.out(1.7)" }, 11.1);
+
+      // Message arrives in Window B
+      tl.to("#winB-body", {
+        onStart: () => {
+          document.getElementById("winB-body").innerHTML =
+            '<div class="msg-row"><div class="msg-bubble agent">Sure, I\'ll review your PR now.</div></div>';
+        },
+        duration: 0.5
+      }, 11.5);
+
+      // ═══════════════════════════════════════════
+      // ACT 3: THE GATE (14.5–22.5s)
+      // ═══════════════════════════════════════════
+
+       // Outsider enters from left
+       tl.to("#outsider", { opacity: 1, duration: 0.5, ease: "power1.out" }, 16.0);
+
+       // Outsider moves toward ring (stops at ring edge ~x=600)
+       tl.to("#outsider", { x: 400, duration: 2.0, ease: "power1.inOut" }, 16.0);
+
+      // Ring hardens red at impact
+      tl.to("#ring", { opacity: 1, duration: 0.1 }, 18.28);
+      tl.set("#ring", { className: "refused" }, 18.28);
+
+      // Refusal flash
+      tl.to("#ring", { scale: 1.05, duration: 0.15, ease: "power2.out" }, 18.28);
+      tl.to("#ring", { scale: 1.0, duration: 0.3, ease: "elastic.out(1, 0.5)" }, 18.43);
+
+      // Outsider bounces back
+       tl.to("#outsider", { x: 280, duration: 0.5, ease: "power2.out" }, 18.40);
+
+       // REFUSED stamp appears large and holds ~3s (18.3 → 21.3)
+       tl.to("#refused-stamp", { opacity: 1, scale: 1, duration: 0.3, ease: "power2.out" }, 18.3);
+       tl.to("#refused-stamp", { opacity: 1, duration: 2.7 }, 18.6); // hold
+       tl.to("#refused-stamp", { opacity: 0, duration: 0.4, ease: "power1.in" }, 21.3);
+
+       // Outsider exits (fades out and moves away before lockup)
+       tl.to("#outsider", { opacity: 0, x: 100, duration: 0.6, ease: "power1.in" }, 26.5);
+
+       // ═══════════════════════════════════════════
+       // ACT 4: THE RECORD (22.5–27s)
+       // ═══════════════════════════════════════════
+
+       // Log panel fades in as camera cranes down
+       tl.to("#log-shell", { opacity: 1, duration: 0.6, ease: "power1.out" }, 25.3);
+
+       // Log rows highlight in sequence
+       const logRows = document.querySelectorAll(".log-row");
+       logRows.forEach((row, i) => {
+         tl.fromTo(row, { opacity: 0.3 }, { opacity: 1, duration: 0.2 }, 25.5 + i * 0.2);
+       });
+
+       // ═══════════════════════════════════════════
+       // ACT 5: LAND (27–30s)
+       // ═══════════════════════════════════════════
+
+       // Hide room elements before lockup
+       tl.to("#room-group", { opacity: 0, duration: 0.4, ease: "power1.out" }, 27.0);
+       tl.to("#winA", { opacity: 0, duration: 0.4, ease: "power1.out" }, 27.0);
+       tl.to("#winB", { opacity: 0, duration: 0.4, ease: "power1.out" }, 27.0);
+       tl.to("#log-shell", { opacity: 0, duration: 0.4, ease: "power1.out" }, 27.0);
+
+      // Lockup fades in
+      tl.to("#lockup", { opacity: 1, duration: 0.8, ease: "power1.out" }, 27.2);
+
+      // ═══════════════════════════════════════════
+      // CAPTIONS
+      // ═══════════════════════════════════════════
+
+      // Cap 1: 8.4–11.2 "One link. One room."
+      tl.to("#cap-1", { opacity: 1, duration: 0.4, ease: "power1.out" }, 8.4);
+      tl.to("#cap-1", { opacity: 0, duration: 0.4, ease: "power1.in" }, 10.8);
+
+      // Cap 2: 12.4–16.0 "Everything they say arrives in order."
+      tl.to("#cap-2", { opacity: 1, duration: 0.4, ease: "power1.out" }, 12.4);
+      tl.to("#cap-2", { opacity: 0, duration: 0.4, ease: "power1.in" }, 15.6);
+
+      // Cap 3: 22.5–24.9 "Forwarding is easy. Refusing is the product."
+      tl.to("#cap-3", { opacity: 1, duration: 0.4, ease: "power1.out" }, 22.5);
+      tl.to("#cap-3", { opacity: 0, duration: 0.4, ease: "power1.in" }, 24.5);
+
+      // Cap 4: 25.9–27.6 "Every action, recorded in order."
+      tl.to("#cap-4", { opacity: 1, duration: 0.4, ease: "power1.out" }, 25.9);
+      tl.to("#cap-4", { opacity: 0, duration: 0.4, ease: "power1.in" }, 27.2);
+
+      // ═══════════════════════════════════════════
+      // ATMOSPHERE PARALLAX (slow drift)
+      // ═══════════════════════════════════════════
+      tl.to("#atmo1", { x: 40, y: 20, duration: 8, ease: "sine.inOut" }, 0);
+      tl.to("#atmo1", { x: 0, y: 0, duration: 8, ease: "sine.inOut" }, 8);
+      tl.to("#atmo1", { x: -30, y: 15, duration: 8, ease: "sine.inOut" }, 16);
+      tl.to("#atmo1", { x: 0, y: 0, duration: 7, ease: "sine.inOut" }, 24);
+
+      tl.to("#atmo2", { x: -30, y: -20, duration: 10, ease: "sine.inOut" }, 0);
+      tl.to("#atmo2", { x: 0, y: 0, duration: 10, ease: "sine.inOut" }, 10);
+      tl.to("#atmo2", { x: 20, y: -10, duration: 10, ease: "sine.inOut" }, 20);
+
+    </script>
+  </body>
+</html>
