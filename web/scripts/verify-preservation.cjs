@@ -90,8 +90,8 @@ const html = fs.readFileSync(path.join(SITE, 'index.html'), 'utf-8');
 const requiredStrings = [
   'MCP is the tool protocol',
   'single-node',
-  '$500 deposit',
   'data-cohort-form',
+  '$39',
   'See how it works',
   'href="#how-it-works"',
   'aria-live="polite"',

@@ -70,7 +70,15 @@ class LaunchSurfaceTests(unittest.TestCase):
         self.assertIn("data-cohort-form", html)
         self.assertIn("See how it works", html)
         self.assertIn('href="#how-it-works"', html)
-        self.assertIn("$500 deposit", html)
+        # Pricing decision 2026-08-07: the $1,000/workspace + $500 deposit +
+        # 30-day pilot offer was replaced by Free / Pro ($39/seat) / Enterprise
+        # tiers that map to enforced quota limits. The old offer is gone.
+        self.assertNotIn("$500 deposit", html)
+        self.assertNotIn("$1,000", html)
+        self.assertIn("$0", html)
+        self.assertIn("$39", html)
+        self.assertIn("Start free", html)
+        self.assertIn('href="/app/signup"', html)
         self.assertNotIn("verified agent handoff layer", html.lower())
         self.assertNotIn("Finalisma A2A Standard", html)
         self.assertNotIn("gpt-5.5", html.lower())
