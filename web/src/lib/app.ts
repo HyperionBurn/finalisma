@@ -19,7 +19,7 @@
  *   export const APP_ORIGIN = 'https://app.finalisma.com';
  * (no trailing slash).
  */
-export const APP_ORIGIN = 'http://127.0.0.1:18789';
+export const APP_ORIGIN = 'https://forum-peripherals-cartoons-brain.trycloudflare.com';
 
 export const APP_SIGNUP_URL = `${APP_ORIGIN}/signup`;
 export const APP_LOGIN_URL = `${APP_ORIGIN}/login`;
