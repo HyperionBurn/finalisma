@@ -199,7 +199,7 @@ class TestRoomLifecycle(CloudServiceTestBase):
         self.assertIn("shareable_link", room)
         self.assertEqual(room["cap"], 6)
         self.assertEqual(room["state"], "forming")
-        self.assertTrue(room["link_token"].startswith("frl_"))
+        self.assertTrue(room["link_token"].startswith("rm_"))
 
     def test_owner_auto_joined(self) -> None:
         signup = self._signup("owner2@example.com", "CorrectHorse!1")
