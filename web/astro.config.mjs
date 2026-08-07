@@ -2,6 +2,7 @@ import { defineConfig } from 'astro/config';
 import react from '@astrojs/react';
 import tailwindcss from '@tailwindcss/vite';
 import { resolve } from 'node:path';
+import guardLegacy from './integrations/guard-legacy.cjs';
 
 export default defineConfig({
   root: resolve('./'),
@@ -23,6 +24,6 @@ export default defineConfig({
       },
     },
   },
-  integrations: [react()],
+  integrations: [react(), guardLegacy()],
   trailingSlash: 'never',
 });
