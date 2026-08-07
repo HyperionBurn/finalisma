@@ -289,7 +289,7 @@ def main(
     smtp_config = smtp_config_from_env(environ)
     if smtp_config is None:
         print(
-            "finalisma-drain: FINALISMA_SMTP_HOST not set — SMTP disabled; "
+            "finalisma-drain: FINALISMA_SMTP_HOST not set - SMTP disabled; "
             "mail stays in cloud_identity_outbox undelivered",
             file=sys.stderr,
         )
