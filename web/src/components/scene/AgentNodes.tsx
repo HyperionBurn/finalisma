@@ -18,11 +18,11 @@ const AGENT_LABELS = ['A', 'B', 'C', 'D', 'E'];
 // Orbit radii / heights / phases — each agent gets its own track
 // WIDER radii so the graph fills the full-bleed frame
 const AGENT_ORBITS = [
-  { radius: 4.8, height: 1.2, phase: 0.0, speed: 0.42 },
-  { radius: 3.9, height: -1.8, phase: 1.6, speed: 0.34 },
-  { radius: 6.0, height: 0.2, phase: 3.2, speed: 0.28 },
-  { radius: 3.6, height: 2.1, phase: 4.8, speed: 0.38 },
-  { radius: 6.3, height: -1.0, phase: 5.6, speed: 0.30 },
+  { radius: 5.4, height: 1.4, phase: 0.0, speed: 0.42 },
+  { radius: 4.4, height: -2.0, phase: 1.6, speed: 0.34 },
+  { radius: 6.6, height: 0.3, phase: 3.2, speed: 0.28 },
+  { radius: 4.0, height: 2.4, phase: 4.8, speed: 0.38 },
+  { radius: 6.9, height: -1.2, phase: 5.6, speed: 0.30 },
 ];
 
 // Role tints — system palette only:
@@ -46,7 +46,7 @@ export default function AgentNodes() {
   // Instance attributes
   const { geometry, phaseOffset } = useMemo(() => {
     // Glowing spheres — high-segment sphereGeometry for smooth silhouettes
-    const geo = new THREE.SphereGeometry(0.85, 32, 32);
+     const geo = new THREE.SphereGeometry(1.05, 32, 32);
 
     const colors = new Float32Array(AGENT_COUNT * 3);
     const phases = new Float32Array(AGENT_COUNT);

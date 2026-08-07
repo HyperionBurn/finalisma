@@ -90,8 +90,8 @@
         `Agent hosts: ${values.hosts}`,
         `Incident mirror: ${values.scenario}`,
         '',
-        'Pilot boundary: 30 days, single node, trusted network, non-production data.',
-        'Pricing hypothesis: $500 deposit credited toward $1,000/workspace/month if continued.',
+        'Boundary: single node, trusted network, non-production data.',
+        'Pricing: free tier; Pro and Enterprise by conversation (no checkout yet).',
         `Prepared from: ${window.location.href.split('#')[0]}`
       ].join('\n');
 

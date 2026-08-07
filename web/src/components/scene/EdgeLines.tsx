@@ -7,14 +7,16 @@ import { useProgress, sceneActions } from './useSceneStore';
  * EdgeLines.tsx — Line segments connecting each orbiting agent to the room.
  * Always visible at progress 0 (truthful initial state). The draw-in is a
  * subtle length-enhancement; edges are never invisible.
+ *
+ * SCALED UP: wider orbits, thicker/brighter lines.
  */
 
 const AGENT_ORBITS = [
-  { radius: 3.2, height: 0.8, phase: 0.0, speed: 0.28 },
-  { radius: 2.6, height: -1.2, phase: 1.6, speed: 0.22 },
-  { radius: 4.0, height: 0.1, phase: 3.2, speed: 0.18 },
-  { radius: 2.4, height: 1.4, phase: 4.8, speed: 0.24 },
-  { radius: 4.2, height: -0.7, phase: 5.6, speed: 0.20 },
+  { radius: 5.4, height: 1.4, phase: 0.0, speed: 0.42 },
+  { radius: 4.4, height: -2.0, phase: 1.6, speed: 0.34 },
+  { radius: 6.6, height: 0.3, phase: 3.2, speed: 0.28 },
+  { radius: 4.0, height: 2.4, phase: 4.8, speed: 0.38 },
+  { radius: 6.9, height: -1.2, phase: 5.6, speed: 0.30 },
 ];
 
 const AGENT_COUNT = AGENT_ORBITS.length;
@@ -48,7 +50,7 @@ export default function EdgeLines() {
       const rm = sceneActions.getState().reducedMotion;
       const angle = rm ? orbit.phase : orbit.phase + time * orbit.speed;
       const r = orbit.radius * (0.85 + Math.min(t, 1) * 0.15);
-      const bob = rm ? 0 : Math.sin(time * 1.5 + i * 1.2) * 0.08;
+      const bob = rm ? 0 : Math.sin(time * 1.5 + i * 1.2) * 0.12;
 
       const ax = Math.cos(angle) * r;
       const ay = orbit.height + bob;
@@ -70,7 +72,7 @@ export default function EdgeLines() {
 
   return (
     <lineSegments ref={linesRef} geometry={geometry}>
-      <lineBasicMaterial color="#9D82FF" transparent opacity={0.45} />
+      <lineBasicMaterial color="#9D82FF" transparent opacity={0.55} linewidth={2} />
     </lineSegments>
   );
 }

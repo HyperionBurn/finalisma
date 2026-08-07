@@ -15,25 +15,26 @@ import { useProgress, useRefusalFlash } from './useSceneStore';
  */
 
 // Camera position keyframes: 2 per beat (entry + exit) — MUST match §4 exactly
+// Pushed back (z+3) to accommodate the wider orbit radii
 const CAMERA_KEYFRAMES: [number, number, number][] = [
-  // Beat 1 Wide — entry + exit both wide at z=14
-  [0, 0, 14],
-  [0, 0, 14],
-  // Beat 2 Approach: (0,0.5,11) → (0,0,9)
-  [0, 0.5, 11],
+  // Beat 1 Wide — entry + exit both wide at z=17
+  [0, 0, 17],
+  [0, 0, 17],
+  // Beat 2 Approach: (0,0.5,14) → (0,0,12)
+  [0, 0.5, 14],
+  [0, 0, 12],
+  // Beat 3 Inside: (0,0,9) → (0,0,7)
   [0, 0, 9],
-  // Beat 3 Inside: (0,0,6) → (0,0,4)
-  [0, 0, 6],
-  [0, 0, 4],
-  // Beat 4 The Gate: (0,0,4) → (0,0.2,3.5)
-  [0, 0, 4],
-  [0, 0.2, 3.5],
-  // Beat 5 Pull back: (0,0.2,3.5) → (0,0,7)
-  [0, 0.2, 3.5],
   [0, 0, 7],
-  // Beat 6 Land: (0,0,7) → (0,0,9)
+  // Beat 4 The Gate: (0,0,7) → (0,0.2,6)
   [0, 0, 7],
-  [0, 0, 9],
+  [0, 0.2, 6],
+  // Beat 5 Pull back: (0,0.2,6) → (0,0,10)
+  [0, 0.2, 6],
+  [0, 0, 10],
+  // Beat 6 Land: (0,0,10) → (0,0,12)
+  [0, 0, 10],
+  [0, 0, 12],
 ];
 
 // Target keyframes — slight upward drift at the Gate (beat 4)

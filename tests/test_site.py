@@ -14,6 +14,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SITE = ROOT / "site"
+# Canonical web-app origin (funnel lane, 2026-08-07). Single source of
+# truth for the routes the landing page links to: defined once in
+# web/src/lib/app.ts and mirrored here for the link-resolution tests. The
+# web app serves its routes at the origin ROOT (no `/app` path prefix), so
+# this is an absolute origin, not a path.
+APP_ORIGIN = "http://127.0.0.1:18789"
 sys.path.insert(0, str(ROOT))
 
 _SITE_SPEC = importlib.util.spec_from_file_location(
@@ -66,7 +72,20 @@ class LaunchSurfaceTests(unittest.TestCase):
         self.assertIn("data-cohort-form", html)
         self.assertIn("See how it works", html)
         self.assertIn('href="#how-it-works"', html)
-        self.assertIn("$500 deposit", html)
+        # Pricing decision 2026-08-07: the $1,000/workspace + $500 deposit +
+        # 30-day pilot offer was replaced by Free / Pro ($39/seat) / Enterprise
+        # tiers that map to enforced quota limits. The old offer is gone.
+        self.assertNotIn("$500 deposit", html)
+        self.assertNotIn("$1,000", html)
+        self.assertIn("$0", html)
+        self.assertIn("$39", html)
+        self.assertIn("Start free", html)
+        self.assertIn('href="http://127.0.0.1:18789/signup"', html)
+        # The web app serves its routes at the ORIGIN ROOT, not under `/app`.
+        # Any relative `/app/...` CTA in the built landing page is a 404 link
+        # and must never ship. The absolute-origin form is asserted above.
+        self.assertNotIn('href="/app/signup"', html)
+        self.assertNotIn('href="/app/login"', html)
         self.assertNotIn("verified agent handoff layer", html.lower())
         self.assertNotIn("Finalisma A2A Standard", html)
         self.assertNotIn("gpt-5.5", html.lower())
@@ -261,6 +280,18 @@ class LaunchSurfaceTests(unittest.TestCase):
                 if reference.startswith(("#", "http://", "https://", "mailto:", "javascript:", "data:")):
                     continue
                 href_path = reference.split("#", 1)[0].split("?", 1)[0]
+                # App-front-door references are external to this static
+                # bundle — the web app (finalisma_cloud/web/app.py) serves
+                # them, not the site's path tree. The built index.html now
+                # points at the absolute APP_ORIGIN (already excluded by the
+                # scheme check above); preserved legacy pages restored
+                # byte-for-byte by guard-legacy (e.g. site/docs/pilot.html,
+                # part of the pricing work) still carry the retired relative
+                # `/app/*` path form and are skipped here. A `/app/*` link in
+                # the BUILT index.html is asserted absent by
+                # test_landing_page_has_truthful_semantic_launch_surface.
+                if href_path == "/app" or href_path.startswith("/app/"):
+                    continue
                 target = (
                     (SITE / href_path.lstrip("/")).resolve()
                     if href_path.startswith("/")
@@ -269,6 +300,43 @@ class LaunchSurfaceTests(unittest.TestCase):
                 with self.subTest(page=page.relative_to(ROOT), reference=reference):
                     self.assertTrue(target.is_relative_to(SITE.resolve()))
                     self.assertTrue(target.is_file() or target.is_dir(), f"missing target: {target}")
+
+    def test_funnel_ctas_point_at_web_app(self) -> None:
+        """The site must offer a real way to become a user: the web app.
+
+        Funnel lane (2026-08-07): every primary CTA on the landing page
+        resolves to the canonical app origin (APP_ORIGIN), a quiet "Log in"
+        affordance exists for returning users, and the closed-trial framing
+        ("Start free pilot") is gone from the primary CTAs. The app is not
+        deployed, so routes are asserted by origin + path only — nothing here
+        invents a destination, a free-tier limit, or a trial length.
+        """
+        html = (SITE / "index.html").read_text(encoding="utf-8")
+        self.assertIn(f'href="{APP_ORIGIN}/signup"', html)
+        self.assertIn(f'href="{APP_ORIGIN}/login"', html)
+
+        hero = re.search(r'<section[^>]*id="hero"[^>]*>(.*?)</section>', html, re.S)
+        self.assertIsNotNone(hero, "hero section must exist")
+        hero_primary = re.search(
+            r'<a[^>]*class="[^"]*\bbtn-accent\b[^"]*"[^>]*href="([^"]+)"',
+            hero.group(1),
+        )
+        self.assertIsNotNone(hero_primary, "hero must carry a btn-accent primary CTA")
+        self.assertEqual(hero_primary.group(1), f"{APP_ORIGIN}/signup")
+
+        connect = re.search(r'<section[^>]*id="connect"[^>]*>(.*?)</section>', html, re.S)
+        self.assertIsNotNone(connect, "connect section must exist")
+        self.assertIn(
+            f'href="{APP_ORIGIN}/signup"',
+            connect.group(1),
+            "connect section must close with a real signup link",
+        )
+
+        self.assertNotIn(
+            "Start free pilot",
+            html,
+            "closed-trial framing must be gone from the primary CTAs",
+        )
 
     def test_compatibility_page_keeps_documented_and_verified_distinct(self) -> None:
         html = (SITE / "docs" / "compatibility.html").read_text(encoding="utf-8")

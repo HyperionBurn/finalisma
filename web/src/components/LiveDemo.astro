@@ -1,10 +1,10 @@
 ---
 /**
  * LiveDemo.astro — Terminal output, generated link, gate refusal.
- * Seeded with REAL first lines from the protocol. No JS = static and readable.
+ * The full terminal is server-rendered for no-JS / a11y; a client script
+ * typewriter-reveals it on scroll-in (skipped under prefers-reduced-motion).
  */
 
-// Build the terminal text as a string to avoid Astro expression parsing issues
 const terminalLines = [
   '$ python -B scripts/finalisma-mcp.py --transport stdio --team-id demo',
   'finalisma-mcp/0.1.0 ready · 58 tools · protocol 2025-11-25',
@@ -12,22 +12,7 @@ const terminalLines = [
   '> finalisma_register_agent(team_id="demo", agent_id="agent-a", role="architect")',
   '  → {"agent_id": "agent-a", "status": "active", "actor_token": "fst_***"}',
   '',
-  '> finalisma_room_create(team_id="demo", cap=4)',
-  '  → {"room_id": "room_8cc840e0fd9044b7ab2154af9e9c1222", "state": "forming"}',
-  '',
-  '> finalisma_room_join(room_id="room_8cc840e0fd9044b7ab2154af9e9c1222", agent_id="agent-a", consent=True)',
-  '  → {"status": "active", "cursor": 0}',
-  '',
-  '> finalisma_room_join(room_id="room_8cc840e0fd9044b7ab2154af9e9c1222", agent_id="agent-b", consent=True)',
-  '  → {"status": "active", "cursor": 0}',
-  '',
-  '> finalisma_claim_task(team_id="demo", agent_id="agent-b", task_id="task_44ce51e8c40e456a8d638e9f4b8c18c1")',
-  '  → {"status": "in_progress", "fencing_token": 1812495659374878}',
-  '',
-  '> finalisma_verify_task(task_id="...", fencing_token=1812495659374878, files=["handoff.txt"])',
-  '  → {"passed": true, "task_status": "verified"}',
-  '',
-  '> finalisma_claim_task(team_id="demo", agent_id="agent-a", task_id="task_44ce51e8c40e456a8d638e9f4b8c18c1", fencing_token=0)',
+  '> finalisma_claim_task(..., fencing_token=0)',
   '  → <span class="terminal__refuse">REFUSED: stale fencing token</span>',
 ];
 
@@ -41,13 +26,13 @@ const terminalText = terminalLines.join('\n');
       <h2 id="demo-title" class="scroll-in" style="--delay:80ms">See it run.</h2>
       <p class="section-lede scroll-in" style="--delay:160ms">
         A real coordinator run — simulated here with real protocol strings.
-        Watch the room form, agents join, and the evidence gate refuse stale work.
+        Watch an agent register and the evidence gate refuse stale work.
       </p>
     </div>
 
     <div class="bezel scroll-in" style="--delay:240ms">
       <div class="bezel__core demo-shell" data-demo-shell>
-        <pre class="terminal" data-terminal role="log" aria-live="polite"><code set:html={terminalText}></code></pre>
+        <pre class="terminal is-typewriter" data-terminal role="log" aria-live="polite" data-full={terminalText}><code set:html={terminalText}></code><span class="terminal__caret" aria-hidden="true"></span></pre>
 
         <div class="demo-output">
           <div class="link-out" data-link-output>
@@ -67,8 +52,27 @@ const terminalText = terminalLines.join('\n');
   </div>
 </section>
 
+<style>
+  .terminal.is-typewriter { position: relative; }
+  .terminal__caret {
+    display: inline-block;
+    width: 0.55ch;
+    height: 1em;
+    vertical-align: -0.15em;
+    background: currentColor;
+    opacity: 0;
+    margin-left: 0.1ch;
+  }
+  .terminal.is-typing .terminal__caret { opacity: 1; animation: finalisma-blink 1s steps(1) infinite; }
+  .terminal.is-done .terminal__caret { opacity: 0; }
+  @keyframes finalisma-blink { 50% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    .terminal__caret { display: none !important; }
+  }
+</style>
+
 <script>
-  // Copy to clipboard + gate trigger
+  // Copy to clipboard + gate trigger + terminal typewriter
   (function () {
     const copyBtn = document.querySelector('[data-copy="link"]');
     const codeEl = document.querySelector('[data-generated-link]');
@@ -89,7 +93,6 @@ const terminalText = terminalLines.join('\n');
           return;
         }
       } catch {}
-      // Fallback
       try {
         const ta = document.createElement('textarea');
         ta.value = text;
@@ -122,7 +125,6 @@ const terminalText = terminalLines.join('\n');
         setTimeout(() => gateEl.classList.remove('is-refusing'), 600);
       }
       setStatus('Gate refused: stale fencing token.');
-      // Reset after delay
       setTimeout(() => {
         if (gateState) {
           gateState.textContent = 'armed';
@@ -138,5 +140,63 @@ const terminalText = terminalLines.join('\n');
         fireRefusal();
       }
     });
+
+    // Typewriter reveal on scroll-in.
+    const terminal = document.querySelector('[data-terminal]');
+    if (terminal) {
+      const full = terminal.getAttribute('data-full') || '';
+      const reduced =
+        window.matchMedia &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      if (reduced || !('IntersectionObserver' in window)) {
+        // Full text already rendered in the <code>; nothing to do.
+        terminal.classList.add('is-done');
+        return;
+      }
+
+      // Hide text immediately via JS; reveal line by line on intersection.
+      const code = terminal.querySelector('code');
+      if (code) code.textContent = '';
+      terminal.classList.add('is-typing');
+
+      const lines = full.split('\n');
+      let lineIdx = 0;
+      let timer: number | undefined;
+
+      function typeNext() {
+        if (lineIdx >= lines.length) {
+          terminal.classList.remove('is-typing');
+          terminal.classList.add('is-done');
+          return;
+        }
+        const cur = lines[lineIdx];
+        // Append the line (preserve the innerHTML of the refuse line).
+        if (lineIdx > 0) code!.appendChild(document.createTextNode('\n'));
+        // The refuse line contains an inner <span>; render via a temp node.
+        if (cur.includes('<span')) {
+          const tmp = document.createElement('span');
+          tmp.innerHTML = cur;
+          while (tmp.firstChild) code!.appendChild(tmp.firstChild);
+        } else {
+          code!.appendChild(document.createTextNode(cur));
+        }
+        lineIdx += 1;
+        timer = window.setTimeout(typeNext, 160);
+      }
+
+      const io = new IntersectionObserver(
+        (entries, obs) => {
+          for (const entry of entries) {
+            if (entry.isIntersecting) {
+              obs.unobserve(entry.target);
+              timer = window.setTimeout(typeNext, 200);
+            }
+          }
+        },
+        { threshold: 0.25 }
+      );
+      io.observe(terminal);
+    }
   })();
 </script>

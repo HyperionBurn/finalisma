@@ -7,21 +7,25 @@
  * Magnetic island CTA: button-in-button with btn__icon arrow.
  * Scrolled state via rAF-throttled passive listener.
  * All harness hooks preserved: data-header, .nav-toggle, #mobile-nav,
- * .mobile-close, nav-links (5 anchors), "Start free pilot" CTA, inert handling.
+ * .mobile-close, nav-links (5 anchors), CTA + Log in, inert handling.
+ * Funnel lane (2026-08-07): primary CTA is a real app link ("Open a room" →
+ * /app/signup), returning users get a quiet "Log in" affordance.
  */
+import { APP_LOGIN_URL, APP_SIGNUP_URL } from '../lib/app';
 ---
 
 <header class="site-header" data-header>
   <a class="brand" href="/">FINALISMA</a>
   <nav class="nav-links" aria-label="Primary">
     <a href="#problem">Problem</a>
-    <a href="#how">How it works</a>
+    <a href="#how-it-works">How it works</a>
     <a href="#demo">Live demo</a>
     <a href="#connect">Connect</a>
     <a href="#pricing">Pricing</a>
   </nav>
-  <a class="btn btn-accent group" href="#pricing">
-    Start free pilot
+  <a class="nav-login" href={APP_LOGIN_URL}>Log in</a>
+  <a class="btn btn-accent group" href={APP_SIGNUP_URL}>
+    Open a room
     <span class="btn__icon" aria-hidden="true">→</span>
   </a>
   <button class="nav-toggle" aria-expanded="false" aria-controls="mobile-nav" aria-label="Open menu">
@@ -36,12 +40,13 @@
   <button class="mobile-close" aria-label="Close menu">&times;</button>
   <nav aria-label="Mobile">
     <a href="#problem">Problem</a>
-    <a href="#how">How it works</a>
+    <a href="#how-it-works">How it works</a>
     <a href="#demo">Live demo</a>
     <a href="#connect">Connect</a>
     <a href="#pricing">Pricing</a>
-    <a class="btn btn-accent group" href="#pricing">
-      Start free pilot
+    <a class="nav-login" href={APP_LOGIN_URL}>Log in</a>
+    <a class="btn btn-accent group" href={APP_SIGNUP_URL}>
+      Open a room
       <span class="btn__icon" aria-hidden="true">→</span>
     </a>
   </nav>
@@ -187,6 +192,24 @@
     background: rgba(255, 255, 255, 0.28);
   }
 
+  /* Quiet "Log in" affordance for returning users */
+  :global(.nav-login) {
+    color: var(--color-text-muted-inv, #A6AAB4);
+    text-decoration: none;
+    font-size: 0.78rem;
+    font-weight: 500;
+    padding: 0.4rem 0.6rem;
+    border-radius: 9999px;
+    flex-shrink: 0;
+    transition:
+      color var(--dur-fast, 150ms) var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1)),
+      background var(--dur-fast, 150ms) var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1));
+  }
+  :global(.nav-login:hover) {
+    color: var(--color-text-inv, #F2F3F5);
+    background: rgba(255, 255, 255, 0.06);
+  }
+
   /* ============================================================
      Hamburger toggle — three lines that morph into X
      ============================================================ */
@@ -311,6 +334,11 @@
     transform: translateY(0);
     opacity: 1;
   }
+  :global(.mobile-nav.is-open a:nth-child(7)) {
+    transition-delay: 400ms;
+    transform: translateY(0);
+    opacity: 1;
+  }
   /* Close button */
   :global(.mobile-close) {
     position: absolute;
@@ -341,6 +369,12 @@
     height: 32px;
     font-size: 1rem;
   }
+  :global(.mobile-nav .nav-login) {
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--color-text-muted-inv, #A6AAB4);
+    letter-spacing: 0.04em;
+  }
 
   /* ============================================================
      Responsive: show hamburger + overlay on small screens
@@ -353,6 +387,7 @@
     }
     :global(.nav-links) { display: none; }
     :global(.site-header .btn-accent) { display: none; }
+    :global(.site-header .nav-login) { display: none; }
     :global(.nav-toggle) { display: block; }
   }
 

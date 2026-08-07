@@ -1,39 +1,102 @@
 ---
 /**
- * Pricing.astro — Pricing hypothesis + cohort application form.
- * The form builds a portable application text and copies to clipboard.
+ * Pricing.astro — Three-tier pricing (pricing decision 2026-08-07).
+ * Free is permanent and routes to the real signup; Pro and Enterprise route to
+ * a contact form, NOT a checkout — there is no billing system. No SSO/SAML, no
+ * SLA, no uptime %, no support-response claim, no invented logos or counts.
+ * The contact form below builds a portable brief and copies it to clipboard.
  * Nothing is transmitted from this page.
  */
+import { APP_SIGNUP_URL } from '../lib/app';
+
+const tiers = [
+  {
+    name: 'Free',
+    price: '$0',
+    unit: '/ month',
+    description: 'No expiry, no sales call, no clock. Five rooms and ten agents is enough to run something real.',
+    limits: [
+      '5 rooms',
+      '10 agents per room',
+      '10,000 events / month',
+    ],
+    cta: { label: 'Start free', href: APP_SIGNUP_URL, accent: true },
+  },
+  {
+    name: 'Pro',
+    price: '$39',
+    unit: '/ seat / month',
+    description: 'Per seat, not per agent. 100,000 events is a hard, enforced limit — there is no overage meter yet.',
+    limits: [
+      '50 rooms',
+      '50 agents per room',
+      '100,000 events / month — enforced',
+    ],
+    cta: { label: 'Talk to us', href: '#cohort-form', accent: true },
+    featured: true,
+  },
+  {
+    name: 'Enterprise',
+    price: 'Custom',
+    unit: '',
+    description: 'Limits shaped to your organisation, arranged directly — no checkout exists to route through.',
+    limits: [
+      'Custom rooms',
+      'Custom agents per room',
+      'Custom events / month',
+    ],
+    cta: { label: 'Talk to us', href: '#cohort-form', accent: false },
+  },
+];
 ---
 
 <section class="section pricing" id="pricing" aria-labelledby="pricing-title" data-reveal-section>
   <div class="section-shell">
     <div class="section-head">
       <p class="kicker eyebrow scroll-in">Pricing</p>
-      <h2 id="pricing-title" class="scroll-in" style="--delay:80ms">Tested with design partners.</h2>
-
-    </div>
-
-    <div class="bezel scroll-in" style="--delay:160ms">
-      <div class="bezel__core pricing-card">
-        <p class="pricing-hypothesis">Hypothesis, tested with design partners:</p>
-        <p class="pricing-figure"><b>$1,000</b> / workspace / month</p>
-        <p class="pricing-deposit"><b>$500 deposit</b> credited toward the first month.</p>
-        <p class="pricing-pilot">30-day free pilot.</p>
-        <div class="pricing-ctas">
-          <a class="btn btn-accent btn-lg group" href="#connect">Connect an agent<span class="btn__icon" aria-hidden="true">→</span></a>
-          <a class="btn btn-ghost group" href="/docs/pilot.html">Apply for the managed pilot<span class="btn__icon" aria-hidden="true">→</span></a>
-        </div>
-      </div>
-    </div>
-
-    <div class="cohort-form-wrap scroll-in" style="--delay:240ms">
-      <h3 class="cohort-form__title">Build the application</h3>
-      <p class="cohort-form__lede">
-        Fill in your details. The form builds an application text
-        and copies it to your clipboard. <strong>Nothing is transmitted from this page.</strong>
+      <h2 id="pricing-title" class="scroll-in" style="--delay:80ms">Start free. Pay for seats when you need them.</h2>
+      <p class="section-lede scroll-in" style="--delay:160ms">
+        Free is permanent: no expiry, no sales call, no clock. Five rooms and ten agents
+        per room is enough to run something real — the demo on this page runs four agents
+        in one room, and you can reproduce that on the free tier on day one.
       </p>
-      <form class="cohort-form" data-cohort-form id="cohort-form">
+    </div>
+
+    <div class="pricing-grid scroll-in" style="--delay:240ms">
+      {tiers.map((tier) => (
+        <article class="tier-card" class:list={{ 'tier-card--featured': tier.featured }}>
+          <h3 class="tier-card__name">{tier.name}</h3>
+          <p class="tier-card__price">
+            <b class="tier-card__amount">{tier.price}</b>
+            {tier.unit && <span class="tier-card__unit">{tier.unit}</span>}
+          </p>
+          <p class="tier-card__description">{tier.description}</p>
+          <ul class="tier-card__limits">
+            {tier.limits.map((limit) => <li>{limit}</li>)}
+          </ul>
+          <a
+            class:list={['btn', 'btn-lg', 'group', tier.cta.accent ? 'btn-accent' : 'btn-ghost']}
+            href={tier.cta.href}
+          >
+            {tier.cta.label}<span class="btn__icon" aria-hidden="true">→</span>
+          </a>
+        </article>
+      ))}
+    </div>
+
+    <p class="pricing-honesty scroll-in" style="--delay:320ms">
+      There is no billing system yet: free works end-to-end through signup today, and Pro and
+      Enterprise begin with a conversation, not a checkout. We publish no SLA, uptime, or
+      support-response commitment — we have not run this in production.
+    </p>
+
+    <div class="cohort-form-wrap scroll-in" style="--delay:400ms">
+      <h3 class="cohort-form__title" id="cohort-form">Talk to us about Pro or Enterprise</h3>
+      <p class="cohort-form__lede">
+        Fill in your details. The form builds a short brief and copies it to your
+        clipboard. <strong>Nothing is transmitted from this page.</strong>
+      </p>
+      <form class="cohort-form" data-cohort-form>
         <div class="field">
           <label for="cohort-team">Team / organisation</label>
           <input id="cohort-team" name="team" type="text" placeholder="Acme Corp" required />
@@ -47,10 +110,10 @@
           <input id="cohort-hosts" name="hosts" type="text" placeholder="OpenCode, Claude Code, Cursor" />
         </div>
         <div class="field">
-          <label for="cohort-scenario">Coordination scenario</label>
-          <textarea id="cohort-scenario" name="scenario" rows="3" placeholder="Two agents, one handoff task, evidence-gated completion."></textarea>
+          <label for="cohort-scenario">What you want to coordinate</label>
+          <textarea id="cohort-scenario" name="scenario" rows="3" placeholder="Rooms, agents, and the handoffs you want to run."></textarea>
         </div>
-        <button class="btn btn-accent group" type="submit">Build the application<span class="btn__icon" aria-hidden="true">→</span></button>
+        <button class="btn btn-accent group" type="submit">Build the brief<span class="btn__icon" aria-hidden="true">→</span></button>
         <div class="cohort-form__status" data-cohort-status role="status" aria-live="polite"></div>
       </form>
     </div>
@@ -58,9 +121,9 @@
 </section>
 
 <script>
-  // Cohort form — builds portable application text, copies to clipboard, no transmission
+  // Contact brief builder — assembles a portable brief, copies to clipboard, no transmission
   (function () {
-    const form = document.getElementById('cohort-form') as HTMLFormElement | null;
+    const form = document.querySelector('[data-cohort-form]');
     const statusEl = document.querySelector('[data-cohort-status]');
 
     function setStatus(msg: string) {
@@ -81,14 +144,13 @@
       }
 
       const text = [
-        '=== Finalisma Managed Pilot Application ===',
+        '=== Finalisma — Pro / Enterprise brief ===',
         '',
         `Team: ${team}`,
         `Contact: ${contact}`,
         hosts ? `Hosts: ${hosts}` : null,
         scenario ? `Scenario: ${scenario}` : null,
         '',
-        'Generated: ' + new Date().toISOString(),
         'Source: Finalisma marketing site (clipboard copy — nothing transmitted).',
       ].filter(Boolean).join('\n');
 
@@ -105,7 +167,7 @@
           document.execCommand('copy');
           document.body.removeChild(ta);
         }
-        setStatus('Application copied to clipboard. Paste it into an email to apply.');
+        setStatus('Brief copied to clipboard. Send it to the channel that brought you here.');
       } catch {
         setStatus('Copy failed — select and copy the text manually.');
       }

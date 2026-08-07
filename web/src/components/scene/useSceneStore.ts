@@ -55,7 +55,7 @@ export const SEED_EVENTS: AgentEvent[] = [
 let state: SceneState = {
   progress: 0,
   beat: 1,
-  tier: 'high',
+  tier: 'medium',
   reducedMotion: false,
   gateState: 'armed',
   events: [],
