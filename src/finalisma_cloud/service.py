@@ -22,6 +22,7 @@ up to the room cap. Any number of distinct agents can redeem it.
 
 from __future__ import annotations
 
+import html
 import json
 import os
 import re
@@ -43,7 +44,7 @@ from finalisma_cloud.identity import (
     ensure_identity_schema,
 )
 from finalisma_cloud.identity.schema import ensure_schema as _ensure_identity_schema
-from finalisma_cloud.rooms import CloudRoomService, RoomError
+from finalisma_cloud.rooms import CloudRoomService, RoomError, public_origin
 from finalisma_cloud.storage import SqliteWalBackend, StorageBackend
 
 # Secrets are never logged. Tokens are hashed at rest, never stored raw.
@@ -89,6 +90,27 @@ def _bearer_token(handler: BaseHTTPRequestHandler) -> str | None:
     return None
 
 
+def _html_esc(value: Any) -> str:
+    """HTML-escape a value. Never render unescaped data into a page."""
+    return html.escape(str(value) if value is not None else "")
+
+
+def _html_page(title: str, body_html: str) -> bytes:
+    """Minimal readable HTML page for the human-facing /j/<token> view."""
+    document = (
+        '<!DOCTYPE html>\n'
+        '<html lang="en"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        f'<title>{_html_esc(title)}</title></head>\n'
+        f'<body>{body_html}</body></html>'
+    )
+    return document.encode("utf-8")
+
+
+# A link token is `rm_` plus url-safe base64, so [A-Za-z0-9_-] covers it.
+_JOIN_LINK_RE = re.compile(r"^/j/([A-Za-z0-9_-]+)$")
+
+
 class FinalismaCloudService:
     """The hosted SaaS: identity + rooms over one HTTP surface.
 
@@ -97,8 +119,9 @@ class FinalismaCloudService:
     by ``WHERE tenant_id = ?``.
     """
 
-    def __init__(self, backend: StorageBackend) -> None:
+    def __init__(self, backend: StorageBackend, origin: str | None = None) -> None:
         self.backend = backend
+        self.origin = public_origin(origin)
         self.accounts = AccountStore(backend)
         self.sessions = SessionStore(backend)
         self.orgs = OrgStore(backend)
@@ -290,7 +313,7 @@ class FinalismaCloudService:
         actor_token = _bearer_token(handler)
         result = self.rooms.create_room(
             ctx.tenant_id, owner_agent_id, actor_token, cap=cap,
-            name=name, ttl_seconds=ttl_seconds,
+            name=name, ttl_seconds=ttl_seconds, origin=self.origin,
         )
         # Audit.
         self.backend.append_audit(
@@ -298,6 +321,194 @@ class FinalismaCloudService:
             json.dumps({"cap": cap}),
         )
         return _json_response(HTTPStatus.CREATED, result)
+
+    def handle_connect_room(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
+        """High-level "connect me to another agent" affordance (POST /v1/rooms/connect).
+
+        Collapses the common case — create a room AND return the self-describing
+        shareable URL in one call, so an LLM that hears "connect me to Claude",
+        "link", "introduce", "bring in", or "talk to another agent or assistant"
+        has ONE tool that produces the exact string to hand over.
+
+        Give the returned ``shareable_link`` to the other agent: it is a URL the
+        other agent can open to discover the join endpoint, auth scheme, and
+        protocol without any further tribal knowledge.
+
+        What this tool does NOT do: it does not deliver the URL to the other
+        agent. Delivery is the caller's job — a human pastes it, or the calling
+        agent uses its own channel. This is additive sugar over /v1/rooms/create
+        and reuses CloudRoomService.create_room; it is not a replacement for it.
+        """
+        ctx = self._authenticate(handler)
+        body = _read_body(handler)
+        owner_agent_id = body.get("owner_agent_id", ctx.account_id)
+        cap = body.get("cap", 10)
+        name = body.get("name")
+        ttl_seconds = body.get("ttl_seconds", 86400)
+        actor_token = _bearer_token(handler)
+        result = self.rooms.create_room(
+            ctx.tenant_id, owner_agent_id, actor_token, cap=cap,
+            name=name, ttl_seconds=ttl_seconds, origin=self.origin,
+        )
+        self.backend.append_audit(
+            ctx.tenant_id, "room.connect", ctx.account_id, result["room_id"],
+            json.dumps({"cap": cap}),
+        )
+        return _json_response(HTTPStatus.CREATED, {
+            "room_id": result["room_id"],
+            "link_token": result["link_token"],
+            "shareable_link": result["shareable_link"],
+            "expires_at": result["expires_at"],
+            "cap": result["cap"],
+            "state": result["state"],
+        })
+
+    def handle_join_descriptor(self, handler: BaseHTTPRequestHandler, link_token: str) -> None:
+        """Unauthenticated description of a shareable link (GET /j/<token>).
+
+        Serves two audiences from ONE URL:
+          - a machine (``Accept: application/json``) gets a JSON join-descriptor
+            naming the origin, room_id, the POST endpoint, the auth scheme, and
+            the agent-card pointer;
+          - a human (``Accept: text/html``) gets a readable page explaining what
+            the link is and how to connect, reusing the connect-page copy.
+
+        This is a PURE READ: it never joins the room and never consumes or
+        invalidates the token — joining stays an explicit authenticated POST to
+        /v1/rooms/join. It reveals only what a joining agent strictly needs:
+        the room_id and the join contract. No org identity, member emails, or
+        event log are exposed. Malformed and unknown tokens return the SAME 404
+        shape so the endpoint is not an oracle.
+        """
+        room_id = self.rooms.resolve_room_by_link_token(link_token)
+        accept = handler.headers.get("Accept", "") or ""
+        wants_json = "application/json" in accept or "application/*" in accept
+        if room_id is None:
+            if wants_json:
+                handler._send_json(HTTPStatus.NOT_FOUND,
+                                   {"error": {"code": "not_found", "message": "Not found"}})
+            else:
+                handler.send_response(HTTPStatus.NOT_FOUND)
+                body = _html_page("Not found", "<p>This link does not open a room.</p>")
+                handler.send_header("Content-Type", "text/html; charset=utf-8")
+                handler.send_header("Content-Length", str(len(body)))
+                handler.send_header("Cache-Control", "no-store")
+                handler.send_header("X-Content-Type-Options", "nosniff")
+                handler.end_headers()
+                handler.wfile.write(body)
+            return
+
+        if wants_json:
+            descriptor = {
+                "service": "finalisma",
+                "profile": {"name": "finalisma.a2a", "version": "2.0"},
+                "origin": self.origin,
+                "room_id": room_id,
+                "join": {
+                    "endpoint": f"{self.origin}/v1/rooms/join",
+                    "method": "POST",
+                    "auth_scheme": "bearer-session-token",
+                    "request": {
+                        "room_id": room_id,
+                        "link_token": link_token,
+                        "agent_id": "<the joining agent's own id>",
+                        "consent": True,
+                        "capabilities": [],
+                    },
+                },
+                "agent_card": f"{self.origin}/.well-known/agent-card.json",
+                "notes": {
+                    "token_source": "The path segment of this URL IS the link_token the join endpoint consumes.",
+                    "consent": "Joining requires explicit consent (literal boolean true) and an authenticated session from signup/signin.",
+                    "not_delivered": "Opening this URL never joins the room. Join only happens through an explicit authenticated POST.",
+                },
+            }
+            body = json.dumps(descriptor, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            handler.send_response(HTTPStatus.OK)
+            handler.send_header("Content-Type", "application/json")
+            handler.send_header("Content-Length", str(len(body)))
+            handler.send_header("Cache-Control", "no-store")
+            handler.send_header("X-Content-Type-Options", "nosniff")
+            handler.end_headers()
+            handler.wfile.write(body)
+            return
+
+        # Human audience — reuse the connect-page copy.
+        tier1 = (
+            'mcpServers: {\n  "finalisma": {\n    "command": "finalisma-mcp",\n'
+            f'    "args": ["--room", "{_html_esc(room_id)}", "--token", "{_html_esc(link_token)}"]\n  }}\n}}'
+        )
+        tier2 = f'POST /v1/rooms/join {{"room_id": "{_html_esc(room_id)}", "link_token": "{_html_esc(link_token)}"}}'
+        tier3 = f'bridge webhook --room {_html_esc(room_id)} --token {_html_esc(link_token)}'
+        tier4 = f'FinalismaClient.connect(room_id="{_html_esc(room_id)}", token="{_html_esc(link_token)}")'
+        body_html = (
+            '<h1>Connect an agent</h1>'
+            f'<p>This link opens a Finalisma room. Give it to the agent you want to '
+            f'connect, or use the config below yourself. The link is <code>{_html_esc(self.origin + "/j/" + link_token)}</code>.</p>'
+            '<h2>Tier 1 — MCP stdio</h2>'
+            f'<pre>{_html_esc(tier1)}</pre>'
+            '<h2>Tier 2 — Streamable HTTP</h2>'
+            f'<pre>{_html_esc(tier2)}</pre>'
+            '<h2>Tier 3 — bridge</h2>'
+            f'<p>Webhook bridge: <code>{_html_esc(tier3)}</code></p>'
+            '<h2>Tier 4 — SDK</h2>'
+            f'<pre>{_html_esc(tier4)}</pre>'
+            f'<p>Link token: <code>{_html_esc(link_token)}</code></p>'
+        )
+        body = _html_page("Connect an agent", body_html)
+        handler.send_response(HTTPStatus.OK)
+        handler.send_header("Content-Type", "text/html; charset=utf-8")
+        handler.send_header("Content-Length", str(len(body)))
+        handler.send_header("Cache-Control", "no-store")
+        handler.send_header("X-Content-Type-Options", "nosniff")
+        handler.end_headers()
+        handler.wfile.write(body)
+
+    def handle_agent_card(self, handler: BaseHTTPRequestHandler) -> None:
+        """Unauthenticated machine-readable agent card (GET /.well-known/agent-card.json).
+
+        Lets an agent that knows only our origin discover what the service is,
+        which protocol/profile it speaks, and how to join. Cache-friendly. No
+        secrets, no per-tenant data, no member or org identity.
+
+        The card names OUR OWN profile (``finalisma.a2a``) and explicitly does
+        NOT claim conformance with the A2A Protocol — that is a proprietary
+        repository namespace, and the card must not imply certification it does
+        not have.
+        """
+        card = {
+            "service": "finalisma",
+            "description": "Finalisma is a coordination layer that connects independent AI agents into a shared, consent-gated room.",
+            "profile": {"name": "finalisma.a2a", "version": "2.0"},
+            "mcp_protocol": "2025-11-25",
+            "origin": self.origin,
+            "join_endpoint": f"{self.origin}/v1/rooms/join",
+            "join_method": "POST",
+            "auth_scheme": "bearer-session-token",
+            "link_format": f"{self.origin}/j/<link_token>",
+            "connection_tiers": [
+                {"tier": "mcp-stdio",
+                 "description": "A Finalisma MCP coordinator exposing finalisma_room_* tools over stdio."},
+                {"tier": "streamable-http",
+                 "description": "The hosted JSON-RPC-over-HTTP surface (this service)."},
+                {"tier": "bridge-webhook",
+                 "description": "Signed webhook delivery for non-MCP hosts."},
+                {"tier": "sdk",
+                 "description": "finalisma_sdk, a stdlib-only Python client."},
+            ],
+            "notes": {
+                "profile_scope": "finalisma.a2a is a proprietary profile namespace used by the Finalisma service. It is not a ratified protocol standard.",
+                "a2a_shape": "The join model (one link, many agents, per-agent capability lists) is conceptually aligned with agent-to-agent ideas; this is a factual description of the layout.",
+            },
+        }
+        body = json.dumps(card, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        handler.send_response(HTTPStatus.OK)
+        handler.send_header("Content-Type", "application/json")
+        handler.send_header("Content-Length", str(len(body)))
+        handler.send_header("Cache-Control", "public, max-age=3600")
+        handler.send_header("X-Content-Type-Options", "nosniff")
+        handler.end_headers()
+        handler.wfile.write(body)
 
     def handle_join_room(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
         ctx = self._authenticate(handler)
@@ -545,6 +756,13 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
         if path in {"/healthz", "/health"}:
             self._send_json(HTTPStatus.OK, {"status": "ok", "service": "finalisma-cloud"})
             return
+        if path == "/.well-known/agent-card.json":
+            self.service.handle_agent_card(self)
+            return
+        join_match = _JOIN_LINK_RE.match(path)
+        if join_match:
+            self.service.handle_join_descriptor(self, join_match.group(1))
+            return
         if path in {"/v1/rooms"}:
             self._handle("GET", self.service.handle_list_rooms)
             return
@@ -566,6 +784,7 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
             "/v1/auth/signin": self.service.handle_signin,
             "/v1/auth/signout": self.service.handle_signout,
             "/v1/rooms/create": self.service.handle_create_room,
+            "/v1/rooms/connect": self.service.handle_connect_room,
             "/v1/rooms/join": self.service.handle_join_room,
             "/v1/rooms/leave": self.service.handle_room_leave,
             "/v1/rooms/close": self.service.handle_room_close,
@@ -587,14 +806,16 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
         self._handle("POST", handler_fn)
 
 
-def create_service(db_path: str = ":memory:") -> FinalismaCloudService:
+def create_service(db_path: str = ":memory:", origin: str | None = None) -> FinalismaCloudService:
     """Create a cloud service backed by a SQLite-WAL database.
 
     ``db_path=":memory:"`` is used for tests. Pass a file path for persistence.
+    ``origin`` is the public base URL used to build shareable links; it defaults
+    to ``FINALISMA_PUBLIC_ORIGIN`` (or the local dev origin) when omitted.
     """
     backend = SqliteWalBackend(db_path)
     backend.initialize()
-    return FinalismaCloudService(backend)
+    return FinalismaCloudService(backend, origin=origin)
 
 
 def runtime_config(
@@ -610,6 +831,9 @@ def runtime_config(
     - ``FINALISMA_HOST``  (default ``127.0.0.1``)
     - ``FINALISMA_PORT``  (default ``18788``)
     - ``FINALISMA_DB_PATH`` (default ``./data/finalisma-cloud.db``)
+    - ``FINALISMA_PUBLIC_ORIGIN`` (default ``http://127.0.0.1:18788``) — the
+      base URL baked into shareable links and served by the /j/<token> and
+      agent-card endpoints. No deployment URL is hardcoded.
 
     A malformed or out-of-range port raises ``ValueError`` so a misconfigured
     deploy fails loudly at startup instead of silently binding the default.
@@ -632,18 +856,21 @@ def runtime_config(
     port = _port("FINALISMA_PORT", environ.get("FINALISMA_PORT"), 18788)
     db_path = environ.get("FINALISMA_DB_PATH", "./data/finalisma-cloud.db").strip() \
         or "./data/finalisma-cloud.db"
+    origin = environ.get("FINALISMA_PUBLIC_ORIGIN", "http://127.0.0.1:18788").strip() \
+        or "http://127.0.0.1:18788"
 
     if len(argv) >= 1:
         port = _port("port", argv[0], port)
     if len(argv) >= 2:
         db_path = argv[1]
 
-    return {"host": host, "port": port, "db_path": db_path}
+    return {"host": host, "port": port, "db_path": db_path, "origin": origin}
 
 
-def serve(host: str = "127.0.0.1", port: int = 18788, db_path: str = "./data/finalisma-cloud.db") -> None:
+def serve(host: str = "127.0.0.1", port: int = 18788, db_path: str = "./data/finalisma-cloud.db",
+          origin: str | None = None) -> None:
     """Run the cloud HTTP service (blocking)."""
-    service = create_service(db_path)
+    service = create_service(db_path, origin=origin)
     _CloudHTTPHandler.service = service
     server = ThreadingHTTPServer((host, port), _CloudHTTPHandler)
     print(f"finalisma-cloud listening on http://{host}:{port}", flush=True)
@@ -663,4 +890,4 @@ if __name__ == "__main__":
     except ValueError as exc:
         print(f"finalisma-cloud: {exc}", file=sys.stderr)
         sys.exit(2)
-    serve(cfg["host"], cfg["port"], cfg["db_path"])
+    serve(cfg["host"], cfg["port"], cfg["db_path"], cfg["origin"])
