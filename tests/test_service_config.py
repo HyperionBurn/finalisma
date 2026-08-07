@@ -25,6 +25,7 @@ class TestRuntimeConfig(unittest.TestCase):
             "host": "127.0.0.1",
             "port": 18788,
             "db_path": "./data/finalisma-cloud.db",
+            "origin": "http://127.0.0.1:18788",
         })
 
     def test_env_overrides_defaults(self) -> None:
@@ -32,11 +33,13 @@ class TestRuntimeConfig(unittest.TestCase):
             "FINALISMA_HOST": "0.0.0.0",
             "FINALISMA_PORT": "19001",
             "FINALISMA_DB_PATH": "/data/cloud.db",
+            "FINALISMA_PUBLIC_ORIGIN": "https://connect.example",
         })
         self.assertEqual(cfg, {
             "host": "0.0.0.0",
             "port": 19001,
             "db_path": "/data/cloud.db",
+            "origin": "https://connect.example",
         })
 
     def test_argv_overrides_env(self) -> None:
@@ -49,6 +52,7 @@ class TestRuntimeConfig(unittest.TestCase):
             "host": "0.0.0.0",
             "port": 19999,
             "db_path": "/tmp/argv.db",
+            "origin": "http://127.0.0.1:18788",
         })
 
     def test_argv_port_only_keeps_env_db_path(self) -> None:
@@ -56,6 +60,7 @@ class TestRuntimeConfig(unittest.TestCase):
         self.assertEqual(cfg["port"], 12345)
         self.assertEqual(cfg["db_path"], "/data/x.db")
         self.assertEqual(cfg["host"], "127.0.0.1")
+        self.assertEqual(cfg["origin"], "http://127.0.0.1:18788")
 
     def test_invalid_env_port_raises(self) -> None:
         with self.assertRaises(ValueError):

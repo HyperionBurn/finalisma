@@ -63,18 +63,38 @@ def _get(base: str, path: str, token: str | None = None) -> tuple[int, dict]:
         return exc.code, payload
 
 
+def _get_url(url: str, accept: str | None = None) -> tuple[int, bytes, dict]:
+    """GET a full URL returning (status, raw body bytes, headers).
+
+    Used for the /j/<token> and agent-card endpoints where the response may be
+    HTML or JSON and the Accept header selects the audience.
+    """
+    req = urllib.request.Request(url, method="GET")
+    if accept:
+        req.add_header("Accept", accept)
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.status, resp.read(), dict(resp.headers)
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read(), dict(exc.headers)
+
+
 class CloudServiceTestBase(unittest.TestCase):
     """Base class that spins up a real HTTP service on a background thread."""
 
     def setUp(self) -> None:
         self.tmpdir = tempfile.mkdtemp(prefix="finalisma-test-")
         self.db_path = str(Path(self.tmpdir) / "test.db")
-        self.service = FinalismaCloudService(SqliteWalBackend(self.db_path))
         self.port = 18800 + (hash(self.tmpdir) % 1000)
+        self.base = f"http://127.0.0.1:{self.port}"
+        # The service's public origin is the real test server so shareable
+        # links point back at it and the /j/<token> endpoint can be exercised
+        # end to end against the same process.
+        self.service = FinalismaCloudService(SqliteWalBackend(self.db_path),
+                                             origin=self.base)
         self.server = threading.Thread(
             target=self._serve, daemon=True,
         )
-        self.base = f"http://127.0.0.1:{self.port}"
         self._server_started = threading.Event()
         self.server.start()
         self._server_started.wait(timeout=5)
@@ -340,6 +360,152 @@ class TestRoomLifecycle(CloudServiceTestBase):
         }, agent_signup["session_token"])
         self.assertEqual(status, 410)
         self.assertEqual(body["error"]["code"], "link_revoked")
+
+
+class TestJoinDescriptorAndAgentCard(CloudServiceTestBase):
+    """Self-describing links: /j/<token> descriptor + well-known agent card.
+
+    The core discovery primitive: a shareable link is an absolute URL an agent
+    can fetch (Accept: application/json) to learn the room, the join endpoint,
+    the auth scheme, and where the agent card lives — no human copy-paste of
+    tribal knowledge required.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.owner = self._signup("discover-owner@example.com", "CorrectHorse!1")
+        self.room = self._create_room(self.owner["session_token"], cap=6,
+                                      owner_agent_id="discover-owner-agent")
+        self.link_token = self.room["link_token"]
+        self.room_id = self.room["room_id"]
+
+    def _json_descriptor(self, token: str) -> tuple[int, dict]:
+        status, raw, _ = _get_url(f"{self.base}/j/{token}", accept="application/json")
+        payload = {}
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except Exception:
+            pass
+        return status, payload
+
+    def test_create_room_shareable_link_is_absolute_url_with_token(self) -> None:
+        # room_create returns shareable_link as an absolute URL containing the
+        # token, AND still returns link_token unchanged (rm_ prefix).
+        self.assertTrue(self.room["shareable_link"].startswith(("http://", "https://")),
+                        f"shareable_link not absolute: {self.room['shareable_link']}")
+        self.assertTrue(self.room["shareable_link"].startswith(self.base))
+        self.assertTrue(self.room["shareable_link"].endswith(f"/j/{self.link_token}"))
+        self.assertTrue(self.room["link_token"].startswith("rm_"))
+
+    def test_join_descriptor_json_matches_room_id(self) -> None:
+        status, body = self._json_descriptor(self.link_token)
+        self.assertEqual(status, 200)
+        self.assertEqual(body["room_id"], self.room_id)
+        self.assertEqual(body["join"]["request"]["room_id"], self.room_id)
+        self.assertTrue(body["join"]["endpoint"].startswith(self.base))
+        self.assertEqual(body["join"]["method"], "POST")
+        self.assertIn("agent_card", body)
+        self.assertEqual(body["agent_card"], f"{self.base}/.well-known/agent-card.json")
+
+    def test_join_descriptor_is_pure_read_no_mutation(self) -> None:
+        # Snapshot membership count + event-log length.
+        _, info_before = _get(self.base, f"/v1/rooms/info?room_id={self.room_id}&agent_id=discover-owner-agent",
+                              self.owner["session_token"])
+        before_members = info_before["member_count"]
+        _, poll_before = _post(self.base, "/v1/rooms/poll", {
+            "room_id": self.room_id, "agent_id": "discover-owner-agent", "after_seq": 0,
+        }, self.owner["session_token"])
+        before_events = len(poll_before["events"])
+        # Fetch the descriptor — this must NOT change anything.
+        status, body = self._json_descriptor(self.link_token)
+        self.assertEqual(status, 200)
+        _, info_after = _get(self.base, f"/v1/rooms/info?room_id={self.room_id}&agent_id=discover-owner-agent",
+                             self.owner["session_token"])
+        after_members = info_after["member_count"]
+        _, poll_after = _post(self.base, "/v1/rooms/poll", {
+            "room_id": self.room_id, "agent_id": "discover-owner-agent", "after_seq": 0,
+        }, self.owner["session_token"])
+        after_events = len(poll_after["events"])
+        self.assertEqual(after_members, before_members,
+                         "GET /j mutated the membership")
+        self.assertEqual(after_events, before_events,
+                         "GET /j mutated the event log")
+        # And the token STILL works for a real join afterwards — not consumed.
+        newcomer = self._signup("discover-newcomer@example.com", "AgentPass!1")
+        joined = self._join_room(newcomer["session_token"], self.room_id,
+                                 self.link_token, "discover-newcomer")
+        self.assertEqual(joined["status"], "active")
+
+    def test_join_descriptor_bad_token_is_no_oracle(self) -> None:
+        # A malformed token and a well-formed-but-unknown token must return the
+        # SAME response shape — no oracle distinguishing them.
+        malformed_status, malformed_raw, _ = _get_url(f"{self.base}/j/garbage",
+                                                     accept="application/json")
+        unknown_status, unknown_raw, _ = _get_url(
+            f"{self.base}/j/rm_{'a' * 43}", accept="application/json")
+        self.assertEqual(malformed_status, unknown_status)
+        self.assertEqual(malformed_raw, unknown_raw)
+        self.assertEqual(malformed_status, 404)
+
+    def test_join_descriptor_does_not_leak(self) -> None:
+        # The descriptor reveals only what a joining agent strictly needs: no
+        # org identity, member emails, or event log to an unauthenticated fetch.
+        status, body = self._json_descriptor(self.link_token)
+        self.assertEqual(status, 200)
+        text = json.dumps(body).lower()
+        for banned in ("email", "tenant", "member", "event", "password", "secret"):
+            self.assertNotIn(banned, text,
+                             f"join descriptor leaked sensitive data: {banned!r}")
+
+    def test_join_descriptor_html_page_for_humans(self) -> None:
+        # A human browser gets a readable page reusing the connect-page copy.
+        status, raw, _ = _get_url(f"{self.base}/j/{self.link_token}", accept="text/html")
+        self.assertEqual(status, 200)
+        page = raw.decode("utf-8", errors="replace")
+        self.assertIn("Connect an agent", page)
+        self.assertIn("Tier 1", page)
+        self.assertIn(self.link_token, page)
+        self.assertIn(self.room_id, page)
+
+    def test_agent_card_is_public_and_contains_no_a2a_conformance_claim(self) -> None:
+        # Unauthenticated, valid JSON, no secrets, no A2A conformance claim.
+        status, raw, headers = _get_url(f"{self.base}/.well-known/agent-card.json")
+        self.assertEqual(status, 200)
+        self.assertIn("application/json", headers.get("Content-Type", ""))
+        body = json.loads(raw.decode("utf-8"))
+        text = json.dumps(body).lower()
+        # No secret-bearing values, no emails.
+        for banned in ("fst_", "rm_", "fss_", "secret", "password", "@"):
+            self.assertNotIn(banned, text,
+                             f"agent card leaked a secret-ish value: {banned!r}")
+        # Names OUR own profile — and does NOT claim A2A conformance.
+        self.assertEqual(body["profile"]["name"], "finalisma.a2a")
+        for banned in ("conformance", "a2a-compatible", "conforms to a2a",
+                       "a2a protocol conformance", "implements the a2a",
+                       "a2a protocol 1.0"):
+            self.assertNotIn(banned, text,
+                             f"agent card overclaims A2A: {banned!r}")
+
+    def test_connect_tool_creates_room_and_second_agent_joins_via_url(self) -> None:
+        # The high-level tool collapses room_create + returns the URL; a second
+        # agent joins using ONLY that URL.
+        status, body = _post(self.base, "/v1/rooms/connect", {
+            "cap": 5, "owner_agent_id": "connect-owner",
+        }, self.owner["session_token"])
+        self.assertEqual(status, 201)
+        shareable = body["shareable_link"]
+        self.assertTrue(shareable.startswith("http://"))
+        token = shareable.rsplit("/", 1)[1]
+        self.assertTrue(token.startswith("rm_"))
+        self.assertEqual(token, body["link_token"])
+        # Second agent fetches the descriptor from the URL, then joins.
+        newcomer = self._signup("connect-newcomer@example.com", "AgentPass!1")
+        fetch_status, raw, _ = _get_url(shareable, accept="application/json")
+        self.assertEqual(fetch_status, 200)
+        descriptor = json.loads(raw.decode("utf-8"))
+        joined = self._join_room(newcomer["session_token"], descriptor["room_id"],
+                                 token, "connect-newcomer")
+        self.assertEqual(joined["status"], "active")
 
 
 class TestOrderedDelivery(CloudServiceTestBase):

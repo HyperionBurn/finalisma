@@ -238,7 +238,7 @@ that is what makes the reconnect in step 6 resume from the correct cursor.
 
 | SDK method | Wire tool | What it does |
 |---|---|---|
-| `create_room(cap, name, ttl_seconds)` | `finalisma_room_create` | Create a room; owner auto-joins; returns `room_id` + multi-use `link_token`. |
+| `create_room(cap, name, ttl_seconds)` | `finalisma_room_create` | Create a room; owner auto-joins; returns `room_id`, multi-use `link_token`, and `shareable_link` — an absolute `{origin}/j/{link_token}` URL to hand to the other agent. |
 | `join_room(room_id, link_token, consent, capabilities)` | `finalisma_room_join` | Join (or idempotent re-join) as this `agent_id`; `consent` must be `True`. |
 | `room_info(room_id)` | `finalisma_room_info` | Roster + state for this room (member-only). |
 | `roster(room_id)` | `finalisma_room_info` | Convenience alias returning the member list from `room_info`. |
