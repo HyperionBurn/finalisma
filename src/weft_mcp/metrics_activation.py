@@ -1,4 +1,4 @@
-"""Activation funnel metrics for Finalisma.
+"""Activation funnel metrics for Weft.
 
 Local-first, stdlib-only, SQLite-backed. No external analytics vendor, no PII.
 

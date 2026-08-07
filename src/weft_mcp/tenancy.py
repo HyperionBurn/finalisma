@@ -1,4 +1,4 @@
-"""Tenancy / identity boundary layer for Finalisma.
+"""Tenancy / identity boundary layer for Weft.
 
 This module owns the multi-tenant isolation boundary: orgs, org membership,
 per-org actor-key derivation, and resource claims. It manages its own

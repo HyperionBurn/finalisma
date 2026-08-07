@@ -1,6 +1,6 @@
-# FINALISMA — ORCHESTRATOR BRIEF
+# WEFT — ORCHESTRATOR BRIEF
 
-**To:** the primary opencode agent (deepseek-v4-flash) running the Finalisma multi-lane build
+**To:** the primary opencode agent (deepseek-v4-flash) running the Weft multi-lane build
 **Branch:** `isolated` · **Worktree:** `C:\Users\Wasif\Documents\Multiplayer-AI-isolated`
 **Status at brief time:** Wave A (8 LongCat-2.0 lanes) dispatched 12:19, in flight. 180 tests, 6 failures + 14 errors.
 
@@ -284,7 +284,7 @@ measured facts, and fabricating them is the one unrecoverable mistake in a YC ap
 **C1 — YC-APPLICATION** (owns `docs/YC_APPLICATION.md`)
 Four `[FILL]` placeholders remain, all in "Who is using it?" — design-partner count, workflow,
 median time to first handoff, four-week repeat rate. The doc's own instruction is correct: until
-those are real, say "we are recruiting design partners," **not** "teams use Finalisma."
+those are real, say "we are recruiting design partners," **not** "teams use Weft."
 
 Rewrite everything that *can* be made true now from B2/B3/B4 output. Strengthen these answers:
 - *What is working today* — replace "65 passing tests" with the measured count, and add the
@@ -380,7 +380,7 @@ NEVER touch C:\Users\Wasif\Documents\Multiplayer-AI (master, separate work).
 Do NOT commit. Do NOT run git reset/checkout/clean.
 
 [2] PROJECT
-Finalisma — evidence-backed handoff/coordination layer for AI agents.
+Weft — evidence-backed handoff/coordination layer for AI agents.
 Python 3.11+, standard library only, SQLite state, zero runtime dependencies,
 no CDN, no global installs. That constraint is a product promise, not a preference.
 

@@ -1,4 +1,4 @@
-"""Finalisma bridge-adapter interop validation driver.
+"""Weft bridge-adapter interop validation driver.
 
 Spawns the REAL coordinator over stdio (MCP's primary transport), registers
 an agent through its MCP surface, then exercises the REAL bridge adapters
@@ -97,8 +97,8 @@ def _make_handler_class():
             length = int(self.headers.get("Content-Length", "0"))
             raw = self.rfile.read(length) if length else b""
             WebhookReceiver  # reference to keep linter calm
-            sig = self.headers.get("X-Finalisma-Signature", "")
-            ts = self.headers.get("X-Finalisma-Timestamp", "")
+            sig = self.headers.get("X-Weft-Signature", "")
+            ts = self.headers.get("X-Weft-Timestamp", "")
             try:
                 body = json.loads(raw.decode("utf-8")) if raw else None
             except json.JSONDecodeError:

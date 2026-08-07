@@ -1,4 +1,4 @@
-"""Finalisma cloud spine — storage interface and SQLite-WAL backend.
+"""Weft cloud spine — storage interface and SQLite-WAL backend.
 
 This is the seam that makes the storage engine swappable. Business logic
 (server handlers, quota enforcement, migration orchestration) imports ONLY the

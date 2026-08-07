@@ -1,4 +1,4 @@
-"""Finalisma Web App — browser front-end over the cloud service.
+"""Weft Web App — browser front-end over the cloud service.
 
 The human-facing surface over the SAME CloudRoomService + identity plane
 the agent-facing HTTP service (service.py) drives. Signup/login, org

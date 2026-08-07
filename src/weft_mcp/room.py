@@ -1,4 +1,4 @@
-"""Finalisma Room product object — Wave E.
+"""Weft Room product object — Wave E.
 
 A Room is one multi-use link admitting N agents (bounded by a cap), each with
 its own identity and capabilities. Members see roster/presence and an ordered
@@ -151,7 +151,7 @@ CREATE TABLE IF NOT EXISTS room_group_members (
 
 
 class RoomError(Exception):
-    """Carries a Finalisma-compatible error code for the MCP surface."""
+    """Carries a Weft-compatible error code for the MCP surface."""
 
     def __init__(self, code: str, message: str):
         super().__init__(message)

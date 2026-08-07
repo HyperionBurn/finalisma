@@ -1,4 +1,4 @@
-"""Finalisma MCP Streamable HTTP protocol integration test.
+"""Weft MCP Streamable HTTP protocol integration test.
 
 Spawns the coordinator over HTTP, drives a genuine remote JSON-RPC client
 against POST /mcp (no weft_mcp internals imported), asserts the full

@@ -1,4 +1,4 @@
-"""MCP edge adapters for Finalisma.
+"""MCP edge adapters for Weft.
 
 This module implements the small JSON-RPC surface needed by MCP clients over
 stdio and Streamable HTTP.  It intentionally keeps logs off stdout because
@@ -62,7 +62,7 @@ class _Metrics:
     def render(self) -> str:
         with self._lock:
             rows = list(self._counters.items())
-        lines = ["# HELP weft_http_responses_total Finalisma HTTP responses by status.", "# TYPE weft_http_responses_total counter"]
+        lines = ["# HELP weft_http_responses_total Weft HTTP responses by status.", "# TYPE weft_http_responses_total counter"]
         for (name, labels), value in sorted(rows):
             label_text = "" if not labels else "{" + ",".join(f'{key}="{val}"' for key, val in labels) + "}"
             lines.append(f"{name}{label_text} {value}")
@@ -237,7 +237,7 @@ JSON_VALUE = {}
 TOOLS: list[dict[str, Any]] = [
     {
         "name": "protocol",
-        "description": "Return the Finalisma A2A protocol version, guarantees, and safety boundaries.",
+        "description": "Return the Weft A2A protocol version, guarantees, and safety boundaries.",
         "inputSchema": _object_schema({}),
     },
     {
@@ -421,7 +421,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "send_message",
-        "description": "Send one versioned, idempotent Finalisma envelope to an agent or broadcast it to the team. Payloads are stored as untrusted data and never executed.",
+        "description": "Send one versioned, idempotent Weft envelope to an agent or broadcast it to the team. Payloads are stored as untrusted data and never executed.",
         "inputSchema": _object_schema({
             "team_id": STRING,
             "sender_id": STRING,
@@ -1575,7 +1575,7 @@ def handle_json_rpc(dispatcher: WeftDispatcher, request: dict[str, Any]) -> dict
         except WeftError as exc:
             tool_result = {"isError": True, "content": [{"type": "text", "text": json.dumps({"error": exc.as_dict()}, ensure_ascii=False)}]}
         except Exception as exc:  # pragma: no cover - defensive last-resort boundary
-            print(f"Finalisma internal error: {type(exc).__name__}", file=sys.stderr)
+            print(f"Weft internal error: {type(exc).__name__}", file=sys.stderr)
             tool_result = {"isError": True, "content": [{"type": "text", "text": json.dumps({"error": {"code": "internal_error", "message": "The server could not complete the tool call"}})}]}
         return None if is_notification else {"jsonrpc": "2.0", "id": request_id, "result": tool_result}
     if method in {"resources/list", "prompts/list"}:
@@ -1596,7 +1596,7 @@ def run_stdio(dispatcher: WeftDispatcher, input_stream: Any = None, output_strea
             except json.JSONDecodeError:
                 response = _json_rpc_error(None, -32700, "Parse error")
             except Exception as exc:  # pragma: no cover - defensive transport boundary
-                print(f"Finalisma transport error: {type(exc).__name__}", file=sys.stderr)
+                print(f"Weft transport error: {type(exc).__name__}", file=sys.stderr)
                 response = _json_rpc_error(None, -32603, "Internal error")
         if response is not None:
             output_stream.write(json.dumps(response, ensure_ascii=False, separators=(",", ":")) + "\n")
@@ -1739,7 +1739,7 @@ class _MCPRequestHandler(BaseHTTPRequestHandler):
                 self._send_json(HTTPStatus.NOT_FOUND, {"error": exc.as_dict()})
             return
         if path == "/mcp":
-            self._send_json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "Finalisma MCP GET streaming is not enabled; use POST /mcp or session_wait"})
+            self._send_json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "Weft MCP GET streaming is not enabled; use POST /mcp or session_wait"})
             return
         self._send_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
 
@@ -1962,7 +1962,7 @@ def run_http(dispatcher: WeftDispatcher, host: str, port: int, token: str | None
     if host not in {"127.0.0.1", "localhost", "::1"} and not token:
         raise WeftError("http_auth_required", "A non-localhost HTTP bind requires WEFT_HTTP_TOKEN")
     if host not in {"127.0.0.1", "localhost", "::1"}:
-        print("Finalisma warning: HTTP transport is plaintext; put a TLS-terminating reverse proxy in front before network exposure.", file=sys.stderr)
+        print("Weft warning: HTTP transport is plaintext; put a TLS-terminating reverse proxy in front before network exposure.", file=sys.stderr)
     handler = type("WeftHTTPHandler", (_MCPRequestHandler,), {})
     handler.dispatcher = dispatcher
     handler.token = token
@@ -1974,7 +1974,7 @@ def run_http(dispatcher: WeftDispatcher, host: str, port: int, token: str | None
     handler.timeout = REQUEST_TIMEOUT_SECONDS
 
     server = _BoundedHTTPServer((host, port), handler)
-    print(f"Finalisma MCP HTTP listening on http://{host}:{port}/mcp", file=sys.stderr)
+    print(f"Weft MCP HTTP listening on http://{host}:{port}/mcp", file=sys.stderr)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

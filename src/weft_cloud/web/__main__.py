@@ -1,4 +1,4 @@
-"""Finalisma Web App — runnable entry point.
+"""Weft Web App — runnable entry point.
 
 ``python -m weft_cloud.web`` binds the browser front-end (the same
 ``WeftWebApp`` the 93 web-contract tests drive) to a real HTTP port so the

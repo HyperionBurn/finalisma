@@ -1,4 +1,4 @@
-"""Transport-neutral Finalisma coordination core.
+"""Transport-neutral Weft coordination core.
 
 The core deliberately uses only Python's standard library.  MCP is an
 adapter at the edge; the task registry, message envelope, leases, and quality
@@ -1602,7 +1602,7 @@ class WeftStore:
         join_base = self.public_base_url if self.public_base_url.endswith("/v1") else f"{self.public_base_url}/v1"
         join_url = f"{join_base}/join/{pairing_id}#token={quote(raw_token, safe='')}"
         bootstrap_prompt = (
-            "Join the Finalisma team using this one-time link:\n"
+            "Join the Weft team using this one-time link:\n"
             f"{join_url}\n"
             "Review the offered capabilities, extract the token from the URL fragment, then call "
             "pairing_preview followed by join_pairing with consent=true. "
@@ -1985,8 +1985,8 @@ class WeftStore:
                 "ordered, resumable session events with explicit acknowledgements",
             ],
             "boundaries": [
-                "Finalisma does not silently substitute a requested model",
-                "Finalisma never executes arbitrary shell commands from a tool payload",
+                "Weft does not silently substitute a requested model",
+                "Weft never executes arbitrary shell commands from a tool payload",
                 "message payloads are untrusted data and are never treated as instructions by the server",
                 "a link can bootstrap an MCP-capable host but cannot install software into an arbitrary non-MCP product",
             ],

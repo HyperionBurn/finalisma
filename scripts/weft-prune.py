@@ -1,4 +1,4 @@
-"""Preview or apply operator-invoked Finalisma retention cleanup."""
+"""Preview or apply operator-invoked Weft retention cleanup."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from weft_mcp.core import WeftError, WeftStore  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Preview or apply Finalisma terminal-history retention cleanup")
+    parser = argparse.ArgumentParser(description="Preview or apply Weft terminal-history retention cleanup")
     parser.add_argument("--state", default=os.environ.get("WEFT_STATE", ".weft/state.db"))
     parser.add_argument("--workspace", default=os.environ.get("WEFT_WORKSPACE", "."))
     parser.add_argument("--retention-days", type=int, default=30)

@@ -1,4 +1,4 @@
-# Finalisma website design QA
+# Weft website design QA
 
 ## Scope and source
 
@@ -70,7 +70,7 @@ Desktop density is 1440 x 900 at deviceScaleFactor 1. Mobile coverage is 390 x 8
 ## Product truth and information architecture
 
 - The homepage says exactly what transfers and what remains with each host.
-- Compatibility is published as nine documented MCP paths and zero live Finalisma host validations. Codex + Claude Code is a proposed first proof pair, not a completed integration.
+- Compatibility is published as nine documented MCP paths and zero live Weft host validations. Codex + Claude Code is a proposed first proof pair, not a completed integration.
 - “Coordination Protocol Preview 0.1” replaces “A2A Standard 1.0.”
 - The site bundle now includes a local quickstart, protocol preview, security boundary, compatibility ledger, three field notes, MIT license, and branded 404. All internal static links resolve inside `site/`.
 - The bundle also contains a reproducible MP4/WebM proof, poster, English captions, and AI-readable redacted run transcript. The coordinator path is real; the two agent hosts are explicitly deterministic fixtures.

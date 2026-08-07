@@ -1,4 +1,4 @@
-"""Crash-durability kill tests for the Finalisma cloud spine.
+"""Crash-durability kill tests for the Weft cloud spine.
 
 REAL kill tests — not simulated. Each test spawns the coordinator as a child
 process over stdio (MCP's primary transport), performs writes, KILLS the child

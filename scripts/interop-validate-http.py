@@ -1,4 +1,4 @@
-"""Finalisma real-MCP Streamable HTTP protocol validation driver.
+"""Weft real-MCP Streamable HTTP protocol validation driver.
 
 Spawns the coordinator itself over HTTP (MCP Streamable HTTP transport), speaks
 real MCP JSON-RPC over POST /mcp using stdlib http.client (initialize /

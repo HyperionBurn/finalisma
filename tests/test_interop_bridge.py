@@ -1,4 +1,4 @@
-"""Finalisma bridge-adapter interop unit tests.
+"""Weft bridge-adapter interop unit tests.
 
 Reuses the same end-to-end pattern as scripts/interop-validate-bridge.py:
 spawn the REAL coordinator over stdio, register an agent through its MCP
@@ -75,8 +75,8 @@ def _make_handler():
         def do_POST(self):
             length = int(self.headers.get("Content-Length", "0"))
             raw = self.rfile.read(length) if length else b""
-            sig = self.headers.get("X-Finalisma-Signature", "")
-            ts = self.headers.get("X-Finalisma-Timestamp", "")
+            sig = self.headers.get("X-Weft-Signature", "")
+            ts = self.headers.get("X-Weft-Timestamp", "")
             try:
                 body = json.loads(raw.decode("utf-8")) if raw else None
             except json.JSONDecodeError:

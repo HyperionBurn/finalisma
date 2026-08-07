@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end proof that the Finalisma cloud service is a product.
+"""End-to-end proof that the Weft cloud service is a product.
 
 THE CLAIM: a person signs up, creates a room, copies ONE link, pastes it into
 several different agents, and those agents all talk to each other through it —
@@ -81,7 +81,7 @@ def main() -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     print("=" * 70)
-    print("  FINALISMA CLOUD — MULTI-AGENT PROOF")
+    print("  WEFT CLOUD — MULTI-AGENT PROOF")
     print("  One link, many agents, ordered delivery, gate refuses stale work")
     print("=" * 70)
 

@@ -24,7 +24,7 @@ def _resolve_actor_auth(transport: str, actor_auth: str, host: str) -> bool:
         if host.strip().lower() not in _LOOPBACK_HTTP_HOSTS:
             raise WeftError("actor_auth_trust_forbidden", "--actor-auth trust is only allowed for loopback HTTP")
         print(
-            "Finalisma security warning: loopback HTTP is running in trusted actor mode; "
+            "Weft security warning: loopback HTTP is running in trusted actor mode; "
             "any local client that reaches this endpoint can act as a registered agent.",
             file=sys.stderr,
         )
@@ -32,7 +32,7 @@ def _resolve_actor_auth(transport: str, actor_auth: str, host: str) -> bool:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Finalisma MCP: connect two agents and get a team")
+    parser = argparse.ArgumentParser(description="Weft MCP: connect two agents and get a team")
     parser.add_argument("--transport", choices=("stdio", "http"), default="stdio")
     parser.add_argument("--state", default=os.environ.get("WEFT_STATE", ".weft/state.db"), help="SQLite state file")
     parser.add_argument("--workspace", default=os.environ.get("WEFT_WORKSPACE", "."), help="Workspace root for scope and artifact checks")
@@ -72,7 +72,7 @@ def main(argv: list[str] | None = None) -> int:
             origins = set(args.allowed_origin or ["http://localhost", "http://127.0.0.1"])
             run_http(dispatcher, args.host, args.port, token, origins)
     except WeftError as exc:
-        raise SystemExit(f"Finalisma: {exc.message}") from exc
+        raise SystemExit(f"Weft: {exc.message}") from exc
     finally:
         if store is not None:
             store.close()

@@ -1,4 +1,4 @@
-"""Finalisma SDK-tier validation driver.
+"""Weft SDK-tier validation driver.
 
 Spawns the coordinator over Streamable HTTP (the SDK tier's real transport),
 drives it through the SDK (`import weft_sdk`), exercises the full two-party

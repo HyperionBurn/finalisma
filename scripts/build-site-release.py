@@ -1,4 +1,4 @@
-"""Build a deployment-ready Finalisma site from the truthful local source.
+"""Build a deployment-ready Weft site from the truthful local source.
 
 The source bundle deliberately contains no invented public origin or founder
 address. This command accepts those two deployment-owned values and writes an
@@ -89,7 +89,7 @@ def _rewrite_page(document: str, *, page_url: str, origin: str, contact_url: str
         document = _insert_before_title(document, og_url)
 
     if 'property="og:site_name"' not in document:
-        document = _insert_before_title(document, '  <meta property="og:site_name" content="Finalisma">')
+        document = _insert_before_title(document, '  <meta property="og:site_name" content="Weft">')
 
     document = re.sub(
         r'(<meta\s+(?:property="og:(?:image|video)"|name="twitter:image")\s+content=")(/[^"]+)(">)',
@@ -130,7 +130,7 @@ def build_release(*, origin: str, contact_url: str, output: Path, force: bool = 
     resolved_root = ROOT.resolve()
     resolved_source = SOURCE.resolve()
     if not resolved_output.is_relative_to(resolved_root):
-        raise ValueError("output must stay inside the Finalisma project")
+        raise ValueError("output must stay inside the Weft project")
     if resolved_output in (resolved_root, resolved_source) or resolved_source.is_relative_to(resolved_output):
         raise ValueError("output cannot be the project root or contain the source site")
     if resolved_output.exists():
@@ -198,7 +198,7 @@ def build_release(*, origin: str, contact_url: str, output: Path, force: bool = 
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Build a deployment-ready Finalisma static bundle")
+    parser = argparse.ArgumentParser(description="Build a deployment-ready Weft static bundle")
     parser.add_argument("--origin", required=True, help="Public HTTPS origin, for example https://weft.example")
     parser.add_argument("--contact-url", required=True, help="Founder-owned HTTPS contact form or mailto URL")
     parser.add_argument("--output", default=str(DEFAULT_OUTPUT), help="Project-local release output directory")

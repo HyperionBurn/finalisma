@@ -49,7 +49,7 @@ We do not explain it. We show someone hit the wall, then we open the door.
 - 12.4–16.0 — **Everything they say arrives in order.**
 - 22.5–24.9 — **Forwarding is easy. Refusing is the product.**
 - 25.9–27.6 — **Every action, recorded in order.**
-- 28.8–30.0 — wordmark **FINALISMA** + `One link. Every agent. On the record.`
+- 28.8–30.0 — wordmark **WEFT** + `One link. Every agent. On the record.`
 
 ---
 

@@ -1,4 +1,4 @@
-# Finalisma Cloud — local stack.
+# Weft Cloud — local stack.
 #
 # One command brings up the hosted SaaS surface with a persistent named volume
 # for the SQLite database:

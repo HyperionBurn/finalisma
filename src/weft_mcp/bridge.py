@@ -1,7 +1,7 @@
 """Universal bridge adapters for non-MCP hosts.
 
 This module implements adapters for hosts that CANNOT speak MCP but can still
-participate in Finalisma coordination:
+participate in Weft coordination:
 
 1. WebhookBridge — hosts that can receive HTTP POST callbacks (signed envelopes).
 2. PollingBridge — hosts that can only pull (durable outbox + cursor checkpoint).
@@ -150,8 +150,8 @@ class WebhookBridge:
     """Hosts that can receive HTTP POST callbacks get signed webhook delivery.
 
     Events are delivered with HMAC-SHA256 signature in the
-    ``X-Finalisma-Signature`` header and a replay timestamp in
-    ``X-Finalisma-Timestamp``.
+    ``X-Weft-Signature`` header and a replay timestamp in
+    ``X-Weft-Timestamp``.
     """
 
     def __init__(self, store: WeftStore) -> None:
@@ -238,9 +238,9 @@ class WebhookBridge:
             method="POST",
             headers={
                 "Content-Type": "application/json",
-                "X-Finalisma-Signature": signature,
-                "X-Finalisma-Timestamp": timestamp,
-                "User-Agent": "Finalisma-Webhook/1.0",
+                "X-Weft-Signature": signature,
+                "X-Weft-Timestamp": timestamp,
+                "User-Agent": "Weft-Webhook/1.0",
             },
         )
         try:

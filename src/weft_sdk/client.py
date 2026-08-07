@@ -1,6 +1,6 @@
-"""Finalisma SDK — stdlib-only Python client for the Finalisma MCP protocol.
+"""Weft SDK — stdlib-only Python client for the Weft MCP protocol.
 
-The SDK talks to a Finalisma MCP coordinator over JSON-RPC using stdlib
+The SDK talks to a Weft MCP coordinator over JSON-RPC using stdlib
 http.client.  It never imports weft_mcp — it is a pure client of the
 protocol documented in README.md and docs/PROTOCOL.md.
 """
@@ -380,7 +380,7 @@ class _JsonRpcTransport:
 # ---------------------------------------------------------------------------
 
 class WeftClient:
-    """Ergonomic stdlib-only Python SDK for the Finalisma A2A protocol.
+    """Ergonomic stdlib-only Python SDK for the Weft A2A protocol.
 
     Token hygiene: the actor_token is accepted as a constructor argument or via
     the WEFT_ACTOR_TOKEN environment variable.  It is NEVER logged and

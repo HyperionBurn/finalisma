@@ -1,4 +1,4 @@
-"""Finalisma Cloud HTTP service — the hosted SaaS surface.
+"""Weft Cloud HTTP service — the hosted SaaS surface.
 
 This is the runnable HTTP service that binds the identity plane (accounts,
 sessions, orgs) and the room plane (multi-use links, ordered event log,

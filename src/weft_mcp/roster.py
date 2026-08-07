@@ -1,4 +1,4 @@
-"""Finalisma N-way roster layer.
+"""Weft N-way roster layer.
 
 Extends the core store with roster-scoped multi-agent groups, group
 routing, one-use invite links, and a v2 multi-recipient envelope. Runs

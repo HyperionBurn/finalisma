@@ -1,4 +1,4 @@
-"""Reproducible evaluator for Finalisma's single-node coordination envelope.
+"""Reproducible evaluator for Weft's single-node coordination envelope.
 
 The benchmark uses only public ``WeftStore`` operations and the Python
 standard library.  A baseline is captured before optimization and then treated

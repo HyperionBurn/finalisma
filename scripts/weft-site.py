@@ -1,4 +1,4 @@
-"""No-install local server for the Finalisma launch site."""
+"""No-install local server for the Weft launch site."""
 
 from __future__ import annotations
 
@@ -77,7 +77,7 @@ class QuietSiteHandler(SimpleHTTPRequestHandler):
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Serve the dependency-free Finalisma launch site")
+    parser = argparse.ArgumentParser(description="Serve the dependency-free Weft launch site")
     parser.add_argument("--host", default=os.environ.get("WEFT_SITE_HOST", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.environ.get("WEFT_SITE_PORT", "4173")))
     parser.add_argument("--site-root", default=os.environ.get("WEFT_SITE_ROOT"))
@@ -92,7 +92,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         root = Path(__file__).resolve().parents[1]
     if not (root / "site").is_dir() or not (root / "site" / "index.html").is_file():
-        raise SystemExit(f"Finalisma project root does not contain site/index.html: {root}")
+        raise SystemExit(f"Weft project root does not contain site/index.html: {root}")
     handler = partial(QuietSiteHandler, directory=str(root))
 
     class SiteServer(ThreadingHTTPServer):
@@ -100,7 +100,7 @@ def main(argv: list[str] | None = None) -> int:
         daemon_threads = True
 
     server = SiteServer((args.host, args.port), handler)
-    print(f"Finalisma site listening on http://{args.host}:{args.port}/")
+    print(f"Weft site listening on http://{args.host}:{args.port}/")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

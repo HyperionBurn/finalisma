@@ -1,4 +1,4 @@
-"""Finalisma real-MCP stdio protocol validation driver.
+"""Weft real-MCP stdio protocol validation driver.
 
 Spawns the coordinator itself over STDIO (MCP's primary transport), speaks
 real MCP JSON-RPC (initialize / tools/list / tools/call), exercises the full

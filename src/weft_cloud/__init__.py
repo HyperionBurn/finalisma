@@ -1,4 +1,4 @@
-"""Finalisma cloud spine — the hosted-service plane.
+"""Weft cloud spine — the hosted-service plane.
 
 Wraps the coordinator's data as a multi-tenant service. Owns the storage
 interface (swappable engine), structural tenancy, plan-driven quotas, rate

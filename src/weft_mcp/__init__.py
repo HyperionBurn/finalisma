@@ -1,4 +1,4 @@
-"""Finalisma: a small, interoperable agent-to-agent MCP bridge."""
+"""Weft: a small, interoperable agent-to-agent MCP bridge."""
 
 from .core import (
     WEFT_PROTOCOL,

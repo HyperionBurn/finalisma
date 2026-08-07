@@ -1,4 +1,4 @@
-"""Finalisma cloud identity plane.
+"""Weft cloud identity plane.
 
 Wave G: accounts, sessions, orgs/roles, invites — all behind the Wave F
 storage interface, stdlib-only. Authoritative spec: docs/IDENTITY_DESIGN.md.

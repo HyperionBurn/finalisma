@@ -1,4 +1,4 @@
-"""Integration tests for the Finalisma N-way roster MCP surface.
+"""Integration tests for the Weft N-way roster MCP surface.
 
 Drives roster through the REAL MCP JSON-RPC dispatcher via
 ``WeftDispatcher.call_tool`` — never ``roster.py``'s Python API directly.

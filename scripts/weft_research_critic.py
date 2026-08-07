@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""All-or-nothing structural critic for the Finalisma interoperability research."""
+"""All-or-nothing structural critic for the Weft interoperability research."""
 
 from __future__ import annotations
 
@@ -255,7 +255,7 @@ def main() -> int:
         "| Errors |",
     ]
     contract_ok = all(term in report for term in contract_terms) and all(
-        term in report for term in ("MCP now", "A2A adapter", "Finalisma-specific")
+        term in report for term in ("MCP now", "A2A adapter", "Weft-specific")
     )
     add_check(checks, "rubric.4.protocol_contract", contract_ok, "11 required areas and ownership mappings")
     if not contract_ok:

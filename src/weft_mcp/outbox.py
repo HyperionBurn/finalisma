@@ -1,4 +1,4 @@
-"""Durable outbox + retry lane for Finalisma.
+"""Durable outbox + retry lane for Weft.
 
 Stdlib only, SQLite. Messages survive process restart; delivery receipts
 prevent double-delivery. Entries fan out per recipient with per-recipient

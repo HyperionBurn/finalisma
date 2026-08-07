@@ -1,4 +1,4 @@
-"""Deterministic professor-critic gate for the Finalisma launch website."""
+"""Deterministic professor-critic gate for the Weft launch website."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ SITE = ROOT / "site"
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Audit the Finalisma website launch evidence")
+    parser = argparse.ArgumentParser(description="Audit the Weft website launch evidence")
     parser.add_argument(
         "--qa",
         default=str(ROOT / "artifacts" / "design-qa" / "qa-results.json"),
@@ -69,14 +69,14 @@ def main(argv: list[str] | None = None) -> int:
         "data-cohort-form",
         "65",
         "Watch the 42-second proof",
-        'property="og:site_name" content="Finalisma"',
+        'property="og:site_name" content="Weft"',
         'name="twitter:image" content="/assets/og-card.png"',
     ):
         if phrase not in home:
             failures.append(f"landing page missing required launch evidence: {phrase}")
     for unsupported in (
         "verified agent handoff layer",
-        "Finalisma A2A Standard 1.0",
+        "Weft A2A Standard 1.0",
         "universally compatible",
     ):
         if unsupported.lower() in home.lower():
@@ -151,7 +151,7 @@ def main(argv: list[str] | None = None) -> int:
         '"@type": "VideoObject"',
         'content="/assets/weft-demo.mp4"',
         'content="index,follow,max-video-preview:-1,max-image-preview:large"',
-        'property="og:site_name" content="Finalisma"',
+        'property="og:site_name" content="Weft"',
         'name="twitter:image" content="/assets/weft-demo-poster.png"',
     ):
         if marker not in demo_html:

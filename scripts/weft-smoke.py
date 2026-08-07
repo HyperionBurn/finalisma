@@ -1,4 +1,4 @@
-"""Run the complete local Finalisma handoff without installing dependencies."""
+"""Run the complete local Weft handoff without installing dependencies."""
 
 from __future__ import annotations
 

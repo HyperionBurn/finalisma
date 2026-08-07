@@ -1,4 +1,4 @@
-# Finalisma — agent handover
+# Weft — agent handover
 
 > Read this before changing anything. This is the shortest complete explanation of
 > what this repository is, what has already been built, what is verified, and what
@@ -11,10 +11,10 @@ required before public deployment.
 
 ## 1. The product in one paragraph
 
-Finalisma is a dependency-free MCP coordination layer for making two separate AI
+Weft is a dependency-free MCP coordination layer for making two separate AI
 agents behave like a governed team. The product promise is:
 
-> Finalisma is designed for two MCP-capable hosts with compatible stdio or
+> Weft is designed for two MCP-capable hosts with compatible stdio or
 > Streamable HTTP integration. They can share a scoped task, messages, leases,
 > ordered events, and evidence without sharing provider credentials or conversation
 > history. Real host interoperability validation is still pending.
@@ -24,7 +24,7 @@ incident triage and pull-request review. One agent opens a narrowly scoped task;
 the other previews/consents, claims it under a lease, works inside the declared
 scope, returns evidence, and can only complete after every check passes.
 
-Finalisma coordinates agents. It does not execute arbitrary shell commands from
+Weft coordinates agents. It does not execute arbitrary shell commands from
 payloads, silently substitute model providers, or mutate host settings.
 
 ## 2. Current state at handoff
@@ -207,7 +207,7 @@ Rules that must survive future edits:
 
 - `README.md` — installation, MCP config, first handshake, link-first pairing,
   HTTP mode, development checks, and cleanup.
-- `docs/PROTOCOL.md` — Finalisma A2A envelope, lifecycle, evidence gate, and MCP
+- `docs/PROTOCOL.md` — Weft A2A envelope, lifecycle, evidence gate, and MCP
   compatibility boundary.
 - `docs/PRODUCTION_PROTOCOL.md` — pairing/session security and reconnect model.
 - `docs/PAIRING_UX.md` — the intended two-minute link-first pairing experience.
@@ -527,7 +527,7 @@ will keep temporary SQLite files locked while pooled connections remain open.
 - The current storage model is durable SQLite single-node preview. It is not yet a
   multi-instance, OAuth/OIDC, distributed-rate-limit, outbox-backed hosted service.
 - Model names are recorded provider routes. The host still owns credentials and
-  execution; Finalisma does not run the models.
+  execution; Weft does not run the models.
 
 ## 8. Known gaps and next work
 

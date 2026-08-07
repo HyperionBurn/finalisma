@@ -1,4 +1,4 @@
-"""Finalisma SDK — stdlib-only Python client for the Finalisma A2A protocol."""
+"""Weft SDK — stdlib-only Python client for the Weft A2A protocol."""
 
 from .client import (
     WeftClient,
