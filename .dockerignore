@@ -1,0 +1,48 @@
+# Build context for the cloud service image. Keep it small: no tests, no
+# marketing site, no docs, no render artifacts, no VCS metadata.
+
+.git
+.gitignore
+.gitattributes
+
+# Tests and scripts are not needed at runtime.
+tests/
+scripts/
+examples/
+research/
+
+# Marketing site (source and built output) and its build tooling.
+web/
+site/
+node_modules/
+package.json
+package-lock.json
+*.cjs
+*.mjs
+
+# Docs and design collateral.
+docs/
+*.md
+
+# Render / scratch / local-state artifacts.
+artifacts/
+.omx/
+.tmp/
+data/
+
+# SQLite state must live in the /data volume, never in the image.
+*.db
+*.db-shm
+*.db-wal
+
+# Python noise.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Tooling / editors.
+.venv/
+.vscode/
+.idea/

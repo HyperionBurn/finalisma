@@ -1,0 +1,39 @@
+# Finalisma Cloud — local stack.
+#
+# One command brings up the hosted SaaS surface with a persistent named volume
+# for the SQLite database:
+#
+#     docker compose up -d --build
+#
+# SINGLE-INSTANCE CONSTRAINT (do not violate): the store is SQLite in WAL mode,
+# which supports exactly ONE writer. This service must run as a single instance
+# bound to one persistent disk. It must NOT be scaled or placed behind a load
+# balancer — that requires changing the storage layer. See docs/DEPLOY.md.
+#
+# The marketing site (site/, web/) is deliberately NOT part of this stack: it is
+# static content served separately for preview and is not part of the SaaS
+# backend. Keeping the stack to one service keeps local bring-up honest.
+#
+# No secrets live here. All configuration comes from the environment, and the
+# defaults in this file contain nothing secret.
+
+services:
+  finalisma-cloud:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: finalisma-cloud:local
+    ports:
+      - "127.0.0.1:18788:18788"
+    environment:
+      FINALISMA_HOST: "0.0.0.0"
+      FINALISMA_PORT: "18788"
+      FINALISMA_DB_PATH: "/data/finalisma-cloud.db"
+    volumes:
+      - finalisma-cloud-data:/data
+    restart: unless-stopped
+
+volumes:
+  # State survives container rebuilds and `docker compose down`. Only
+  # `docker compose down -v` (or an explicit `docker volume rm`) destroys it.
+  finalisma-cloud-data:
