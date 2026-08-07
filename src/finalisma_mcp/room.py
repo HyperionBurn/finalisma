@@ -70,6 +70,22 @@ def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+# Public origin used to build self-describing shareable links for rooms.
+# Configurable via FINALISMA_PUBLIC_ORIGIN; defaults to the local dev origin so
+# the coordinator works offline. No deployment URL is hardcoded. (Same default
+# as the cloud service; the coordinator plane cannot import the cloud plane.)
+DEFAULT_PUBLIC_ORIGIN = "http://127.0.0.1:18788"
+
+
+def _public_origin(origin: str | None = None) -> str:
+    if origin is not None:
+        resolved = origin
+    else:
+        resolved = os.environ.get("FINALISMA_PUBLIC_ORIGIN", DEFAULT_PUBLIC_ORIGIN)
+    resolved = str(resolved).strip().rstrip("/")
+    return resolved or DEFAULT_PUBLIC_ORIGIN
+
+
 # ---------------------------------------------------------------------------
 # Schema — room_-prefixed, additive, no existing table modified
 # ---------------------------------------------------------------------------
@@ -162,8 +178,9 @@ class RoomError(Exception):
 class RoomStore:
     """SQLite-backed room state, coexisting with core/roster/outbox tables."""
 
-    def __init__(self, db_path: str | os.PathLike[str]):
+    def __init__(self, db_path: str | os.PathLike[str], origin: str | None = None):
         self.db_path = str(Path(db_path).expanduser().resolve())
+        self.origin = _public_origin(origin)
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self._initialize()
 
@@ -246,6 +263,7 @@ class RoomStore:
             "room_id": room_id,
             "link_id": link_id,
             "link_token": raw_token,
+            "shareable_link": f"{self.origin}/j/{raw_token}",
             "expires_at": expires_at,
             "cap": cap,
             "state": "forming",

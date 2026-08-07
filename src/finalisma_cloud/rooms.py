@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import secrets
 import time as _time
 import uuid
@@ -31,6 +32,26 @@ from finalisma_cloud.storage import StorageBackend, utc_now_iso
 
 from .identity.context import SessionContext, require_db_role
 from .identity.tokens import AuthError, hash_token
+
+# The public origin used to build self-describing shareable links. Configurable
+# via FINALISMA_PUBLIC_ORIGIN; defaults to the local dev origin so the product
+# works offline. No deployment URL is hardcoded.
+DEFAULT_PUBLIC_ORIGIN = "http://127.0.0.1:18788"
+
+
+def public_origin(origin: str | None = None) -> str:
+    """Resolve the configured public origin for shareable-link URLs.
+
+    Explicit argument wins, then the ``FINALISMA_PUBLIC_ORIGIN`` env var, then
+    the local dev default. A trailing slash is stripped so callers can build
+    ``{origin}/j/{token}`` directly.
+    """
+    if origin is not None:
+        resolved = origin
+    else:
+        resolved = os.environ.get("FINALISMA_PUBLIC_ORIGIN", DEFAULT_PUBLIC_ORIGIN)
+    resolved = str(resolved).strip().rstrip("/")
+    return resolved or DEFAULT_PUBLIC_ORIGIN
 
 
 def _new_id(prefix: str) -> str:
@@ -314,11 +335,17 @@ class CloudRoomService:
     # ------------------------------------------------------------------
 
     def create_room(self, tenant_id: str, owner_agent_id: str, actor_token: str,
-                    cap: int = 10, name: str | None = None, ttl_seconds: int = 86400) -> dict:
+                    cap: int = 10, name: str | None = None, ttl_seconds: int = 86400,
+                    origin: str | None = None) -> dict:
         """Create a room and return its shareable link.
 
         The owner auto-joins as the first active member. The raw link token is
         returned EXACTLY ONCE — only its SHA-256 is stored.
+
+        ``shareable_link`` is an absolute, self-describing URL
+        (``{origin}/j/{link_token}``) so an agent that receives ONLY the link
+        can fetch it to discover the join endpoint and protocol. ``link_token``
+        remains in the response unchanged — it is what the join API consumes.
         """
         if not isinstance(tenant_id, str) or not tenant_id:
             raise RoomError("invalid_argument", "tenant_id is required")
@@ -338,6 +365,7 @@ class CloudRoomService:
         now = utc_now_iso()
         now_epoch = _time.time()
         expires_at = now_epoch + ttl_seconds
+        base_origin = public_origin(origin)
 
         with self.backend.transaction() as tx:
             tx.execute(
@@ -372,7 +400,7 @@ class CloudRoomService:
             "room_id": room_id,
             "link_id": link_id,
             "link_token": raw_token,
-            "shareable_link": f"/r/{room_id}#{raw_token}",
+            "shareable_link": f"{base_origin}/j/{raw_token}",
             "expires_at": expires_at,
             "cap": cap,
             "state": "forming",
@@ -399,6 +427,27 @@ class CloudRoomService:
         real_tenant_id = link_row["tenant_id"]
         room = self._require_room(tx, real_tenant_id, room_id)
         return real_tenant_id, room, link_row
+
+    def resolve_room_by_link_token(self, link_token: str) -> str | None:
+        """Return the room_id a valid link token opens, or None if unknown.
+
+        PURE READ — it never joins the room, never consumes or invalidates the
+        token, and returns nothing about orgs, members, or the event log. It is
+        what the unauthenticated ``GET /j/<token>`` descriptor endpoint uses to
+        answer "which room does this link open?" for a joining agent.
+        Malformed and unknown tokens both resolve to ``None`` so the endpoint
+        cannot be used as an oracle.
+        """
+        try:
+            token_hash = _token_hash(link_token)
+        except ValueError:
+            return None
+        with self.backend.transaction() as tx:
+            row = tx.execute(
+                "SELECT room_id FROM cloud_room_links WHERE token_hash = ?",
+                (token_hash,),
+            ).fetchone()
+        return row["room_id"] if row is not None else None
 
     def join_room(self, tenant_id: str, room_id: str, link_token: str, agent_id: str,
                   consent: Any, actor_token: str, capabilities: list[str] | None = None) -> dict:
