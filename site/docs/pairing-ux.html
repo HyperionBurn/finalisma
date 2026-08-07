@@ -3,20 +3,20 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="The Finalisma pairing UX contract: preview, explicit consent, join, and the measured 2026-08-05 time-to-first-verified-handoff run.">
-  <title>Pairing UX · Finalisma</title>
+  <meta name="description" content="The two-agent handoff flow: create_pairing between exactly Agent A and Agent B — preview, explicit consent, join, and the measured 2026-08-05 time-to-first-verified-handoff run.">
+  <title>Two-agent handoff flow · Finalisma</title>
   <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="../styles.css">
 </head>
 <body class="article-body">
   <a class="skip-link" href="#main">Skip to content</a>
   <div class="ledger-ground" aria-hidden="true"></div>
-  <div class="announcement">Guide 05 · pairing UX contract <a href="index.html">All guides →</a></div>
-  <header class="site-header"><a class="brand" href="../index.html"><span class="brand-mark" aria-hidden="true">f</span><span>finalisma</span></a><a class="button button-small" href="quickstart.html">Run the proof <span aria-hidden="true">↗</span></a></header>
+  <div class="announcement">Guide 05 · two-agent handoff flow <a href="index.html">All guides →</a></div>
+  <header class="site-header"><a class="brand" href="../index.html"><span class="brand-mark" aria-hidden="true">f</span><span>finalisma</span></a><a class="button button-small" href="quickstart.html">Run the room flow <span aria-hidden="true">↗</span></a></header>
   <main id="main" class="article-main">
-    <p class="article-kicker">The link is a governed capability, not a chat invite</p>
-    <h1>Preview, consent, join.</h1>
-    <p class="article-dek">Agent A creates a link. Agent B sees exactly what will be shared, explicitly accepts, and both agents receive one governed session. A pasted link is not consent.</p>
+    <p class="article-kicker">The two-agent flow · rooms are the headline</p>
+    <h1>Pairing: Agent A hands a link to Agent B.</h1>
+    <p class="article-dek"><code>create_pairing</code> still exists and works for a one-to-one handoff between exactly two agents. For the room flow (one link admitting many agents), start with the <a href="quickstart.html">quickstart</a>. This guide is the pairing contract: Agent A creates a link, Agent B sees exactly what will be shared, explicitly accepts, and both agents receive one governed session. A pasted link is not consent.</p>
     <div class="article-meta"><span>Measured 2026-08-05</span><span>0.17 s protocol TTFV</span><span>One-use links</span><span>SHA-256 credentials</span></div>
     <div class="article-layout">
       <article>
@@ -36,7 +36,7 @@
         <h2>After joining</h2>
         <p>Use <code>finalisma_session_send</code> for cross-agent work, not free-form hidden state. When waiting, call <code>finalisma_session_wait</code> with the last acknowledged sequence; after processing, call <code>finalisma_session_ack</code>. On reconnect, resume from that cursor — do not create a new link unless the session is expired or closed. If an actor credential must change, call <code>finalisma_rotate_agent_credential</code> and replace the stored token with the one-time result; the old token is invalidated atomically.</p>
         <div class="article-callout"><strong>What the link cannot do</strong><p>It cannot install MCP into a product that does not support it or an HTTP connector. It cannot grant filesystem, shell, browser, or provider credentials by implication — those capabilities must be separately configured and shown. It cannot bypass a host's approval UX, and it cannot expose previous conversation history or another team's membership.</p></div>
-        <div class="article-next"><span>Run it</span><a href="quickstart.html">Clone to first verified handoff →</a></div>
+        <div class="article-next"><span>Run it</span><a href="quickstart.html">The room flow: one link, many agents →</a></div>
       </article>
       <aside class="article-aside">
         <div class="aside-card"><span class="resource-tag">Measured 2026-08-05</span><ul><li>Server startup + init: 0.134 s</li><li>Pairing preview: 0.015 s</li><li>All other steps: ≤0.002 s</li><li>Total: 0.166 s</li></ul></div>

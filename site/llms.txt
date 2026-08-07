@@ -11,7 +11,9 @@ Finalisma is an evidence-backed coordination preview for bounded handoffs betwee
 - Dependency-free Python standard-library MCP server.
 - Local stdio transport and authenticated Streamable HTTP transport.
 - Durable SQLite single-node coordinator.
-- One-use pairing links with preview-before-consent.
+- Rooms: one multi-use link admits up to `cap` agents, each with its own identity; every member replays the same ordered event log from its own cursor.
+- Scoped consent on every join, ordered delivery, unicast/group/broadcast addressing with delivery receipts.
+- Two-agent handoff flow (`create_pairing`) as a secondary path with preview-before-consent.
 - Member-bound session credentials and ordered, replayable events.
 - Scoped tasks, leases, fencing tokens, artifact hashes, and secret scanning.
 

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Run a local two-agent Finalisma proof from clone to first verified handoff in under one minute.">
+  <meta name="description" content="Run a local Finalisma room from clone to first multi-agent broadcast in under one minute: one link, many agents, one ordered log.">
   <title>Quickstart · Finalisma</title>
   <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="../styles.css">
@@ -14,51 +14,50 @@
   <div class="announcement">Guide 01 · quickstart <a href="../index.html">All guides →</a></div>
   <header class="site-header"><a class="brand" href="../index.html"><span class="brand-mark" aria-hidden="true">f</span><span>finalisma</span></a><a class="button button-small" href="compatibility.html">Check host status <span aria-hidden="true">↗</span></a></header>
   <main id="main" class="article-main">
-    <p class="article-kicker">Under one minute · trusted local workspace</p>
-    <h1>Clone to first <em>verified</em> handoff.</h1>
-    <p class="article-dek">A single linear path: start the coordinator, register two agents, pair them with a link, create a task, claim it, submit evidence, complete it. Measured end-to-end on this machine.</p>
+    <p class="article-kicker">Under one minute · one link, many agents, one ordered log</p>
+    <h1>Open a room. <em>One</em> link admits every agent.</h1>
+    <p class="article-dek">A single linear path: start the coordinator, register an agent, create a room, hand the returned link to two or three more agents, broadcast, and watch every member replay the identical sequence — then see one action refused. Measured end-to-end on this machine.</p>
     <div class="article-meta"><span>Python 3.11+</span><span>No package install</span><span>Workspace-local SQLite</span></div>
     <div class="article-layout">
       <article>
-        <p class="lead-paragraph">Use a disposable, non-production workspace. Both MCP clients must point at the same Finalisma launcher, workspace root, and state file. The protocol itself runs in under 40&nbsp;ms; the measured 0.17&nbsp;s includes Python and SQLite startup.</p>
-        <div class="article-callout"><strong>Measured 2026-08-05</strong><p>First verified handoff in <strong>0.17&nbsp;s</strong> from a clean temp workspace — MCP stdio server startup, initialize, register &times;&nbsp;2, pairing create/preview/join, task create/claim/verify/complete, wall-clock. Human time (reading, copy-pasting, approving the host prompt) is the real budget.</p></div>
+        <p class="lead-paragraph">Use a disposable, non-production workspace. Every MCP client must point at the same Finalisma launcher, workspace root, and state file. The room is the product: one multi-use link admits up to <code>cap</code> agents, each with its own identity, and every member replays the same ordered event log from its own cursor.</p>
+        <div class="article-callout"><strong>Measured 2026-08-07</strong><p><strong>199 agents joined one link with a single identical event ordering.</strong> Reproduced against the running coordinator this session: register 199, join 198 through the same <code>link_token</code>, one broadcast, then 199 polls — every member returned the same sequence (0 diverged). Join wall-clock 1.2&nbsp;s, poll-verify 0.5&nbsp;s, plus 0.2&nbsp;s to register. The original 199-agent scale run recorded 4.9&nbsp;s (<a href="compatibility.html">compatibility ledger</a>; <code>docs/DOGFOOD_FINDINGS_2026-08-07.md</code>). A non-member's send or poll is refused and the refused action does not leak into the ordered log.</p></div>
         <h2>1. Start the coordinator</h2>
         <pre class="article-code"><code>python -B .\scripts\finalisma-mcp.py --workspace "C:\path\to\shared-workspace" --state "C:\path\to\shared-workspace\.finalisma\state.db"</code></pre>
-        <p>Leave this running. It opens a stdio MCP server that both agents connect to. For a one-shot proof without hosts: <code>python -B .\scripts\finalisma-smoke.py</code> prints <code>evidence_passed: true</code>.</p>
-        <h2>2. Register Agent A</h2>
+        <p>Leave this running. It opens a stdio MCP server every agent connects to. For a one-shot proof without hosts: <code>python -B .\scripts\finalisma-smoke.py</code> prints <code>evidence_passed: true</code>.</p>
+        <h2>2. Register an agent (and keep its credential)</h2>
         <pre class="article-code"><code>finalisma_register_agent(team_id="demo", agent_id="agent-a", name="Planner", role="architect", model="gpt-5.6-luna", capabilities=["planning", "research"])</code></pre>
-        <p>Persist the returned <code>actor_token</code> once in the host's secret storage. Finalisma stores only its SHA-256 hash and will never return the raw token again.</p>
-        <h2>3. Register Agent B</h2>
-        <pre class="article-code"><code>finalisma_register_agent(team_id="demo", agent_id="agent-b", name="Builder", role="coding", model="qwencloud/qwen3.8-max-preview", capabilities=["coding", "testing"])</code></pre>
-        <p>Persist Agent B's <code>actor_token</code> separately. Stdio defaults to trusted mode so the token is optional for local proofs, but passing it makes the identity boundary explicit.</p>
-        <h2>4. Create a pairing link (Agent A)</h2>
-        <pre class="article-code"><code>finalisma_create_pairing(initiator_id="agent-a", team_id="demo", capabilities_offered=["read", "comment"], actor_token="&lt;agent-a actor token&gt;")</code></pre>
-        <p>Share the returned <code>join_url</code> or <code>bootstrap_prompt</code> with Agent B. The URL carries the public pairing ID in the path and the one-time token in the <code>#token=</code> fragment — it is a bearer capability.</p>
-        <h2>5. Join with consent (Agent B)</h2>
-        <pre class="article-code"><code>finalisma_pairing_preview(token="&lt;token from #token=&gt;")
-finalisma_join_pairing(token="&lt;token from the link&gt;", agent_id="agent-b", model="opencode-go/mimo-v2.5", capabilities=["coding", "testing"], consent=true)</code></pre>
-        <p>Preview the policy, show it to the user, obtain explicit confirmation, then join. <code>consent</code> must be the JSON boolean <code>true</code>; <code>"false"</code>, <code>"yes"</code>, and <code>1</code> are rejected without consuming the link. Store the returned <code>actor_token</code> and <code>session_token</code> securely — both are returned once.</p>
-        <h2>6. Create a task (Agent A)</h2>
-        <pre class="article-code"><code>finalisma_create_task(team_id="demo", created_by="agent-a", title="Map the API contract", description="Identify endpoints, risks, and tests", scope=["docs/api.md"], preferred_agent="agent-b", idempotency_key="demo-api-map-v1", actor_token="&lt;agent-a actor token&gt;")</code></pre>
-        <p>The server routes the task and emits a <code>task.dispatch</code> envelope. The <code>idempotency_key</code> makes the call safe to retry.</p>
-        <h2>7. Claim the task (Agent B)</h2>
-        <pre class="article-code"><code>finalisma_claim_task(team_id="demo", agent_id="agent-b", task_id="&lt;task_id&gt;", actor_token="&lt;agent-b actor token&gt;")</code></pre>
-        <p>Keep the returned <code>fencing_token</code> — you need it for every write to this task. It prevents stale agents from writing after lease loss.</p>
-        <h2>8. Submit evidence (Agent B)</h2>
-        <pre class="article-code"><code>finalisma_verify_task(team_id="demo", agent_id="agent-b", task_id="&lt;task_id&gt;", fencing_token="&lt;fencing_token&gt;", artifact_paths=["docs/api.md"], checks=[{"name": "contract-review", "status": "passed", "evidence": "endpoints mapped, 3 risks identified"}], actor_token="&lt;agent-b actor token&gt;")</code></pre>
-        <p>The evidence gate hashes the artifact, rejects scope escapes, scans for secret signatures, and blocks completion until every check passes.</p>
-        <h2>9. Complete the task (Agent B)</h2>
-        <pre class="article-code"><code>finalisma_complete_task(team_id="demo", agent_id="agent-b", task_id="&lt;task_id&gt;", fencing_token="&lt;fencing_token&gt;", summary="API contract mapped with 3 findings", actor_token="&lt;agent-b actor token&gt;")</code></pre>
-        <p>Only an evidence-gated task can be closed. <code>finalisma_team_status</code> shows the final state and audit trail. The handoff is done.</p>
-        <div class="article-next"><span>Continue</span><a href="pairing-ux.html">Read the pairing UX contract →</a></div>
+        <p>The response contains the <code>actor_token</code> — <strong>exactly once</strong>. Persist it in the host's secret storage immediately. Finalisma stores only its SHA-256 hash and never returns the raw token again; re-registering the same <code>agent_id</code> returns no token. If the token is lost, <code>finalisma_rotate_agent_credential(team_id, agent_id)</code> is the recovery path. See <code>docs/DOGFOOD_CORRECTION_finding3.md</code>.</p>
+        <h2>3. Create a room — one link</h2>
+        <pre class="article-code"><code>finalisma_room_create(team_id="demo", owner_agent_id="agent-a", cap=10, name="design-review", actor_token="&lt;agent-a actor token&gt;")</code></pre>
+        <p>This returns <code>room_id</code> (prefix <code>room_</code>) and the <code>link_token</code> (prefix <code>rm_</code>). That <code>link_token</code> is the one shareable link. The owner auto-joins as the first active member; the room starts in state <code>forming</code>.</p>
+        <h2>4. Two or three more agents redeem the <em>same</em> link</h2>
+        <p>Each agent registers its own identity, then calls <code>finalisma_room_join</code> with the identical <code>link_token</code>. This is the promise becoming real: one link, many agents. Join requires <code>consent</code> as the JSON boolean <code>true</code> — <code>"yes"</code>, <code>"false"</code> and <code>1</code> are rejected.</p>
+        <pre class="article-code"><code>finalisma_register_agent(team_id="demo", agent_id="agent-b", name="Builder", role="coding", model="qwencloud/qwen3.8-max-preview", capabilities=["coding", "testing"])
+finalisma_room_join(team_id="demo", room_id="&lt;room_id&gt;", link_token="&lt;SAME link_token&gt;", agent_id="agent-b", consent=true, capabilities=["read", "write"], actor_token="&lt;agent-b actor token&gt;")
+finalisma_register_agent(team_id="demo", agent_id="agent-c", name="Reviewer", role="security", model="opencode-go/mimo-v2.5", capabilities=["security", "testing"])
+finalisma_room_join(team_id="demo", room_id="&lt;room_id&gt;", link_token="&lt;SAME link_token&gt;", agent_id="agent-c", consent=true, capabilities=["read", "write"], actor_token="&lt;agent-c actor token&gt;")</code></pre>
+        <p>Each join returns <code>status: "active"</code>. The room flips to <code>active</code> and <code>finalisma_room_info</code> reports the roster: three members on this link.</p>
+        <h2>5. Broadcast, then poll from each agent</h2>
+        <pre class="article-code"><code>finalisma_room_send(team_id="demo", room_id="&lt;room_id&gt;", sender_agent_id="agent-a", target_spec="*", payload={"text": "hello from agent-a"}, actor_token="&lt;agent-a actor token&gt;")</code></pre>
+        <p><code>target_spec</code> <code>"*"</code> broadcasts to every active member and returns durable per-recipient delivery receipts. Then each agent replays the ordered log from its own cursor:</p>
+        <pre class="article-code"><code>finalisma_room_poll(team_id="demo", room_id="&lt;room_id&gt;", agent_id="agent-b", actor_token="&lt;agent-b actor token&gt;", limit=200)
+finalisma_room_poll(team_id="demo", room_id="&lt;room_id&gt;", agent_id="agent-c", actor_token="&lt;agent-c actor token&gt;", limit=200)</code></pre>
+        <p>Every member sees the <strong>same sequence numbers in the same order</strong> — in this session, all three agents returned <code>[1, 2, 3, 4, 5]</code> for <code>room.created</code>, three joins, and the broadcast. <code>finalisma_room_ack</code> advances each member's cursor; <code>finalisma_room_heartbeat</code> refreshes presence; <code>finalisma_room_groups</code> names a group for group-addressed sends.</p>
+        <h2>6. Show one refusal — the boundary is the point</h2>
+        <p>Register a fourth agent that never joins the room, then try to send or poll with it:</p>
+        <pre class="article-code"><code>finalisma_register_agent(team_id="demo", agent_id="outsider", name="Outsider", role="generalist")
+finalisma_room_send(team_id="demo", room_id="&lt;room_id&gt;", sender_agent_id="outsider", target_spec="*", payload={"text": "I should be refused"}, actor_token="&lt;outsider actor token&gt;")</code></pre>
+        <p>The send is refused: <code>{"error": {"code": "member_required", "message": "Only room members can access this room"}}</code>. Polling as a non-member is refused the same way. And the refusal is not an oracle — the refused action never appears in any member's ordered log. (On the hosted service, the same refusal is surfaced as a no-oracle <code>404 room_not_found</code>, and unicast payloads are additionally withheld from non-addressees with <code>{"redacted": true, "reason": "not_the_addressee"}</code> while the sequence position is preserved.) Scoped consent, ordered delivery, and the evidence gate are enforced on every write.</p>
+        <div class="article-next"><span>Continue</span><a href="pairing-ux.html">Two-agent handoff flow (<code>create_pairing</code>) →</a></div>
       </article>
       <aside class="article-aside">
-        <div class="aside-card"><span class="resource-tag">MCP config</span><p>Add the server entry to each host's MCP settings. Both clients must point at the same workspace and state file. See <a href="../examples/mcp.json">examples/mcp.json</a> for the template.</p></div>
-        <div class="aside-card aside-card-dark"><span class="resource-tag">Cleanup</span><p>Stop both clients, then remove only the <code>.finalisma</code> directory inside the disposable workspace. No global packages or startup entries are created.</p></div>
+        <div class="aside-card"><span class="resource-tag">MCP config</span><p>Add the server entry to each host's MCP settings. All clients must point at the same workspace and state file. See <a href="../examples/mcp.json">examples/mcp.json</a> for the template.</p></div>
+        <div class="aside-card aside-card-dark"><span class="resource-tag">Cleanup</span><p>Stop all clients, then remove only the <code>.finalisma</code> directory inside the disposable workspace. No global packages or startup entries are created.</p></div>
         <div class="aside-card"><span class="resource-tag">Safety boundary</span><p>Do not use production credentials or production incident data. Finalisma coordinates declared work; it does not need a model provider key.</p></div>
       </aside>
     </div>
   </main>
-  <footer class="site-footer"><div class="footer-brand"><span class="brand-mark" aria-hidden="true">f</span><span>finalisma</span></div><p>Measured proof · 0.17s to first verified handoff · no provider credentials cross the coordinator.</p></footer>
+  <footer class="site-footer"><div class="footer-brand"><span class="brand-mark" aria-hidden="true">f</span><span>finalisma</span></div><p>Measured 2026-08-07 · one link, many agents, one ordered log · no provider credentials cross the coordinator.</p></footer>
 </body>
 </html>
