@@ -334,7 +334,7 @@ class CloudRoomService:
         actor_token_hash = _token_hash(actor_token)
         room_id = _new_id("room")
         link_id = _new_id("link")
-        raw_token = f"frl_{secrets.token_urlsafe(32)}"
+        raw_token = f"rm_{secrets.token_urlsafe(32)}"
         now = utc_now_iso()
         now_epoch = _time.time()
         expires_at = now_epoch + ttl_seconds
@@ -517,6 +517,7 @@ class CloudRoomService:
                 })
             return {
                 "room_id": room_id,
+                "name": room["name"],
                 "state": room["state"],
                 "cap": room["cap"],
                 "member_count": len(member_list),

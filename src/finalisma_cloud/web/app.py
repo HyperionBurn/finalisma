@@ -295,6 +295,92 @@ class FinalismaWebApp:
             ).fetchone()
         return row is not None
 
+    def _poll_for_member(self, tenant_id: str, room_id: str, after_seq: int) -> dict:
+        """Event poll for an org member (doesn't require room membership)."""
+        with self.backend.transaction() as tx:
+            room = tx.execute(
+                "SELECT * FROM cloud_rooms WHERE tenant_id = ? AND room_id = ?",
+                (tenant_id, room_id),
+            ).fetchone()
+            if room is None:
+                raise RoomError("room_not_found", "Room not found", 404)
+            rows = tx.execute(
+                "SELECT * FROM cloud_room_event_log WHERE tenant_id = ? AND room_id = ? AND seq > ? "
+                "ORDER BY seq ASC LIMIT 100",
+                (tenant_id, room_id, after_seq),
+            ).fetchall()
+            events = []
+            next_seq = int(room["cursor_head"]) + 1
+            for r in rows:
+                events.append({
+                    "event_id": r["event_id"],
+                    "seq": r["seq"],
+                    "origin_agent": r["origin_agent"],
+                    "kind": r["kind"],
+                    "payload": r["payload_json"],
+                    "created_at": r["created_at"],
+                })
+                next_seq = r["seq"] + 1
+            return {
+                "room_id": room_id,
+                "state": room["state"],
+                "events": events,
+                "next_seq": next_seq,
+                "cursor_head": int(room["cursor_head"]),
+                "last_ack_seq": 0,
+                "has_more": False,
+            }
+
+    def _room_info_for_member(self, tenant_id: str, room_id: str) -> dict:
+        """Room info for an org member (doesn't require room membership)."""
+        with self.backend.transaction() as tx:
+            room = tx.execute(
+                "SELECT * FROM cloud_rooms WHERE tenant_id = ? AND room_id = ?",
+                (tenant_id, room_id),
+            ).fetchone()
+            if room is None:
+                raise RoomError("room_not_found", "Room not found", 404)
+            members = tx.execute(
+                "SELECT m.agent_id, m.status, m.joined_at, a.email "
+                "FROM cloud_room_members m "
+                "JOIN cloud_identity_accounts a ON a.account_id = m.agent_id "
+                "WHERE m.tenant_id = ? AND m.room_id = ? AND m.status = 'active' "
+                "ORDER BY m.joined_at",
+                (tenant_id, room_id),
+            ).fetchall()
+            member_list = []
+            for m in members:
+                member_list.append({
+                    "agent_id": m["agent_id"],
+                    "email": m["email"],
+                    "status": m["status"],
+                    "joined_at": m["joined_at"],
+                })
+            return {
+                "room_id": room_id,
+                "name": room["name"],
+                "state": room["state"],
+                "cap": room["cap"],
+                "member_count": len(member_list),
+                "members": member_list,
+                "owner_agent_id": room["owner_agent_id"],
+            }
+
+    def _event_log_for_member(self, tenant_id: str, room_id: str) -> list[dict]:
+        """Event log for an org member (doesn't require room membership)."""
+        with self.backend.transaction() as tx:
+            room = tx.execute(
+                "SELECT 1 FROM cloud_rooms WHERE tenant_id = ? AND room_id = ?",
+                (tenant_id, room_id),
+            ).fetchone()
+            if room is None:
+                raise RoomError("room_not_found", "Room not found", 404)
+            rows = tx.execute(
+                "SELECT * FROM cloud_room_event_log WHERE tenant_id = ? AND room_id = ? ORDER BY seq",
+                (tenant_id, room_id),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     def _get_room_link_token(self, room_id: str) -> str | None:
         return self._link_token_cache.get(room_id)
 
@@ -346,13 +432,24 @@ class FinalismaWebApp:
             return
         tenant_id = f"tenant_{secrets.token_hex(8)}"
         try:
-            _identity_signup(self.backend, tenant_id, email, password)
+            account_id, _raw_vt = _identity_signup(self.backend, tenant_id, email, password)
         except Exception:
             self._send_html(handler, HTTPStatus.BAD_REQUEST,
                             _page("Sign up failed",
                                   '<p>Could not create account — email may already be in use.</p>'
                                   '<p><a href="/signup">Try again</a></p>'))
             return
+        # Signup creates an org (tenant) whose owner is the signing-up user.
+        # The identity signup only creates the account + tenant rows; the
+        # owner membership row is the web app's bootstrap responsibility.
+        from finalisma_cloud.storage import utc_now_iso as _utc
+        with self.backend.transaction() as tx:
+            tx.execute(
+                "INSERT INTO cloud_identity_members(tenant_id, account_id, role, joined_at) "
+                "VALUES (?, ?, 'owner', ?)",
+                (tenant_id, account_id, _utc()),
+            )
+            tx.commit()
         self._redirect(handler, "/login?verify_sent=1")
 
     def handle_get_login(self, handler: BaseHTTPRequestHandler, *, error: str | None = None) -> None:
@@ -888,9 +985,11 @@ class FinalismaWebApp:
                             _page("Not found", '<p>Room not found.</p>'))
             return
         csrf = _new_csrf()
+        # View is member+ (org member can view any room in their org).
+        # We read the room info directly without requiring room membership.
         try:
-            info = self.rooms.room_info(ctx.tenant_id, room_id, ctx.account_id)
-            events = self.rooms.event_log(ctx.tenant_id, room_id, ctx.account_id)
+            info = self._room_info_for_member(ctx.tenant_id, room_id)
+            events = self._event_log_for_member(ctx.tenant_id, room_id)
         except RoomError as exc:
             if exc.status == 404:
                 self._send_html(handler, HTTPStatus.NOT_FOUND,
@@ -902,8 +1001,9 @@ class FinalismaWebApp:
             return
         roster_html = ""
         for m in info["members"]:
+            label = m.get("email") or m["agent_id"]
             roster_html += (
-                f'<li>{_esc(m["agent_id"])} ({_esc(m["status"])})</li>'
+                f'<li>{_esc(label)} ({_esc(m["status"])})</li>'
             )
         events_html = ""
         for e in events:
@@ -955,9 +1055,9 @@ class FinalismaWebApp:
             after_seq = int(after_seq_str)
         except ValueError:
             after_seq = 0
+        # Event polling for org members — read-only, tenant-scoped.
         try:
-            result = self.rooms.poll(ctx.tenant_id, room_id, ctx.account_id,
-                                     after_seq=after_seq)
+            result = self._poll_for_member(ctx.tenant_id, room_id, after_seq)
         except RoomError as exc:
             if exc.status == 404:
                 self._send_json(handler, HTTPStatus.NOT_FOUND,
@@ -989,7 +1089,7 @@ class FinalismaWebApp:
                             _page("Not found", '<p>Room not found.</p>'))
             return
         try:
-            events = self.rooms.event_log(ctx.tenant_id, room_id, ctx.account_id)
+            events = self._event_log_for_member(ctx.tenant_id, room_id)
         except RoomError as exc:
             if exc.status == 404:
                 self._send_html(handler, HTTPStatus.NOT_FOUND,
@@ -1022,7 +1122,7 @@ class FinalismaWebApp:
                             _page("Not found", '<p>Room not found.</p>'))
             return
         try:
-            info = self.rooms.room_info(ctx.tenant_id, room_id, ctx.account_id)
+            info = self._room_info_for_member(ctx.tenant_id, room_id)
         except RoomError as exc:
             if exc.status == 404:
                 self._send_html(handler, HTTPStatus.NOT_FOUND,
