@@ -439,7 +439,7 @@ class RosterStore:
                 "idempotency_key": f"idem_{digest}",
             })
         return {
-            "protocol": "finalisma.a2a",
+            "protocol": "weft.a2a",
             "version": "2.0",
             "message_id": _new_id("msg"),
             "type": type,

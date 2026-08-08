@@ -35,7 +35,7 @@ or API key in the repository.
   `consent=true`. A non-member's send or poll is refused (`member_required` on
   the coordinator; a no-oracle `404 room_not_found` on the hosted service), and
   refused actions do not leak into the ordered log.
-- One versioned `finalisma.a2a/1.0` message envelope with sender, recipient,
+- One versioned `weft.a2a/1.0` message envelope with sender, recipient,
   task, correlation, priority, capabilities, trace, and idempotency fields.
 - Duplicate-aware task creation with capability-first routing.
 - Atomic task claims, workspace-contained file scopes, leases, heartbeats, and

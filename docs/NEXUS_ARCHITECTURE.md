@@ -12,7 +12,7 @@
 
 Weft already ships a dependency-free, schema-v3 SQLite coordinator with:
 
-- **One-version envelope:** `finalisma.a2a/1.0` (`PROTOCOL.md` §Message envelope).
+- **One-version envelope:** `weft.a2a/1.0` (`PROTOCOL.md` §Message envelope).
 - **Two-tier credential model:** per-agent `actor_token` (SHA-256 at rest) for the
   team/work plane; member-bound `session_token` for the ordered event log
   (`PROTOCOL.md` §Identity and credential boundary).
@@ -130,7 +130,7 @@ The roster is the **set of active agents in a team**, derived from the existing
 
 - **Capability manifest** — each agent declares a `capabilities_json` (already a
   column) plus a new `manifest_version` and `supported_envelope_versions` (e.g.
-  `["finalisma.a2a/1.0"]`). Stored in the existing `metadata_json` column to avoid
+  `["weft.a2a/1.0"]`). Stored in the existing `metadata_json` column to avoid
   schema churn in P0; promoted to first-class columns in P1.
 - **Presence** — derived from `last_seen` (already a column) vs.
   `heartbeat_timeout`. No new table; `roster.py` is a query + policy layer over
@@ -217,7 +217,7 @@ section is the entry condition for P2).
 
 ---
 
-## 4. Protocol evolution: `finalisma.a2a/1.0` → `2.0`
+## 4. Protocol evolution: `weft.a2a/1.0` → `2.0`
 
 ### 4.1 Version 1.0 (shipped)
 
@@ -225,7 +225,7 @@ The current envelope (`PROTOCOL.md` §Message envelope):
 
 ```json
 {
-  "protocol": "finalisma.a2a",
+  "protocol": "weft.a2a",
   "version": "1.0",
   "message_id": "msg_...",
   "type": "task.progress",
@@ -244,7 +244,7 @@ Additions for N-agent interconnect:
 
 ```json
 {
-  "protocol": "finalisma.a2a",
+  "protocol": "weft.a2a",
   "version": "2.0",
   "message_id": "msg_...",
   "type": "task.progress",
@@ -310,7 +310,7 @@ in P0, first-class columns in P1):
   "version": 1,
   "offers": ["coding", "security-review", "research"],
   "accepts": ["task.dispatch", "task.progress", "task.blocked"],
-  "envelope_versions": ["finalisma.a2a/1.0", "finalisma.a2a/2.0"],
+  "envelope_versions": ["weft.a2a/1.0", "weft.a2a/2.0"],
   "max_scope_paths": 256,
   "max_payload_bytes": 262144
 }
@@ -344,7 +344,7 @@ coordination works for T1/T2/T3.
 
 | Module | Lane | What it does |
 |--------|------|-------------|
-| *(shipped)* | — | `core.py`, `server.py`, `finalisma.a2a/1.0` envelope |
+| *(shipped)* | — | `core.py`, `server.py`, `weft.a2a/1.0` envelope |
 | `bridge.py` | bridge lane | REST adapter over `core.py` for T2 hosts |
 | `weft_sdk` | SDK lane | Browser-embed JS + Python thin client for T3 |
 
@@ -371,7 +371,7 @@ coordination works for T1/T2/T3.
 
 **P1 deliverables:**
 - Group sessions (N members) via `session_credentials` generalization.
-- `finalisma.a2a/2.0` envelope with roster, capability manifest, addressing.
+- `weft.a2a/2.0` envelope with roster, capability manifest, addressing.
 - Outbox relay delivers events to webhooks (push, not just poll).
 - `roster.discover()` replaces `ROUTE_KEYWORDS` as the primary routing input.
 
@@ -484,7 +484,7 @@ These are **non-negotiable** — they already ship in `core.py` / `server.py`:
 - **No schema changes in P0.** Capability manifests live in `metadata_json`.
 - **The `/v1/join/:id` flow is the universal onboarding.** Every tier — T1/T2/T3 —
   uses the same link, the same preview, the same consent POST.
-- **`finalisma.a2a/2.0` is additive.** Unknown fields ignored by `1.0` consumers;
+- **`weft.a2a/2.0` is additive.** Unknown fields ignored by `1.0` consumers;
   `2.0` consumers fall back to `1.0` defaults for missing fields.
 - **`SECURITY_GATES.md` is the gate for P2.** Do not claim multi-tenant hosted
   until its "Must pass before multi-instance hosted traffic" section is green.

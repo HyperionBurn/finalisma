@@ -89,7 +89,7 @@ class SDKFullFlowTests(unittest.TestCase):
 
     def test_connect_returns_protocol_info(self) -> None:
         info = self.client_a.connect()
-        self.assertEqual(info["protocol"], "finalisma.a2a")
+        self.assertEqual(info["protocol"], "weft.a2a")
         self.assertIn("version", info)
 
     def test_register_issues_actor_token(self) -> None:
@@ -404,7 +404,7 @@ class SDKRetryTests(unittest.TestCase):
                 payload = json.dumps({
                     "jsonrpc": "2.0",
                     "id": call_count["n"],
-                    "result": {"content": [{"type": "text", "text": "{}"}], "structuredContent": {"protocol": "finalisma.a2a", "version": "1.0"}},
+                    "result": {"content": [{"type": "text", "text": "{}"}], "structuredContent": {"protocol": "weft.a2a", "version": "1.0"}},
                 }).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -419,7 +419,7 @@ class SDKRetryTests(unittest.TestCase):
         try:
             client = WeftClient(f"http://{host}:{port}/mcp", "agent-a", "demo")
             result = client.connect()
-            self.assertEqual(result["protocol"], "finalisma.a2a")
+            self.assertEqual(result["protocol"], "weft.a2a")
             self.assertGreaterEqual(call_count["n"], 3)
         finally:
             client.close()

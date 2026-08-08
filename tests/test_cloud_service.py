@@ -479,7 +479,7 @@ class TestJoinDescriptorAndAgentCard(CloudServiceTestBase):
             self.assertNotIn(banned, text,
                              f"agent card leaked a secret-ish value: {banned!r}")
         # Names OUR own profile — and does NOT claim A2A conformance.
-        self.assertEqual(body["profile"]["name"], "finalisma.a2a")
+        self.assertEqual(body["profile"]["name"], "weft.a2a")
         for banned in ("conformance", "a2a-compatible", "conforms to a2a",
                        "a2a protocol conformance", "implements the a2a",
                        "a2a protocol 1.0"):

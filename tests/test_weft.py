@@ -137,7 +137,7 @@ class WeftStoreTests(unittest.TestCase):
         self.assertTrue(broadcast["sent"])
         inbox = self.store.read_inbox("demo", "agent-b", acknowledge=False)
         self.assertEqual(inbox["count"], 2)
-        self.assertEqual(inbox["messages"][0]["protocol"], "finalisma.a2a")
+        self.assertEqual(inbox["messages"][0]["protocol"], "weft.a2a")
         acknowledged = self.store.read_inbox("demo", "agent-b", acknowledge=True)
         self.assertEqual(acknowledged["count"], 2)
         self.assertEqual(self.store.read_inbox("demo", "agent-b")["count"], 0)

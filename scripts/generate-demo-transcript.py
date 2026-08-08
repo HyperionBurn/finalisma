@@ -198,7 +198,7 @@ def run_demo() -> dict[str, object]:
                         "caption": "The receiver observes sequence 1, acknowledges sequence 1, and can resume from that cursor.",
                         "agent_a": "task.offer · seq 1",
                         "agent_b": "poll → receive → ack 1",
-                        "event": "finalisma.a2a/1.0 · idempotent",
+                        "event": "weft.a2a/1.0 · idempotent",
                         "state": "posted",
                     },
                     {

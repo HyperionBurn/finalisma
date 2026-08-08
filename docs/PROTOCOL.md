@@ -64,7 +64,7 @@ re-registration or re-pairing to claim an existing ID.
 
 ```json
 {
-  "protocol": "finalisma.a2a",
+  "protocol": "weft.a2a",
   "version": "1.0",
   "message_id": "msg_...",
   "type": "task.progress",

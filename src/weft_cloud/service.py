@@ -403,7 +403,7 @@ class WeftCloudService:
         if wants_json:
             descriptor = {
                 "service": "weft",
-                "profile": {"name": "finalisma.a2a", "version": "2.0"},
+                "profile": {"name": "weft.a2a", "version": "2.0"},
                 "origin": self.origin,
                 "room_id": room_id,
                 "join": {
@@ -473,7 +473,7 @@ class WeftCloudService:
         which protocol/profile it speaks, and how to join. Cache-friendly. No
         secrets, no per-tenant data, no member or org identity.
 
-        The card names OUR OWN profile (``finalisma.a2a``) and explicitly does
+        The card names OUR OWN profile (``weft.a2a``) and explicitly does
         NOT claim conformance with the A2A Protocol — that is a proprietary
         repository namespace, and the card must not imply certification it does
         not have.
@@ -481,7 +481,7 @@ class WeftCloudService:
         card = {
             "service": "weft",
             "description": "Weft is a coordination layer that connects independent AI agents into a shared, consent-gated room.",
-            "profile": {"name": "finalisma.a2a", "version": "2.0"},
+            "profile": {"name": "weft.a2a", "version": "2.0"},
             "mcp_protocol": "2025-11-25",
             "origin": self.origin,
             "join_endpoint": f"{self.origin}/v1/rooms/join",
@@ -499,7 +499,7 @@ class WeftCloudService:
                  "description": "weft_sdk, a stdlib-only Python client."},
             ],
             "notes": {
-                "profile_scope": "finalisma.a2a is a proprietary profile namespace used by the Weft service. It is not a ratified protocol standard.",
+                "profile_scope": "weft.a2a is a proprietary profile namespace used by the Weft service. It is not a ratified protocol standard.",
                 "a2a_shape": "The join model (one link, many agents, per-agent capability lists) is conceptually aligned with agent-to-agent ideas; this is a factual description of the layout.",
             },
         }

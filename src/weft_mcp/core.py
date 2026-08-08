@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Iterator, Sequence
 from urllib.parse import quote, urlsplit
 
-WEFT_PROTOCOL = "finalisma.a2a"
+WEFT_PROTOCOL = "weft.a2a"
 WEFT_VERSION = "1.0"
 MCP_PROTOCOL_VERSION = "2025-11-25"
 SUPPORTED_MCP_VERSIONS = ("2025-11-25", "2024-11-05")

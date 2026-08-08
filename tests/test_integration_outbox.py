@@ -34,7 +34,7 @@ from weft_mcp.server import WeftDispatcher, TOOLS
 def _v1_envelope(sender: str = "agent-a", recipient: str = "agent-b", type_: str = "task.progress") -> dict:
     """Build a PROTOCOL.md v1 envelope shape (minimal valid fields)."""
     return {
-        "protocol": "finalisma.a2a",
+        "protocol": "weft.a2a",
         "version": "1.0",
         "message_id": f"msg_{sender}_{recipient}_{int(time.time() * 1000)}",
         "type": type_,

@@ -71,7 +71,7 @@ a shortcut past the consent gate.
   top-level decision it implements).
 - `docs/SECURITY_GATES.md` — the gate that must pass before multi-instance
   hosted traffic (P2).
-- `docs/PROTOCOL.md` — the `finalisma.a2a/1.0` envelope; `2.0` in NEXUS adds
+- `docs/PROTOCOL.md` — the `weft.a2a/1.0` envelope; `2.0` in NEXUS adds
   roster, capability manifest, addressing.
 - `src/weft_mcp/server.py` — existing HTTP join flow (`/v1/join/:id`).
 - `src/weft_mcp/core.py` — transport-neutral store reused by all tiers.

@@ -1,4 +1,4 @@
-# ADR-0002 — Protocol v2 Envelope (finalisma.a2a/2.0)
+# ADR-0002 — Protocol v2 Envelope (weft.a2a/2.0)
 
 **Status:** Accepted (draft for next-sprint implementation)
 **Supersedes:** ADR-0001 (implicit — the original protocol design)
@@ -19,7 +19,7 @@ The v1.0 envelope has no multi-recipient field, no capability negotiation, no ad
 
 ## Decision
 
-We introduce **finalisma.a2a/2.0** as an additive envelope version, specified in `docs/PROTOCOL_V2.md`. The key decisions are:
+We introduce **weft.a2a/2.0** as an additive envelope version, specified in `docs/PROTOCOL_V2.md`. The key decisions are:
 
 ### 1. Additive envelope, optional-by-default new fields
 

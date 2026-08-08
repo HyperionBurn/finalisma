@@ -165,7 +165,7 @@ class RoomAddressingIntegrationTests(unittest.TestCase):
 
         # Envelope shape.
         envelope = result["envelope"]
-        self.assertEqual(envelope["protocol"], "finalisma.a2a")
+        self.assertEqual(envelope["protocol"], "weft.a2a")
         self.assertEqual(envelope["version"], "2.0")
         self.assertIn("targets", envelope)
         self.assertEqual(envelope["targets"], [AGENT_A2])

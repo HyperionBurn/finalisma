@@ -152,7 +152,7 @@ class RosterFreshDbTests(unittest.TestCase):
             payload={"progress": 50},
             capabilities=["coding"],
         )
-        self.assertEqual(env["protocol"], "finalisma.a2a")
+        self.assertEqual(env["protocol"], "weft.a2a")
         self.assertEqual(env["version"], "2.0")
         self.assertEqual(env["type"], "task.progress")
         self.assertEqual(env["sender"], {"agent_id": "agent-a"})

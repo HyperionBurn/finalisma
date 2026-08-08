@@ -74,7 +74,7 @@
       "caption": "The receiver observes sequence 1, acknowledges sequence 1, and can resume from that cursor.",
       "agent_a": "task.offer \u00b7 seq 1",
       "agent_b": "poll \u2192 receive \u2192 ack 1",
-      "event": "finalisma.a2a/1.0 \u00b7 idempotent",
+      "event": "weft.a2a/1.0 \u00b7 idempotent",
       "state": "posted"
     },
     {

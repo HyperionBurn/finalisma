@@ -20,5 +20,5 @@ where = ["src"]
 include = ["weft_mcp*", "weft_sdk*", "weft_cloud*"]
 
 [tool.weft]
-protocol = "finalisma.a2a/1.0"
+protocol = "weft.a2a/1.0"
 mcp_protocol = "2025-11-25"
