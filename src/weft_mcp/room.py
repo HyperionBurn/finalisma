@@ -354,7 +354,13 @@ class RoomStore:
             (room_id, agent_id),
         ).fetchone()
         if row is None:
-            raise RoomError("member_required", "Only room members can access this room")
+            # No-oracle path: a caller who is not an active member must not be
+            # able to learn whether the room exists. `room_not_found` here is
+            # indistinguishable from `_require_room` failing on a room that
+            # never existed. This matches the hosted cloud plane, which resolves
+            # the room through the caller's membership and returns 404 for a
+            # non-member. (Members are still entitled to precise errors.)
+            raise RoomError("room_not_found", "Room not found")
         return row
 
     def _validate_actor(self, conn: sqlite3.Connection, team_id: str, agent_id: str,
@@ -372,6 +378,22 @@ class RoomStore:
         ).fetchone()
         if row is None or not secrets.compare_digest(row["token_hash"], supplied_hash):
             raise RoomError("actor_auth_invalid", "Actor token is invalid")
+
+    def _require_authenticated_member(self, conn: sqlite3.Connection, team_id: str,
+                                      room_id: str, agent_id: str, actor_token: str) -> sqlite3.Row:
+        """Gate a member-only room operation: authenticate, then resolve, then check membership.
+
+        Ordering IS the security contract. Credential validation precedes room
+        resolution, so a caller with a bad or missing token gets
+        ``actor_auth_invalid`` regardless of whether the room exists — the same
+        response for a real room and a fabricated one (no existence oracle).
+        A valid-token non-member then gets the flattened ``room_not_found``,
+        while a genuine member keeps precise errors.
+        """
+        self._validate_actor(conn, team_id, agent_id, actor_token, None)
+        room = self._require_room(conn, room_id)
+        self._require_member(conn, room_id, agent_id)
+        return room
 
     def join_room(self, team_id: str, room_id: str, link_token: str, agent_id: str,
                   consent: Any, capabilities: Sequence[str], actor_token: str,
@@ -455,14 +477,7 @@ class RoomStore:
     def leave_room(self, team_id: str, room_id: str, agent_id: str, actor_token: str) -> dict[str, Any]:
         _validate_id(agent_id, "agent_id")
         with self._transaction() as conn:
-            self._require_room(conn, room_id)
-            self._validate_actor(conn, team_id, agent_id, actor_token, None)
-            row = conn.execute(
-                "SELECT * FROM room_members WHERE room_id = ? AND agent_id = ? AND status = 'active'",
-                (room_id, agent_id),
-            ).fetchone()
-            if row is None:
-                raise RoomError("member_required", "Only room members can leave")
+            self._require_authenticated_member(conn, team_id, room_id, agent_id, actor_token)
             conn.execute(
                 "UPDATE room_members SET status = 'left' WHERE room_id = ? AND agent_id = ?",
                 (room_id, agent_id),
@@ -473,8 +488,7 @@ class RoomStore:
     def close_room(self, team_id: str, room_id: str, caller_agent_id: str, actor_token: str) -> dict[str, Any]:
         _validate_id(caller_agent_id, "caller_agent_id")
         with self._transaction() as conn:
-            room = self._require_room(conn, room_id)
-            self._validate_actor(conn, team_id, caller_agent_id, actor_token, None)
+            room = self._require_authenticated_member(conn, team_id, room_id, caller_agent_id, actor_token)
             if room["owner_agent_id"] != caller_agent_id:
                 raise RoomError("owner_required", "Only the room owner can close it")
             conn.execute(
@@ -491,8 +505,7 @@ class RoomStore:
     def revoke_link(self, team_id: str, room_id: str, owner_agent_id: str, link_id: str,
                     actor_token: str) -> dict[str, Any]:
         with self._transaction() as conn:
-            room = self._require_room(conn, room_id)
-            self._validate_actor(conn, team_id, owner_agent_id, actor_token, None)
+            room = self._require_authenticated_member(conn, team_id, room_id, owner_agent_id, actor_token)
             if room["owner_agent_id"] != owner_agent_id:
                 raise RoomError("owner_required", "Only the room owner can revoke links")
             conn.execute(
@@ -507,9 +520,7 @@ class RoomStore:
 
     def room_info(self, team_id: str, room_id: str, agent_id: str, actor_token: str) -> dict[str, Any]:
         with self._transaction() as conn:
-            room = self._require_room(conn, room_id)
-            self._validate_actor(conn, team_id, agent_id, actor_token, None)
-            self._require_member(conn, room_id, agent_id)
+            room = self._require_authenticated_member(conn, team_id, room_id, agent_id, actor_token)
             members = conn.execute(
                 "SELECT * FROM room_members WHERE room_id = ? AND status = 'active' ORDER BY joined_at",
                 (room_id,),
@@ -535,9 +546,7 @@ class RoomStore:
 
     def heartbeat(self, team_id: str, room_id: str, agent_id: str, actor_token: str) -> dict[str, Any]:
         with self._transaction() as conn:
-            self._require_room(conn, room_id)
-            self._validate_actor(conn, team_id, agent_id, actor_token, None)
-            self._require_member(conn, room_id, agent_id)
+            self._require_authenticated_member(conn, team_id, room_id, agent_id, actor_token)
             now = _epoch()
             conn.execute(
                 "UPDATE room_members SET last_seen = ?, status = 'active' WHERE room_id = ? AND agent_id = ?",
@@ -561,9 +570,7 @@ class RoomStore:
         """
         kind_filter = _validate_message_kinds(message_kinds)
         with self._transaction() as conn:
-            room = self._require_room(conn, room_id)
-            self._validate_actor(conn, team_id, agent_id, actor_token, None)
-            self._require_member(conn, room_id, agent_id)
+            room = self._require_authenticated_member(conn, team_id, room_id, agent_id, actor_token)
             if after_seq is None:
                 cursor = conn.execute(
                     "SELECT last_ack_seq FROM room_cursors WHERE room_id = ? AND agent_id = ?",
@@ -613,9 +620,7 @@ class RoomStore:
 
     def ack(self, team_id: str, room_id: str, agent_id: str, seq: int, actor_token: str) -> dict[str, Any]:
         with self._transaction() as conn:
-            room = self._require_room(conn, room_id)
-            self._validate_actor(conn, team_id, agent_id, actor_token, None)
-            self._require_member(conn, room_id, agent_id)
+            room = self._require_authenticated_member(conn, team_id, room_id, agent_id, actor_token)
             if int(seq) > int(room["cursor_head"]):
                 raise RoomError("invalid_cursor", "Cannot acknowledge an event beyond the room head")
             now = _utc_now()
@@ -642,9 +647,7 @@ class RoomStore:
         import weft_mcp.outbox as _outbox
         message_kind = _validate_message_kind(message_kind)
         with self._transaction() as conn:
-            room = self._require_room(conn, room_id)
-            self._validate_actor(conn, team_id, sender_agent_id, actor_token, None)
-            self._require_member(conn, room_id, sender_agent_id)
+            room = self._require_authenticated_member(conn, team_id, room_id, sender_agent_id, actor_token)
             if room["state"] == "closed":
                 raise RoomError("room_closed", "Room is closed")
             targets = self._route_targets(conn, room_id, target_spec)
@@ -716,9 +719,7 @@ class RoomStore:
                  actor_token: str) -> dict[str, Any]:
         import weft_mcp.outbox as _outbox
         with self._transaction() as conn:
-            self._require_room(conn, room_id)
-            self._validate_actor(conn, team_id, agent_id, actor_token, None)
-            self._require_member(conn, room_id, agent_id)
+            self._require_authenticated_member(conn, team_id, room_id, agent_id, actor_token)
         result = []
         for eid in entry_ids:
             entry = _outbox.get_entry(eid)
@@ -743,9 +744,7 @@ class RoomStore:
                action: str, actor_token: str, members: Sequence[str] | None = None) -> dict[str, Any]:
         _validate_id(group_name, "group_name")
         with self._transaction() as conn:
-            self._require_room(conn, room_id)
-            self._validate_actor(conn, team_id, agent_id, actor_token, None)
-            self._require_member(conn, room_id, agent_id)
+            self._require_authenticated_member(conn, team_id, room_id, agent_id, actor_token)
             if action == "add":
                 for member in members or []:
                     member_row = conn.execute(

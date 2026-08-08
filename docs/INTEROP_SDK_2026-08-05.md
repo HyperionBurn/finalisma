@@ -18,6 +18,11 @@
 - Reconnect: a fresh `WeftClient` reusing agent-b's `agent_id`+`actor_token` polls from `after_seq=0` → full ordered log with no loss/duplicates; polls from `last_ack_seq` → zero already-acked events replayed.
 - Negative cases: non-member `room_poll` and `room_info` refused with `member_required`; existing-member identity reuse with a **different** actor token refused with `actor_auth_invalid`.
 
+> **Superseded 2026-08-08 (enumeration fix):** a non-member is now refused with `room_not_found`
+> on every member-only room tool — identical to a fabricated `room_id` (no existence oracle).
+> `member_required` is retained only for entitled members (e.g. a member adding a non-active
+> *target* to a group). See `docs/ROOMS_DESIGN.md` §8/§9.
+
 **What is NOT proven:**
 - A third-party non-Python client using the SDK. The SDK is Python-only (`src/weft_sdk/` is Python); this validation uses Python hosts. The *protocol* (Streamable HTTP + JSON-RPC `tools/call`) is language-agnostic, but no non-Python client is tested here.
 - The SDK's public `join_pairing()` helper does **not** inject `actor_token` (a real gap — the driver works around it via `_call`). This is a documented SDK limitation, not a coordinator defect.

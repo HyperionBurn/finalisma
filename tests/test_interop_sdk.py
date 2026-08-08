@@ -251,21 +251,21 @@ class SdkInteropTest(unittest.TestCase):
             reconnected.close()
 
     def test_05_room_negative_cases(self) -> None:
-        """Non-member refused (member_required); actor-overwrite refused (actor_auth_invalid)."""
+        """Non-member refused (room_not_found, no existence oracle); actor-overwrite refused (actor_auth_invalid)."""
         room_id = self.room_id
         # Non-member poll
         with self.assertRaises(WeftError) as ctx:
             self.clients["agent-outsider"]._call(
                 "room_poll", room_id=room_id, agent_id="agent-outsider",
             )
-        self.assertEqual(ctx.exception.code, "member_required")
+        self.assertEqual(ctx.exception.code, "room_not_found")
 
         # Non-member info
         with self.assertRaises(WeftError) as ctx:
             self.clients["agent-outsider"]._call(
                 "room_info", room_id=room_id, agent_id="agent-outsider",
             )
-        self.assertEqual(ctx.exception.code, "member_required")
+        self.assertEqual(ctx.exception.code, "room_not_found")
 
         # Actor-overwrite: existing agent-b identity with a DIFFERENT token.
         bogus = "rm_" + secrets.token_urlsafe(32)

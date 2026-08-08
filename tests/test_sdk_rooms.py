@@ -393,14 +393,14 @@ class SdkRoomsContractTest(unittest.TestCase):
     # -- 9. negative: non-member refused ------------------------------------
 
     def test_09_non_member_refused(self) -> None:
-        """A non-member agent is refused with member_required."""
+        """A non-member agent is refused with room_not_found (no existence oracle)."""
         a = self.harness.clients["agent-0"]
         res = a.create_room(cap=4, name="neg")
 
         # agent-3 never joins — must be refused on room_info.
         with self.assertRaises(WeftError) as ctx:
             self.harness.clients["agent-3"].room_info(res.room_id)
-        self.assertEqual(ctx.exception.code, "member_required")
+        self.assertEqual(ctx.exception.code, "room_not_found")
 
     # -- 10. the private _call is never needed ------------------------------
 

@@ -934,6 +934,18 @@ class WeftStore:
                 (team_id, agent_id),
             ).fetchone()
             if existing is not None:
+                # ACCEPTED TRADE-OFF (account enumeration): demanding actor auth
+                # here means an unauthenticated caller can tell a taken agent_id
+                # from a free one (actor_auth_required vs success). This is the
+                # classic dual-purpose contract of register_agent: the same call
+                # is the bootstrap for NEW agents (no token, issues a fresh
+                # credential) AND the idempotent re-registration path for
+                # EXISTING agents. Closing the oracle would require either (a)
+                # re-issuing a credential to anyone who names an existing
+                # agent_id (account takeover), or (b) fabricating an identical
+                # success response that still lets the attacker distinguish by
+                # token usability. Both break a supported flow or open a worse
+                # hole, so the enumeration bit is a deliberate, accepted trade-off.
                 self._authorize_actor(connection, team_id, agent_id, actor_token)
             row = self._upsert_agent(connection, team_id, agent_id, name, role, model, capabilities, metadata)
             issued_token = None if existing is not None else self._issue_actor_credential(connection, team_id, agent_id)

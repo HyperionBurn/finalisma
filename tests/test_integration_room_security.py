@@ -174,7 +174,8 @@ class RoomSecurityIntegrationTests(unittest.TestCase):
         self.assertEqual(ctx.exception.code, "link_expired")
 
     # ------------------------------------------------------------------
-    # 4. non-member cannot read -> "member_required"
+    # 4. non-member cannot read -> "room_not_found" (no existence oracle:
+    #    identical to the fake-room response, matching the hosted cloud plane).
     # ------------------------------------------------------------------
     def test_non_member_cannot_read_room(self) -> None:
         created = self.dispatcher.call_tool(
@@ -193,7 +194,7 @@ class RoomSecurityIntegrationTests(unittest.TestCase):
                     "actor_token": self.token_a2,
                 },
             )
-        self.assertEqual(ctx.exception.code, "member_required")
+        self.assertEqual(ctx.exception.code, "room_not_found")
         # Same for room_info.
         with self.assertRaises(WeftError) as ctx:
             self.dispatcher.call_tool(
@@ -205,12 +206,12 @@ class RoomSecurityIntegrationTests(unittest.TestCase):
                     "actor_token": self.token_a2,
                 },
             )
-        self.assertEqual(ctx.exception.code, "member_required")
+        self.assertEqual(ctx.exception.code, "room_not_found")
 
     # ------------------------------------------------------------------
     # 5. cross-room isolation -> member of room A cannot access room B
     #    Expected: "room_not_found" (the room_id is treated as non-existent
-    #    for a non-member; the spec allows room_not_found OR member_required).
+    #    for a non-member; no existence oracle).
     # ------------------------------------------------------------------
     def test_cross_room_isolation(self) -> None:
         # Room A — owner + agent-2 join.
@@ -247,7 +248,7 @@ class RoomSecurityIntegrationTests(unittest.TestCase):
                     "actor_token": self.token_a2,
                 },
             )
-        self.assertIn(ctx.exception.code, ("room_not_found", "member_required"))
+        self.assertEqual(ctx.exception.code, "room_not_found")
         # Same for room_info.
         with self.assertRaises(WeftError) as ctx:
             self.dispatcher.call_tool(
@@ -259,7 +260,7 @@ class RoomSecurityIntegrationTests(unittest.TestCase):
                     "actor_token": self.token_a2,
                 },
             )
-        self.assertIn(ctx.exception.code, ("room_not_found", "member_required"))
+        self.assertEqual(ctx.exception.code, "room_not_found")
         # Same for room_send.
         with self.assertRaises(WeftError) as ctx:
             self.dispatcher.call_tool(
@@ -273,7 +274,7 @@ class RoomSecurityIntegrationTests(unittest.TestCase):
                     "actor_token": self.token_a2,
                 },
             )
-        self.assertIn(ctx.exception.code, ("room_not_found", "member_required"))
+        self.assertEqual(ctx.exception.code, "room_not_found")
 
     # ------------------------------------------------------------------
     # 6. stale fencing token cannot complete a room task
