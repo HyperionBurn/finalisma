@@ -274,18 +274,31 @@ class CloudRoomService:
             raise RoomError("room_not_found", "Room not found", 404)
         return row
 
-    def _resolve_room_tenant(self, tx: Any, room_id: str, agent_id: str | None = None) -> str:
+    def _resolve_room_tenant(self, tx: Any, room_id: str, agent_id: str | None = None,
+                             actor_token_hash: str | None = None) -> str:
         """Find the tenant_id for a room, optionally scoped to a member.
 
         Used when the caller's session tenant may differ from the room's
         owning tenant (cross-tenant join via link). If agent_id is given,
         only returns the tenant if the agent is an active member.
+
+        ``actor_token_hash`` binds the resolution to a specific credential:
+        when supplied, the membership row must ALSO carry that actor token
+        hash. This is the cross-tenant impersonation fix — an attacker who
+        holds another tenant's member ``agent_id`` but not the actor token
+        that joined resolves the same uniform ``room_not_found`` as a room
+        that never existed (no existence oracle).
         """
         if agent_id:
-            row = tx.execute(
-                "SELECT tenant_id FROM cloud_room_members WHERE room_id = ? AND agent_id = ? AND status = 'active'",
-                (room_id, agent_id),
-            ).fetchone()
+            query = (
+                "SELECT tenant_id FROM cloud_room_members "
+                "WHERE room_id = ? AND agent_id = ? AND status = 'active'"
+            )
+            params: list[Any] = [room_id, agent_id]
+            if actor_token_hash is not None:
+                query += " AND actor_token_hash = ?"
+                params.append(actor_token_hash)
+            row = tx.execute(query, params).fetchone()
             if row is None:
                 raise RoomError("room_not_found", "Room not found", 404)
             return row["tenant_id"]

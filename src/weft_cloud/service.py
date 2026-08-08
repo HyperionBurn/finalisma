@@ -47,7 +47,7 @@ from weft_cloud.identity.schema import ensure_schema as _ensure_identity_schema
 from weft_cloud.mcp import HostedMCPAuthError, HostedMCPDispatcher, MAX_JSON_RPC_BYTES, _json_rpc_error
 from weft_cloud.quotas import QuotaError
 from weft_cloud.rate_limit import RateLimitedError
-from weft_cloud.rooms import CloudRoomService, RoomError, public_origin
+from weft_cloud.rooms import CloudRoomService, RoomError, _token_hash, public_origin
 from weft_cloud.storage import SqliteWalBackend, StorageBackend
 
 # Secrets are never logged. Tokens are hashed at rest, never stored raw.
@@ -296,14 +296,17 @@ class WeftCloudService:
     # Room endpoints
     # ------------------------------------------------------------------
 
-    def _resolve_room_tenant(self, room_id: str, agent_id: str) -> str:
+    def _resolve_room_tenant(self, room_id: str, agent_id: str,
+                             actor_token_hash: str | None = None) -> str:
         """Resolve the effective tenant_id for a room operation.
 
         A member may belong to a different tenant than the room's owner
-        (cross-tenant join via link). We resolve via the membership row.
+        (cross-tenant join via link). We resolve via the membership row,
+        scoped by the caller's own actor credential when supplied.
         """
         with self.backend.transaction() as tx:
-            return self.rooms._resolve_room_tenant(tx, room_id, agent_id)
+            return self.rooms._resolve_room_tenant(tx, room_id, agent_id,
+                                                   actor_token_hash)
 
     def handle_create_room(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
         ctx = self._authenticate(handler)
@@ -518,14 +521,28 @@ class WeftCloudService:
         )
         return _json_response(HTTPStatus.OK, result)
 
-    def _room_tenant(self, room_id: str, agent_id: str) -> str:
-        """Resolve the effective tenant for a room operation.
+    def _room_tenant(self, room_id: str, agent_id: str, actor_token: str | None) -> str:
+        """Resolve the effective tenant for a room operation, bound to the caller.
 
         Agents who joined via a cross-tenant link have their membership in
-        the room's owning tenant, not their own. Resolve via membership.
+        the room's owning tenant, not their own. Resolution goes through the
+        membership row AND the caller's actor credential (the bearer session
+        token's hash is stored on the membership at join time), so a caller
+        can only resolve a room as an agent it is an active member of, using
+        proof it is that agent. Anything else yields the uniform
+        ``room_not_found`` — identical to a fabricated room_id, so the
+        endpoint is not a room-existence oracle.
         """
+        # ``_authenticate`` ran first, so the bearer token is present; a
+        # malformed token still degrades to "no such credential" (no match),
+        # never to an unscoped lookup.
+        actor_token_hash = None
         try:
-            return self._resolve_room_tenant(room_id, agent_id)
+            actor_token_hash = _token_hash(actor_token) if actor_token else None
+        except ValueError:
+            actor_token_hash = None
+        try:
+            return self._resolve_room_tenant(room_id, agent_id, actor_token_hash)
         except RoomError:
             raise _ServiceError("room_not_found", "Room not found", HTTPStatus.NOT_FOUND)
 
@@ -542,7 +559,7 @@ class WeftCloudService:
         agent_id = params.get("agent_id", ctx.account_id)
         if not room_id:
             raise _ServiceError("invalid_argument", "room_id query parameter is required")
-        tenant_id = self._room_tenant(room_id, agent_id)
+        tenant_id = self._room_tenant(room_id, agent_id, _bearer_token(handler))
         result = self.rooms.room_info(tenant_id, room_id, agent_id)
         return _json_response(HTTPStatus.OK, result)
 
@@ -556,7 +573,7 @@ class WeftCloudService:
         message_kinds = body.get("message_kinds")
         if not room_id:
             raise _ServiceError("invalid_argument", "room_id is required")
-        tenant_id = self._room_tenant(room_id, agent_id)
+        tenant_id = self._room_tenant(room_id, agent_id, _bearer_token(handler))
         result = self.rooms.poll(tenant_id, room_id, agent_id, after_seq, limit,
                                  message_kinds=message_kinds)
         return _json_response(HTTPStatus.OK, result)
@@ -569,7 +586,7 @@ class WeftCloudService:
         agent_id = body.get("agent_id", ctx.account_id)
         if not room_id or seq is None:
             raise _ServiceError("invalid_argument", "room_id and seq are required")
-        tenant_id = self._room_tenant(room_id, agent_id)
+        tenant_id = self._room_tenant(room_id, agent_id, _bearer_token(handler))
         result = self.rooms.ack(tenant_id, room_id, agent_id, seq)
         return _json_response(HTTPStatus.OK, result)
 
@@ -584,7 +601,7 @@ class WeftCloudService:
         sender_agent_id = body.get("sender_agent_id", ctx.account_id)
         if not room_id:
             raise _ServiceError("invalid_argument", "room_id is required")
-        tenant_id = self._room_tenant(room_id, sender_agent_id)
+        tenant_id = self._room_tenant(room_id, sender_agent_id, _bearer_token(handler))
         result = self.rooms.room_send(
             tenant_id, room_id, sender_agent_id, target_spec, payload, exclude_sender,
             message_kind=message_kind,
@@ -598,7 +615,7 @@ class WeftCloudService:
         agent_id = body.get("agent_id", ctx.account_id)
         if not room_id:
             raise _ServiceError("invalid_argument", "room_id is required")
-        tenant_id = self._room_tenant(room_id, agent_id)
+        tenant_id = self._room_tenant(room_id, agent_id, _bearer_token(handler))
         result = self.rooms.leave_room(tenant_id, room_id, agent_id)
         return _json_response(HTTPStatus.OK, result)
 
@@ -609,7 +626,7 @@ class WeftCloudService:
         caller_agent_id = body.get("caller_agent_id", ctx.account_id)
         if not room_id:
             raise _ServiceError("invalid_argument", "room_id is required")
-        tenant_id = self._room_tenant(room_id, caller_agent_id)
+        tenant_id = self._room_tenant(room_id, caller_agent_id, _bearer_token(handler))
         result = self.rooms.close_room(tenant_id, room_id, caller_agent_id)
         return _json_response(HTTPStatus.OK, result)
 
@@ -661,7 +678,7 @@ class WeftCloudService:
         agent_id = body.get("agent_id", ctx.account_id)
         if not room_id:
             raise _ServiceError("invalid_argument", "room_id is required")
-        tenant_id = self._room_tenant(room_id, agent_id)
+        tenant_id = self._room_tenant(room_id, agent_id, _bearer_token(handler))
         events = self.rooms.event_log(tenant_id, room_id, agent_id)
         return _json_response(HTTPStatus.OK, {"events": events})
 
@@ -672,7 +689,7 @@ class WeftCloudService:
         agent_id = body.get("agent_id", ctx.account_id)
         if not room_id:
             raise _ServiceError("invalid_argument", "room_id is required")
-        tenant_id = self._room_tenant(room_id, agent_id)
+        tenant_id = self._room_tenant(room_id, agent_id, _bearer_token(handler))
         result = self.rooms.heartbeat(tenant_id, room_id, agent_id)
         return _json_response(HTTPStatus.OK, result)
 
@@ -686,7 +703,7 @@ class WeftCloudService:
         agent_id = body.get("agent_id", ctx.account_id)
         if not room_id or not group_name:
             raise _ServiceError("invalid_argument", "room_id and group_name are required")
-        tenant_id = self._room_tenant(room_id, agent_id)
+        tenant_id = self._room_tenant(room_id, agent_id, _bearer_token(handler))
         result = self.rooms.groups(tenant_id, room_id, agent_id, group_name, action, members)
         return _json_response(HTTPStatus.OK, result)
 
