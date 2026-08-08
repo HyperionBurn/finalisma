@@ -513,6 +513,12 @@
        tl.to("#lockup", { x: 0, y: 0, scale: 1, duration: 1.58, ease }, 28.42);
        tl.to("#chip-link-text", { opacity: 0, duration: 0.55, ease: "power1.in" }, 28.5);
 
+       // Hand-off: as the lockup blooms to full, the grown link dissolves to 0
+       // so the wordmark and tagline are unobstructed at the final frame.
+       // (power2.out fades most of the way immediately, tailing to exactly 0
+       // at t=30.0 — the link hands off to the lockup instead of sitting on it.)
+       tl.to("#chip-link", { opacity: 0, duration: 0.8, ease: "power2.out" }, 29.2);
+
        // The rest of the room recedes as the camera dives — only the link survives.
        tl.to("#ring", { opacity: 0, duration: 0.6, ease: "power1.in" }, 28.42);
        tl.to("#chip-1", { opacity: 0, duration: 0.6, ease: "power1.in" }, 28.42);
