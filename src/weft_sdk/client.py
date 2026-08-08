@@ -170,6 +170,7 @@ class RoomResult:
     cap: int
     state: str
     owner_agent_id: str
+    shareable_link: str = ""
 
 
 @dataclass
@@ -609,6 +610,10 @@ class WeftClient:
 
         The owner auto-joins as the first active member. `cap` is the maximum
         number of members (>= 2). Extra wire args pass through to the tool.
+
+        `shareable_link` is an absolute, self-describing URL a second agent can
+        open to discover the room, join endpoint, and protocol — hand it to the
+        other agent instead of the raw token.
         """
         result = self._call(
             "room_create",
@@ -626,6 +631,7 @@ class WeftClient:
             cap=result["cap"],
             state=result["state"],
             owner_agent_id=result["owner_agent_id"],
+            shareable_link=result.get("shareable_link", ""),
         )
 
     def join_room(self, room_id: str, link_token: str, consent: bool = True,

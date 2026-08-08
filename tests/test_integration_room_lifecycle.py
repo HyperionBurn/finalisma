@@ -77,6 +77,21 @@ class RoomLifecycleIntegrationTests(unittest.TestCase):
         member_ids = [m["agent_id"] for m in info["members"]]
         self.assertIn("owner-1", member_ids)
 
+    # -- 1b. create returns shareable_link as an ABSOLUTE self-describing URL
+    #    containing the token, while link_token stays unchanged (rm_ prefix). --
+    def test_room_create_returns_absolute_shareable_link(self) -> None:
+        created = self.dispatcher.call_tool(
+            "room_create",
+            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 4},
+        )
+        self.assertIn("shareable_link", created)
+        self.assertTrue(created["shareable_link"].startswith(("http://", "https://")),
+                        f"shareable_link not absolute: {created['shareable_link']}")
+        self.assertIn("/j/", created["shareable_link"])
+        # link_token is unchanged and IS the tail of the shareable URL.
+        self.assertTrue(created["link_token"].startswith("rm_"))
+        self.assertTrue(created["shareable_link"].endswith(f"/j/{created['link_token']}"))
+
     # -- 2. join with consent=true admits agent 2; room transitions to active;
     #    info member_count 2. --
     def test_room_join_admits_second_agent_and_transitions_to_active(self) -> None:

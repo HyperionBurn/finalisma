@@ -200,6 +200,10 @@ class SdkRoomsContractTest(unittest.TestCase):
         self.assertEqual(res.cap, 4)
         self.assertEqual(res.state, "forming")
         self.assertEqual(res.owner_agent_id, "agent-0")
+        # Shareable link is an absolute URL embedding the token.
+        self.assertTrue(res.shareable_link.startswith(("http://", "https://")),
+                        f"bad shareable_link: {res.shareable_link}")
+        self.assertTrue(res.shareable_link.endswith(f"/j/{res.link_token}"))
 
         # Owner auto-joined: info shows member_count 1, roster lists owner.
         info: RoomInfo = a.room_info(res.room_id)
