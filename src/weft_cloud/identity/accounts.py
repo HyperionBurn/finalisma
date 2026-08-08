@@ -159,6 +159,20 @@ def authenticate(backend: Any, tenant_id: str, email: str, password: str) -> str
     return row["account_id"]
 
 
+def burn_scrypt_cost(password: str) -> None:
+    """Run the same scrypt cost as an unknown-email authentication attempt.
+
+    HTTP signin surfaces resolve the tenant BEFORE authenticating. On a
+    tenant-lookup miss they must still spend the scrypt work, or the early
+    return becomes a user-enumeration timing oracle (known-email-wrong-password
+    costs one scrypt, unknown-email returns instantly). This performs exactly
+    the dummy-salt computation ``authenticate`` would have run for an unknown
+    email, so both refusal paths cost the same.
+    """
+    computed = _scrypt(password, _DUMMY_SALT)
+    hmac.compare_digest(computed, _DUMMY_HASH)
+
+
 def request_password_reset(backend: Any, tenant_id: str, email: str) -> None:
     """Enqueue a reset email with an frt_ token. Always succeeds silently (no enumeration)."""
     ensure_schema(backend)
@@ -236,6 +250,9 @@ class AccountStore:
 
     def authenticate(self, backend, tenant_id, email, password):
         return authenticate(backend, tenant_id, email, password)
+
+    def burn_scrypt_cost(self, password):
+        return burn_scrypt_cost(password)
 
     def verify_email(self, backend, verification_token):
         return verify_email(backend, verification_token)

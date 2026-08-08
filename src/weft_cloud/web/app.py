@@ -40,6 +40,7 @@ from weft_cloud.identity.accounts import verify_email as _identity_verify
 from weft_cloud.identity.accounts import request_password_reset as _identity_reset_request
 from weft_cloud.identity.accounts import reset_password as _identity_reset_password
 from weft_cloud.identity.accounts import authenticate as _identity_authenticate
+from weft_cloud.identity.accounts import burn_scrypt_cost as _identity_burn_scrypt_cost
 from weft_cloud.identity.schema import ensure_schema as _ensure_identity_schema
 from weft_cloud.identity.tokens import hash_token as _hash_token
 from weft_cloud.quotas import QuotaError
@@ -510,6 +511,11 @@ class WeftWebApp:
         password = form.get("password") or ""
         tenant_id = self._tenant_for_email(email)
         if tenant_id is None:
+            # Timing parity: an unknown email must cost the same scrypt work as
+            # a wrong password on a known email, or login becomes a
+            # user-enumeration timing oracle. Burn the cost, then show the
+            # identical refusal page.
+            _identity_burn_scrypt_cost(password)
             self.handle_get_login(handler, error="Invalid email or password.")
             return
         try:

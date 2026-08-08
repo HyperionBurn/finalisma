@@ -221,6 +221,11 @@ class WeftCloudService:
                 (email,),
             ).fetchone()
         if row is None:
+            # Timing parity: an unknown email must cost the same scrypt work
+            # as a wrong password on a known email, or signin becomes a
+            # user-enumeration timing oracle. Run the dummy computation, then
+            # refuse with the identical response.
+            self.accounts.burn_scrypt_cost(password)
             raise _ServiceError("invalid_credentials", "Invalid email or password",
                                 HTTPStatus.UNAUTHORIZED)
         tenant_id = row["tenant_id"]
