@@ -156,7 +156,10 @@ class WeftCloudService:
         body = _read_body(handler)
         email = body.get("email")
         password = body.get("password")
-        tenant_id = body.get("tenant_id") or f"tenant_{secrets.token_hex(8)}"
+        # A client may NEVER choose its tenant: doing so let a caller claim an
+        # existing tenant as 'owner' and then mint sessions inside it. Signup
+        # always provisions a fresh tenant for the new account.
+        tenant_id = f"tenant_{secrets.token_hex(8)}"
         if not email or not password:
             raise _ServiceError("invalid_argument", "email and password are required")
         if not isinstance(email, str) or not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
@@ -164,9 +167,18 @@ class WeftCloudService:
         if not isinstance(password, str) or len(password) < 8:
             raise _ServiceError("invalid_argument", "password must be at least 8 characters")
 
-        account_id, verification_token = self.accounts.signup(
-            self.backend, tenant_id, email, password
-        )
+        try:
+            account_id, verification_token = self.accounts.signup(
+                self.backend, tenant_id, email, password
+            )
+        except AuthError as exc:
+            # Match web/app.py:429 — an existing email is refused, and the
+            # caller never receives a session (or any other account's id).
+            if exc.code == "email_exists":
+                raise _ServiceError("email_exists",
+                                    "An account with this email already exists",
+                                    HTTPStatus.BAD_REQUEST)
+            raise
         # Auto-verify for the hosted preview (no email provider in v1).
         try:
             self.accounts.verify_email(self.backend, verification_token)
@@ -198,10 +210,15 @@ class WeftCloudService:
         password = body.get("password")
         if not email or not password:
             raise _ServiceError("invalid_argument", "email and password are required")
-        # Look up the tenant for this email.
+        # Look up the tenant for this email. When the same email exists in more
+        # than one tenant (possible via org-invite provisioning), pick the
+        # NEWEST tenant — the same rule web/app.py uses — so both surfaces
+        # resolve the same tenant for the same email.
         with self.backend.transaction() as tx:
             row = tx.execute(
-                "SELECT tenant_id FROM cloud_identity_accounts WHERE email = ?", (email,)
+                "SELECT tenant_id FROM cloud_identity_accounts "
+                "WHERE email = ? ORDER BY created_at DESC LIMIT 1",
+                (email,),
             ).fetchone()
         if row is None:
             raise _ServiceError("invalid_credentials", "Invalid email or password",

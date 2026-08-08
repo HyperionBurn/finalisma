@@ -92,8 +92,24 @@ def _create_account(backend: Any, tenant_id: str, email: str, password: str,
 
 
 def signup(backend: Any, tenant_id: str, email: str, password: str) -> tuple[str, str]:
-    """Create an account (and its tenant row if absent); return (account_id, raw_verification_token)."""
+    """Create an account (and its tenant row if absent); return (account_id, raw_verification_token).
+
+    An email is a person's identity across tenants: if ANY tenant already has
+    an account for ``email``, signup RAISES ``AuthError("email_exists")``
+    instead of returning the existing account id. Returning the existing id
+    let ``handle_signup`` mint a session for an account the caller never
+    created — passwordless account takeover. Callers that legitimately need
+    to (re)provision an existing identity use ``_create_account`` directly
+    (org/invite flows), never this path.
+    """
     ensure_schema(backend)
+    with backend.transaction() as tx:
+        row = tx.execute(
+            "SELECT 1 FROM cloud_identity_accounts WHERE email = ?",
+            (email,),
+        ).fetchone()
+    if row is not None:
+        raise AuthError("email_exists")
     backend.create_tenant(tenant_id, email, "free")
     account_id = _create_account(backend, tenant_id, email, password, email_verified=0)
     raw_token = generate_token("fvt")
