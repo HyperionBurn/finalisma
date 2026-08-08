@@ -44,6 +44,8 @@ def _post(base: str, path: str, body: dict, token: str | None = None) -> tuple[i
             payload = json.loads(exc.read().decode("utf-8"))
         except Exception:
             pass
+        finally:
+            exc.close()  # release the unread response body / socket
         return exc.code, payload
 
 
@@ -60,6 +62,8 @@ def _get(base: str, path: str, token: str | None = None) -> tuple[int, dict]:
             payload = json.loads(exc.read().decode("utf-8"))
         except Exception:
             pass
+        finally:
+            exc.close()  # release the unread response body / socket
         return exc.code, payload
 
 
@@ -76,7 +80,10 @@ def _get_url(url: str, accept: str | None = None) -> tuple[int, bytes, dict]:
         with urllib.request.urlopen(req, timeout=10) as resp:
             return resp.status, resp.read(), dict(resp.headers)
     except urllib.error.HTTPError as exc:
-        return exc.code, exc.read(), dict(exc.headers)
+        try:
+            return exc.code, exc.read(), dict(exc.headers)
+        finally:
+            exc.close()  # release the unread response body / socket
 
 
 class CloudServiceTestBase(unittest.TestCase):
@@ -85,31 +92,35 @@ class CloudServiceTestBase(unittest.TestCase):
     def setUp(self) -> None:
         self.tmpdir = tempfile.mkdtemp(prefix="weft-test-")
         self.db_path = str(Path(self.tmpdir) / "test.db")
-        self.port = 18800 + (hash(self.tmpdir) % 1000)
+        from http.server import ThreadingHTTPServer
+        # Bind an ephemeral port (0) and read back the actual port so no two
+        # tests ever contend for a fixed address. Binding happens synchronously
+        # in setUp, so a bind failure raises here as a real error instead of
+        # silently killing a background thread and timing out every request.
+        self._httpd = ThreadingHTTPServer(("127.0.0.1", 0), _CloudHTTPHandler)
+        self.port = self._httpd.server_address[1]
         self.base = f"http://127.0.0.1:{self.port}"
         # The service's public origin is the real test server so shareable
         # links point back at it and the /j/<token> endpoint can be exercised
         # end to end against the same process.
         self.service = WeftCloudService(SqliteWalBackend(self.db_path),
                                         origin=self.base)
-        self.server = threading.Thread(
-            target=self._serve, daemon=True,
-        )
-        self._server_started = threading.Event()
-        self.server.start()
-        self._server_started.wait(timeout=5)
-
-    def _serve(self) -> None:
-        from http.server import ThreadingHTTPServer
         _CloudHTTPHandler.service = self.service
-        httpd = ThreadingHTTPServer(("127.0.0.1", self.port), _CloudHTTPHandler)
-        self._httpd = httpd
-        self._server_started.set()
-        httpd.serve_forever()
+        self.server = threading.Thread(
+            target=self._httpd.serve_forever, daemon=True,
+        )
+        self.server.start()
 
     def tearDown(self) -> None:
+        # shutdown() stops serve_forever but does NOT close the listening
+        # socket; server_close() is what releases the port. Both must run even
+        # when a test failed, or a leaked listener can hijack a later test's
+        # connections (they handshake then hang -> TimeoutError).
         if hasattr(self, "_httpd"):
-            self._httpd.shutdown()
+            try:
+                self._httpd.shutdown()
+            finally:
+                self._httpd.server_close()
         # Release WAL handles so the tempdir can be removed on Windows.
         try:
             self.service.backend.close()

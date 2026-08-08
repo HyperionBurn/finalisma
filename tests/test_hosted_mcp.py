@@ -66,6 +66,8 @@ def _post(base: str, path: str, body: dict, token: str | None = None) -> tuple[i
             payload = json.loads(raw.decode("utf-8")) if raw else {}
         except Exception:
             pass
+        finally:
+            exc.close()  # release the unread response body / socket
         return exc.code, payload
 
 
@@ -92,6 +94,8 @@ def _mcp(base: str, method: str, params: dict | None, token: str | None = None,
             payload = json.loads(raw.decode("utf-8")) if raw else None
         except Exception:
             pass
+        finally:
+            exc.close()  # release the unread response body / socket
         return exc.code, payload
 
 
@@ -119,29 +123,33 @@ class HostedMCPTestBase(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.tmpdir = tempfile.mkdtemp(prefix="weft-mcp-test-")
         cls.db_path = str(Path(cls.tmpdir) / "test.db")
-        cls.service = WeftCloudService(SqliteWalBackend(cls.db_path))
-        cls.port = 18900 + (hash(cls.__name__) % 500)
-        cls._server_started = threading.Event()
-        cls._httpd = None
-        cls.server_thread = threading.Thread(target=cls._serve, daemon=True)
-        cls.base = f"http://127.0.0.1:{cls.port}"
-        cls.server_thread.start()
-        cls._server_started.wait(timeout=5)
-
-    @classmethod
-    def _serve(cls) -> None:
         from http.server import ThreadingHTTPServer
 
+        # Bind an ephemeral port (0) and read back the actual port so no two
+        # test classes ever contend for a fixed address. Binding happens
+        # synchronously in setUpClass, so a bind failure raises here as a real
+        # error instead of silently killing a background thread.
+        cls._httpd = ThreadingHTTPServer(("127.0.0.1", 0), _CloudHTTPHandler)
+        cls.port = cls._httpd.server_address[1]
+        cls.base = f"http://127.0.0.1:{cls.port}"
+        cls.service = WeftCloudService(SqliteWalBackend(cls.db_path))
         _CloudHTTPHandler.service = cls.service
-        httpd = ThreadingHTTPServer(("127.0.0.1", cls.port), _CloudHTTPHandler)
-        cls._httpd = httpd
-        cls._server_started.set()
-        httpd.serve_forever()
+        cls.server_thread = threading.Thread(
+            target=cls._httpd.serve_forever, daemon=True,
+        )
+        cls.server_thread.start()
 
     @classmethod
     def tearDownClass(cls) -> None:
+        # shutdown() stops serve_forever but does NOT close the listening
+        # socket; server_close() is what releases the port. Both must run even
+        # when a test failed, or a leaked listener can hijack a later test's
+        # connections (they handshake then hang -> TimeoutError).
         if cls._httpd is not None:
-            cls._httpd.shutdown()
+            try:
+                cls._httpd.shutdown()
+            finally:
+                cls._httpd.server_close()
         try:
             cls.service.backend.close()
         except Exception:
@@ -236,7 +244,10 @@ class HostedMCPHandshakeTests(HostedMCPTestBase):
             with urllib.request.urlopen(req, timeout=10):
                 self.fail("GET /mcp must not return 200")
         except urllib.error.HTTPError as exc:
-            self.assertEqual(exc.code, HTTPStatus.METHOD_NOT_ALLOWED)
+            try:
+                self.assertEqual(exc.code, HTTPStatus.METHOD_NOT_ALLOWED)
+            finally:
+                exc.close()  # release the unread response body / socket
 
 
 class HostedMCPAuthTests(HostedMCPTestBase):

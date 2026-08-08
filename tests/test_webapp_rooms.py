@@ -391,7 +391,10 @@ class TestConnectPageRequestShapeDrivesRealJoin(unittest.TestCase):
 
     def tearDown(self):
         if hasattr(self, "_httpd"):
-            self._httpd.shutdown()
+            try:
+                self._httpd.shutdown()
+            finally:
+                self._httpd.server_close()  # release the listening socket
         self.driver.close()
 
     def _start_cloud_service(self):
