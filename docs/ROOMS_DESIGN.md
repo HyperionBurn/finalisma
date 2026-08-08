@@ -350,11 +350,19 @@ plane's no-oracle 404 (see `_resolve_room_tenant`). Only entitled members can
 reach the precise errors (`owner_required` for a non-owner, `member_required`
 for a non-active *target* member in `room_groups` add).
 
+**No token-validity oracle either:** on every member-only tool, credential
+validation runs BEFORE room resolution (see `_require_authenticated_member`).
+A caller with a bad or missing token gets `actor_auth_invalid` regardless of
+whether the room exists — the same response for a real room and a fabricated
+one. An unauthenticated caller learns nothing about room existence.
+
 ### 8.2 Which tools need `actor_token`
 
-**All of them.** Every room read and mutation is member-only. A call without a
-valid `actor_token` bound to a member `agent_id` gets `actor_auth_invalid`;
-an authenticated non-member gets `room_not_found` (no existence oracle).
+**All of them.** Every room read and mutation is member-only. A call with a
+bad or missing `actor_token` gets `actor_auth_invalid` (identical whether or
+not the room exists — auth is validated before the room is resolved); a valid
+`actor_token` on a non-member `agent_id` gets `room_not_found` (no existence
+oracle); an entitled member keeps precise errors.
 
 ---
 
@@ -380,6 +388,7 @@ These are the product. Each is a required security-integration test.
 | 14 | `room_join` reusing an existing `agent_id` with the **same** credential | idempotent re-join (no overwrite) | Replay does not overwrite identity. |
 | 15 | Concurrent `room_join` × (cap + 5) | exactly `cap - owner` succeed, rest `room_full` | Atomic cap enforcement. |
 | 16 | `room_leave` / `room_ack` / `room_heartbeat` / `room_groups` / `room_receipts` / `room_revoke_link` by a non-member | `room_not_found` | Non-members get the no-oracle code across every member-only tool. |
+| 17 | any member-only tool with a bad or missing token | `actor_auth_invalid` | Auth validates before room resolution — identical for a real and a fabricated room (no token-validity oracle). |
 
 ---
 
