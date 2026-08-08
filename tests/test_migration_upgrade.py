@@ -36,7 +36,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from weft_mcp.core import WeftStore  # noqa: E402
 
 # This import is the RED gate: the module does not exist yet.
-from weft_cloud.migrations import apply_migrations  # noqa: E402
+from weft_cloud.migrations import (  # noqa: E402
+    _CLOUD_TABLES_SQL,
+    _IDENTITY_ACCOUNTS_SQL,
+    _IDENTITY_INVITES_SQL,
+    _IDENTITY_MEMBERS_SQL,
+    _IDENTITY_OUTBOX_SQL,
+    _IDENTITY_SESSIONS_SQL,
+    _ROOM_TABLES_SQL,
+    apply_migrations,
+)
 
 
 COORDINATOR_TABLES = (
@@ -434,6 +443,365 @@ class MessageKindMigrationTests(unittest.TestCase):
             self.assertEqual(n, 1)
         finally:
             conn.close()  # `with conn:` would NOT close the connection
+
+
+# ---------------------------------------------------------------------------
+# Production-shaped upgrade: a database mid-sequence with cloud_008 unapplied.
+# ---------------------------------------------------------------------------
+
+
+def _pre_migration_schema_sql() -> str:
+    """The schema a production database has with cloud_008/cloud_009 unapplied:
+    every cloud_001..cloud_007 table in its base shape — the identity outbox
+    WITHOUT the delivery columns and the room event log WITHOUT ``message_kind``.
+
+    Built from the same module constants the migrations use so the fixture
+    tracks the base shapes automatically; the one deliberate edit is stripping
+    ``message_kind`` from the event-log definition.
+    """
+    event_log_pre_kind = _ROOM_TABLES_SQL.replace(
+        "    kind TEXT NOT NULL,\n    message_kind TEXT,\n",
+        "    kind TEXT NOT NULL,\n",
+        1,
+    )
+    assert "message_kind" not in event_log_pre_kind, (
+        "pre-migration fixture must not contain message_kind"
+    )
+    return (
+        _CLOUD_TABLES_SQL
+        + _IDENTITY_ACCOUNTS_SQL
+        + _IDENTITY_SESSIONS_SQL
+        + _IDENTITY_MEMBERS_SQL
+        + _IDENTITY_INVITES_SQL
+        + _IDENTITY_OUTBOX_SQL
+        + event_log_pre_kind
+    )
+
+
+_PRE_CLOUD_008_MIGRATION_IDS = (
+    "cloud_001_init",
+    "cloud_002_identity_accounts",
+    "cloud_003_identity_sessions",
+    "cloud_004_identity_members",
+    "cloud_005_identity_invites",
+    "cloud_006_identity_outbox",
+    "cloud_007_room_tables",
+)
+
+
+class ProductionShapedUpgradeTests(unittest.TestCase):
+    """Upgrade the LIVE production shape in place without losing a row.
+
+    The fixture matches production: the pre-cloud_008 schema (outbox without
+    the delivery columns, event log without ``message_kind``) with real data in
+    the five tables the production report lists — accounts, rooms, room_members,
+    room_event_log and identity_outbox — and cloud_001..cloud_007 recorded in
+    ``schema_migrations``.
+    """
+
+    def setUp(self) -> None:
+        from weft_cloud.storage import SqliteWalBackend
+
+        self.tmp = tempfile.TemporaryDirectory(prefix="prod-shape-")
+        self.root = Path(self.tmp.name)
+        self.cloud_path = self.root / "cloud.db"
+        self.backend = SqliteWalBackend(self.cloud_path)
+        self.backend.initialize()
+        self._build_fixture_schema_and_data()
+
+    def tearDown(self) -> None:
+        try:
+            self.backend.close()
+        finally:
+            import gc
+            gc.collect()
+            self.tmp.cleanup()
+
+    # -- fixture construction ------------------------------------------------
+
+    def _build_fixture_schema_and_data(self) -> None:
+        from weft_cloud.storage import utc_now_iso
+
+        now = utc_now_iso()
+        with self.backend._transaction() as conn:
+            conn.executescript(_pre_migration_schema_sql())
+            for migration_id in _PRE_CLOUD_008_MIGRATION_IDS:
+                conn.execute(
+                    "INSERT INTO schema_migrations(migration_id, applied_at) VALUES (?, ?)",
+                    (migration_id, now),
+                )
+
+            conn.execute(
+                "INSERT INTO cloud_tenants(tenant_id, name, plan_id, created_at) VALUES (?, ?, ?, ?)",
+                ("tenant_a", "Org A", "free", now),
+            )
+            conn.execute(
+                "INSERT INTO cloud_tenants(tenant_id, name, plan_id, created_at) VALUES (?, ?, ?, ?)",
+                ("tenant_b", "Org B", "pro", now),
+            )
+
+            accounts = [
+                ("acct_001", "tenant_a", "a1@example.com"),
+                ("acct_002", "tenant_a", "a2@example.com"),
+                ("acct_003", "tenant_a", "a3@example.com"),
+                ("acct_004", "tenant_b", "b1@example.com"),
+                ("acct_005", "tenant_b", "b2@example.com"),
+            ]
+            for account_id, tenant_id, email in accounts:
+                conn.execute(
+                    "INSERT INTO cloud_identity_accounts("
+                    " account_id, tenant_id, email, salt, password_hash, created_at)"
+                    " VALUES (?, ?, ?, ?, ?, ?)",
+                    (account_id, tenant_id, email, b"\x00" * 16, b"\x00" * 32, now),
+                )
+                conn.execute(
+                    "INSERT INTO cloud_identity_members(tenant_id, account_id, role, joined_at)"
+                    " VALUES (?, ?, 'member', ?)",
+                    (tenant_id, account_id, now),
+                )
+
+            # cloud_identity_outbox in its BASE shape — no delivery columns.
+            conn.execute(
+                "INSERT INTO cloud_identity_outbox("
+                " entry_id, tenant_id, to_email, subject, body, created_at)"
+                " VALUES ('obx_001', 'tenant_a', 'a1@example.com', 'Verify', 'body', ?)",
+                (now,),
+            )
+            conn.execute(
+                "INSERT INTO cloud_identity_outbox("
+                " entry_id, tenant_id, to_email, subject, body, created_at)"
+                " VALUES ('obx_002', 'tenant_a', 'a2@example.com', 'Reset', 'body', ?)",
+                (now,),
+            )
+            conn.execute(
+                "INSERT INTO cloud_identity_outbox("
+                " entry_id, tenant_id, to_email, subject, body, created_at)"
+                " VALUES ('obx_003', 'tenant_b', 'b1@example.com', 'Invite', 'body', ?)",
+                (now,),
+            )
+
+            # cloud_rooms + members + event log in base shapes.
+            conn.execute(
+                "INSERT INTO cloud_rooms("
+                " room_id, tenant_id, owner_agent_id, name, cap, state, link_id,"
+                " created_at, expires_at, cursor_head)"
+                " VALUES ('room_001', 'tenant_a', 'acct_001', 'Room One', 4, 'active',"
+                " 'link_001', ?, 0, 3)",
+                (now,),
+            )
+            conn.execute(
+                "INSERT INTO cloud_rooms("
+                " room_id, tenant_id, owner_agent_id, name, cap, state, link_id,"
+                " created_at, expires_at, cursor_head)"
+                " VALUES ('room_002', 'tenant_a', 'acct_002', 'Room Two', 2, 'forming',"
+                " 'link_002', ?, 0, 1)",
+                (now,),
+            )
+            conn.execute(
+                "INSERT INTO cloud_rooms("
+                " room_id, tenant_id, owner_agent_id, name, cap, state, link_id,"
+                " created_at, expires_at, cursor_head)"
+                " VALUES ('room_003', 'tenant_b', 'acct_004', 'Room Three', 3, 'active',"
+                " 'link_003', ?, 0, 2)",
+                (now,),
+            )
+
+            for tenant_id, room_id, agent_id in (
+                ("tenant_a", "room_001", "acct_001"),
+                ("tenant_a", "room_001", "acct_002"),
+                ("tenant_a", "room_001", "acct_003"),
+                ("tenant_a", "room_002", "acct_001"),
+                ("tenant_a", "room_002", "acct_002"),
+                ("tenant_b", "room_003", "acct_004"),
+                ("tenant_b", "room_003", "acct_005"),
+            ):
+                conn.execute(
+                    "INSERT INTO cloud_room_members("
+                    " tenant_id, room_id, agent_id, joined_at, last_seen, status,"
+                    " capabilities_json, actor_token_hash)"
+                    " VALUES (?, ?, ?, ?, 0, 'active', '[]', ?)",
+                    (tenant_id, room_id, agent_id, now, f"hash_{agent_id}"),
+                )
+
+            events = [
+                ("evt_001", "room_001", "tenant_a", 1, "acct_001", "room.joined", "{}"),
+                ("evt_002", "room_001", "tenant_a", 2, "acct_002", "room.joined", "{}"),
+                ("evt_003", "room_001", "tenant_a", 3, "acct_003", "room.joined", "{}"),
+                ("evt_004", "room_002", "tenant_a", 1, "acct_001", "room.created", "{}"),
+                ("evt_005", "room_003", "tenant_b", 1, "acct_004", "room.created", "{}"),
+                ("evt_006", "room_003", "tenant_b", 2, "acct_005", "room.joined", "{}"),
+            ]
+            for event_id, room_id, tenant_id, seq, origin, kind, payload in events:
+                conn.execute(
+                    "INSERT INTO cloud_room_event_log("
+                    " event_id, room_id, tenant_id, seq, origin_agent, kind,"
+                    " payload_json, idempotency_key, trace_id, created_at)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)",
+                    (event_id, room_id, tenant_id, seq, origin, kind, payload,
+                     f"idem_{event_id}", now),
+                )
+        conn = sqlite3.connect(self.cloud_path)
+        try:
+            self._assert_pre_migration_preconditions()
+        finally:
+            conn.close()  # `with conn:` would NOT close the connection
+
+    def _assert_pre_migration_preconditions(self) -> None:
+        """The fixture must actually be production-shaped before upgrade."""
+        conn = sqlite3.connect(self.cloud_path)
+        try:
+            conn.row_factory = sqlite3.Row
+            outbox_columns = {
+                r["name"] for r in conn.execute(
+                    "PRAGMA table_info(cloud_identity_outbox)"
+                ).fetchall()
+            }
+            self.assertNotIn("status", outbox_columns,
+                             "precondition: outbox lacks delivery columns")
+            event_columns = {
+                r["name"] for r in conn.execute(
+                    "PRAGMA table_info(cloud_room_event_log)"
+                ).fetchall()
+            }
+            self.assertNotIn("message_kind", event_columns,
+                             "precondition: event log predates message_kind")
+            n = conn.execute(
+                "SELECT COUNT(*) AS c FROM schema_migrations"
+            ).fetchone()["c"]
+            self.assertEqual(n, len(_PRE_CLOUD_008_MIGRATION_IDS),
+                             "precondition: cloud_008/cloud_009 not yet applied")
+        finally:
+            conn.close()
+
+    # -- helpers -------------------------------------------------------------
+
+    def _table_counts(self) -> dict[str, int]:
+        conn = sqlite3.connect(self.cloud_path)
+        try:
+            conn.row_factory = sqlite3.Row
+            tables = ("cloud_identity_accounts", "cloud_rooms", "cloud_room_members",
+                      "cloud_room_event_log", "cloud_identity_outbox")
+            return {
+                table: conn.execute(
+                    f"SELECT COUNT(*) AS c FROM {table}"
+                ).fetchone()["c"]
+                for table in tables
+            }
+        finally:
+            conn.close()
+
+    def _outbox_columns(self) -> set[str]:
+        conn = sqlite3.connect(self.cloud_path)
+        try:
+            conn.row_factory = sqlite3.Row
+            return {r["name"] for r in conn.execute(
+                "PRAGMA table_info(cloud_identity_outbox)"
+            ).fetchall()}
+        finally:
+            conn.close()
+
+    # -- tests ---------------------------------------------------------------
+
+    def test_ensure_schema_upgrades_existing_database_and_preserves_rows(self) -> None:
+        """Bug 1: ensure_schema must NOT short-circuit on an existing table.
+
+        The pre-cloud_008 production shape is brought fully up to date — all six
+        delivery columns and message_kind added, all nine migrations recorded —
+        without losing a single pre-existing row.
+        """
+        from weft_cloud.identity.schema import ensure_schema
+
+        counts_before = self._table_counts()
+        self.assertGreater(counts_before["cloud_identity_accounts"], 0)
+        self.assertGreater(counts_before["cloud_rooms"], 0)
+        self.assertGreater(counts_before["cloud_room_members"], 0)
+        self.assertGreater(counts_before["cloud_room_event_log"], 0)
+        self.assertGreater(counts_before["cloud_identity_outbox"], 0)
+
+        ensure_schema(self.backend)
+
+        self.assertEqual(self._table_counts(), counts_before,
+                         "upgrade must not add or remove a single pre-existing row")
+        columns = self._outbox_columns()
+        for column in ("status", "attempts", "next_attempt_at",
+                       "claimed_at", "claimed_by", "last_error"):
+            self.assertIn(column, columns,
+                          f"cloud_008 must add the {column} delivery column")
+        conn = sqlite3.connect(self.cloud_path)
+        try:
+            conn.row_factory = sqlite3.Row
+            event_columns = {r["name"] for r in conn.execute(
+                "PRAGMA table_info(cloud_room_event_log)").fetchall()}
+            self.assertIn("message_kind", event_columns,
+                          "cloud_009 must add message_kind to the event log")
+            n = conn.execute(
+                "SELECT COUNT(*) AS c FROM schema_migrations"
+            ).fetchone()["c"]
+            self.assertEqual(n, 9, "all nine cloud migrations must be recorded")
+        finally:
+            conn.close()
+
+    def test_upgrade_is_noop_on_second_and_third_run(self) -> None:
+        from weft_cloud.identity.schema import ensure_schema
+
+        ensure_schema(self.backend)
+        counts_after_first = self._table_counts()
+        ensure_schema(self.backend)
+        ensure_schema(self.backend)
+
+        self.assertEqual(self._table_counts(), counts_after_first,
+                         "repeat runs must not error or change row counts")
+        conn = sqlite3.connect(self.cloud_path)
+        try:
+            conn.row_factory = sqlite3.Row
+            n = conn.execute(
+                "SELECT COUNT(*) AS c FROM schema_migrations"
+            ).fetchone()["c"]
+            self.assertEqual(n, 9, "no duplicate schema_migrations rows on rerun")
+        finally:
+            conn.close()
+
+    def test_partial_column_preexisting_does_not_wedge(self) -> None:
+        """Bug 2: if one delivery column already exists out-of-band, the
+        migration completes the rest instead of failing with duplicate column."""
+        from weft_cloud.identity.schema import ensure_schema
+
+        # Simulate an out-of-band column: `status` exists but cloud_008 is not
+        # recorded. The old code wedged forever on `duplicate column name`.
+        conn = sqlite3.connect(self.cloud_path)
+        try:
+            conn.execute(
+                "ALTER TABLE cloud_identity_outbox ADD COLUMN status TEXT NOT NULL DEFAULT 'queued'"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        ensure_schema(self.backend)  # must not raise
+
+        columns = self._outbox_columns()
+        for column in ("status", "attempts", "next_attempt_at",
+                       "claimed_at", "claimed_by", "last_error"):
+            self.assertIn(column, columns,
+                          f"{column} must be present after the partial-state upgrade")
+
+    def test_claim_due_runs_without_error_after_upgrade(self) -> None:
+        """After the upgrade, the drain worker's claim_due() can SELECT/UPDATE
+        the outbox — previously it would die with `no such column: status`."""
+        from weft_cloud.identity.outbox_worker import OutboxDrainer
+        from weft_cloud.identity.schema import ensure_schema
+
+        class _NoopMailer:
+            def send(self, *args, **kwargs):
+                return None
+
+        ensure_schema(self.backend)
+        drainer = OutboxDrainer(self.backend, _NoopMailer(), batch_size=50)
+        claimed = drainer.claim_due()
+        # The three seeded rows default to status='queued' after the ALTER.
+        self.assertEqual(len(claimed), 3)
+        self.assertEqual({r["entry_id"] for r in claimed},
+                         {"obx_001", "obx_002", "obx_003"})
 
 
 if __name__ == "__main__":

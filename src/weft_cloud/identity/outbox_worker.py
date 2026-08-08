@@ -24,13 +24,20 @@ Delivery contract:
   ``last_error`` (only a coarse classification is stored).
 
 Runnable as its own process, env-configured the same way
-``weft_cloud.service`` and ``weft_cloud.web`` are:
+``weft_cloud.service`` and ``weft_cloud.web`` are. The worker reads the SAME
+database variable as the service — ``WEFT_DB_PATH`` (default
+``./data/weft-cloud.db``) — so it drains the file the service writes to, not an
+empty one:
 
     FINALISMA_SMTP_HOST=... FINALISMA_SMTP_PORT=587 \
     FINALISMA_SMTP_USERNAME=... FINALISMA_SMTP_PASSWORD=... \
     FINALISMA_SMTP_FROM=no-reply@example.com \
-    FINALISMA_DB_PATH=./data/finalisma-cloud.db \
+    WEFT_DB_PATH=./data/weft-cloud.db \
     PYTHONPATH=src python -B -m weft_cloud.identity.outbox_worker
+
+The old ``FINALISMA_DB_PATH`` name is still honoured as a fallback, but if both
+variables are set to different paths the worker fails loudly rather than
+silently draining the wrong file.
 
 Without SMTP settings the worker exits cleanly and mail stays in the outbox
 undelivered — that is the documented behaviour until credentials exist.
@@ -85,6 +92,36 @@ def _classify_smtp_error(exc: BaseException) -> str:
 
 def _worker_id() -> str:
     return f"wkr_{uuid.uuid4().hex[:12]}"
+
+
+#: The drain worker must read the SAME database the web/service processes write
+#: to. ``WEFT_DB_PATH`` is that canonical variable (matching
+#: ``weft_cloud.service``); ``FINALISMA_DB_PATH`` is the deprecated alias kept
+#: for backward compatibility only.
+_DB_PATH_DEFAULT = "./data/weft-cloud.db"
+_DB_PATH_LEGACY_VAR = "FINALISMA_DB_PATH"
+
+
+def _resolve_db_path(argv: list[str], environ: Mapping[str, str]) -> str:
+    """Resolve the database path: argv > WEFT_DB_PATH > FINALISMA_DB_PATH > default.
+
+    A flag (anything starting with ``-``, e.g. ``--once``) is never treated as a
+    path. Fails loudly (``ValueError``) when both ``WEFT_DB_PATH`` and the legacy
+    ``FINALISMA_DB_PATH`` are set to different paths — draining the wrong file
+    silently is worse than refusing to start.
+    """
+    positional = [arg for arg in argv if not arg.startswith("-")]
+    if positional:
+        return positional[0]
+    weft = (environ.get("WEFT_DB_PATH") or "").strip() or None
+    legacy = (environ.get(_DB_PATH_LEGACY_VAR) or "").strip() or None
+    if weft is not None and legacy is not None and weft != legacy:
+        raise ValueError(
+            "WEFT_DB_PATH and FINALISMA_DB_PATH are both set and differ; the drain "
+            "worker must use the SAME database file as the web/service processes. "
+            "Set only WEFT_DB_PATH (FINALISMA_DB_PATH is the deprecated alias)."
+        )
+    return weft or legacy or _DB_PATH_DEFAULT
 
 
 class OutboxDrainer:
@@ -223,13 +260,17 @@ def runtime_config(
     Same discipline as ``weft_cloud.service.runtime_config`` (argv →
     environment → defaults):
 
-    - ``FINALISMA_DB_PATH``          (default ``./data/finalisma-cloud.db``)
+    - ``WEFT_DB_PATH``              (default ``./data/weft-cloud.db``) — the
+      SAME variable and default the service uses, so the worker drains the file
+      the web/service processes write to. ``FINALISMA_DB_PATH`` is honoured as
+      a legacy fallback when ``WEFT_DB_PATH`` is unset, but if both are set to
+      different paths the worker fails loudly instead of draining the wrong
+      file.
     - ``FINALISMA_DRAIN_INTERVAL``   (default ``5``)
     - ``FINALISMA_DRAIN_BATCH``      (default ``50``)
     - ``FINALISMA_DRAIN_MAX_ATTEMPTS`` (default ``5``)
     - ``FINALISMA_DRAIN_BACKOFF``    (default ``60``)
 
-    The database must be the SAME file the web/service processes write to.
     A malformed interval/batch/attempts raises ``ValueError`` naming the
     variable, mirroring the port validation in the other launchers.
     """
@@ -247,17 +288,13 @@ def runtime_config(
             raise ValueError(f"{name} must be positive, got {raw!r}")
         return value
 
-    db_path = environ.get("FINALISMA_DB_PATH", "./data/finalisma-cloud.db").strip() \
-        or "./data/finalisma-cloud.db"
+    db_path = _resolve_db_path(argv, environ)
     interval = _positive("FINALISMA_DRAIN_INTERVAL", environ.get("FINALISMA_DRAIN_INTERVAL"), 5)
     batch_size = int(_positive("FINALISMA_DRAIN_BATCH", environ.get("FINALISMA_DRAIN_BATCH"), 50))
     max_attempts = int(
         _positive("FINALISMA_DRAIN_MAX_ATTEMPTS", environ.get("FINALISMA_DRAIN_MAX_ATTEMPTS"), 5)
     )
     backoff_seconds = _positive("FINALISMA_DRAIN_BACKOFF", environ.get("FINALISMA_DRAIN_BACKOFF"), 60)
-
-    if len(argv) >= 1:
-        db_path = argv[0]
 
     return {
         "db_path": db_path,

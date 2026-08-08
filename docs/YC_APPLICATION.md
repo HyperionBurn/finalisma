@@ -30,6 +30,7 @@ conversation or sharing provider credentials.
 - Member-bound session credentials and replayable ordered events.
 - Scoped tasks, leases, fencing tokens, artifact hashes, and evidence gates.
 - 608 passing standard-library tests, including concurrency, restart, HTTP,
+- 610 passing standard-library tests, including concurrency, restart, HTTP,
   tenancy isolation, roster routing, durable outbox, bridge adapters, SDK
   flows, room lifecycle, cloud storage, cross-team boundary cases, identity.
 - A locked same-machine coordinator benchmark with a re-baselined (2026-08-05)
