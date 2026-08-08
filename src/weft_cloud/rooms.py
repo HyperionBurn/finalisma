@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import secrets
 import time as _time
 import uuid
@@ -49,6 +50,48 @@ def _token_hash(token: str) -> str:
     if not isinstance(token, str) or len(token) < 16 or len(token) > 512:
         raise ValueError("token must be a non-empty opaque capability")
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+_MESSAGE_KIND_RE = re.compile(r"^[a-z0-9_-]{1,32}$")
+
+
+def _validate_message_kind(value: Any, field: str = "message_kind") -> str | None:
+    """Validate a sender-set ``message_kind`` (optional, lowercase slug).
+
+    ``None`` is allowed (message_kind is optional). Otherwise it must be a
+    lowercase ``[a-z0-9_-]`` string of at most 32 characters. The error names
+    the argument so callers get a clear message.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str) or not _MESSAGE_KIND_RE.match(value):
+        raise RoomError(
+            "invalid_argument",
+            f"{field} must be an optional string of 1-32 lowercase "
+            "characters matching [a-z0-9_-]",
+        )
+    return value
+
+
+def _validate_message_kinds(value: Any) -> list[str] | None:
+    """Validate the optional ``message_kinds`` poll filter.
+
+    ``None`` means "no filter" (return everything). Otherwise it must be a
+    list of message-kind strings, each validated by ``_validate_message_kind``.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, (list, tuple)):
+        raise RoomError(
+            "invalid_argument",
+            "message_kinds must be an optional list of message_kind strings",
+        )
+    validated: list[str] = []
+    for entry in value:
+        v = _validate_message_kind(entry, "message_kinds")
+        if v is not None:
+            validated.append(v)
+    return validated
 
 
 def _json(value: Any) -> str:
@@ -125,6 +168,7 @@ CREATE TABLE IF NOT EXISTS cloud_room_event_log (
     seq INTEGER NOT NULL,
     origin_agent TEXT NOT NULL,
     kind TEXT NOT NULL,
+    message_kind TEXT,
     payload_json TEXT NOT NULL,
     idempotency_key TEXT NOT NULL,
     trace_id TEXT,
@@ -176,19 +220,25 @@ class CloudRoomService:
     # ------------------------------------------------------------------
 
     def _ensure_room_schema(self) -> None:
-        """Idempotent room-schema bootstrap against the cloud backend."""
-        try:
-            with self.backend.transaction() as tx:
-                row = tx.execute(
-                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='cloud_rooms'"
-                ).fetchone()
-        except Exception:
-            row = None
-        if row is not None:
-            return
+        """Idempotent room-schema bootstrap against the cloud backend.
+
+        Runs on every construction. The base schema SQL is idempotent
+        (CREATE TABLE/INDEX IF NOT EXISTS); the ``message_kind`` column is
+        added to an existing event-log table conditionally, so databases
+        created before the column existed are upgraded in place.
+        """
         with self.backend.transaction() as tx:
             tx.executescript(_ROOM_SCHEMA_SQL)
+            self._ensure_message_kind_column(tx)
             tx.commit()
+
+    def _ensure_message_kind_column(self, tx: Any) -> None:
+        """Add the ``message_kind`` column to an existing event log if missing."""
+        row = tx.execute(
+            "SELECT 1 FROM pragma_table_info('cloud_room_event_log') WHERE name = 'message_kind'"
+        ).fetchone()
+        if row is None:
+            tx.execute("ALTER TABLE cloud_room_event_log ADD COLUMN message_kind TEXT")
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -253,7 +303,8 @@ class CloudRoomService:
         return {"redacted": True, "reason": "not_the_addressee"}
 
     def _append_event(self, tx: Any, tenant_id: str, room_id: str, origin: str,
-                      kind: str, payload: Any, idempotency_key: str | None = None) -> int:
+                      kind: str, payload: Any, idempotency_key: str | None = None,
+                      message_kind: str | None = None) -> int:
         row = tx.execute(
             "SELECT cursor_head FROM cloud_rooms WHERE tenant_id = ? AND room_id = ?",
             (tenant_id, room_id),
@@ -264,11 +315,11 @@ class CloudRoomService:
             idempotency_key = f"{room_id}:{kind}:{_new_id('idem')}"
         tx.execute(
             "INSERT INTO cloud_room_event_log("
-            " event_id, room_id, tenant_id, seq, origin_agent, kind, payload_json,"
-            " idempotency_key, trace_id, created_at"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)",
-            (event_id, room_id, tenant_id, seq, origin, kind, _json(payload),
-             idempotency_key, utc_now_iso()),
+            " event_id, room_id, tenant_id, seq, origin_agent, kind, message_kind,"
+            " payload_json, idempotency_key, trace_id, created_at"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)",
+            (event_id, room_id, tenant_id, seq, origin, kind, message_kind,
+             _json(payload), idempotency_key, utc_now_iso()),
         )
         tx.execute(
             "UPDATE cloud_rooms SET cursor_head = ? WHERE tenant_id = ? AND room_id = ?",
@@ -651,8 +702,19 @@ class CloudRoomService:
     # ------------------------------------------------------------------
 
     def poll(self, tenant_id: str, room_id: str, agent_id: str,
-             after_seq: int | None = None, limit: int = 100) -> dict:
-        """Return events with ``seq > after_seq`` (default: last_ack_seq)."""
+             after_seq: int | None = None, limit: int = 100,
+             message_kinds: list[str] | None = None) -> dict:
+        """Return events with ``seq > after_seq`` (default: last_ack_seq).
+
+        ``message_kinds`` is an optional list of sender-set message kinds.
+        When present, only events whose ``message_kind`` matches one of the
+        entries are returned; when absent, behaviour is exactly as before
+        (everything is returned). This filters only the ``events`` list —
+        ``next_seq`` and ``cursor_head`` are always reported against the FULL
+        stream, so a filtering caller can page through matching events with no
+        gaps or repeats and can ack ``cursor_head`` to keep its durable cursor
+        in exact agreement with an unfiltered view.
+        """
         with self.backend.transaction() as tx:
             room = self._require_room(tx, tenant_id, room_id)
             self._require_member(tx, tenant_id, room_id, agent_id)
@@ -663,11 +725,21 @@ class CloudRoomService:
                 ).fetchone()
                 after_seq = int(cursor["last_ack_seq"]) if cursor else 0
             limit = max(1, min(int(limit), 200))
-            rows = tx.execute(
-                "SELECT * FROM cloud_room_event_log WHERE tenant_id = ? AND room_id = ? AND seq > ? "
-                "ORDER BY seq ASC LIMIT ?",
-                (tenant_id, room_id, after_seq, limit),
-            ).fetchall()
+            kind_filter = _validate_message_kinds(message_kinds)
+            if kind_filter:
+                placeholders = ", ".join("?" for _ in kind_filter)
+                rows = tx.execute(
+                    "SELECT * FROM cloud_room_event_log WHERE tenant_id = ? AND room_id = ? "
+                    "AND seq > ? AND message_kind IN (" + placeholders + ") "
+                    "ORDER BY seq ASC LIMIT ?",
+                    (tenant_id, room_id, after_seq, *kind_filter, limit),
+                ).fetchall()
+            else:
+                rows = tx.execute(
+                    "SELECT * FROM cloud_room_event_log WHERE tenant_id = ? AND room_id = ? AND seq > ? "
+                    "ORDER BY seq ASC LIMIT ?",
+                    (tenant_id, room_id, after_seq, limit),
+                ).fetchall()
             events = []
             next_seq = after_seq
             for r in rows:
@@ -677,6 +749,7 @@ class CloudRoomService:
                     "seq": r["seq"],
                     "origin_agent": r["origin_agent"],
                     "kind": r["kind"],
+                    "message_kind": r["message_kind"],
                     "payload": self._filter_payload_for_agent(raw_payload, agent_id),
                     "created_at": r["created_at"],
                 })
@@ -736,10 +809,18 @@ class CloudRoomService:
     # ------------------------------------------------------------------
 
     def room_send(self, tenant_id: str, room_id: str, sender_agent_id: str,
-                  target_spec: Any, payload: Any, exclude_sender: bool = True) -> dict:
-        """Send a message to targets. Returns the event seq and per-target receipts."""
+                  target_spec: Any, payload: Any, exclude_sender: bool = True,
+                  message_kind: str | None = None) -> dict:
+        """Send a message to targets. Returns the event seq and per-target receipts.
+
+        ``message_kind`` is an optional sender-set semantic label (e.g. "result"
+        for a finished unit of work, "status" for liveness) stored as a
+        first-class column on the event row so it is queryable without parsing
+        the payload.
+        """
         # Verify the sender is an active member BEFORE the rate gate, so a
         # non-member cannot consume the room's per-minute message budget.
+        message_kind = _validate_message_kind(message_kind)
         with self.backend.transaction() as tx:
             room = self._require_room(tx, tenant_id, room_id)
             self._require_member(tx, tenant_id, room_id, sender_agent_id)
@@ -763,7 +844,8 @@ class CloudRoomService:
                 targets = [t for t in targets if t != sender_agent_id]
             seq = self._append_event(tx, tenant_id, room_id, sender_agent_id, "room.message",
                                      {"payload": payload, "target_spec": target_spec,
-                                      "targets": targets})
+                                      "targets": targets},
+                                     message_kind=message_kind)
             tx.commit()
 
         # Build receipts (one per target) — durable via the cloud outbox.

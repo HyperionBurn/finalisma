@@ -51,6 +51,46 @@ def _validate_id(value: str, field: str) -> str:
     return value
 
 
+def _validate_message_kind(value: Any, field: str = "message_kind") -> str | None:
+    """Validate a sender-set ``message_kind`` (optional, lowercase slug).
+
+    ``None`` is allowed (message_kind is optional). Otherwise it must be a
+    lowercase ``[a-z0-9_-]`` string of at most 32 characters. The error names
+    the argument so callers get a clear message.
+    """
+    import re
+    if value is None:
+        return None
+    if not isinstance(value, str) or not re.fullmatch(r"[a-z0-9_-]{1,32}", value):
+        raise RoomError(
+            "invalid_argument",
+            f"{field} must be an optional string of 1-32 lowercase characters matching [a-z0-9_-]",
+        )
+    return value
+
+
+def _validate_message_kinds(value: Sequence[str] | None,
+                            field: str = "message_kinds") -> list[str] | None:
+    """Validate the optional ``message_kinds`` poll filter.
+
+    ``None`` means "no filter" (return everything). Otherwise it must be a
+    sequence of message-kind strings, each validated by ``_validate_message_kind``.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (str, bytes)) or not isinstance(value, (list, tuple)):
+        raise RoomError(
+            "invalid_argument",
+            f"{field} must be an optional list of message_kind strings",
+        )
+    validated: list[str] = []
+    for entry in value:
+        v = _validate_message_kind(entry, "message_kinds")
+        if v is not None:
+            validated.append(v)
+    return validated
+
+
 def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
@@ -118,6 +158,7 @@ CREATE TABLE IF NOT EXISTS room_event_log (
     seq INTEGER NOT NULL,
     origin_agent TEXT NOT NULL,
     kind TEXT NOT NULL,
+    message_kind TEXT,
     payload_json TEXT NOT NULL,
     idempotency_key TEXT NOT NULL,
     trace_id TEXT,
@@ -197,8 +238,17 @@ class RoomStore:
         try:
             connection.execute("PRAGMA journal_mode = WAL")
             connection.executescript(_ROOM_SCHEMA_SQL)
+            self._ensure_message_kind_column(connection)
         finally:
             connection.close()
+
+    def _ensure_message_kind_column(self, conn: sqlite3.Connection) -> None:
+        """Add the ``message_kind`` column to an existing event log if missing."""
+        row = conn.execute(
+            "SELECT 1 FROM pragma_table_info('room_event_log') WHERE name = 'message_kind'"
+        ).fetchone()
+        if row is None:
+            conn.execute("ALTER TABLE room_event_log ADD COLUMN message_kind TEXT")
 
     # ------------------------------------------------------------------
     # Room lifecycle
@@ -253,7 +303,8 @@ class RoomStore:
         }
 
     def _append_event(self, conn: sqlite3.Connection, room_id: str, origin: str, kind: str,
-                      payload: Any, idempotency_key: str | None = None) -> int:
+                      payload: Any, idempotency_key: str | None = None,
+                      message_kind: str | None = None) -> int:
         row = conn.execute(
             "SELECT cursor_head FROM room_rooms WHERE room_id = ?",
             (room_id,),
@@ -263,9 +314,9 @@ class RoomStore:
         if idempotency_key is None:
             idempotency_key = f"{room_id}:{kind}:{_new_id('idem')}"
         conn.execute(
-            "INSERT INTO room_event_log(event_id, room_id, seq, origin_agent, kind, payload_json, idempotency_key, trace_id, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)",
-            (event_id, room_id, seq, origin, kind, _json(payload), idempotency_key, _utc_now()),
+            "INSERT INTO room_event_log(event_id, room_id, seq, origin_agent, kind, message_kind, payload_json, idempotency_key, trace_id, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)",
+            (event_id, room_id, seq, origin, kind, message_kind, _json(payload), idempotency_key, _utc_now()),
         )
         conn.execute(
             "UPDATE room_rooms SET cursor_head = ? WHERE room_id = ?",
@@ -477,7 +528,20 @@ class RoomStore:
             return {"room_id": room_id, "agent_id": agent_id, "last_seen": now, "status": "active"}
 
     def poll(self, team_id: str, room_id: str, agent_id: str, actor_token: str,
-             after_seq: int | None = None, limit: int = 100) -> dict[str, Any]:
+             after_seq: int | None = None, limit: int = 100,
+             message_kinds: Sequence[str] | None = None) -> dict[str, Any]:
+        """Replay ordered Room events after a cursor.
+
+        ``message_kinds`` is an optional list of sender-set message kinds.
+        When present, only events whose ``message_kind`` matches one of the
+        entries are returned; when absent, behaviour is exactly as before
+        (everything is returned). This filters only the ``events`` list —
+        ``next_seq`` and ``cursor_head`` are always reported against the FULL
+        stream, so a filtering caller can page through matching events with no
+        gaps or repeats and can ack ``cursor_head`` to keep its durable cursor
+        in exact agreement with an unfiltered view.
+        """
+        kind_filter = _validate_message_kinds(message_kinds)
         with self._transaction() as conn:
             room = self._require_room(conn, room_id)
             self._validate_actor(conn, team_id, agent_id, actor_token, None)
@@ -489,10 +553,18 @@ class RoomStore:
                 ).fetchone()
                 after_seq = int(cursor["last_ack_seq"]) if cursor else 0
             limit = max(1, min(int(limit), 200))
-            rows = conn.execute(
-                "SELECT * FROM room_event_log WHERE room_id = ? AND seq > ? ORDER BY seq ASC LIMIT ?",
-                (room_id, after_seq, limit),
-            ).fetchall()
+            if kind_filter:
+                placeholders = ", ".join("?" for _ in kind_filter)
+                rows = conn.execute(
+                    "SELECT * FROM room_event_log WHERE room_id = ? AND seq > ? "
+                    "AND message_kind IN (" + placeholders + ") ORDER BY seq ASC LIMIT ?",
+                    (room_id, after_seq, *kind_filter, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM room_event_log WHERE room_id = ? AND seq > ? ORDER BY seq ASC LIMIT ?",
+                    (room_id, after_seq, limit),
+                ).fetchall()
             events = []
             next_seq = after_seq
             for r in rows:
@@ -501,6 +573,7 @@ class RoomStore:
                     "seq": r["seq"],
                     "origin_agent": r["origin_agent"],
                     "kind": r["kind"],
+                    "message_kind": r["message_kind"],
                     "payload": _parse_json(r["payload_json"], {}),
                     "created_at": r["created_at"],
                 })
@@ -545,9 +618,11 @@ class RoomStore:
     # ------------------------------------------------------------------
 
     def room_send(self, team_id: str, room_id: str, sender_agent_id: str, target_spec: Any,
-                  payload: Any, actor_token: str, exclude_sender: bool = True) -> dict[str, Any]:
+                  payload: Any, actor_token: str, exclude_sender: bool = True,
+                  message_kind: str | None = None) -> dict[str, Any]:
         import weft_mcp.roster as _roster
         import weft_mcp.outbox as _outbox
+        message_kind = _validate_message_kind(message_kind)
         with self._transaction() as conn:
             room = self._require_room(conn, room_id)
             self._validate_actor(conn, team_id, sender_agent_id, actor_token, None)
@@ -558,7 +633,8 @@ class RoomStore:
             if exclude_sender and sender_agent_id in targets:
                 targets = [t for t in targets if t != sender_agent_id]
             seq = self._append_event(conn, room_id, sender_agent_id, "room.message",
-                                     {"payload": payload, "target_spec": target_spec})
+                                     {"payload": payload, "target_spec": target_spec},
+                                     message_kind=message_kind)
         envelope = _roster.build_envelope_v2(sender_agent_id, targets, "room.message",
                                              payload, capabilities=None)
         envelope["envelope_id"] = _new_id("oev")

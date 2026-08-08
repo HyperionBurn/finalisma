@@ -328,5 +328,93 @@ class MigrationUpgradeTests(unittest.TestCase):
         )
 
 
+class MessageKindMigrationTests(unittest.TestCase):
+    """cloud_009 adds the room message_kind column forward-only and idempotent."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory(prefix="finalisma-mk-")
+        self.root = Path(self.tmp.name)
+        self.cloud_path = self.root / "cloud.db"
+
+    def tearDown(self) -> None:
+        import gc
+        gc.collect()
+        self.tmp.cleanup()
+
+    def _apply(self) -> None:
+        from weft_cloud.storage import SqliteWalBackend
+        backend = SqliteWalBackend(self.cloud_path)
+        backend.initialize()
+        try:
+            apply_migrations(backend)
+        finally:
+            backend.close()
+
+    def _has_column(self, connection: sqlite3.Connection) -> bool:
+        connection.row_factory = sqlite3.Row
+        row = connection.execute(
+            "SELECT 1 FROM pragma_table_info('cloud_room_event_log') WHERE name = 'message_kind'"
+        ).fetchone()
+        return row is not None
+
+    def test_cloud_009_adds_message_kind_to_existing_event_log(self) -> None:
+        """A cloud DB whose event log predates message_kind is upgraded in place."""
+        from weft_cloud.storage import SqliteWalBackend
+        backend = SqliteWalBackend(self.cloud_path)
+        backend.initialize()
+        try:
+            # Pre-upgrade shape: event log WITHOUT message_kind.
+            with backend._transaction() as tx:
+                tx.execute(
+                    "CREATE TABLE cloud_room_event_log ("
+                    " event_id TEXT PRIMARY KEY, room_id TEXT NOT NULL, tenant_id TEXT NOT NULL,"
+                    " seq INTEGER NOT NULL, origin_agent TEXT NOT NULL, kind TEXT NOT NULL,"
+                    " payload_json TEXT NOT NULL, idempotency_key TEXT NOT NULL, trace_id TEXT,"
+                    " created_at TEXT NOT NULL,"
+                    " UNIQUE(room_id, seq), UNIQUE(room_id, origin_agent, idempotency_key))"
+                )
+            with sqlite3.connect(self.cloud_path) as conn:
+                self.assertFalse(self._has_column(conn),
+                                 "precondition: the old event log lacks message_kind")
+        finally:
+            backend.close()
+
+        # Applying the migrations adds the column and records cloud_009.
+        self._apply()
+        with sqlite3.connect(self.cloud_path) as conn:
+            self.assertTrue(self._has_column(conn), "cloud_009 must add the message_kind column")
+
+        # Second application is a no-op (idempotent, no duplicate column error).
+        self._apply()
+        with sqlite3.connect(self.cloud_path) as conn:
+            conn.row_factory = sqlite3.Row
+            n = conn.execute(
+                "SELECT COUNT(*) AS c FROM schema_migrations WHERE migration_id = 'cloud_009_room_message_kind'"
+            ).fetchone()["c"]
+            self.assertEqual(n, 1, "cloud_009 must be recorded exactly once")
+            self.assertTrue(self._has_column(conn))
+
+    def test_cloud_009_is_skipped_when_column_already_present(self) -> None:
+        """A DB created by the new code already has the column; the migration
+        must record itself as applied without re-running the ALTER."""
+        from weft_cloud.rooms import CloudRoomService
+        from weft_cloud.storage import SqliteWalBackend
+        backend = SqliteWalBackend(self.cloud_path)
+        backend.initialize()
+        try:
+            CloudRoomService(backend)  # creates the event log WITH message_kind
+            apply_migrations(backend)
+            apply_migrations(backend)  # idempotent second run
+        finally:
+            backend.close()
+        with sqlite3.connect(self.cloud_path) as conn:
+            conn.row_factory = sqlite3.Row
+            self.assertTrue(self._has_column(conn))
+            n = conn.execute(
+                "SELECT COUNT(*) AS c FROM schema_migrations WHERE migration_id = 'cloud_009_room_message_kind'"
+            ).fetchone()["c"]
+            self.assertEqual(n, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

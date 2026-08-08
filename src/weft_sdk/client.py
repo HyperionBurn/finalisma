@@ -208,6 +208,7 @@ class RoomEvent:
     kind: str
     payload: Any
     created_at: str
+    message_kind: str | None = None
 
 
 @dataclass
@@ -712,13 +713,17 @@ class WeftClient:
         )
 
     def send(self, room_id: str, target=None, payload: Any = None, exclude_sender: bool = True,
-             sender_agent_id: str | None = None, **kwargs: Any) -> RoomSendResult:
+             sender_agent_id: str | None = None, message_kind: str | None = None,
+             **kwargs: Any) -> RoomSendResult:
         """Address one agent, a named group, or the whole room.
 
         `target` is the coordinator's target_spec: an agent_id (str), a group
         name (str), "*" for broadcast, or a list. The wire-level name
         `target_spec` is also accepted for symmetry. For broadcast the sender
         is excluded by default; pass exclude_sender=False to include it.
+        `message_kind` is an optional sender-set label (lowercase [a-z0-9_-],
+        max 32 chars) stored as a first-class, queryable column on the event —
+        e.g. "result" for a finished unit of work, "status" for liveness.
         Returns a RoomSendResult with per-recipient delivery receipts.
         """
         target_spec = kwargs.pop("target_spec", target)
@@ -730,6 +735,7 @@ class WeftClient:
             sender_agent_id=sender_agent_id or self.agent_id,
             target_spec=target_spec,
             payload=payload,
+            message_kind=message_kind,
             exclude_sender=exclude_sender,
             **kwargs,
         )
@@ -781,17 +787,22 @@ class WeftClient:
         )
 
     def room_poll(self, room_id: str, after_seq: int | None = None, limit: int = 100,
-                  agent_id: str | None = None, **kwargs: Any) -> RoomPoll:
+                  agent_id: str | None = None, message_kinds: list[str] | None = None,
+                  **kwargs: Any) -> RoomPoll:
         """Replay ordered Room events from this member's cursor.
 
         With after_seq None the coordinator starts from the member's last ack.
         At-least-once; ack to advance this member's cursor.
+        `message_kinds` optionally filters returned events to those whose
+        message_kind matches an entry (e.g. ["result"] to consume only
+        finished-work posts); when absent, everything is returned.
         """
         result = self._call(
             "room_poll",
             room_id=room_id,
             after_seq=after_seq,
             limit=limit,
+            message_kinds=message_kinds,
             agent_id=agent_id or self.agent_id,
             **kwargs,
         )
@@ -803,6 +814,7 @@ class WeftClient:
                 kind=e["kind"],
                 payload=e.get("payload"),
                 created_at=e.get("created_at", ""),
+                message_kind=e.get("message_kind"),
             )
             for e in result.get("events", [])
         ]

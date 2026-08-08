@@ -510,5 +510,187 @@ class TestHealthEndpoint(CloudServiceTestBase):
         self.assertEqual(body["status"], "ok")
 
 
+class TestRoomMessageKind(CloudServiceTestBase):
+    """Sender-settable message_kind + message_kinds filter (cloud HTTP API)."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.owner = self._signup("mk-owner@example.com", "CorrectHorse!1")
+        self.room = self._create_room(self.owner["session_token"], cap=8,
+                                      owner_agent_id="mk-owner-agent")
+        self.room_id = self.room["room_id"]
+        self.link_token = self.room["link_token"]
+        self.tokens: dict[str, str] = {}
+        for name in ("agent-0", "agent-1", "agent-2", "agent-3"):
+            s = self._signup(f"mk-{name}@example.com", "AgentPass!1")
+            self.tokens[name] = s["session_token"]
+            self._join_room(s["session_token"], self.room_id, self.link_token, name)
+
+    def _send(self, agent: str, *, kind: str | None, text: str, target: str = "*") -> dict:
+        body = {
+            "room_id": self.room_id,
+            "sender_agent_id": agent,
+            "target_spec": target,
+            "payload": {"text": text},
+        }
+        if kind is not None:
+            body["message_kind"] = kind
+        status, result = _post(self.base, "/v1/rooms/send", body, self.tokens[agent])
+        self.assertEqual(status, 200, f"send failed: {result}")
+        return result
+
+    def _poll(self, agent: str, after_seq: int | None = 0,
+              kinds: list[str] | None = None) -> dict:
+        body: dict = {"room_id": self.room_id, "agent_id": agent}
+        if after_seq is not None:
+            body["after_seq"] = after_seq
+        if kinds is not None:
+            body["message_kinds"] = kinds
+        status, result = _post(self.base, "/v1/rooms/poll", body, self.tokens[agent])
+        self.assertEqual(status, 200, f"poll failed: {result}")
+        return result
+
+    @staticmethod
+    def _messages(result: dict) -> list[dict]:
+        return [e for e in result["events"] if e["kind"] == "room.message"]
+
+    def test_send_without_message_kind_is_unchanged_and_visible_unfiltered(self) -> None:
+        self._send("agent-0", kind=None, text="plain")
+        result = self._poll("agent-2")
+        plain = [m for m in self._messages(result)
+                 if m["payload"]["payload"].get("text") == "plain"]
+        self.assertEqual(len(plain), 1, "unfiltered poll must still see unlabelled sends")
+        self.assertIsNone(plain[0]["message_kind"])
+
+    def test_result_visible_when_filtering_on_result_absent_when_filtering_on_status(self) -> None:
+        self._send("agent-0", kind="result", text="r1")
+        on_result = self._poll("agent-2", kinds=["result"])
+        r_events = self._messages(on_result)
+        self.assertEqual(len(r_events), 1)
+        self.assertEqual(r_events[0]["message_kind"], "result")
+        self.assertEqual(r_events[0]["payload"]["payload"]["text"], "r1")
+        # The SAME send is absent when filtering on a different kind.
+        on_status = self._poll("agent-2", kinds=["status"])
+        self.assertEqual(len(self._messages(on_status)), 0)
+
+    def test_system_events_never_match_a_kind_filter(self) -> None:
+        self._send("agent-0", kind="result", text="r1")
+        result = self._poll("agent-2", kinds=["result"])
+        self.assertGreater(len(result["events"]), 0)
+        for e in result["events"]:
+            if e["kind"] == "room.message":
+                self.assertEqual(e["message_kind"], "result")
+            else:
+                self.assertIsNone(e["message_kind"],
+                                  "system events have no message_kind and must not match a filter")
+
+    def test_filtering_and_unfiltered_callers_agree_and_advance_without_gaps_or_repeats(self) -> None:
+        self._send("agent-0", kind="status", text="s1")
+        self._send("agent-1", kind="result", text="r1")
+        self._send("agent-0", kind="status", text="s2")
+        self._send("agent-1", kind="result", text="r2")
+
+        filtered = self._poll("agent-2", after_seq=0, kinds=["result"])
+        unfiltered = self._poll("agent-3", after_seq=0)
+
+        f_seqs = [e["seq"] for e in self._messages(filtered)]
+        u_msgs = self._messages(unfiltered)
+        u_seqs = [e["seq"] for e in u_msgs]
+        u_result_seqs = [e["seq"] for e in u_msgs if e["message_kind"] == "result"]
+
+        # Ordering agreement: the filtering caller sees exactly the result
+        # events, in the same relative order as the unfiltered caller.
+        self.assertEqual(f_seqs, u_result_seqs)
+        self.assertEqual(u_seqs, sorted(u_seqs), "unfiltered events must be in ascending seq")
+        # cursor_head is the FULL stream head for both — never the filtered subset.
+        self.assertEqual(filtered["cursor_head"], unfiltered["cursor_head"])
+        self.assertEqual(filtered["cursor_head"], max(u_seqs))
+        # next_seq is the resume cursor for paging the filtered view.
+        self.assertEqual(filtered["next_seq"], f_seqs[-1] + 1)
+
+        # Both callers consume what they saw and ack their cursor.
+        status, _ = _post(self.base, "/v1/rooms/ack", {
+            "room_id": self.room_id, "agent_id": "agent-2", "seq": f_seqs[-1],
+        }, self.tokens["agent-2"])
+        self.assertEqual(status, 200)
+        status, _ = _post(self.base, "/v1/rooms/ack", {
+            "room_id": self.room_id, "agent_id": "agent-3", "seq": u_seqs[-1],
+        }, self.tokens["agent-3"])
+        self.assertEqual(status, 200)
+
+        # New interleaved messages after both cursors.
+        self._send("agent-0", kind="status", text="s3")
+        self._send("agent-1", kind="result", text="r3")
+
+        # Filtering caller: only the new result, no repeat of r2, no gap.
+        filtered_again = self._poll("agent-2", after_seq=None, kinds=["result"])
+        f2_seqs = [e["seq"] for e in self._messages(filtered_again)]
+        self.assertEqual(f2_seqs, [f_seqs[-1] + 2],
+                         "filtered resume must return exactly the one new result (no gaps, no repeats)")
+        self.assertGreater(f2_seqs[0], f_seqs[-1])
+
+        # Unfiltered caller: both new messages, ascending, no gap, no repeat.
+        unfiltered_again = self._poll("agent-3", after_seq=None)
+        u2_seqs = [e["seq"] for e in self._messages(unfiltered_again)]
+        self.assertEqual(u2_seqs, sorted(u2_seqs))
+        self.assertEqual(len(u2_seqs), 2, "unfiltered resume must see both new messages")
+        self.assertGreater(u2_seqs[0], u_seqs[-1])
+
+    def test_invalid_message_kind_rejected_with_clear_error(self) -> None:
+        for bad in ("UPPER", "x" * 33, "has spaces", "has.dot", ""):
+            status, body = _post(self.base, "/v1/rooms/send", {
+                "room_id": self.room_id,
+                "sender_agent_id": "agent-0",
+                "target_spec": "*",
+                "message_kind": bad,
+                "payload": {"text": "bad"},
+            }, self.tokens["agent-0"])
+            self.assertEqual(status, 400, f"message_kind={bad!r} must be rejected")
+            self.assertEqual(body["error"]["code"], "invalid_argument")
+            self.assertIn("message_kind", body["error"]["message"])
+
+    def test_message_kinds_filter_rejects_non_list_and_bad_entries(self) -> None:
+        for bad in ("result", 42, ["result", "BAD"], [""]):
+            status, body = _post(self.base, "/v1/rooms/poll", {
+                "room_id": self.room_id,
+                "agent_id": "agent-2",
+                "message_kinds": bad,
+            }, self.tokens["agent-2"])
+            self.assertEqual(status, 400, f"message_kinds={bad!r} must be rejected")
+            self.assertEqual(body["error"]["code"], "invalid_argument")
+            self.assertIn("message_kinds", body["error"]["message"])
+
+    def test_filtering_never_leaks_a_unicast_body(self) -> None:
+        """Filtering is not a way around confidentiality: a non-addressee
+        filtering on the message_kind sees the redacted envelope, never the body."""
+        status, body = _post(self.base, "/v1/rooms/send", {
+            "room_id": self.room_id,
+            "sender_agent_id": "agent-1",
+            "target_spec": "agent-2",
+            "message_kind": "result",
+            "payload": {"text": "TOP-SECRET-UNICAST"},
+        }, self.tokens["agent-1"])
+        self.assertEqual(status, 200)
+        self.assertEqual([r["agent_id"] for r in body["receipts"]], ["agent-2"])
+
+        # The addressee sees the body when filtering on the same kind.
+        addressee = self._poll("agent-2", kinds=["result"])
+        found = [e for e in self._messages(addressee)
+                 if e["payload"]["payload"].get("text") == "TOP-SECRET-UNICAST"]
+        self.assertEqual(len(found), 1, "addressee must receive the body")
+
+        # A non-addressee filtering on the same kind sees the EVENT (redacted
+        # envelope, seq view stays consistent) but NEVER the body.
+        outsider = self._poll("agent-3", kinds=["result"])
+        leaked = [e for e in outsider["events"]
+                  if e["kind"] == "room.message" and e["message_kind"] == "result"]
+        self.assertEqual(len(leaked), 1,
+                         "non-addressee sees the event row so its seq view stays consistent")
+        self.assertEqual(leaked[0]["payload"],
+                         {"redacted": True, "reason": "not_the_addressee"})
+        self.assertNotIn("TOP-SECRET-UNICAST", json.dumps(outsider),
+                         "filtering must never expose a unicast body to a non-addressee")
+
+
 if __name__ == "__main__":
     unittest.main()
