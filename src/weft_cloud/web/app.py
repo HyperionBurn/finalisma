@@ -40,6 +40,7 @@ from weft_cloud.identity.accounts import verify_email as _identity_verify
 from weft_cloud.identity.accounts import request_password_reset as _identity_reset_request
 from weft_cloud.identity.accounts import reset_password as _identity_reset_password
 from weft_cloud.identity.accounts import authenticate as _identity_authenticate
+from weft_cloud.identity.mailer import smtp_config_from_env as _smtp_config_from_env
 from weft_cloud.identity.schema import ensure_schema as _ensure_identity_schema
 from weft_cloud.identity.tokens import hash_token as _hash_token
 from weft_cloud.quotas import QuotaError
@@ -111,10 +112,21 @@ def _page(title: str, body_html: str, *, csrf_token: str | None = None,
 class WeftWebApp:
     """Browser front-end over the cloud identity + room planes."""
 
-    def __init__(self, backend: StorageBackend, static_dir: str = "", state_dir: str = "") -> None:
+    def __init__(self, backend: StorageBackend, static_dir: str = "", state_dir: str = "",
+                 *, smtp_configured: bool | None = None) -> None:
         self.backend = backend
         self.static_dir = static_dir
         self.state_dir = state_dir
+        # "Email can actually be delivered" is a deployment property read from
+        # the same environment the outbox worker uses. When unset we derive it
+        # here so the web app self-corrects as soon as SMTP credentials land;
+        # tests pass an explicit value to assert both branches.
+        if smtp_configured is None:
+            try:
+                smtp_configured = _smtp_config_from_env() is not None
+            except ValueError:
+                smtp_configured = False
+        self.smtp_configured = bool(smtp_configured)
         self.accounts = AccountStore(backend)
         self.sessions = SessionStore(backend)
         self.orgs = OrgStore(backend)
@@ -403,6 +415,9 @@ class WeftWebApp:
             f'{_label("Password", _input("password", "password", required="required"))}'
             '<button type="submit">Create account</button>'
             '</form>'
+            '<p>By creating an account you agree to the '
+            '<a href="/terms.html">Terms of Service</a> and '
+            '<a href="/privacy.html">Privacy Policy</a>.</p>'
             '<p>Already have an account? <a href="/login">Log in</a></p>'
         )
         body = _page("Sign up", form, csrf_token=token)
@@ -459,8 +474,9 @@ class WeftWebApp:
         error_html = ""
         if error:
             error_html = f'<div class="flash flash-error">{_esc(error)}</div>'
+        notice_html = self._login_notice_html(handler)
         form = (
-            f'<h1>Log in</h1>{error_html}'
+            f'<h1>Log in</h1>{error_html}{notice_html}'
             '<form method="post" action="/login">'
             f'{_csrf_input(token)}'
             f'{_label("Email", _input("email", "email", required="required"))}'
@@ -479,6 +495,37 @@ class WeftWebApp:
         handler.send_header("X-Content-Type-Options", "nosniff")
         handler.end_headers()
         handler.wfile.write(body)
+
+    def _login_notice_html(self, handler: BaseHTTPRequestHandler) -> str:
+        """Flash message on the login page, driven by whether SMTP is configured.
+
+        ``verify_sent`` / ``reset_sent`` redirect targets imply an email was
+        sent. When SMTP delivery is NOT configured that implication is false —
+        the message sits in the outbox and is never delivered — so the page
+        says so plainly instead of pretending. When credentials land, this
+        self-corrects: the wording switches back to the normal "check your
+        email" copy. Never reveals a verification or reset token or link.
+        """
+        params = parse_qs(urlsplit(handler.path).query)
+        if "verify_sent" in params:
+            if self.smtp_configured:
+                text = "Check your email — a verification link was sent to the address you signed up with."
+            else:
+                text = ("Email delivery is not enabled yet, so the verification message could not be sent. "
+                        "Your account still works — you can log in now without verifying.")
+            return f'<div class="flash">{_esc(text)}</div>'
+        if "reset_sent" in params:
+            if self.smtp_configured:
+                text = "Check your email — a password reset link was sent."
+            else:
+                text = ("Email delivery is not enabled yet, so a password-reset message cannot be sent. "
+                        "Contact the operator to reset your password.")
+            return f'<div class="flash">{_esc(text)}</div>'
+        if "verified" in params:
+            return '<div class="flash">Your account is verified — you can log in now.</div>'
+        if "reset_done" in params:
+            return '<div class="flash">Your password was reset — you can log in now.</div>'
+        return ""
 
     def handle_post_login(self, handler: BaseHTTPRequestHandler) -> None:
         form = self._read_form(handler)
@@ -1226,6 +1273,9 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
                 return
             if method == "GET" and path == "/reset":
                 app.handle_get_reset(self)
+                return
+            if method == "GET" and path in ("/terms.html", "/privacy.html") and app.static_dir:
+                self._serve_static(path)
                 return
 
             # --- Public pre-auth routes (POST) ---

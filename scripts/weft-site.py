@@ -31,6 +31,8 @@ class QuietSiteHandler(SimpleHTTPRequestHandler):
             "/llms.txt",
             "/404.html",
             "/license.html",
+            "/terms.html",
+            "/privacy.html",
             "/site.webmanifest",
         } or route.startswith(("/assets/", "/blog/", "/docs/", "/_astro/")):
             relative = Path("site") / route.lstrip("/")

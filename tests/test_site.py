@@ -254,6 +254,8 @@ class LaunchSurfaceTests(unittest.TestCase):
             "llms.txt",
             "404.html",
             "license.html",
+            "terms.html",
+            "privacy.html",
             "demo.html",
             "demo-stage.html",
             "demo.css",
@@ -440,6 +442,50 @@ class LaunchSurfaceTests(unittest.TestCase):
         self.assertEqual(build["resolution"], "1280x720")
         self.assertTrue(build["credentials_redacted"])
 
+    def test_legal_pages_render_reachable_from_footer_and_serve_200(self) -> None:
+        """Terms of Service and Privacy Policy must exist, be linked from the
+        site footer, and be served 200 by the real site server.
+        """
+        for page_name in ("terms.html", "privacy.html"):
+            page = SITE / page_name
+            self.assertTrue(page.is_file(), f"{page_name} must exist in the site bundle")
+            html = page.read_text(encoding="utf-8")
+            self.assertIn("<title>", html)
+            self.assertIn("<h1>", html)
+            self.assertIn('<link rel="stylesheet" href="styles.css">', html)
+
+        index_html = (SITE / "index.html").read_text(encoding="utf-8")
+        footer = re.search(r'<nav aria-label="Footer">(.*?)</nav>', index_html, re.S)
+        self.assertIsNotNone(footer, "landing page must carry a footer nav")
+        self.assertIn('href="/terms.html"', footer.group(1))
+        self.assertIn('href="/privacy.html"', footer.group(1))
+
+        handler = lambda *args, **kwargs: QuietSiteHandler(*args, directory=str(ROOT), **kwargs)
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            host, port = server.server_address
+
+            def get(path: str) -> tuple[int, str]:
+                connection = HTTPConnection(host, port, timeout=5)
+                connection.request("GET", path)
+                response = connection.getresponse()
+                body = response.read().decode("utf-8", errors="replace")
+                status = response.status
+                connection.close()
+                return status, body
+
+            for path in ("/terms.html", "/privacy.html"):
+                with self.subTest(path=path):
+                    status, body = get(path)
+                    self.assertEqual(status, 200, f"{path} must return 200")
+                    self.assertIn("</html>", body)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
     def test_server_mounts_self_contained_site_and_branded_404(self) -> None:
         handler = lambda *args, **kwargs: QuietSiteHandler(*args, directory=str(ROOT), **kwargs)
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
@@ -461,6 +507,17 @@ class LaunchSurfaceTests(unittest.TestCase):
             status, home, _ = get("/")
             self.assertEqual(status, 200)
             self.assertIn("One link. Many agents.", home)
+
+            # Legal pages must render and be served 200 by the real server.
+            for legal_path, expected in (
+                ("/terms.html", "Terms of Service"),
+                ("/privacy.html", "Privacy Policy"),
+            ):
+                with self.subTest(path=legal_path):
+                    status, body, _ = get(legal_path)
+                    self.assertEqual(status, 200)
+                    self.assertIn(expected, body)
+                    self.assertIn("</html>", body)
 
             status, guide, _ = get("/docs/compatibility.html")
             self.assertEqual(status, 200)
