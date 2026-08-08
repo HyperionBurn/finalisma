@@ -44,6 +44,7 @@ from weft_cloud.identity import (
     ensure_identity_schema,
 )
 from weft_cloud.identity.schema import ensure_schema as _ensure_identity_schema
+from weft_cloud.mcp import HostedMCPAuthError, HostedMCPDispatcher, MAX_JSON_RPC_BYTES, _json_rpc_error
 from weft_cloud.quotas import QuotaError
 from weft_cloud.rate_limit import RateLimitedError
 from weft_cloud.rooms import CloudRoomService, RoomError, public_origin
@@ -719,6 +720,54 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _handle_mcp_post(self) -> None:
+        """Serve the authenticated, tenant-confined MCP endpoint at POST /mcp.
+
+        Mirrors the coordinator's Streamable HTTP framing (``Mcp-Method`` /
+        ``Mcp-Name`` header checks, JSON-RPC notifications -> 202) but every
+        request must authenticate against the CLOUD identity plane. Auth is
+        checked before any method is dispatched, so an unauthenticated
+        initialize / tools/list / tools/call is refused alike and reveals
+        nothing about the tool set or the store.
+        """
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            length = 0
+        if length <= 0 or length > MAX_JSON_RPC_BYTES:
+            self._send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                            _json_rpc_error(None, -32600, "Invalid request size"))
+            return
+        try:
+            request = json.loads(self.rfile.read(length))
+        except json.JSONDecodeError:
+            self._send_json(HTTPStatus.BAD_REQUEST, _json_rpc_error(None, -32700, "Parse error"))
+            return
+        method = request.get("method") if isinstance(request, dict) else None
+        header_method = self.headers.get("Mcp-Method")
+        header_name = self.headers.get("Mcp-Name")
+        if header_method and header_method != method:
+            self._send_json(HTTPStatus.BAD_REQUEST, _json_rpc_error(
+                request.get("id"), -32600, "Mcp-Method does not match the JSON-RPC method"))
+            return
+        if method == "tools/call" and header_name and header_name != ((request.get("params") or {}).get("name")):
+            self._send_json(HTTPStatus.BAD_REQUEST, _json_rpc_error(
+                request.get("id"), -32600, "Mcp-Name does not match params.name"))
+            return
+        dispatcher = HostedMCPDispatcher(self.service)
+        try:
+            response = dispatcher.handle_json_rpc(request, _bearer_token(self))
+        except HostedMCPAuthError:
+            self._send_json(HTTPStatus.UNAUTHORIZED, _json_rpc_error(
+                request.get("id") if isinstance(request, dict) else None, -32001, "Unauthorized"))
+            return
+        if response is None:
+            self.send_response(HTTPStatus.ACCEPTED)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        self._send_json(HTTPStatus.OK, response)
+
     def _handle(self, method: str, handler_fn) -> None:
         try:
             status, body = handler_fn(self)
@@ -779,6 +828,10 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
         if join_match:
             self.service.handle_join_descriptor(self, join_match.group(1))
             return
+        if path == "/mcp":
+            self._send_json(HTTPStatus.METHOD_NOT_ALLOWED,
+                            {"error": "Weft hosted MCP GET streaming is not enabled; use POST /mcp"})
+            return
         if path in {"/v1/rooms"}:
             self._handle("GET", self.service.handle_list_rooms)
             return
@@ -795,6 +848,9 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         path = urlsplit(self.path).path
+        if path == "/mcp":
+            self._handle_mcp_post()
+            return
         routes = {
             "/v1/auth/signup": self.service.handle_signup,
             "/v1/auth/signin": self.service.handle_signin,

@@ -7,6 +7,7 @@
 | Marketing site | `https://weft.vercel.app` | Vercel (static, free, TLS) |
 | Web app (humans) | `<tunnel>/signup`, `<tunnel>/login` | Azure VM `20.199.129.229` |
 | Agent API | `<tunnel>/v1/…`, `<tunnel>/healthz` | Azure VM `20.199.129.229` |
+| MCP endpoint | `<tunnel>/mcp` (MCP hosts) | Azure VM `20.199.129.229` |
 | Code | `github.com/HyperionBurn/weft` (private, `main`) | GitHub |
 
 `<tunnel>` is currently `https://forum-peripherals-cartoons-brain.trycloudflare.com`.
@@ -34,6 +35,31 @@ weft-tunnel   cloudflared quick tunnel → public HTTPS
 
 Both services bind **loopback only**; nginx is the only thing on `0.0.0.0`. Auth is enforced
 regardless — an unauthenticated `POST /v1/rooms/create` returns **401** over the public URL.
+
+### MCP endpoint (hosted agent-facing MCP)
+
+`POST /mcp` is served by the **existing `weft-cloud` process** (no new systemd unit, no new
+env vars — auth is the cloud session). It is the authenticated, tenant-confined MCP surface:
+an MCP client sends `Authorization: Bearer <fss_ session>` with every request and its calls
+are confined to that session's tenant (see `docs/HOSTED_MCP_DESIGN.md`).
+
+nginx must route `/mcp` to 18788 (by default it falls through to `location /` → the web app,
+which 303s to login):
+
+```nginx
+# in the server block, before `location /`:
+location = /mcp {
+    proxy_pass http://127.0.0.1:18788;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 60s;
+}
+```
+
+Verification once routed: sign up (`POST /v1/auth/signup`), then an MCP `initialize` with the
+returned `session_token` over `POST https://<origin>/mcp` returns a `weft-cloud` `serverInfo`;
+without a token it returns **401**.
 
 ## THE KNOWN FRAGILITY — read this first when something breaks
 

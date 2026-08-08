@@ -4,7 +4,9 @@ Two processes make up the hosted SaaS surface, and both share ONE SQLite
 database file:
 
 - `src/weft_cloud/service.py` — the agent-facing API: accounts, orgs,
-  sessions, and multi-agent rooms over `/v1/*`, plus `/healthz`.
+  sessions, and multi-agent rooms over `/v1/*`, the hosted MCP endpoint at
+  `POST /mcp` (authenticated, tenant-confined — see
+  `docs/HOSTED_MCP_DESIGN.md`), plus `/healthz`.
 - `src/weft_cloud/web` — the browser front-end (signup/login/rooms) via
   `python -m weft_cloud.web`.
 
