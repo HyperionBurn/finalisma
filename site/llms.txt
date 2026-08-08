@@ -21,7 +21,7 @@ Weft is an evidence-backed coordination preview for bounded handoffs between MCP
 
 The current release is a single-node preview for trusted networks and design partners. It is not hosted multi-tenant SaaS. OAuth/OIDC, shared storage, distributed limits, durable delivery/retry, retention/deletion, and operations are required before public hosted scale.
 
-Official documentation currently supports nine plausible MCP host paths. Weft has zero live host-pair validations. Documented compatibility is not the same as a verified integration.
+Official documentation currently supports nine plausible MCP host paths. One host (OpenCode 1.18.13) has a live verified integration; zero host-pair validations are on file. Documented compatibility is not the same as a verified integration.
 
 ## Source links
 

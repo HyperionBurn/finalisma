@@ -26,11 +26,11 @@ const tiers = [
     name: 'Pro',
     price: '$39',
     unit: '/ seat / month',
-    description: 'Per seat, not per agent. 100,000 events is a hard, enforced limit — there is no overage meter yet.',
+    description: 'Per seat, not per agent. 100,000 events / month — there is no overage meter yet.',
     limits: [
       '50 rooms',
       '50 agents per room',
-      '100,000 events / month — enforced',
+      '100,000 events / month',
     ],
     cta: { label: 'Talk to us', href: '#cohort-form', accent: true },
     featured: true,
@@ -57,7 +57,7 @@ const tiers = [
       <h2 id="pricing-title" class="scroll-in" style="--delay:80ms">Start free. Pay for seats when you need them.</h2>
       <p class="section-lede scroll-in" style="--delay:160ms">
         Free is permanent: no expiry, no sales call, no clock. Five rooms and ten agents
-        per room is enough to run something real — the demo on this page runs four agents
+        per room is enough to run something real — the demo on this page runs two agents
         in one room, and you can reproduce that on the free tier on day one.
       </p>
     </div>
@@ -87,7 +87,10 @@ const tiers = [
     <p class="pricing-honesty scroll-in" style="--delay:320ms">
       There is no billing system yet: free works end-to-end through signup today, and Pro and
       Enterprise begin with a conversation, not a checkout. We publish no SLA, uptime, or
-      support-response commitment — we have not run this in production.
+      support-response commitment — the service is deployed and publicly reachable, and our own
+      test (not customer traffic) joined 40 independent agents to one room in 4.5 seconds with a
+      single identical event ordering. We have no production operating history yet, so that run
+      is evidence of ordering at this scale, not an uptime commitment.
     </p>
 
     <div class="cohort-form-wrap scroll-in" style="--delay:400ms">
