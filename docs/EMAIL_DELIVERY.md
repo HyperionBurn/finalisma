@@ -18,7 +18,7 @@ works with no code change.
    and `invites.create` keep writing a durable `cloud_identity_outbox` row via
    `LocalOutboxMailer` (Stage 1). A signup is never lost because mail failed.
 2. **The worker drains the outbox.** `OutboxDrainer`
-   (`src/finalisma_cloud/identity/outbox_worker.py`) claims undelivered rows
+   (`src/weft_cloud/identity/outbox_worker.py`) claims undelivered rows
    and sends each through `SmtpMailer` (STARTTLS + AUTH, standard library
    only), marking every row `sent` or `failed`.
 3. **Selection is by environment.** `mailer.build_mailer(backend)` returns
@@ -49,20 +49,20 @@ and keeps the Stage-1 default.
 
 ## Running the worker
 
-As its own process (same idiom as `finalisma_cloud.service` / `.web`):
+As its own process (same idiom as `weft_cloud.service` / `.web`):
 
 ```bash
 FINALISMA_SMTP_HOST=smtp.example.com FINALISMA_SMTP_PORT=587 \
 FINALISMA_SMTP_USERNAME=apikey FINALISMA_SMTP_PASSWORD=secret \
 FINALISMA_SMTP_FROM=no-reply@example.com \
 FINALISMA_DB_PATH=./data/finalisma-cloud.db \
-PYTHONPATH=src python -B -m finalisma_cloud.identity.outbox_worker
+PYTHONPATH=src python -B -m weft_cloud.identity.outbox_worker
 ```
 
 Run one pass and exit (handy for cron/systemd or manual verification):
 
 ```bash
-PYTHONPATH=src python -B -m finalisma_cloud.identity.outbox_worker --once
+PYTHONPATH=src python -B -m weft_cloud.identity.outbox_worker --once
 ```
 
 Without SMTP configured the worker prints a note and exits `0`; every row stays
@@ -92,9 +92,9 @@ Without SMTP configured the worker prints a note and exits `0`; every row stays
 
    ```bash
    PYTHONPATH=src python -B - <<'PY'
-   from finalisma_cloud.identity import accounts
-   from finalisma_cloud.storage import SqliteWalBackend
-   from finalisma_cloud.migrations import apply_migrations
+   from weft_cloud.identity import accounts
+   from weft_cloud.storage import SqliteWalBackend
+   from weft_cloud.migrations import apply_migrations
    b = SqliteWalBackend("./data/finalisma-cloud.db"); b.initialize(); apply_migrations(b)
    accounts.request_password_reset(b, "tenant_<id>", "you@example.com")
    b.close()
@@ -106,7 +106,7 @@ Without SMTP configured the worker prints a note and exits `0`; every row stays
    ```bash
    sqlite3 data/finalisma-cloud.db \
      "SELECT entry_id, to_email, status, attempts FROM cloud_identity_outbox"
-   PYTHONPATH=src python -B -m finalisma_cloud.identity.outbox_worker --once
+   PYTHONPATH=src python -B -m weft_cloud.identity.outbox_worker --once
    sqlite3 data/finalisma-cloud.db \
      "SELECT entry_id, to_email, status, attempts, dispatched_at FROM cloud_identity_outbox"
    ```
