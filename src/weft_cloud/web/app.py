@@ -41,10 +41,11 @@ from weft_cloud.identity.accounts import request_password_reset as _identity_res
 from weft_cloud.identity.accounts import reset_password as _identity_reset_password
 from weft_cloud.identity.accounts import authenticate as _identity_authenticate
 from weft_cloud.identity.mailer import smtp_config_from_env as _smtp_config_from_env
+from weft_cloud.identity.accounts import burn_scrypt_cost as _identity_burn_scrypt_cost
 from weft_cloud.identity.schema import ensure_schema as _ensure_identity_schema
 from weft_cloud.identity.tokens import hash_token as _hash_token
 from weft_cloud.quotas import QuotaError
-from weft_cloud.rooms import CloudRoomService, RoomError
+from weft_cloud.rooms import CloudRoomService, RoomError, _parse_json
 from weft_cloud.storage import StorageBackend
 from weft_cloud.web.copy import connect_page_body
 
@@ -309,8 +310,15 @@ class WeftWebApp:
             ).fetchone()
         return row is not None
 
-    def _poll_for_member(self, tenant_id: str, room_id: str, after_seq: int) -> dict:
-        """Event poll for an org member (doesn't require room membership)."""
+    def _poll_for_member(self, tenant_id: str, room_id: str, after_seq: int,
+                         agent_id: str) -> dict:
+        """Event poll for an org member (doesn't require room membership).
+
+        ``agent_id`` is the VIEWER's identity: every payload is routed through
+        ``_filter_payload_for_agent`` exactly as the /v1 poll does, so a
+        viewer who is not the addressee of a unicast sees the redacted
+        envelope, never the private body.
+        """
         with self.backend.transaction() as tx:
             room = tx.execute(
                 "SELECT * FROM cloud_rooms WHERE tenant_id = ? AND room_id = ?",
@@ -331,7 +339,8 @@ class WeftWebApp:
                     "seq": r["seq"],
                     "origin_agent": r["origin_agent"],
                     "kind": r["kind"],
-                    "payload": r["payload_json"],
+                    "payload": self.rooms._filter_payload_for_agent(
+                        _parse_json(r["payload_json"], {}), agent_id),
                     "created_at": r["created_at"],
                 })
                 next_seq = r["seq"] + 1
@@ -380,8 +389,13 @@ class WeftWebApp:
                 "owner_agent_id": room["owner_agent_id"],
             }
 
-    def _event_log_for_member(self, tenant_id: str, room_id: str) -> list[dict]:
-        """Event log for an org member (doesn't require room membership)."""
+    def _event_log_for_member(self, tenant_id: str, room_id: str, agent_id: str) -> list[dict]:
+        """Event log for an org member (doesn't require room membership).
+
+        Payloads are redacted for the VIEWER (``agent_id``) exactly as
+        ``_poll_for_member`` does — a viewer who is not the addressee of a
+        unicast never sees its body.
+        """
         with self.backend.transaction() as tx:
             room = tx.execute(
                 "SELECT 1 FROM cloud_rooms WHERE tenant_id = ? AND room_id = ?",
@@ -393,7 +407,18 @@ class WeftWebApp:
                 "SELECT * FROM cloud_room_event_log WHERE tenant_id = ? AND room_id = ? ORDER BY seq",
                 (tenant_id, room_id),
             ).fetchall()
-        return [dict(r) for r in rows]
+        events = []
+        for r in rows:
+            events.append({
+                "event_id": r["event_id"],
+                "seq": r["seq"],
+                "origin_agent": r["origin_agent"],
+                "kind": r["kind"],
+                "payload": self.rooms._filter_payload_for_agent(
+                    _parse_json(r["payload_json"], {}), agent_id),
+                "created_at": r["created_at"],
+            })
+        return events
 
     def _get_room_link_token(self, room_id: str) -> str | None:
         return self._link_token_cache.get(room_id)
@@ -533,6 +558,11 @@ class WeftWebApp:
         password = form.get("password") or ""
         tenant_id = self._tenant_for_email(email)
         if tenant_id is None:
+            # Timing parity: an unknown email must cost the same scrypt work as
+            # a wrong password on a known email, or login becomes a
+            # user-enumeration timing oracle. Burn the cost, then show the
+            # identical refusal page.
+            _identity_burn_scrypt_cost(password)
             self.handle_get_login(handler, error="Invalid email or password.")
             return
         try:
@@ -1048,7 +1078,7 @@ class WeftWebApp:
         # We read the room info directly without requiring room membership.
         try:
             info = self._room_info_for_member(ctx.tenant_id, room_id)
-            events = self._event_log_for_member(ctx.tenant_id, room_id)
+            events = self._event_log_for_member(ctx.tenant_id, room_id, ctx.account_id)
         except RoomError as exc:
             if exc.status == 404:
                 self._send_html(handler, HTTPStatus.NOT_FOUND,
@@ -1116,7 +1146,7 @@ class WeftWebApp:
             after_seq = 0
         # Event polling for org members — read-only, tenant-scoped.
         try:
-            result = self._poll_for_member(ctx.tenant_id, room_id, after_seq)
+            result = self._poll_for_member(ctx.tenant_id, room_id, after_seq, ctx.account_id)
         except RoomError as exc:
             if exc.status == 404:
                 self._send_json(handler, HTTPStatus.NOT_FOUND,
@@ -1148,7 +1178,7 @@ class WeftWebApp:
                             _page("Not found", '<p>Room not found.</p>'))
             return
         try:
-            events = self._event_log_for_member(ctx.tenant_id, room_id)
+            events = self._event_log_for_member(ctx.tenant_id, room_id, ctx.account_id)
         except RoomError as exc:
             if exc.status == 404:
                 self._send_html(handler, HTTPStatus.NOT_FOUND,

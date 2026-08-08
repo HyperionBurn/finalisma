@@ -277,18 +277,31 @@ class CloudRoomService:
             raise RoomError("room_not_found", "Room not found", 404)
         return row
 
-    def _resolve_room_tenant(self, tx: Any, room_id: str, agent_id: str | None = None) -> str:
+    def _resolve_room_tenant(self, tx: Any, room_id: str, agent_id: str | None = None,
+                             actor_token_hash: str | None = None) -> str:
         """Find the tenant_id for a room, optionally scoped to a member.
 
         Used when the caller's session tenant may differ from the room's
         owning tenant (cross-tenant join via link). If agent_id is given,
         only returns the tenant if the agent is an active member.
+
+        ``actor_token_hash`` binds the resolution to a specific credential:
+        when supplied, the membership row must ALSO carry that actor token
+        hash. This is the cross-tenant impersonation fix — an attacker who
+        holds another tenant's member ``agent_id`` but not the actor token
+        that joined resolves the same uniform ``room_not_found`` as a room
+        that never existed (no existence oracle).
         """
         if agent_id:
-            row = tx.execute(
-                "SELECT tenant_id FROM cloud_room_members WHERE room_id = ? AND agent_id = ? AND status = 'active'",
-                (room_id, agent_id),
-            ).fetchone()
+            query = (
+                "SELECT tenant_id FROM cloud_room_members "
+                "WHERE room_id = ? AND agent_id = ? AND status = 'active'"
+            )
+            params: list[Any] = [room_id, agent_id]
+            if actor_token_hash is not None:
+                query += " AND actor_token_hash = ?"
+                params.append(actor_token_hash)
+            row = tx.execute(query, params).fetchone()
             if row is None:
                 raise RoomError("room_not_found", "Room not found", 404)
             return row["tenant_id"]
@@ -988,7 +1001,13 @@ class CloudRoomService:
     # ------------------------------------------------------------------
 
     def event_log(self, tenant_id: str, room_id: str, agent_id: str) -> list[dict]:
-        """Return the full ordered event log (member-only)."""
+        """Return the full ordered event log (member-only), payload-redacted.
+
+        Every event's payload is routed through ``_filter_payload_for_agent``
+        exactly as ``poll`` does, so a legitimate member who is NOT the
+        addressee of a unicast sees the redacted envelope, never the private
+        body. ``SELECT *`` raw rows are never returned.
+        """
         with self.backend.transaction() as tx:
             self._require_room(tx, tenant_id, room_id)
             self._require_member(tx, tenant_id, room_id, agent_id)
@@ -996,4 +1015,16 @@ class CloudRoomService:
                 "SELECT * FROM cloud_room_event_log WHERE tenant_id = ? AND room_id = ? ORDER BY seq",
                 (tenant_id, room_id),
             ).fetchall()
-        return [dict(r) for r in rows]
+        events = []
+        for r in rows:
+            events.append({
+                "event_id": r["event_id"],
+                "seq": r["seq"],
+                "origin_agent": r["origin_agent"],
+                "kind": r["kind"],
+                "message_kind": r["message_kind"],
+                "payload": self._filter_payload_for_agent(
+                    _parse_json(r["payload_json"], {}), agent_id),
+                "created_at": r["created_at"],
+            })
+        return events

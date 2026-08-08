@@ -92,8 +92,24 @@ def _create_account(backend: Any, tenant_id: str, email: str, password: str,
 
 
 def signup(backend: Any, tenant_id: str, email: str, password: str) -> tuple[str, str]:
-    """Create an account (and its tenant row if absent); return (account_id, raw_verification_token)."""
+    """Create an account (and its tenant row if absent); return (account_id, raw_verification_token).
+
+    An email is a person's identity across tenants: if ANY tenant already has
+    an account for ``email``, signup RAISES ``AuthError("email_exists")``
+    instead of returning the existing account id. Returning the existing id
+    let ``handle_signup`` mint a session for an account the caller never
+    created — passwordless account takeover. Callers that legitimately need
+    to (re)provision an existing identity use ``_create_account`` directly
+    (org/invite flows), never this path.
+    """
     ensure_schema(backend)
+    with backend.transaction() as tx:
+        row = tx.execute(
+            "SELECT 1 FROM cloud_identity_accounts WHERE email = ?",
+            (email,),
+        ).fetchone()
+    if row is not None:
+        raise AuthError("email_exists")
     backend.create_tenant(tenant_id, email, "free")
     account_id = _create_account(backend, tenant_id, email, password, email_verified=0)
     raw_token = generate_token("fvt")
@@ -141,6 +157,20 @@ def authenticate(backend: Any, tenant_id: str, email: str, password: str) -> str
     if not hmac.compare_digest(computed, row["password_hash"]):
         raise AuthError("invalid_credentials")
     return row["account_id"]
+
+
+def burn_scrypt_cost(password: str) -> None:
+    """Run the same scrypt cost as an unknown-email authentication attempt.
+
+    HTTP signin surfaces resolve the tenant BEFORE authenticating. On a
+    tenant-lookup miss they must still spend the scrypt work, or the early
+    return becomes a user-enumeration timing oracle (known-email-wrong-password
+    costs one scrypt, unknown-email returns instantly). This performs exactly
+    the dummy-salt computation ``authenticate`` would have run for an unknown
+    email, so both refusal paths cost the same.
+    """
+    computed = _scrypt(password, _DUMMY_SALT)
+    hmac.compare_digest(computed, _DUMMY_HASH)
 
 
 def request_password_reset(backend: Any, tenant_id: str, email: str) -> None:
@@ -220,6 +250,9 @@ class AccountStore:
 
     def authenticate(self, backend, tenant_id, email, password):
         return authenticate(backend, tenant_id, email, password)
+
+    def burn_scrypt_cost(self, password):
+        return burn_scrypt_cost(password)
 
     def verify_email(self, backend, verification_token):
         return verify_email(backend, verification_token)
