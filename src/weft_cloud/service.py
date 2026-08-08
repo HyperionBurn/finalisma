@@ -655,24 +655,19 @@ class WeftCloudService:
         owner_agent_id = body.get("owner_agent_id", ctx.account_id)
         if not room_id or not link_id:
             raise _ServiceError("invalid_argument", "room_id and link_id are required")
-        tenant_id = self._room_tenant(room_id, owner_agent_id)
+        tenant_id = self._room_tenant(room_id, owner_agent_id, _bearer_token(handler))
         result = self.rooms.revoke_link(tenant_id, room_id, owner_agent_id, link_id)
         return _json_response(HTTPStatus.OK, result)
 
     def handle_list_rooms(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
         ctx = self._authenticate(handler)
-        params = {}
-        if "?" in handler.path:
-            qs = handler.path.split("?", 1)[1]
-            for pair in qs.split("&"):
-                if "=" in pair:
-                    k, v = pair.split("=", 1)
-                    params[k] = v
-        agent_id = params.get("agent_id", ctx.account_id)
-        # List rooms: scan across all tenants where this agent is a member.
-        # Since agent_id is globally unique per email, we look up membership
-        # across all tenants.
-        rooms = self._list_rooms_any_tenant(agent_id)
+        # The listing is scoped to the CALLER's account, never to a
+        # client-chosen ``agent_id``. Accepting ?agent_id=<victim> let anyone
+        # enumerate every room of any agent in every tenant — the pivot that
+        # turns one impersonated room into everything (and the source of the
+        # tenant_id needed for the signup takeover). The account is the only
+        # identity this listing trusts.
+        rooms = self._list_rooms_any_tenant(ctx.account_id)
         return _json_response(HTTPStatus.OK, {"rooms": rooms})
 
     def _list_rooms_any_tenant(self, agent_id: str) -> list[dict]:
