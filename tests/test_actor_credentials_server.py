@@ -127,9 +127,9 @@ class ActorCredentialTransportTests(unittest.TestCase):
 
     def test_unauthenticated_rotation_does_not_leak_agent_existence_via_mcp(self) -> None:
         def unauth_code(agent_id: str) -> str:
-            with self.assertRaises(FinalismaError) as caught:
+            with self.assertRaises(WeftError) as caught:
                 self.dispatcher.call_tool(
-                    "finalisma_rotate_agent_credential",
+                    "rotate_agent_credential",
                     {"team_id": "demo", "agent_id": agent_id},
                 )
             return caught.exception.code
