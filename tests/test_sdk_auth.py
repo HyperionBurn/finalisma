@@ -415,7 +415,7 @@ class SdkAuthInjectionContract(unittest.TestCase):
 
     def test_16_cross_room_isolation(self) -> None:
         """A member of room A calling room_info/poll/send on room B's id
-        is refused (room_not_found or member_required)."""
+        is refused with room_not_found (no existence oracle)."""
         other = self.owner._call(
             "room_create",
             owner_agent_id="owner", cap=4, name="other",
@@ -424,18 +424,18 @@ class SdkAuthInjectionContract(unittest.TestCase):
         # m1 is in self.room_id but NOT in other_id.
         self._assert_refused(
             lambda: self.members["m1"].room_info(room_id=other_id, agent_id="m1"),
-            {"room_not_found", "member_required"},
+            {"room_not_found"},
         )
         self._assert_refused(
             lambda: self.members["m1"].room_poll(room_id=other_id, agent_id="m1"),
-            {"room_not_found", "member_required"},
+            {"room_not_found"},
         )
         self._assert_refused(
             lambda: self.members["m1"].send(
                 room_id=other_id, sender_agent_id="m1",
                 target_spec="*", payload={"text": "x"},
             ),
-            {"room_not_found", "member_required"},
+            {"room_not_found"},
         )
 
     # ---- 4. Room cap -------------------------------------------------------
