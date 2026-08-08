@@ -172,6 +172,15 @@ result = client._call("room_join", {
     transition: color var(--dur-fast) var(--ease-out);
   }
   .connect-cta__login:hover { color: var(--color-accent); }
+
+  /* Mobile touch-target floor (44px) — hit area only, type unchanged */
+  @media (max-width: 768px) {
+    .connect-cta__login {
+      min-height: 44px;
+      display: inline-flex;
+      align-items: center;
+    }
+  }
 </style>
 
 <script>
