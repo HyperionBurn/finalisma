@@ -100,6 +100,48 @@ class LaunchSurfaceTests(unittest.TestCase):
         self.assertNotIn("Weft A2A Standard", html)
         self.assertNotIn("gpt-5.5", html.lower())
         self.assertNotIn("lorem ipsum", html.lower())
+        # Site-truth lane (2026-08-08): the demo is a simulation, so nothing on
+        # the landing page may label it "live"; the outdated "we have not run
+        # this in production" clause is replaced by the truthful deployed +
+        # own-test statement (40-agent run, our own traffic).
+        self.assertNotIn("Live demo", html)
+        self.assertNotIn("we have not run this in production", html)
+        self.assertIn("40 independent agents", html)
+        self.assertIn("not customer traffic", html)
+
+    def test_site_never_overclaims_liveness_or_enforcement(self) -> None:
+        """Site-truth invariants (2026-08-08).
+
+        Walk every shipped HTML page and assert the phrasings that were found
+        false this session are absent:
+
+        * the demo is a simulation — no \"live\"-about-simulated label;
+        * plan-driven quota enforcement is not wired into the request path in
+          this tree, so the pricing copy must not say \"enforced\";
+        * \"we have not run this in production\" is outdated — the product is
+          deployed and publicly reachable;
+        * the demo on the landing page runs two named agents, not four.
+        """
+        banned_site_wide = (
+            "we have not run this in production",
+            "four agents",
+            "hard, enforced limit",
+            "events / month — enforced",
+            "(an enforced limit)",
+        )
+        banned_index_only = (
+            "Live demo",
+            "Live Preview",
+            "Live event log",
+        )
+        for page in sorted(SITE.rglob("*.html")):
+            lowered = page.read_text(encoding="utf-8").lower()
+            with self.subTest(page=page.relative_to(ROOT)):
+                for phrase in banned_site_wide:
+                    self.assertNotIn(phrase.lower(), lowered)
+                if page.name == "index.html":
+                    for phrase in banned_index_only:
+                        self.assertNotIn(phrase.lower(), lowered)
 
     def test_progressive_enhancement_and_gated_story_cta(self) -> None:
         html = (SITE / "index.html").read_text(encoding="utf-8")
