@@ -325,6 +325,166 @@ class TestConnectPage(unittest.TestCase):
         self.assertIn("bridge", body)            # Tier 3 — bridge/webhook
         self.assertIn("WeftClient", body)   # Tier 4 — SDK
 
+    def test_connect_page_documents_a_working_join(self):
+        """The page must document everything a working /v1/rooms/join needs.
+
+        Regression for the bug where Tier 2 printed only
+        ``POST /v1/rooms/join {"room_id","link_token"}`` — a copy-paste failed
+        with 401 (missing bearer) then 400 (missing consent).
+        """
+        status, body, _ = self.driver.get(f"/room/{self.room_id}/connect")
+        self.assertEqual(status, 200)
+        # The join endpoint.
+        self.assertIn("POST /v1/rooms/join", body)
+        # The auth header a working call requires.
+        self.assertIn("Authorization: Bearer", body)
+        # Consent, including the literal boolean form the API enforces.
+        self.assertIn("consent", body)
+        self.assertIn("consent: true", body)
+        # How to obtain the session token: signup/signin steps.
+        self.assertIn("/v1/auth/signup", body)
+        self.assertIn("/v1/auth/signin", body)
+        # The product promise: joining is cross-tenant; the link is the authz.
+        self.assertIn("cross-tenant", body)
+        # Consent is a stored caller attestation, NOT proof a human approved.
+        self.assertIn("attestation", body)
+        self.assertIn("not proof that a human saw and approved", body)
+
+    def test_connect_page_does_not_leak_credentials(self):
+        """The connect page renders the link token but no credentials."""
+        status, body, _ = self.driver.get(f"/room/{self.room_id}/connect")
+        self.assertEqual(status, 200)
+        session_cookie = self.driver.cookies.get("fss_session", "")
+        for banned in (self.password, session_cookie, self.email):
+            if banned:
+                self.assertNotIn(banned, body,
+                                 f"connect page leaked a credential: {banned!r}")
+
+    def test_unauthenticated_connect_redirects_to_login(self):
+        # No cookie yet: the page must not render — it must send to /login.
+        anon = WebAppDriver()
+        try:
+            status, body, headers = anon.get(f"/room/{self.room_id}/connect")
+            self.assertEqual(status, 303)
+            self.assertTrue(headers.get("Location", "").startswith("/login"))
+            self.assertNotIn("POST /v1/rooms/join", body)
+        finally:
+            anon.close()
+
+
+class TestConnectPageRequestShapeDrivesRealJoin(unittest.TestCase):
+    """The STRONGEST guard: extract the request shape the connect page documents
+    and drive the REAL /v1/rooms/join handler with it, asserting success.
+
+    This is the assertion that would have caught the original bug: the page
+    documented a request that the real handler rejected. It also proves the
+    cross-tenant promise end to end — a brand-new agent's org redeems the
+    owner's link.
+    """
+
+    def setUp(self):
+        self.driver = WebAppDriver()
+        self.email = f"owner{time.time_ns()}@example.com"
+        self.password = "owner-password-ok"
+        self.driver.login(self.email, self.password)
+        self.room_id = self.driver.create_room(name="War Room")
+
+    def tearDown(self):
+        if hasattr(self, "_httpd"):
+            self._httpd.shutdown()
+        self.driver.close()
+
+    def _start_cloud_service(self):
+        """Serve the REAL WeftCloudService over the SAME backend as the web app."""
+        import http.server
+        from weft_cloud.service import WeftCloudService, _CloudHTTPHandler
+
+        self.cloud = WeftCloudService(self.driver.backend,
+                                      origin=f"http://127.0.0.1:{self.driver.port}")
+        _CloudHTTPHandler.service = self.cloud
+        self._httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _CloudHTTPHandler)
+        self.cloud_port = self._httpd.server_address[1]
+        self._cloud_thread = threading.Thread(
+            target=self._httpd.serve_forever, daemon=True,
+        )
+        self._cloud_thread.start()
+
+    def _cloud_post(self, path: str, body: dict, token: str | None = None):
+        conn = http.client.HTTPConnection("127.0.0.1", self.cloud_port, timeout=10)
+        headers = {"Content-Type": "application/json"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        conn.request("POST", path, body=json.dumps(body), headers=headers)
+        resp = conn.getresponse()
+        raw = resp.read().decode("utf-8", errors="replace")
+        conn.close()
+        payload = {}
+        try:
+            payload = json.loads(raw)
+        except Exception:
+            pass
+        return resp.status, payload
+
+    def test_documented_request_shape_drives_real_join_handler(self):
+        # 1. Render the connect page and confirm it documents the working call.
+        status, page, _ = self.driver.get(f"/room/{self.room_id}/connect")
+        self.assertEqual(status, 200)
+        self.assertIn("POST /v1/rooms/join", page)
+        self.assertIn("Authorization: Bearer", page)
+        self.assertIn("consent: true", page)
+
+        # 2. Extract the exact request shape the page documents.
+        room_match = re.search(r'"room_id": "(room_[A-Za-z0-9_-]+)"', page)
+        token_match = re.search(r'"link_token": "(rm_[A-Za-z0-9_-]+)"', page)
+        self.assertIsNotNone(room_match, "page must document room_id in the join body")
+        self.assertIsNotNone(token_match, "page must document link_token in the join body")
+        doc_room_id = room_match.group(1)
+        doc_link_token = token_match.group(1)
+        self.assertEqual(doc_room_id, self.room_id)
+
+        # 3. The room's owning tenant (to prove the join is cross-tenant).
+        with self.driver.backend.transaction() as tx:
+            row = tx.execute(
+                "SELECT tenant_id FROM cloud_rooms WHERE room_id = ?", (self.room_id,)
+            ).fetchone()
+        room_tenant = row["tenant_id"]
+
+        # 4. Drive the REAL join handler with the page's shape.
+        self._start_cloud_service()
+        agent_email = f"agent{time.time_ns()}@example.com"
+        signup_status, signup = self._cloud_post("/v1/auth/signup", {
+            "email": agent_email, "password": "AgentPass!1",
+        })
+        self.assertEqual(signup_status, 201, f"signup failed: {signup}")
+        # The agent's org is brand-new, so this is a cross-tenant redeem.
+        self.assertNotEqual(signup["tenant_id"], room_tenant)
+        join_status, joined = self._cloud_post("/v1/rooms/join", {
+            "room_id": doc_room_id,
+            "link_token": doc_link_token,
+            "agent_id": "my-agent",
+            "consent": True,
+            "capabilities": [],
+        }, token=signup["session_token"])
+        self.assertEqual(join_status, 200, f"join with documented shape failed: {joined}")
+        self.assertEqual(joined["status"], "active")
+        self.assertEqual(joined["room_id"], self.room_id)
+
+    def test_documented_shape_without_auth_is_still_rejected(self):
+        # The page must not have weakened the API: a bearer is still required.
+        status, page, _ = self.driver.get(f"/room/{self.room_id}/connect")
+        self.assertEqual(status, 200)
+        self._start_cloud_service()
+        room_match = re.search(r'"room_id": "(room_[A-Za-z0-9_-]+)"', page)
+        token_match = re.search(r'"link_token": "(rm_[A-Za-z0-9_-]+)"', page)
+        status, body = self._cloud_post("/v1/rooms/join", {
+            "room_id": room_match.group(1),
+            "link_token": token_match.group(1),
+            "agent_id": "my-agent",
+            "consent": True,
+        })
+        self.assertEqual(status, 401)
+        self.assertEqual(body.get("error", {}).get("code"), "unauthorized")
+
 
 class TestCloseRoom(unittest.TestCase):
     """§3.3 + §6.6: owner can close; after close the detail page renders a closed state."""
