@@ -36,8 +36,10 @@ from .identity.tokens import AuthError, hash_token
 from .quotas import (
     QuotaError,
     create_room_with_quota,
+    increment_room_member_counter,
     join_room_with_quota,
     plan_limits,
+    resolve_plan,
     validate_room_cap,
 )
 from .rate_limit import RateLimiter
@@ -544,9 +546,7 @@ class CloudRoomService:
         now_epoch = _time.time()
 
         # Phase 1: resolve the room by its link and detect an existing
-        # membership, atomically. The plan-member-cap gate below needs its own
-        # transaction (it increments the counter), so it cannot run inside this
-        # one.
+        # membership.
         with self.backend.transaction() as tx:
             real_tenant_id, room, link_row = self._resolve_room_for_link(tx, room_id, link_token)
             if room["state"] == "closed":
@@ -589,15 +589,11 @@ class CloudRoomService:
             return {"room_id": room_id, "agent_id": agent_id, "status": "active",
                     "joined_at": now, "cursor": 0}
 
-        # New identity: enforce the PLAN member cap atomically. The cap check
-        # and the counter increment are one transaction, so concurrent joins
-        # cannot oversubscribe a room past its plan limit (PLANS is the single
-        # source of truth for the limit).
-        join_room_with_quota(self.backend, real_tenant_id, room_id, agent_id)
-
-        # Phase 3: re-resolve the room (it may have changed since phase 1),
-        # enforce the room's own declared cap, and record the membership
-        # atomically (BEGIN IMMEDIATE writer lock).
+        # New identity: the plan-member-cap check, the counter increment, the
+        # room's own cap check and the membership insert ALL run in ONE
+        # transaction. A room_full refusal rolls the whole transaction back, so
+        # a refused join can never burn a member slot, and BEGIN IMMEDIATE
+        # serializes concurrent joins so they cannot oversubscribe a room.
         with self.backend.transaction() as tx:
             real_tenant_id, room, link_row = self._resolve_room_for_link(tx, room_id, link_token)
             if room["state"] == "closed":
@@ -606,6 +602,9 @@ class CloudRoomService:
                 raise RoomError("link_revoked", "Link has been revoked", 410)
             if float(link_row["expires_at"]) < now_epoch:
                 raise RoomError("link_expired", "Link has expired", 410)
+
+            plan_id, plan = resolve_plan(self.backend, real_tenant_id)
+            increment_room_member_counter(tx, real_tenant_id, room_id, plan_id, plan)
 
             active_count = tx.execute(
                 "SELECT COUNT(*) AS c FROM cloud_room_members "
@@ -624,7 +623,8 @@ class CloudRoomService:
             )
             tx.execute(
                 "INSERT INTO cloud_room_cursors(tenant_id, room_id, agent_id, last_ack_seq, updated_at) "
-                "VALUES (?, ?, ?, 0, ?)",
+                "VALUES (?, ?, ?, 0, ?) "
+                "ON CONFLICT(tenant_id, room_id, agent_id) DO NOTHING",
                 (real_tenant_id, room_id, agent_id, now),
             )
             tx.execute(

@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from weft_cloud.storage import utc_now_iso
+
 
 class QuotaError(Exception):
     """Plan limit hit. Carries structured, non-leaking detail for the HTTP surface.
@@ -89,32 +91,52 @@ def join_room_with_quota(backend, tenant_id: str, room_id: str, member_id: str) 
 
     The cap check and the counter increment happen in ONE transaction, so
     concurrent joins cannot oversubscribe the room.
+
+    Standalone seam (also used for the owner auto-join on room create). The
+    HTTP join path in ``CloudRoomService.join_room`` runs the same gate
+    INSIDE its own transaction so the increment commits or rolls back with the
+    membership insert.
     """
     plan_id, plan = resolve_plan(backend, tenant_id)
     with backend.transaction() as tx:
-        current = tx.execute(
-            "SELECT value FROM cloud_room_counters WHERE tenant_id = ? AND room_id = ? AND counter = 'members'",
-            (tenant_id, room_id),
-        ).fetchone()
-        current_count = int(current["value"]) if current else 0
-        if current_count >= plan.max_members_per_room:
-            raise QuotaError(
-                "quota_exceeded",
-                f"room member limit reached (max {plan.max_members_per_room} "
-                f"members per room on the {plan_id} plan)",
-                limit_name="max_members_per_room",
-                limit_value=plan.max_members_per_room,
-                plan_id=plan_id,
-            )
-        # Record the membership + increment counter atomically.
-        tx.execute(
-            "INSERT INTO cloud_room_counters(tenant_id, room_id, counter, value, updated_at) "
-            "VALUES (?, ?, 'members', 1, ?) "
-            "ON CONFLICT(tenant_id, room_id, counter) DO UPDATE SET value = value + 1",
-            (tenant_id, room_id, "members"),
-        )
+        increment_room_member_counter(tx, tenant_id, room_id, plan_id, plan)
         tx.commit()
     return {"joined": True, "member_id": member_id}
+
+
+def increment_room_member_counter(tx, tenant_id: str, room_id: str, plan_id: str,
+                                  plan: PlanLimits) -> None:
+    """Plan-member-cap check + atomic counter increment on an OPEN transaction.
+
+    ``tx`` is the caller's ``StorageTransaction``. The check and the increment
+    run on the caller's transaction, so the increment commits or rolls back
+    together with the membership write that surrounds it — a join refused later
+    in the same transaction (e.g. ``room_full``) leaves no trace on the counter.
+
+    Raises ``QuotaError`` (code ``quota_exceeded``) when the plan's per-room
+    member cap is already reached; the counter is left untouched.
+    """
+    current = tx.execute(
+        "SELECT value FROM cloud_room_counters WHERE tenant_id = ? AND room_id = ? AND counter = 'members'",
+        (tenant_id, room_id),
+    ).fetchone()
+    current_count = int(current["value"]) if current else 0
+    if current_count >= plan.max_members_per_room:
+        raise QuotaError(
+            "quota_exceeded",
+            f"room member limit reached (max {plan.max_members_per_room} "
+            f"members per room on the {plan_id} plan)",
+            limit_name="max_members_per_room",
+            limit_value=plan.max_members_per_room,
+            plan_id=plan_id,
+        )
+    tx.execute(
+        "INSERT INTO cloud_room_counters(tenant_id, room_id, counter, value, updated_at) "
+        "VALUES (?, ?, 'members', 1, ?) "
+        "ON CONFLICT(tenant_id, room_id, counter) DO UPDATE SET value = value + 1, "
+        "updated_at = excluded.updated_at",
+        (tenant_id, room_id, utc_now_iso()),
+    )
 
 
 def create_room_with_quota(backend, tenant_id: str, room_id: str, coordinator_db_path: str) -> dict:
