@@ -276,20 +276,30 @@ class IdentityNegatives(unittest.TestCase):
         data = json.dumps(body).encode("utf-8")
         req = urllib.request.Request(base + path, data=data, method="POST")
         req.add_header("Content-Type", "application/json")
-        try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                raw = resp.read()
-                return resp.status, json.loads(raw.decode("utf-8")) if raw else {}
-        except urllib.error.HTTPError as exc:
-            payload = {}
+        # Retry transient connection-level failures (socket reset, refused) a
+        # couple of times so a one-off blip does not error a timing test.
+        last_error: Exception | None = None
+        for _attempt in range(3):
             try:
-                raw = exc.read()
-                payload = json.loads(raw.decode("utf-8")) if raw else {}
-            except Exception:
-                pass
-            finally:
-                exc.close()  # release the unread response body / socket
-            return exc.code, payload
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    raw = resp.read()
+                    return resp.status, json.loads(raw.decode("utf-8")) if raw else {}
+            except urllib.error.HTTPError as exc:
+                # HTTPError is a SUBCLASS of URLError; it must be caught first
+                # so an expected 401 is returned, never retried as transport.
+                payload = {}
+                try:
+                    raw = exc.read()
+                    payload = json.loads(raw.decode("utf-8")) if raw else {}
+                except Exception:
+                    pass
+                finally:
+                    exc.close()  # release the unread response body / socket
+                return exc.code, payload
+            except urllib.error.URLError as exc:
+                last_error = exc
+                continue
+        raise last_error  # type: ignore[misc]  # three retries consumed
 
     # ------------------------------------------------------------------
     # 9.2 Token refusals
