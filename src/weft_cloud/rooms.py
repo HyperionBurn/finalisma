@@ -36,8 +36,11 @@ from .identity.tokens import AuthError, hash_token
 from .quotas import (
     QuotaError,
     create_room_with_quota,
+    enforce_events_per_month,
+    increment_room_member_counter,
     join_room_with_quota,
     plan_limits,
+    resolve_plan,
     validate_room_cap,
 )
 from .rate_limit import RateLimiter
@@ -543,10 +546,11 @@ class CloudRoomService:
         caps = list(capabilities) if capabilities else []
         now_epoch = _time.time()
 
-        # Phase 1: resolve the room by its link and detect an existing
-        # membership, atomically. The plan-member-cap gate below needs its own
-        # transaction (it increments the counter), so it cannot run inside this
-        # one.
+        # ONE transaction for the whole join. Resolve the room by its link,
+        # gate the seat (plan member cap + the room's own cap), and record the
+        # membership. The counter increment and the membership write commit or
+        # roll back together, so a refused join can never burn a member slot
+        # and concurrent joins cannot oversubscribe a room.
         with self.backend.transaction() as tx:
             real_tenant_id, room, link_row = self._resolve_room_for_link(tx, room_id, link_token)
             if room["state"] == "closed":
@@ -560,15 +564,14 @@ class CloudRoomService:
                 (real_tenant_id, room_id, agent_id),
             ).fetchone()
 
-        if existing is not None:
-            # Existing identity: verify it is the SAME actor, then reactivate.
-            # Re-joins are NOT re-counted against the plan member cap.
-            if existing["actor_token_hash"] and existing["actor_token_hash"] != actor_token_hash:
-                raise RoomError("actor_auth_invalid",
-                                "Link cannot overwrite an existing member identity", 403)
-            now = utc_now_iso()
-            already_active = existing["status"] == "active"
-            with self.backend.transaction() as tx:
+            if existing is not None and existing["status"] == "active":
+                # Existing active identity: verify it is the SAME actor, then
+                # refresh presence. Idempotent re-joins are NOT re-counted
+                # against the plan member cap and never re-gated by the room cap.
+                if existing["actor_token_hash"] and existing["actor_token_hash"] != actor_token_hash:
+                    raise RoomError("actor_auth_invalid",
+                                    "Link cannot overwrite an existing member identity", 403)
+                now = utc_now_iso()
                 tx.execute(
                     "UPDATE cloud_room_members SET status = 'active', last_seen = ?, "
                     "joined_at = ?, capabilities_json = ?, actor_token_hash = ? "
@@ -582,30 +585,21 @@ class CloudRoomService:
                     "ON CONFLICT(tenant_id, room_id, agent_id) DO NOTHING",
                     (real_tenant_id, room_id, agent_id, now),
                 )
-                if not already_active:
-                    self._append_event(tx, real_tenant_id, room_id, agent_id, "room.joined",
-                                       {"agent_id": agent_id, "status": "active"})
                 tx.commit()
-            return {"room_id": room_id, "agent_id": agent_id, "status": "active",
-                    "joined_at": now, "cursor": 0}
+                return {"room_id": room_id, "agent_id": agent_id, "status": "active",
+                        "joined_at": now, "cursor": 0}
 
-        # New identity: enforce the PLAN member cap atomically. The cap check
-        # and the counter increment are one transaction, so concurrent joins
-        # cannot oversubscribe a room past its plan limit (PLANS is the single
-        # source of truth for the limit).
-        join_room_with_quota(self.backend, real_tenant_id, room_id, agent_id)
-
-        # Phase 3: re-resolve the room (it may have changed since phase 1),
-        # enforce the room's own declared cap, and record the membership
-        # atomically (BEGIN IMMEDIATE writer lock).
-        with self.backend.transaction() as tx:
-            real_tenant_id, room, link_row = self._resolve_room_for_link(tx, room_id, link_token)
-            if room["state"] == "closed":
-                raise RoomError("room_closed", "Room is closed", 409)
-            if link_row["revoked"]:
-                raise RoomError("link_revoked", "Link has been revoked", 410)
-            if float(link_row["expires_at"]) < now_epoch:
-                raise RoomError("link_expired", "Link has expired", 410)
+            # New identity OR a left member reactivating — both need a seat.
+            # The plan member cap check + counter increment run here (they roll
+            # back with this transaction if the room's own cap below refuses),
+            # and the room cap is enforced before the membership is recorded.
+            # BEGIN IMMEDIATE serializes concurrent joins, so exactly one can
+            # take the last slot.
+            if existing is not None and existing["actor_token_hash"] and existing["actor_token_hash"] != actor_token_hash:
+                raise RoomError("actor_auth_invalid",
+                                "Link cannot overwrite an existing member identity", 403)
+            plan_id, plan = resolve_plan(self.backend, real_tenant_id)
+            increment_room_member_counter(tx, real_tenant_id, room_id, plan_id, plan)
 
             active_count = tx.execute(
                 "SELECT COUNT(*) AS c FROM cloud_room_members "
@@ -616,15 +610,27 @@ class CloudRoomService:
                 raise RoomError("room_full", f"Room is full (cap {room['cap']})", 409)
 
             now = utc_now_iso()
-            tx.execute(
-                "INSERT INTO cloud_room_members("
-                " tenant_id, room_id, agent_id, joined_at, last_seen, status, capabilities_json, actor_token_hash"
-                ") VALUES (?, ?, ?, ?, ?, 'active', ?, ?)",
-                (real_tenant_id, room_id, agent_id, now, now_epoch, _json(caps), actor_token_hash),
-            )
+            if existing is not None:
+                # Left member reactivating — restore in place (the vacated seat
+                # is re-counted now that it is being taken again).
+                tx.execute(
+                    "UPDATE cloud_room_members SET status = 'active', last_seen = ?, "
+                    "joined_at = ?, capabilities_json = ?, actor_token_hash = ? "
+                    "WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
+                    (now_epoch, now, _json(caps), actor_token_hash,
+                     real_tenant_id, room_id, agent_id),
+                )
+            else:
+                tx.execute(
+                    "INSERT INTO cloud_room_members("
+                    " tenant_id, room_id, agent_id, joined_at, last_seen, status, capabilities_json, actor_token_hash"
+                    ") VALUES (?, ?, ?, ?, ?, 'active', ?, ?)",
+                    (real_tenant_id, room_id, agent_id, now, now_epoch, _json(caps), actor_token_hash),
+                )
             tx.execute(
                 "INSERT INTO cloud_room_cursors(tenant_id, room_id, agent_id, last_ack_seq, updated_at) "
-                "VALUES (?, ?, ?, 0, ?)",
+                "VALUES (?, ?, ?, 0, ?) "
+                "ON CONFLICT(tenant_id, room_id, agent_id) DO NOTHING",
                 (real_tenant_id, room_id, agent_id, now),
             )
             tx.execute(
@@ -681,13 +687,27 @@ class CloudRoomService:
                 "UPDATE cloud_room_members SET status = 'left' WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
                 (tenant_id, room_id, agent_id),
             )
+            # A leaving member frees a seat: the member counter tracks ACTIVE
+            # members, so it must come down with the status. Clamped at zero so
+            # a drifted counter can never go negative.
+            tx.execute(
+                "UPDATE cloud_room_counters SET value = MAX(0, value - 1), updated_at = ? "
+                "WHERE tenant_id = ? AND room_id = ? AND counter = 'members'",
+                (utc_now_iso(), tenant_id, room_id),
+            )
             self._append_event(tx, tenant_id, room_id, agent_id, "room.left",
                                {"agent_id": agent_id})
             tx.commit()
         return {"room_id": room_id, "agent_id": agent_id, "status": "left"}
 
     def close_room(self, tenant_id: str, room_id: str, caller_agent_id: str) -> dict:
-        """Close a room (owner only). Invalidates all links."""
+        """Close a room (owner only). Invalidates all links.
+
+        Closing releases the room back to the tenant's ACTIVE-room quota: the
+        ``rooms`` counter tracks active (non-closed) rooms, so it is
+        decremented here. Clamped at zero so a drifted counter can never go
+        negative.
+        """
         with self.backend.transaction() as tx:
             room = self._require_room(tx, tenant_id, room_id)
             self._require_member(tx, tenant_id, room_id, caller_agent_id)
@@ -700,6 +720,11 @@ class CloudRoomService:
             tx.execute(
                 "UPDATE cloud_room_links SET revoked = 1 WHERE tenant_id = ? AND room_id = ?",
                 (tenant_id, room_id),
+            )
+            tx.execute(
+                "UPDATE cloud_counters SET value = MAX(0, value - 1), updated_at = ? "
+                "WHERE tenant_id = ? AND counter = 'rooms'",
+                (utc_now_iso(), tenant_id),
             )
             self._append_event(tx, tenant_id, room_id, caller_agent_id, "room.closed",
                                {"room_id": room_id})
@@ -883,6 +908,10 @@ class CloudRoomService:
             plan_limits(self.backend, tenant_id).max_messages_per_minute, 60,
         )
 
+        # Monthly event budget, plan-driven. Resolved once so the enforcement
+        # inside the append transaction does not open a second connection.
+        plan_id, plan = resolve_plan(self.backend, tenant_id)
+
         with self.backend.transaction() as tx:
             room = self._require_room(tx, tenant_id, room_id)
             self._require_member(tx, tenant_id, room_id, sender_agent_id)
@@ -891,6 +920,9 @@ class CloudRoomService:
             targets = self._route_targets(tx, tenant_id, room_id, target_spec)
             if exclude_sender and sender_agent_id in targets:
                 targets = [t for t in targets if t != sender_agent_id]
+            # Enforce + count the monthly event budget in the SAME transaction
+            # as the append, so a refused message leaves no counter trace.
+            enforce_events_per_month(tx, tenant_id, plan_id, plan)
             seq = self._append_event(tx, tenant_id, room_id, sender_agent_id, "room.message",
                                      {"payload": payload, "target_spec": target_spec,
                                       "targets": targets},
