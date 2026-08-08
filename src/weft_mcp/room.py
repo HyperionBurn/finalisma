@@ -354,7 +354,13 @@ class RoomStore:
             (room_id, agent_id),
         ).fetchone()
         if row is None:
-            raise RoomError("member_required", "Only room members can access this room")
+            # No-oracle path: a caller who is not an active member must not be
+            # able to learn whether the room exists. `room_not_found` here is
+            # indistinguishable from `_require_room` failing on a room that
+            # never existed. This matches the hosted cloud plane, which resolves
+            # the room through the caller's membership and returns 404 for a
+            # non-member. (Members are still entitled to precise errors.)
+            raise RoomError("room_not_found", "Room not found")
         return row
 
     def _validate_actor(self, conn: sqlite3.Connection, team_id: str, agent_id: str,
@@ -457,12 +463,8 @@ class RoomStore:
         with self._transaction() as conn:
             self._require_room(conn, room_id)
             self._validate_actor(conn, team_id, agent_id, actor_token, None)
-            row = conn.execute(
-                "SELECT * FROM room_members WHERE room_id = ? AND agent_id = ? AND status = 'active'",
-                (room_id, agent_id),
-            ).fetchone()
-            if row is None:
-                raise RoomError("member_required", "Only room members can leave")
+            # Non-member leave is flattened to room_not_found (no existence oracle).
+            self._require_member(conn, room_id, agent_id)
             conn.execute(
                 "UPDATE room_members SET status = 'left' WHERE room_id = ? AND agent_id = ?",
                 (room_id, agent_id),
@@ -475,6 +477,9 @@ class RoomStore:
         with self._transaction() as conn:
             room = self._require_room(conn, room_id)
             self._validate_actor(conn, team_id, caller_agent_id, actor_token, None)
+            # Non-members get the no-oracle room_not_found; only members can
+            # reach the precise owner_required refusal.
+            self._require_member(conn, room_id, caller_agent_id)
             if room["owner_agent_id"] != caller_agent_id:
                 raise RoomError("owner_required", "Only the room owner can close it")
             conn.execute(
@@ -493,6 +498,9 @@ class RoomStore:
         with self._transaction() as conn:
             room = self._require_room(conn, room_id)
             self._validate_actor(conn, team_id, owner_agent_id, actor_token, None)
+            # Non-members get the no-oracle room_not_found; only members can
+            # reach the precise owner_required refusal.
+            self._require_member(conn, room_id, owner_agent_id)
             if room["owner_agent_id"] != owner_agent_id:
                 raise RoomError("owner_required", "Only the room owner can revoke links")
             conn.execute(
