@@ -155,8 +155,11 @@ Rules that must survive future edits:
   `tenancy.py` is structural isolation: `TenantContext.require_tenant()` guard + required
   `tenant_id` on every storage method. `migrations.py` is forward-only/idempotent and upgrades a
   real v3 coordinator DB in place (additive only, never touches agent_credentials).
-  `quotas.py`/`rate_limit.py` are plan-driven seams (Wave I adds billing). Design:
-  `docs/CLOUD_SPINE_DESIGN.md`. This plane MAY take pinned deps; v1 uses none (stdlib).
+  `quotas.py`/`rate_limit.py` are plan-driven seams (Wave I adds billing). `mcp.py` is the
+  hosted MCP endpoint at `POST /mcp` — authenticated with cloud sessions, tenant-confined,
+  exposing the 8 room tools over `CloudRoomService`; `service.py` routes `/mcp` to it
+  (Design: `docs/CLOUD_SPINE_DESIGN.md`, `docs/HOSTED_MCP_DESIGN.md`).
+  This plane MAY take pinned deps; v1 uses none (stdlib).
 - `src/weft_cloud/identity/` — the Wave G identity plane (stdlib only). `accounts.py`
   (scrypt password hashing, per-user salt, constant-time compare, timing-invariant unknown-email
   auth, single-use verify/reset tokens), `sessions.py` (opaque `fss_` tokens, SHA-256 at rest,
@@ -561,6 +564,15 @@ Priority order for the next agent:
    scaling. The image build itself is untested until run on a machine with
    Docker installed; `docs/DEPLOY.md` records the exact verification status.
    Making it a real multi-node service is a storage-layer change.
+9. A hosted MCP endpoint now exists at `POST /mcp` on `weft-cloud`
+   (`src/weft_cloud/mcp.py`, `docs/HOSTED_MCP_DESIGN.md`): authenticated with
+   cloud sessions, tenant-confined, exposing the 8 room tools over
+   `CloudRoomService` (the same store `/v1` uses). The remaining validation is
+   breadth: the stdio tier is host-verified (OpenCode 1.18.13), but the
+   Streamable-HTTP tier still needs a **committed transcript from a real host
+   pointing at the hosted `/mcp` endpoint** before it counts as "supported"
+   per `docs/PRODUCT_ROADMAP.md` §3. A simulated driver (the integration tests
+   in `tests/test_hosted_mcp.py`) is not that evidence.
 
 Current mobile QA is clean: document width equals the 390px viewport, no horizontal
 page scroll is exposed, and the overflow-offender scan reports no offenders. Keep
