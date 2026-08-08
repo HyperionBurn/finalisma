@@ -356,10 +356,38 @@ class OutboxWorkerConfigTests(unittest.TestCase):
 
     def test_runtime_config_defaults(self) -> None:
         cfg = outbox_worker.runtime_config(argv=[], environ={})
-        self.assertEqual(cfg["db_path"], "./data/finalisma-cloud.db")
+        # The drain worker must default to the SAME file the service writes to,
+        # not a stale finalisma-named path that is never opened by anything.
+        self.assertEqual(cfg["db_path"], "./data/weft-cloud.db")
         self.assertEqual(cfg["interval"], 5)
         self.assertEqual(cfg["batch_size"], 50)
         self.assertEqual(cfg["max_attempts"], 5)
+
+    def test_runtime_config_weft_db_path_wins(self) -> None:
+        cfg = outbox_worker.runtime_config(argv=[], environ={"WEFT_DB_PATH": "/data/cloud.db"})
+        self.assertEqual(cfg["db_path"], "/data/cloud.db")
+
+    def test_runtime_config_legacy_finalisma_db_path_fallback(self) -> None:
+        cfg = outbox_worker.runtime_config(argv=[], environ={
+            "FINALISMA_DB_PATH": "/data/cloud.db",
+        })
+        self.assertEqual(cfg["db_path"], "/data/cloud.db")
+
+    def test_runtime_config_conflicting_db_paths_fail_loudly(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            outbox_worker.runtime_config(argv=[], environ={
+                "WEFT_DB_PATH": "/data/cloud.db",
+                "FINALISMA_DB_PATH": "/data/other.db",
+            })
+        self.assertIn("WEFT_DB_PATH", str(ctx.exception))
+        self.assertIn("FINALISMA_DB_PATH", str(ctx.exception))
+
+    def test_runtime_config_argv_db_path_overrides_env(self) -> None:
+        cfg = outbox_worker.runtime_config(argv=["/tmp/argv.db"], environ={
+            "WEFT_DB_PATH": "/data/cloud.db",
+            "FINALISMA_DB_PATH": "/data/other.db",
+        })
+        self.assertEqual(cfg["db_path"], "/tmp/argv.db")
 
     def test_runtime_config_env_overrides(self) -> None:
         cfg = outbox_worker.runtime_config(argv=[], environ={

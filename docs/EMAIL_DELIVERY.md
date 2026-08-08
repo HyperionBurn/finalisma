@@ -35,7 +35,7 @@ works with no code change.
 | `FINALISMA_SMTP_USERNAME` | — | Auth username (required once the host is set). |
 | `FINALISMA_SMTP_PASSWORD` | — | Auth password (required once the host is set). |
 | `FINALISMA_SMTP_FROM` | — | From address, e.g. `no-reply@example.com` (required once the host is set). |
-| `FINALISMA_DB_PATH` | `./data/finalisma-cloud.db` | The **same** SQLite file the web/service processes write to. |
+| `WEFT_DB_PATH` | `./data/weft-cloud.db` | The **same** SQLite file the web/service processes write to. The old `FINALISMA_DB_PATH` name is still honoured as a fallback, but if both are set to different paths the worker fails loudly instead of silently draining the wrong file. |
 | `FINALISMA_DRAIN_INTERVAL` | `5` | Seconds between passes. |
 | `FINALISMA_DRAIN_BATCH` | `50` | Max rows claimed per pass. |
 | `FINALISMA_DRAIN_MAX_ATTEMPTS` | `5` | Retries before a transient failure becomes terminal. |
@@ -47,6 +47,32 @@ Validation follows the service launchers: a half-set SMTP configuration
 than failing every send at runtime. A **missing** configuration is not an error
 and keeps the Stage-1 default.
 
+## Upgrading an existing database
+
+Migrations never run on a fresh database only. `ensure_schema` (and therefore
+`apply_migrations`) is invoked on every boot and always brings the database up
+to the latest migration — including the `cloud_008` delivery columns
+(`status`, `attempts`, `next_attempt_at`, `claimed_at`, `claimed_by`,
+`last_error`) that an outbox written before this feature existed is missing.
+`cloud_008` is now a set of individually-guarded `ALTER TABLE` statements, so a
+column that already exists is skipped rather than wedging the database forever.
+
+To upgrade the live database in place (no data loss — the migration is
+forward-only and additive):
+
+```bash
+PYTHONPATH=src python -B - <<'PY'
+from weft_cloud.storage import SqliteWalBackend
+from weft_cloud.migrations import apply_migrations
+b = SqliteWalBackend("./data/weft-cloud.db")
+apply_migrations(b)
+b.close()
+PY
+```
+
+Back up the database file first; the documented rollback is the pre-upgrade
+backup (see `docs/DEPLOY.md` §4).
+
 ## Running the worker
 
 As its own process (same idiom as `weft_cloud.service` / `.web`):
@@ -55,7 +81,7 @@ As its own process (same idiom as `weft_cloud.service` / `.web`):
 FINALISMA_SMTP_HOST=smtp.example.com FINALISMA_SMTP_PORT=587 \
 FINALISMA_SMTP_USERNAME=apikey FINALISMA_SMTP_PASSWORD=secret \
 FINALISMA_SMTP_FROM=no-reply@example.com \
-FINALISMA_DB_PATH=./data/finalisma-cloud.db \
+WEFT_DB_PATH=./data/weft-cloud.db \
 PYTHONPATH=src python -B -m weft_cloud.identity.outbox_worker
 ```
 
@@ -95,7 +121,7 @@ Without SMTP configured the worker prints a note and exits `0`; every row stays
    from weft_cloud.identity import accounts
    from weft_cloud.storage import SqliteWalBackend
    from weft_cloud.migrations import apply_migrations
-   b = SqliteWalBackend("./data/finalisma-cloud.db"); b.initialize(); apply_migrations(b)
+   b = SqliteWalBackend("./data/weft-cloud.db"); b.initialize(); apply_migrations(b)
    accounts.request_password_reset(b, "tenant_<id>", "you@example.com")
    b.close()
    PY
@@ -104,10 +130,10 @@ Without SMTP configured the worker prints a note and exits `0`; every row stays
 2. Confirm the row is `queued`, then run the worker once:
 
    ```bash
-   sqlite3 data/finalisma-cloud.db \
+   sqlite3 data/weft-cloud.db \
      "SELECT entry_id, to_email, status, attempts FROM cloud_identity_outbox"
    PYTHONPATH=src python -B -m weft_cloud.identity.outbox_worker --once
-   sqlite3 data/finalisma-cloud.db \
+   sqlite3 data/weft-cloud.db \
      "SELECT entry_id, to_email, status, attempts, dispatched_at FROM cloud_identity_outbox"
    ```
 
