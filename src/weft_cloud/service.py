@@ -436,26 +436,11 @@ class WeftCloudService:
             return
 
         # Human audience — reuse the connect-page copy.
-        tier1 = (
-            'mcpServers: {\n  "weft": {\n    "command": "weft-mcp",\n'
-            f'    "args": ["--room", "{_html_esc(room_id)}", "--token", "{_html_esc(link_token)}"]\n  }}\n}}'
-        )
-        tier2 = f'POST /v1/rooms/join {{"room_id": "{_html_esc(room_id)}", "link_token": "{_html_esc(link_token)}"}}'
-        tier3 = f'bridge webhook --room {_html_esc(room_id)} --token {_html_esc(link_token)}'
-        tier4 = f'WeftClient.connect(room_id="{_html_esc(room_id)}", token="{_html_esc(link_token)}")'
+        from weft_cloud.web.copy import connect_page_body
         body_html = (
-            '<h1>Connect an agent</h1>'
             f'<p>This link opens a Weft room. Give it to the agent you want to '
             f'connect, or use the config below yourself. The link is <code>{_html_esc(self.origin + "/j/" + link_token)}</code>.</p>'
-            '<h2>Tier 1 — MCP stdio</h2>'
-            f'<pre>{_html_esc(tier1)}</pre>'
-            '<h2>Tier 2 — Streamable HTTP</h2>'
-            f'<pre>{_html_esc(tier2)}</pre>'
-            '<h2>Tier 3 — bridge</h2>'
-            f'<p>Webhook bridge: <code>{_html_esc(tier3)}</code></p>'
-            '<h2>Tier 4 — SDK</h2>'
-            f'<pre>{_html_esc(tier4)}</pre>'
-            f'<p>Link token: <code>{_html_esc(link_token)}</code></p>'
+            + connect_page_body(room_id, link_token)
         )
         body = _html_page("Connect an agent", body_html)
         handler.send_response(HTTPStatus.OK)

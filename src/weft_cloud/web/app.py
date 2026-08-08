@@ -45,6 +45,7 @@ from weft_cloud.identity.tokens import hash_token as _hash_token
 from weft_cloud.quotas import QuotaError
 from weft_cloud.rooms import CloudRoomService, RoomError
 from weft_cloud.storage import StorageBackend
+from weft_cloud.web.copy import connect_page_body
 
 SESSION_COOKIE = "fss_session"
 CSRF_COOKIE = "fss_csrf"
@@ -1144,18 +1145,8 @@ class WeftWebApp:
             return
         link_token = self._get_room_link_token(room_id) or ""
         body_html = (
-            '<h1>Connect an agent</h1>'
-            '<h2>Tier 1 — MCP stdio</h2>'
-            '<pre>mcpServers: {\n  "weft": {\n    "command": "weft-mcp",\n'
-            f'    "args": ["--room", "{_esc(room_id)}", "--token", "{_esc(link_token)}"]\n  }}\n}}</pre>'
-            '<h2>Tier 2 — Streamable HTTP</h2>'
-            f'<pre>POST /v1/rooms/join {{"room_id": "{_esc(room_id)}", "link_token": "{_esc(link_token)}"}}</pre>'
-            '<h2>Tier 3 — bridge</h2>'
-            f'<p>Webhook bridge: <code>bridge webhook --room {_esc(room_id)} --token {_esc(link_token)}</code></p>'
-            '<h2>Tier 4 — SDK</h2>'
-            f'<pre>WeftClient.connect(room_id="{_esc(room_id)}", token="{_esc(link_token)}")</pre>'
-            f'<p>Link token: <code>{_esc(link_token)}</code></p>'
-            f'<p><a href="/room/{_esc(room_id)}">Back to room</a></p>'
+            connect_page_body(room_id, link_token)
+            + f'<p><a href="/room/{_esc(room_id)}">Back to room</a></p>'
         )
         body = _page("Connect an agent", body_html)
         self._send_html(handler, HTTPStatus.OK, body)
