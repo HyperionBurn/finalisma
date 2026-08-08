@@ -248,9 +248,13 @@ class IdentityNegatives(unittest.TestCase):
             med_unknown = statistics.median(unknown_times)
             med_wrong = statistics.median(wrong_pw_times)
 
-            # The unknown path must not be dramatically faster. A ratio cap of
-            # 3× is generous — the real invariant is "same scrypt cost".
-            ratio = med_unknown / med_wrong if med_wrong > 0 else float("inf")
+            # The oracle direction: a known-email-wrong-password attempt costs
+            # one scrypt, so if the unknown-email path returns WITHOUT that
+            # work it is dramatically FASTER — known/unknown blows past 3x.
+            # The invariant is "same scrypt cost"; a ratio cap of 3× is
+            # generous. (The inverse ratio would pass even with the oracle
+            # present, which is the trap the original test fell into.)
+            ratio = med_wrong / med_unknown if med_unknown > 0 else float("inf")
             self.assertLess(
                 ratio, 3.0,
                 f"unknown-user signin is {ratio:.2f}× faster than wrong-password "
