@@ -467,6 +467,21 @@ class TestJoinDescriptorAndAgentCard(CloudServiceTestBase):
         self.assertIn(self.link_token, page)
         self.assertIn(self.room_id, page)
 
+    def test_join_descriptor_html_documents_a_working_join(self) -> None:
+        # The /j/ human page reuses the connect-page copy, so it must also
+        # document the auth header, consent, and the join endpoint — the
+        # elements a copy-paste needs to succeed (regression for the bug).
+        status, raw, _ = _get_url(f"{self.base}/j/{self.link_token}", accept="text/html")
+        self.assertEqual(status, 200)
+        page = raw.decode("utf-8", errors="replace")
+        self.assertIn("POST /v1/rooms/join", page)
+        self.assertIn("Authorization: Bearer", page)
+        self.assertIn("consent: true", page)
+        self.assertIn("/v1/auth/signup", page)
+        self.assertIn("/v1/auth/signin", page)
+        self.assertIn("cross-tenant", page)
+        self.assertIn("not proof that a human saw and approved", page)
+
     def test_agent_card_is_public_and_contains_no_a2a_conformance_claim(self) -> None:
         # Unauthenticated, valid JSON, no secrets, no A2A conformance claim.
         status, raw, headers = _get_url(f"{self.base}/.well-known/agent-card.json")
