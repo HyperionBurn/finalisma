@@ -545,8 +545,11 @@ class CloudRoomService:
         caps = list(capabilities) if capabilities else []
         now_epoch = _time.time()
 
-        # Phase 1: resolve the room by its link and detect an existing
-        # membership.
+        # ONE transaction for the whole join. Resolve the room by its link,
+        # gate the seat (plan member cap + the room's own cap), and record the
+        # membership. The counter increment and the membership write commit or
+        # roll back together, so a refused join can never burn a member slot
+        # and concurrent joins cannot oversubscribe a room.
         with self.backend.transaction() as tx:
             real_tenant_id, room, link_row = self._resolve_room_for_link(tx, room_id, link_token)
             if room["state"] == "closed":
@@ -560,15 +563,14 @@ class CloudRoomService:
                 (real_tenant_id, room_id, agent_id),
             ).fetchone()
 
-        if existing is not None:
-            # Existing identity: verify it is the SAME actor, then reactivate.
-            # Re-joins are NOT re-counted against the plan member cap.
-            if existing["actor_token_hash"] and existing["actor_token_hash"] != actor_token_hash:
-                raise RoomError("actor_auth_invalid",
-                                "Link cannot overwrite an existing member identity", 403)
-            now = utc_now_iso()
-            already_active = existing["status"] == "active"
-            with self.backend.transaction() as tx:
+            if existing is not None and existing["status"] == "active":
+                # Existing active identity: verify it is the SAME actor, then
+                # refresh presence. Idempotent re-joins are NOT re-counted
+                # against the plan member cap and never re-gated by the room cap.
+                if existing["actor_token_hash"] and existing["actor_token_hash"] != actor_token_hash:
+                    raise RoomError("actor_auth_invalid",
+                                    "Link cannot overwrite an existing member identity", 403)
+                now = utc_now_iso()
                 tx.execute(
                     "UPDATE cloud_room_members SET status = 'active', last_seen = ?, "
                     "joined_at = ?, capabilities_json = ?, actor_token_hash = ? "
@@ -582,27 +584,19 @@ class CloudRoomService:
                     "ON CONFLICT(tenant_id, room_id, agent_id) DO NOTHING",
                     (real_tenant_id, room_id, agent_id, now),
                 )
-                if not already_active:
-                    self._append_event(tx, real_tenant_id, room_id, agent_id, "room.joined",
-                                       {"agent_id": agent_id, "status": "active"})
                 tx.commit()
-            return {"room_id": room_id, "agent_id": agent_id, "status": "active",
-                    "joined_at": now, "cursor": 0}
+                return {"room_id": room_id, "agent_id": agent_id, "status": "active",
+                        "joined_at": now, "cursor": 0}
 
-        # New identity: the plan-member-cap check, the counter increment, the
-        # room's own cap check and the membership insert ALL run in ONE
-        # transaction. A room_full refusal rolls the whole transaction back, so
-        # a refused join can never burn a member slot, and BEGIN IMMEDIATE
-        # serializes concurrent joins so they cannot oversubscribe a room.
-        with self.backend.transaction() as tx:
-            real_tenant_id, room, link_row = self._resolve_room_for_link(tx, room_id, link_token)
-            if room["state"] == "closed":
-                raise RoomError("room_closed", "Room is closed", 409)
-            if link_row["revoked"]:
-                raise RoomError("link_revoked", "Link has been revoked", 410)
-            if float(link_row["expires_at"]) < now_epoch:
-                raise RoomError("link_expired", "Link has expired", 410)
-
+            # New identity OR a left member reactivating — both need a seat.
+            # The plan member cap check + counter increment run here (they roll
+            # back with this transaction if the room's own cap below refuses),
+            # and the room cap is enforced before the membership is recorded.
+            # BEGIN IMMEDIATE serializes concurrent joins, so exactly one can
+            # take the last slot.
+            if existing is not None and existing["actor_token_hash"] and existing["actor_token_hash"] != actor_token_hash:
+                raise RoomError("actor_auth_invalid",
+                                "Link cannot overwrite an existing member identity", 403)
             plan_id, plan = resolve_plan(self.backend, real_tenant_id)
             increment_room_member_counter(tx, real_tenant_id, room_id, plan_id, plan)
 
@@ -615,12 +609,23 @@ class CloudRoomService:
                 raise RoomError("room_full", f"Room is full (cap {room['cap']})", 409)
 
             now = utc_now_iso()
-            tx.execute(
-                "INSERT INTO cloud_room_members("
-                " tenant_id, room_id, agent_id, joined_at, last_seen, status, capabilities_json, actor_token_hash"
-                ") VALUES (?, ?, ?, ?, ?, 'active', ?, ?)",
-                (real_tenant_id, room_id, agent_id, now, now_epoch, _json(caps), actor_token_hash),
-            )
+            if existing is not None:
+                # Left member reactivating — restore in place (the vacated seat
+                # is re-counted now that it is being taken again).
+                tx.execute(
+                    "UPDATE cloud_room_members SET status = 'active', last_seen = ?, "
+                    "joined_at = ?, capabilities_json = ?, actor_token_hash = ? "
+                    "WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
+                    (now_epoch, now, _json(caps), actor_token_hash,
+                     real_tenant_id, room_id, agent_id),
+                )
+            else:
+                tx.execute(
+                    "INSERT INTO cloud_room_members("
+                    " tenant_id, room_id, agent_id, joined_at, last_seen, status, capabilities_json, actor_token_hash"
+                    ") VALUES (?, ?, ?, ?, ?, 'active', ?, ?)",
+                    (real_tenant_id, room_id, agent_id, now, now_epoch, _json(caps), actor_token_hash),
+                )
             tx.execute(
                 "INSERT INTO cloud_room_cursors(tenant_id, room_id, agent_id, last_ack_seq, updated_at) "
                 "VALUES (?, ?, ?, 0, ?) "
@@ -681,13 +686,27 @@ class CloudRoomService:
                 "UPDATE cloud_room_members SET status = 'left' WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
                 (tenant_id, room_id, agent_id),
             )
+            # A leaving member frees a seat: the member counter tracks ACTIVE
+            # members, so it must come down with the status. Clamped at zero so
+            # a drifted counter can never go negative.
+            tx.execute(
+                "UPDATE cloud_room_counters SET value = MAX(0, value - 1), updated_at = ? "
+                "WHERE tenant_id = ? AND room_id = ? AND counter = 'members'",
+                (utc_now_iso(), tenant_id, room_id),
+            )
             self._append_event(tx, tenant_id, room_id, agent_id, "room.left",
                                {"agent_id": agent_id})
             tx.commit()
         return {"room_id": room_id, "agent_id": agent_id, "status": "left"}
 
     def close_room(self, tenant_id: str, room_id: str, caller_agent_id: str) -> dict:
-        """Close a room (owner only). Invalidates all links."""
+        """Close a room (owner only). Invalidates all links.
+
+        Closing releases the room back to the tenant's ACTIVE-room quota: the
+        ``rooms`` counter tracks active (non-closed) rooms, so it is
+        decremented here. Clamped at zero so a drifted counter can never go
+        negative.
+        """
         with self.backend.transaction() as tx:
             room = self._require_room(tx, tenant_id, room_id)
             self._require_member(tx, tenant_id, room_id, caller_agent_id)
@@ -700,6 +719,11 @@ class CloudRoomService:
             tx.execute(
                 "UPDATE cloud_room_links SET revoked = 1 WHERE tenant_id = ? AND room_id = ?",
                 (tenant_id, room_id),
+            )
+            tx.execute(
+                "UPDATE cloud_counters SET value = MAX(0, value - 1), updated_at = ? "
+                "WHERE tenant_id = ? AND counter = 'rooms'",
+                (utc_now_iso(), tenant_id),
             )
             self._append_event(tx, tenant_id, room_id, caller_agent_id, "room.closed",
                                {"room_id": room_id})
