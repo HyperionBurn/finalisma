@@ -115,6 +115,22 @@ class CrashTestDriver:
         except json.JSONDecodeError:
             return {"raw": text}
 
+    def _close_streams(self) -> None:
+        """Close the stdio pipes so no TextIOWrapper/file descriptor is leaked.
+
+        ``Popen.kill()``/``wait()`` release the process but not the pipe file
+        objects; left open they are only reclaimed by ``__del__``, which on
+        Python 3.12+ emits ResourceWarning (observed as ``unclosed file``).
+        """
+        for stream in (getattr(self.proc, "stdin", None),
+                       getattr(self.proc, "stdout", None),
+                       getattr(self.proc, "stderr", None)):
+            if stream is not None:
+                try:
+                    stream.close()
+                except OSError:
+                    pass
+
     def kill(self) -> None:
         """Hard kill — SIGKILL. Never a graceful shutdown."""
         if self.proc is None:
@@ -124,6 +140,7 @@ class CrashTestDriver:
             self.proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
             self.proc.wait(timeout=5)
+        self._close_streams()
         self.proc = None
 
     def terminate(self) -> None:
@@ -136,6 +153,7 @@ class CrashTestDriver:
         except subprocess.TimeoutExpired:
             self.proc.kill()
             self.proc.wait(timeout=5)
+        self._close_streams()
         self.proc = None
 
     def close(self) -> None:

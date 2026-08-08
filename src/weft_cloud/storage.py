@@ -269,6 +269,22 @@ class SqliteWalBackend(StorageBackend):
         finally:
             connection.close()
 
+    @contextmanager
+    def _query_only(self) -> Iterator[sqlite3.Connection]:
+        """Query-only connection that is ALWAYS closed on exit.
+
+        ``sqlite3.Connection`` used as a context manager only ends the active
+        transaction — it does not close the connection. Plain ``with conn:``
+        here leaked one open connection per read (held until ``__del__``, which
+        on Python 3.12+ emits ResourceWarning and leaves the file handle, and
+        the WAL sidecars on Windows, open in the meantime).
+        """
+        connection = self._connect(query_only=True)
+        try:
+            yield connection
+        finally:
+            connection.close()
+
     def initialize(self) -> None:
         connection = self._connect()
         try:
@@ -330,7 +346,7 @@ class SqliteWalBackend(StorageBackend):
             self.initialize()
 
     def get_tenant(self, tenant_id: str) -> dict[str, Any] | None:
-        with self._connect(query_only=True) as conn:
+        with self._query_only() as conn:
             row = conn.execute(
                 "SELECT * FROM cloud_tenants WHERE tenant_id = ?", (tenant_id,)
             ).fetchone()
@@ -345,7 +361,7 @@ class SqliteWalBackend(StorageBackend):
             )
 
     def list_rooms(self, tenant_id: str) -> list[dict[str, Any]]:
-        with self._connect(query_only=True) as conn:
+        with self._query_only() as conn:
             rows = conn.execute(
                 "SELECT * FROM cloud_tenant_rooms WHERE tenant_id = ? ORDER BY created_at",
                 (tenant_id,),
@@ -368,7 +384,7 @@ class SqliteWalBackend(StorageBackend):
 
     def poll_events(self, tenant_id: str, room_id: str, after_seq: int, limit: int) -> list[dict]:
         import json as _json
-        with self._connect(query_only=True) as conn:
+        with self._query_only() as conn:
             rows = conn.execute(
                 "SELECT * FROM cloud_event_mirror WHERE tenant_id = ? AND room_id = ? AND seq > ? ORDER BY seq LIMIT ?",
                 (tenant_id, room_id, after_seq, limit),
@@ -397,7 +413,7 @@ class SqliteWalBackend(StorageBackend):
             return int(row["value"])
 
     def get_counter(self, tenant_id: str, counter: str) -> int:
-        with self._connect(query_only=True) as conn:
+        with self._query_only() as conn:
             row = conn.execute(
                 "SELECT value FROM cloud_counters WHERE tenant_id = ? AND counter = ?",
                 (tenant_id, counter),
@@ -418,7 +434,7 @@ class SqliteWalBackend(StorageBackend):
             return int(row["value"])
 
     def get_room_counter(self, tenant_id: str, room_id: str, counter: str) -> int:
-        with self._connect(query_only=True) as conn:
+        with self._query_only() as conn:
             row = conn.execute(
                 "SELECT value FROM cloud_room_counters WHERE tenant_id = ? AND room_id = ? AND counter = ?",
                 (tenant_id, room_id, counter),
@@ -491,7 +507,7 @@ class SqliteWalBackend(StorageBackend):
             )
 
     def list_audit(self, tenant_id: str, limit: int = 100) -> list[dict]:
-        with self._connect(query_only=True) as conn:
+        with self._query_only() as conn:
             rows = conn.execute(
                 "SELECT * FROM cloud_audit WHERE tenant_id = ? ORDER BY created_at DESC LIMIT ?",
                 (tenant_id, limit),
@@ -499,7 +515,7 @@ class SqliteWalBackend(StorageBackend):
         return [dict(r) for r in rows]
 
     def get_schema_version(self) -> int:
-        with self._connect(query_only=True) as conn:
+        with self._query_only() as conn:
             row = conn.execute(
                 "SELECT COUNT(*) AS n FROM schema_migrations"
             ).fetchone()

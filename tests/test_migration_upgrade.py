@@ -26,7 +26,9 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 
 # Add src/ to the import path — same convention as tests/test_weft.py.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -165,17 +167,23 @@ class MigrationUpgradeTests(unittest.TestCase):
     def _file_bytes(self) -> bytes:
         return self.state_path.read_bytes()
 
-    def _connect_ro(self) -> sqlite3.Connection:
-        """Read-only inspection connection.
+    @contextmanager
+    def _connect_ro(self) -> Iterator[sqlite3.Connection]:
+        """Read-only inspection connection, ALWAYS closed on exit.
 
         A plain read-write connection to a DELETE-journal database is used (the
         migration returns the DB to DELETE mode), with an explicit close. This
         avoids the -shm/-wal handles that a WAL-mode connection leaves on
-        Windows, which intermittently locked tempdir teardown.
+        Windows, which intermittently locked tempdir teardown. Using
+        ``with sqlite3.Connection`` alone would commit but NOT close; a
+        contextmanager that closes in ``finally`` is required.
         """
         connection = sqlite3.connect(self.state_path, timeout=5, isolation_level=None)
         connection.row_factory = sqlite3.Row
-        return connection
+        try:
+            yield connection
+        finally:
+            connection.close()
 
     # ------------------------------------------------------------------
     # Test 1: v3→cloud upgrade preserves all coordinator data.
@@ -373,26 +381,35 @@ class MessageKindMigrationTests(unittest.TestCase):
                     " created_at TEXT NOT NULL,"
                     " UNIQUE(room_id, seq), UNIQUE(room_id, origin_agent, idempotency_key))"
                 )
-            with sqlite3.connect(self.cloud_path) as conn:
+            conn = sqlite3.connect(self.cloud_path)
+            try:
                 self.assertFalse(self._has_column(conn),
                                  "precondition: the old event log lacks message_kind")
+            finally:
+                conn.close()  # `with conn:` would NOT close the connection
         finally:
             backend.close()
 
         # Applying the migrations adds the column and records cloud_009.
         self._apply()
-        with sqlite3.connect(self.cloud_path) as conn:
+        conn = sqlite3.connect(self.cloud_path)
+        try:
             self.assertTrue(self._has_column(conn), "cloud_009 must add the message_kind column")
+        finally:
+            conn.close()  # `with conn:` would NOT close the connection
 
         # Second application is a no-op (idempotent, no duplicate column error).
         self._apply()
-        with sqlite3.connect(self.cloud_path) as conn:
+        conn = sqlite3.connect(self.cloud_path)
+        try:
             conn.row_factory = sqlite3.Row
             n = conn.execute(
                 "SELECT COUNT(*) AS c FROM schema_migrations WHERE migration_id = 'cloud_009_room_message_kind'"
             ).fetchone()["c"]
             self.assertEqual(n, 1, "cloud_009 must be recorded exactly once")
             self.assertTrue(self._has_column(conn))
+        finally:
+            conn.close()  # `with conn:` would NOT close the connection
 
     def test_cloud_009_is_skipped_when_column_already_present(self) -> None:
         """A DB created by the new code already has the column; the migration
@@ -407,13 +424,16 @@ class MessageKindMigrationTests(unittest.TestCase):
             apply_migrations(backend)  # idempotent second run
         finally:
             backend.close()
-        with sqlite3.connect(self.cloud_path) as conn:
+        conn = sqlite3.connect(self.cloud_path)
+        try:
             conn.row_factory = sqlite3.Row
             self.assertTrue(self._has_column(conn))
             n = conn.execute(
                 "SELECT COUNT(*) AS c FROM schema_migrations WHERE migration_id = 'cloud_009_room_message_kind'"
             ).fetchone()["c"]
             self.assertEqual(n, 1)
+        finally:
+            conn.close()  # `with conn:` would NOT close the connection
 
 
 if __name__ == "__main__":
