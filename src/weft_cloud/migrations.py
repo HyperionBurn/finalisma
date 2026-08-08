@@ -30,17 +30,38 @@ def utc_now_iso() -> str:
 
 
 @dataclass
+class GuardedStatement:
+    """One SQL statement that is safe to skip when its effect already exists.
+
+    Column-add migrations are split into one ``GuardedStatement`` per ALTER so
+    a database where some columns already exist (added out-of-band) is upgraded
+    statement-by-statement instead of wedging on ``duplicate column name``.
+    Each statement's guard checks ``pragma_table_info`` for its own column.
+    """
+
+    sql: str
+    already_applied: Callable[[Any], bool]
+
+
+@dataclass
 class Migration:
     migration_id: str
     name: str
-    up_sql: str
+    up_sql: str = ""
     # Optional guard: when supplied, ``apply_migrations`` checks it BEFORE
     # running ``up_sql``. If it returns True the migration's effect is already
     # present (e.g. a column added by an earlier code path) and the migration
     # is recorded as applied without re-running its SQL. This keeps
     # ALTER-based migrations forward-only and idempotent, matching the
     # CREATE TABLE IF NOT EXISTS pattern used by the earlier migrations.
+    # Only correct for SINGLE-statement migrations — a multi-statement ALTER
+    # must use ``statements`` instead, so each ALTER is guarded independently.
     already_applied: Callable[[Any], bool] | None = None
+    # Optional per-statement list for multi-statement ALTER migrations. When
+    # supplied it takes precedence over ``up_sql``/``already_applied``: every
+    # statement is run with its own guard, so a partially-applied database
+    # completes the missing columns instead of failing on an existing one.
+    statements: list[GuardedStatement] | None = None
 
 
 _CLOUD_TABLES_SQL = """
@@ -200,14 +221,52 @@ CREATE TABLE IF NOT EXISTS cloud_identity_outbox (
 );
 """
 
-_IDENTITY_OUTBOX_DELIVERY_SQL = """
-ALTER TABLE cloud_identity_outbox ADD COLUMN status TEXT NOT NULL DEFAULT 'queued';
-ALTER TABLE cloud_identity_outbox ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE cloud_identity_outbox ADD COLUMN next_attempt_at REAL NOT NULL DEFAULT 0;
-ALTER TABLE cloud_identity_outbox ADD COLUMN claimed_at REAL;
-ALTER TABLE cloud_identity_outbox ADD COLUMN claimed_by TEXT;
-ALTER TABLE cloud_identity_outbox ADD COLUMN last_error TEXT;
-"""
+def _has_identity_outbox_column(column: str) -> Callable[[Any], bool]:
+    """True when ``cloud_identity_outbox`` already has ``column``."""
+
+    def _guard(execute: Callable[[str, tuple], Any]) -> bool:
+        try:
+            row = execute(
+                "SELECT 1 FROM pragma_table_info('cloud_identity_outbox') WHERE name = ?",
+                (column,),
+            ).fetchone()
+            return row is not None
+        except Exception:
+            return False
+
+    return _guard
+
+
+# cloud_008 is a multi-statement ALTER. Each ALTER is a separate
+# ``GuardedStatement`` so that a database where one of these columns already
+# exists (added out-of-band, or left behind by an interrupted run) is upgraded
+# for the rest instead of wedging on ``duplicate column name`` forever.
+_IDENTITY_OUTBOX_DELIVERY_STATEMENTS = [
+    GuardedStatement(
+        "ALTER TABLE cloud_identity_outbox ADD COLUMN status TEXT NOT NULL DEFAULT 'queued'",
+        _has_identity_outbox_column("status"),
+    ),
+    GuardedStatement(
+        "ALTER TABLE cloud_identity_outbox ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0",
+        _has_identity_outbox_column("attempts"),
+    ),
+    GuardedStatement(
+        "ALTER TABLE cloud_identity_outbox ADD COLUMN next_attempt_at REAL NOT NULL DEFAULT 0",
+        _has_identity_outbox_column("next_attempt_at"),
+    ),
+    GuardedStatement(
+        "ALTER TABLE cloud_identity_outbox ADD COLUMN claimed_at REAL",
+        _has_identity_outbox_column("claimed_at"),
+    ),
+    GuardedStatement(
+        "ALTER TABLE cloud_identity_outbox ADD COLUMN claimed_by TEXT",
+        _has_identity_outbox_column("claimed_by"),
+    ),
+    GuardedStatement(
+        "ALTER TABLE cloud_identity_outbox ADD COLUMN last_error TEXT",
+        _has_identity_outbox_column("last_error"),
+    ),
+]
 
 _ROOM_TABLES_SQL = """
 CREATE TABLE IF NOT EXISTS cloud_rooms (
@@ -346,7 +405,7 @@ MIGRATIONS: list[Migration] = [
     Migration(
         "cloud_008_identity_outbox_delivery",
         "identity email outbox delivery state (status/attempts/backoff)",
-        _IDENTITY_OUTBOX_DELIVERY_SQL,
+        statements=_IDENTITY_OUTBOX_DELIVERY_STATEMENTS,
     ),
     Migration(
         "cloud_009_room_message_kind",
@@ -393,7 +452,17 @@ def apply_migrations(store_or_backend: Any) -> None:
                 commit()
                 continue
             try:
-                executescript(migration.up_sql)
+                if migration.statements is not None:
+                    # Multi-statement ALTER: run each statement with its own
+                    # guard. A column that already exists is skipped instead of
+                    # raising ``duplicate column name``, so a partially-applied
+                    # database completes instead of wedging forever.
+                    for statement in migration.statements:
+                        if statement.already_applied(execute):
+                            continue
+                        execute(statement.sql)
+                else:
+                    executescript(migration.up_sql)
                 execute(
                     "INSERT INTO schema_migrations(migration_id, applied_at) VALUES (?, ?)",
                     (migration.migration_id, utc_now_iso()),
