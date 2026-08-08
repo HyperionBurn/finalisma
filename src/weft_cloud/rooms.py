@@ -36,6 +36,7 @@ from .identity.tokens import AuthError, hash_token
 from .quotas import (
     QuotaError,
     create_room_with_quota,
+    enforce_events_per_month,
     increment_room_member_counter,
     join_room_with_quota,
     plan_limits,
@@ -907,6 +908,10 @@ class CloudRoomService:
             plan_limits(self.backend, tenant_id).max_messages_per_minute, 60,
         )
 
+        # Monthly event budget, plan-driven. Resolved once so the enforcement
+        # inside the append transaction does not open a second connection.
+        plan_id, plan = resolve_plan(self.backend, tenant_id)
+
         with self.backend.transaction() as tx:
             room = self._require_room(tx, tenant_id, room_id)
             self._require_member(tx, tenant_id, room_id, sender_agent_id)
@@ -915,6 +920,9 @@ class CloudRoomService:
             targets = self._route_targets(tx, tenant_id, room_id, target_spec)
             if exclude_sender and sender_agent_id in targets:
                 targets = [t for t in targets if t != sender_agent_id]
+            # Enforce + count the monthly event budget in the SAME transaction
+            # as the append, so a refused message leaves no counter trace.
+            enforce_events_per_month(tx, tenant_id, plan_id, plan)
             seq = self._append_event(tx, tenant_id, room_id, sender_agent_id, "room.message",
                                      {"payload": payload, "target_spec": target_spec,
                                       "targets": targets},

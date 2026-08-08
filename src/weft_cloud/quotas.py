@@ -13,6 +13,7 @@ Authoritative spec: docs/CLOUD_SPINE_DESIGN.md section 5.
 
 from __future__ import annotations
 
+import datetime as _dt
 from dataclasses import dataclass
 
 from weft_cloud.storage import utc_now_iso
@@ -136,6 +137,46 @@ def increment_room_member_counter(tx, tenant_id: str, room_id: str, plan_id: str
         "ON CONFLICT(tenant_id, room_id, counter) DO UPDATE SET value = value + 1, "
         "updated_at = excluded.updated_at",
         (tenant_id, room_id, utc_now_iso()),
+    )
+
+
+def events_month_bucket() -> str:
+    """Counter key for the current calendar month (UTC), e.g. ``events:2026-08``.
+
+    A new bucket per month is what makes ``max_events_per_month`` a MONTHLY
+    budget instead of a lifetime one.
+    """
+    return f"events:{_dt.datetime.now(_dt.timezone.utc).strftime('%Y-%m')}"
+
+
+def enforce_events_per_month(tx, tenant_id: str, plan_id: str, plan: PlanLimits) -> None:
+    """Enforce the plan's monthly event budget atomically on an OPEN transaction.
+
+    Reads the tenant's ``events:<YYYY-MM>`` counter, refuses with ``QuotaError``
+    (code ``quota_exceeded``) once the month's budget is spent, then increments
+    the bucket. Runs on the caller's transaction so the counter and the event
+    it accounts for commit or roll back together.
+    """
+    bucket = events_month_bucket()
+    current = tx.execute(
+        "SELECT value FROM cloud_counters WHERE tenant_id = ? AND counter = ?",
+        (tenant_id, bucket),
+    ).fetchone()
+    current_count = int(current["value"]) if current else 0
+    if current_count >= plan.max_events_per_month:
+        raise QuotaError(
+            "quota_exceeded",
+            f"monthly event limit reached (max {plan.max_events_per_month} "
+            f"events per month on the {plan_id} plan)",
+            limit_name="max_events_per_month",
+            limit_value=plan.max_events_per_month,
+            plan_id=plan_id,
+        )
+    tx.execute(
+        "INSERT INTO cloud_counters(tenant_id, counter, value, updated_at) VALUES (?, ?, 1, ?) "
+        "ON CONFLICT(tenant_id, counter) DO UPDATE SET value = value + 1, "
+        "updated_at = excluded.updated_at",
+        (tenant_id, bucket, utc_now_iso()),
     )
 
 
