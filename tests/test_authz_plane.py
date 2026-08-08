@@ -177,8 +177,10 @@ class TestSignupCannotTakeoverAnAccount(AuthzPlaneTestBase):
         existing = self._signup("existing@example.com", "ExistingPass!1")
         target_tenant = existing["tenant_id"]
 
-        # A new user supplies that tenant_id — the server must mint a FRESH
-        # tenant and ignore the client-chosen one.
+        # The exact reported attack: brand-new email + org_name + the VICTIM's
+        # tenant_id. The server must mint a FRESH tenant and ignore the
+        # client-chosen one — and the issued session must NOT be able to read
+        # the victim organisation's member roster.
         status, body = self._signup_raw("newbie@example.com", "NewbiePass!1",
                                         tenant_id=target_tenant)
         self.assertEqual(status, 201)
@@ -187,13 +189,17 @@ class TestSignupCannotTakeoverAnAccount(AuthzPlaneTestBase):
         self.assertTrue(body["tenant_id"].startswith("tenant_"))
         self.assertNotEqual(body["account_id"], existing["account_id"])
 
-        # The new user is NOT a member of the existing tenant, and cannot act
-        # as its owner.
+        # The new user is NOT a member of the existing tenant, and cannot read
+        # its roster with the issued session: /v1/org/members returns only the
+        # attacker's own membership in their fresh tenant — never the victim's.
         status, members = _get(self.base, "/v1/org/members", body["session_token"])
         self.assertEqual(status, 200)
         self.assertEqual(len(members["members"]), 1)
         self.assertEqual(members["members"][0]["account_id"], body["account_id"])
         self.assertNotEqual(members["members"][0]["account_id"], existing["account_id"])
+        self.assertNotIn("existing@example.com",
+                         json.dumps(members),
+                         "attacker's session must not expose the victim org's roster")
 
 
 class TestCrossTenantImpersonationSealed(AuthzPlaneTestBase):
