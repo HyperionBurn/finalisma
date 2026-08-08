@@ -343,11 +343,18 @@ a room is not publicly readable). They are dispatched by `WeftDispatcher`
 `stale_fencing_token` (reused from core), `actor_auth_invalid`, `invalid_argument`,
 `team_scope_forbidden` (from `_apply_team_scope`).
 
+**No existence oracle for non-members:** for every member-only tool, a caller
+who is authenticated but is NOT an active member receives `room_not_found` —
+the same code as a room that never existed. This matches the hosted cloud
+plane's no-oracle 404 (see `_resolve_room_tenant`). Only entitled members can
+reach the precise errors (`owner_required` for a non-owner, `member_required`
+for a non-active *target* member in `room_groups` add).
+
 ### 8.2 Which tools need `actor_token`
 
 **All of them.** Every room read and mutation is member-only. A call without a
-valid `actor_token` bound to a member `agent_id` gets `actor_auth_invalid` or
-`member_required`.
+valid `actor_token` bound to a member `agent_id` gets `actor_auth_invalid`;
+an authenticated non-member gets `room_not_found` (no existence oracle).
 
 ---
 
@@ -361,17 +368,18 @@ These are the product. Each is a required security-integration test.
 | 2 | `room_join` with a revoked link | `link_revoked` | Revocation is effective. |
 | 3 | `room_join` with an expired link | `link_expired` | TTL is enforced. |
 | 4 | `room_join` with a link for a different room | `invalid_link` | Link is room-scoped. |
-| 5 | `room_poll` / `room_info` by a non-member | `member_required` | Room is member-only. |
-| 6 | `room_poll` on room B by a room A member (spoofed `room_id`) | `room_not_found` or `member_required` | Cross-room isolation. |
-| 7 | `room_send` by a non-member | `member_required` | Only members address the room. |
+| 5 | `room_poll` / `room_info` by a non-member | `room_not_found` | Room is member-only AND the room's existence is hidden from non-members (identical to a fabricated `room_id`). |
+| 6 | `room_poll` on room B by a room A member (spoofed `room_id`) | `room_not_found` | Cross-room isolation — room B is invisible to non-members of B. |
+| 7 | `room_send` by a non-member | `room_not_found` | Only members address the room; non-members cannot tell the room exists. |
 | 8 | `complete_task` with a stale `fencing_token` on a room task | `stale_fencing_token` | Governance unchanged. |
 | 9 | `room_join` reusing an existing `agent_id` with a **different** `actor_token` | `actor_auth_invalid` | Link cannot overwrite an identity. |
 | 10 | `room_join` with `consent: "yes"` (string) | `consent_required` | Consent must be literal boolean. |
-| 11 | `room_close` by a non-owner | `member_required` (or a new `owner_required`) | Only the owner closes. |
+| 11 | `room_close` by a non-owner | `owner_required` | Only the owner closes. A *non-member* gets `room_not_found` (no existence oracle) before the owner check. |
 | 12 | `room_join` after `room_close` | `room_closed` | Closed rooms refuse joins. |
 | 13 | `room_send` after `room_closed` | `room_closed` | Closed rooms refuse new events. |
 | 14 | `room_join` reusing an existing `agent_id` with the **same** credential | idempotent re-join (no overwrite) | Replay does not overwrite identity. |
 | 15 | Concurrent `room_join` × (cap + 5) | exactly `cap - owner` succeed, rest `room_full` | Atomic cap enforcement. |
+| 16 | `room_leave` / `room_ack` / `room_heartbeat` / `room_groups` / `room_receipts` / `room_revoke_link` by a non-member | `room_not_found` | Non-members get the no-oracle code across every member-only tool. |
 
 ---
 
