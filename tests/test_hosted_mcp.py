@@ -107,39 +107,48 @@ def _tool_error_text(result: dict) -> dict:
 
 
 class HostedMCPTestBase(unittest.TestCase):
-    """Spins up the real cloud HTTP service on a background thread."""
+    """Runs the real cloud HTTP service on a background thread.
 
-    def setUp(self) -> None:
-        self.tmpdir = tempfile.mkdtemp(prefix="weft-mcp-test-")
-        self.db_path = str(Path(self.tmpdir) / "test.db")
-        self.service = WeftCloudService(SqliteWalBackend(self.db_path))
-        self.port = 18900 + (hash(self.tmpdir) % 500)
-        self._server_started = threading.Event()
-        self._httpd = None
-        self.server = threading.Thread(target=self._serve, daemon=True)
-        self.base = f"http://127.0.0.1:{self.port}"
-        self.server.start()
-        self._server_started.wait(timeout=5)
+    One server is started per test CLASS and shared by its tests. Tests stay
+    isolated because every signup mints a fresh account/tenant (emails are
+    per-test), so no two tests touch the same rows. Sharing the server keeps
+    the suite's wall-clock cost flat as this surface grows.
+    """
 
-    def _serve(self) -> None:
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.tmpdir = tempfile.mkdtemp(prefix="weft-mcp-test-")
+        cls.db_path = str(Path(cls.tmpdir) / "test.db")
+        cls.service = WeftCloudService(SqliteWalBackend(cls.db_path))
+        cls.port = 18900 + (hash(cls.__name__) % 500)
+        cls._server_started = threading.Event()
+        cls._httpd = None
+        cls.server_thread = threading.Thread(target=cls._serve, daemon=True)
+        cls.base = f"http://127.0.0.1:{cls.port}"
+        cls.server_thread.start()
+        cls._server_started.wait(timeout=5)
+
+    @classmethod
+    def _serve(cls) -> None:
         from http.server import ThreadingHTTPServer
 
-        _CloudHTTPHandler.service = self.service
-        httpd = ThreadingHTTPServer(("127.0.0.1", self.port), _CloudHTTPHandler)
-        self._httpd = httpd
-        self._server_started.set()
+        _CloudHTTPHandler.service = cls.service
+        httpd = ThreadingHTTPServer(("127.0.0.1", cls.port), _CloudHTTPHandler)
+        cls._httpd = httpd
+        cls._server_started.set()
         httpd.serve_forever()
 
-    def tearDown(self) -> None:
-        if self._httpd is not None:
-            self._httpd.shutdown()
+    @classmethod
+    def tearDownClass(cls) -> None:
+        if cls._httpd is not None:
+            cls._httpd.shutdown()
         try:
-            self.service.backend.close()
+            cls.service.backend.close()
         except Exception:
             pass
         import shutil
 
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
+        shutil.rmtree(cls.tmpdir, ignore_errors=True)
 
     # -- helpers ------------------------------------------------------
 

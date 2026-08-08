@@ -578,13 +578,17 @@ def _environment() -> dict[str, str]:
 def _run_quality_gates() -> dict[str, Any]:
     environment = os.environ.copy()
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    # The full suite legitimately grows (537 tests, ~180s measured 2026-08-08).
+    # The wall-clock bound must follow the suite, so it is env-tunable with a
+    # generous default; it is a resource bound, not an assertion.
+    test_timeout = int(os.environ.get("WEFT_GATE_TEST_TIMEOUT", "300"))
     tests = subprocess.run(
         [sys.executable, "-B", "-m", "unittest", "discover", "-s", "tests", "-v"],
         cwd=PROJECT_ROOT,
         env=environment,
         capture_output=True,
         text=True,
-        timeout=180,
+        timeout=test_timeout,
         check=False,
     )
     test_output = f"{tests.stdout}\n{tests.stderr}"
