@@ -390,6 +390,37 @@ class HostedMCPRoomFlowTests(HostedMCPTestBase):
         info = self._assert_ok(a["session_token"], "room_info", {"room_id": created["room_id"]}, request_id=4)
         self.assertEqual(info["member_count"], 3)
 
+    def test_cross_tenant_link_join_grants_membership_not_privilege(self) -> None:
+        """A link is the cross-tenant capability (as on /v1): tenant B may
+        join A's room with the link and then operate as a member, while a
+        third tenant with no link and no membership stays sealed."""
+        owner_a = self._signup("link-owner@example.com")
+        tenant_b = self._signup("link-joiner@example.com")
+        tenant_c = self._signup("link-outsider@example.com")
+
+        status, room = _post(self.base, "/v1/rooms/create", {"cap": 4}, token=owner_a["session_token"])
+        self.assertEqual(status, HTTPStatus.CREATED)
+
+        joined = self._assert_ok(tenant_b["session_token"], "room_join",
+                                 {"room_id": room["room_id"], "link_token": room["link_token"],
+                                  "consent": True}, request_id=1)
+        self.assertEqual(joined["status"], "active")
+
+        sent = self._assert_ok(tenant_b["session_token"], "room_send",
+                               {"room_id": room["room_id"], "target_spec": "*",
+                                "payload": {"text": "from another tenant"}}, request_id=2)
+        self.assertGreater(sent["seq"], 0)
+        polled = self._assert_ok(tenant_b["session_token"], "room_poll",
+                                 {"room_id": room["room_id"]}, request_id=3)
+        self.assertTrue(any(e["kind"] == "room.message" for e in polled["events"]))
+
+        # Tenant C: no link, no membership -> identical to nonexistent room.
+        outsider = self._assert_is_error(tenant_c["session_token"], "room_info",
+                                         {"room_id": room["room_id"]}, "room_not_found", request_id=4)
+        nonexistent = self._assert_is_error(tenant_c["session_token"], "room_info",
+                                            {"room_id": "room_" + "f" * 32}, "room_not_found", request_id=5)
+        self.assertEqual(outsider, nonexistent)
+
     def test_identity_arguments_are_rejected(self) -> None:
         a = self._signup("identity@example.com")
         token = a["session_token"]

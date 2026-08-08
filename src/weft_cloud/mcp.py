@@ -331,9 +331,27 @@ class HostedMCPDispatcher:
         except RoomError as exc:
             raise WeftError(exc.code, exc.message) from exc
 
+    def _room_tenant(self, room_id: str, agent_id: str) -> str:
+        """Resolve the effective tenant for a room operation via membership.
+
+        Mirrors ``WeftCloudService._room_tenant``: a member who joined a room
+        through a link in another tenant keeps their membership in the ROOM's
+        tenant, not their session tenant. Resolution goes through the
+        membership row (``agent_id``), so a caller can only ever resolve a
+        room they are an active member of; everything else yields the uniform
+        ``room_not_found`` (identical to a nonexistent room, so no oracle).
+        """
+        try:
+            with self.backend.transaction() as tx:
+                return self.rooms._resolve_room_tenant(tx, room_id, agent_id)
+        except RoomError as exc:
+            raise WeftError(exc.code, exc.message) from exc
+
     # ------------------------------------------------------------------
-    # Room tools — 1:1 with the /v1 handlers, tenant = session tenant,
-    # agent = session account, actor credential = session token.
+    # Room tools — 1:1 with the /v1 handlers. The tenant is resolved per
+    # room via the caller's membership (so cross-tenant link members work,
+    # exactly as on /v1); the agent identity is the session account; the
+    # actor credential on create/join is the session token.
     # ------------------------------------------------------------------
 
     def _tool_room_create(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:
@@ -361,9 +379,10 @@ class HostedMCPDispatcher:
         ))
 
     def _tool_room_send(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:
+        room_id = self._required(args, "room_id")
         return self._room_call(lambda: self.rooms.room_send(
-            tenant_id=ctx.tenant_id,
-            room_id=self._required(args, "room_id"),
+            tenant_id=self._room_tenant(room_id, ctx.account_id),
+            room_id=room_id,
             sender_agent_id=ctx.account_id,
             target_spec=self._required(args, "target_spec"),
             payload=self._required(args, "payload"),
@@ -371,39 +390,44 @@ class HostedMCPDispatcher:
         ))
 
     def _tool_room_poll(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:
+        room_id = self._required(args, "room_id")
         return self._room_call(lambda: self.rooms.poll(
-            tenant_id=ctx.tenant_id,
-            room_id=self._required(args, "room_id"),
+            tenant_id=self._room_tenant(room_id, ctx.account_id),
+            room_id=room_id,
             agent_id=ctx.account_id,
             after_seq=args.get("after_seq"),
             limit=args.get("limit", 100),
         ))
 
     def _tool_room_info(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:
+        room_id = self._required(args, "room_id")
         return self._room_call(lambda: self.rooms.room_info(
-            tenant_id=ctx.tenant_id,
-            room_id=self._required(args, "room_id"),
+            tenant_id=self._room_tenant(room_id, ctx.account_id),
+            room_id=room_id,
             agent_id=ctx.account_id,
         ))
 
     def _tool_room_ack(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:
+        room_id = self._required(args, "room_id")
         return self._room_call(lambda: self.rooms.ack(
-            tenant_id=ctx.tenant_id,
-            room_id=self._required(args, "room_id"),
+            tenant_id=self._room_tenant(room_id, ctx.account_id),
+            room_id=room_id,
             agent_id=ctx.account_id,
             seq=self._required(args, "seq"),
         ))
 
     def _tool_room_heartbeat(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:
+        room_id = self._required(args, "room_id")
         return self._room_call(lambda: self.rooms.heartbeat(
-            tenant_id=ctx.tenant_id,
-            room_id=self._required(args, "room_id"),
+            tenant_id=self._room_tenant(room_id, ctx.account_id),
+            room_id=room_id,
             agent_id=ctx.account_id,
         ))
 
     def _tool_room_event_log(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:
+        room_id = self._required(args, "room_id")
         return self._room_call(lambda: {"events": self.rooms.event_log(
-            tenant_id=ctx.tenant_id,
-            room_id=self._required(args, "room_id"),
+            tenant_id=self._room_tenant(room_id, ctx.account_id),
+            room_id=room_id,
             agent_id=ctx.account_id,
         )})

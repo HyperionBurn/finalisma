@@ -69,9 +69,15 @@ on. The tool set is pinned by a test
 
 ## Tenant confinement and the no-oracle property
 
-Every tool passes `ctx.tenant_id` (from the validated session) as the
-mandatory tenant argument to `CloudRoomService`, which scopes every query by
-`WHERE tenant_id = ?`. Consequences:
+Every tool resolves the effective tenant the same way the `/v1` handlers do.
+`room_create` and `room_join` run in the caller's session tenant; the
+member-gated tools (`room_info`, `room_poll`, `room_ack`, `room_heartbeat`,
+`room_send`, `room_event_log`) resolve the tenant via the caller's membership
+row (`CloudRoomService._resolve_room_tenant`, exactly as
+`WeftCloudService._room_tenant` does), so a member who joined through a link
+in another tenant can operate in the room's tenant. Because resolution goes
+through *membership*, a caller can only ever resolve a room they are an active
+member of. Consequences:
 
 - Tenant B calling any member-gated tool on tenant A's `room_id` hits
   `_require_room(tenant_B, room_id_A)` → `room_not_found` — **byte-identical**
@@ -82,7 +88,10 @@ mandatory tenant argument to `CloudRoomService`, which scopes every query by
 - `room_join` is the only cross-tenant path, and it is gated by a secret link:
   `_resolve_room_for_link` looks up `(room_id, token_hash)` and returns
   `invalid_link` whether the room is foreign or nonexistent. Knowing a room_id
-  is not a capability.
+  is not a capability. Holding a valid link grants membership (and then
+  membership, not the link, is the ongoing capability —
+  `test_cross_tenant_link_join_grants_membership_not_privilege` proves the
+  joiner operates, and a third tenant with no link stays `room_not_found`).
 - Auth failures are byte-identical whether the token is missing, malformed,
   unknown, or revoked (`test_unauthenticated_calls_refused_identically`) — the
   endpoint is not an oracle for session validity either.
