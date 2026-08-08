@@ -969,7 +969,13 @@ class CloudRoomService:
     # ------------------------------------------------------------------
 
     def event_log(self, tenant_id: str, room_id: str, agent_id: str) -> list[dict]:
-        """Return the full ordered event log (member-only)."""
+        """Return the full ordered event log (member-only), payload-redacted.
+
+        Every event's payload is routed through ``_filter_payload_for_agent``
+        exactly as ``poll`` does, so a legitimate member who is NOT the
+        addressee of a unicast sees the redacted envelope, never the private
+        body. ``SELECT *`` raw rows are never returned.
+        """
         with self.backend.transaction() as tx:
             self._require_room(tx, tenant_id, room_id)
             self._require_member(tx, tenant_id, room_id, agent_id)
@@ -977,4 +983,16 @@ class CloudRoomService:
                 "SELECT * FROM cloud_room_event_log WHERE tenant_id = ? AND room_id = ? ORDER BY seq",
                 (tenant_id, room_id),
             ).fetchall()
-        return [dict(r) for r in rows]
+        events = []
+        for r in rows:
+            events.append({
+                "event_id": r["event_id"],
+                "seq": r["seq"],
+                "origin_agent": r["origin_agent"],
+                "kind": r["kind"],
+                "message_kind": r["message_kind"],
+                "payload": self._filter_payload_for_agent(
+                    _parse_json(r["payload_json"], {}), agent_id),
+                "created_at": r["created_at"],
+            })
+        return events
