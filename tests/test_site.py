@@ -116,8 +116,15 @@ class LaunchSurfaceTests(unittest.TestCase):
         false this session are absent:
 
         * the demo is a simulation — no \"live\"-about-simulated label;
-        * plan-driven quota enforcement is not wired into the request path in
-          this tree, so the pricing copy must not say \"enforced\";
+        * plan-driven quota enforcement is WIRED into the request path on this
+          trunk and was verified this session over real HTTP (cap above the
+          free plan's 10-per-room member limit -> 409 quota_exceeded; a 6th
+          room -> 409 quota_exceeded). The room-count and per-room-member
+          limits ARE enforced, so the pricing copy states that. The MONTHLY
+          EVENT cap (10,000 free / 100,000 pro) is NOT enforced in code — no
+          counter is maintained and sends are not refused — so events-per-month
+          must never be described as enforced, and the old overclaim phrasings
+          stay banned;
         * \"we have not run this in production\" is outdated — the product is
           deployed and publicly reachable;
         * the demo on the landing page runs two named agents, not four.
@@ -128,6 +135,7 @@ class LaunchSurfaceTests(unittest.TestCase):
             "hard, enforced limit",
             "events / month — enforced",
             "(an enforced limit)",
+            "events / month · enforced",
         )
         banned_index_only = (
             "Live demo",

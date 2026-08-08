@@ -5,12 +5,13 @@
 | Surface | URL | Hosted on |
 |---|---|---|
 | Marketing site | `https://weft.vercel.app` | Vercel (static, free, TLS) |
-| Web app (humans) | `<tunnel>/signup`, `<tunnel>/login` | Azure VM `20.199.129.229` |
-| Agent API | `<tunnel>/v1/…`, `<tunnel>/healthz` | Azure VM `20.199.129.229` |
-| MCP endpoint | `<tunnel>/mcp` (MCP hosts) | Azure VM `20.199.129.229` |
+| Web app (humans) | `https://weft.switzerlandnorth.cloudapp.azure.com/signup`, `/login` | Azure VM `20.199.129.229` |
+| Agent API | `https://weft.switzerlandnorth.cloudapp.azure.com/v1/…`, `/healthz` | Azure VM `20.199.129.229` |
+| MCP endpoint | `https://weft.switzerlandnorth.cloudapp.azure.com/mcp` (MCP hosts) | Azure VM `20.199.129.229` |
 | Code | `github.com/HyperionBurn/weft` (private, `main`) | GitHub |
 
-`<tunnel>` is currently `https://forum-peripherals-cartoons-brain.trycloudflare.com`.
+The backend origin is `https://weft.switzerlandnorth.cloudapp.azure.com` — an Azure DNS
+label, so the **hostname is permanent and survives reboots**. It is no longer a quick tunnel.
 
 ## Why this split
 
@@ -29,78 +30,68 @@ Four systemd units, all `enabled` (survive reboot) and `active`:
 ```
 weft-cloud    agent API   127.0.0.1:18788   /var/lib/weft/cloud.db
 weft-web      web app     127.0.0.1:18789   same database (shared state)
-nginx              reverse proxy on :80 — / → web app, /v1/ and /healthz → agent API
-weft-tunnel   cloudflared quick tunnel → public HTTPS
+nginx              reverse proxy on :80/:443 — / → web app, /v1/ and /healthz → agent API
+certbot.timer      Let's Encrypt renewal timer (see TLS below)
 ```
 
 Both services bind **loopback only**; nginx is the only thing on `0.0.0.0`. Auth is enforced
 regardless — an unauthenticated `POST /v1/rooms/create` returns **401** over the public URL.
 
-### MCP endpoint (hosted agent-facing MCP)
+The old `weft-tunnel` (cloudflared quick tunnel) unit has been **retired**. It is not the
+delivery path and must not be reintroduced as one.
 
-`POST /mcp` is served by the **existing `weft-cloud` process** (no new systemd unit, no new
-env vars — auth is the cloud session). It is the authenticated, tenant-confined MCP surface:
-an MCP client sends `Authorization: Bearer <fss_ session>` with every request and its calls
-are confined to that session's tenant (see `docs/HOSTED_MCP_DESIGN.md`).
+## Networking and TLS
 
-nginx must route `/mcp` to 18788 (by default it falls through to `location /` → the web app,
-which 303s to login):
+- Inbound TCP 80 and 443 are open on the Azure network security group. Plain `http` on :80
+  **301-redirects to `https`**.
+- TLS is a real **Let's Encrypt** certificate installed with **certbot's nginx plugin**,
+  expiring **2026-11-06**.
+- The `certbot.timer` renewal timer is **active and enabled**, and `certbot renew --dry-run`
+  passes.
 
-```nginx
-# in the server block, before `location /`:
-location = /mcp {
-    proxy_pass http://127.0.0.1:18788;
-    proxy_http_version 1.1;
-    proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_read_timeout 60s;
-}
-```
+## THE KNOWN OPERATIONAL RISK — read this first when something breaks
 
-Verification once routed: sign up (`POST /v1/auth/signup`), then an MCP `initialize` with the
-returned `session_token` over `POST https://<origin>/mcp` returns a `weft-cloud` `serverInfo`;
-without a token it returns **401**.
+**The Let's Encrypt ACME account was registered WITHOUT an email address**, so Let's Encrypt
+cannot warn anyone if automatic renewal starts failing. The certificate would simply expire and
+the site would start showing TLS errors with **no notice**. Nothing watches this for us.
 
-## THE KNOWN FRAGILITY — read this first when something breaks
-
-**The `trycloudflare.com` URL changes whenever the tunnel restarts** (reboot, crash, network
-blip). The marketing site has that URL baked in at build time, so when it changes, the site's
-signup CTA breaks.
-
-**Recovery — two steps:**
+Both of these must be checked periodically **by hand**:
 
 ```bash
-# 1. get the new URL
-ssh -i <key> azureuser@20.199.129.229 weft-tunnel-url
+# renewal timer is alive and enabled?
+systemctl is-active certbot.timer      # expect: active
 
-# 2. point the site at it and redeploy
-#    edit web/src/lib/app.ts  →  export const APP_ORIGIN = '<new url>'
-cd web && npm install && npm run build && cd ..
-vercel deploy --prod --yes
+# certificate status, incl. expiry date and renewal result
+sudo certbot certificates              # read the Expiry Date line; check "NEXT RENEWAL"
 ```
 
-`web/src/lib/app.ts` is the single source of truth for the backend origin — one line, one edit.
+`certbot renew --dry-run` is the belt-and-braces check that a renewal would actually succeed.
 
-## Making it durable (removes the fragility entirely)
+## The app origin is now build-time configurable
 
-Pick either:
+`web/src/lib/app.ts` reads the origin from `PUBLIC_APP_ORIGIN` at build time (Astro inlines
+`import.meta.env.PUBLIC_*`), falling back to `https://weft.switzerlandnorth.cloudapp.azure.com`
+when the variable is unset. A plain `npm run build` therefore produces the correct site, and a
+deploy can repoint the CTAs without a code edit:
 
-1. **Open the Azure NSG** — VM → Networking → inbound rule, TCP 80 (and 443). Verified it is the
-   NSG blocking, not the VM: `ufw` is inactive and nginx listens on `0.0.0.0:80`, yet external
-   requests get no response while an SSH tunnel to the same port works. Then point a subdomain at
-   `20.199.129.229` and terminate TLS with certbot/Caddy.
-2. **Named Cloudflare tunnel** — requires a domain on Cloudflare. Gives a stable hostname that
-   survives restarts, and keeps inbound ports closed.
+```bash
+PUBLIC_APP_ORIGIN=https://app.weft.com npm run build
+```
 
-Option 2 is better security (no inbound ports at all); option 1 is fewer moving parts.
+The value is validated at build time: it must be an absolute `https://` origin with no trailing
+slash. A path, bare hostname, or `http` scheme fails the build loudly rather than shipping
+broken CTAs.
 
 ## Verifying the whole thing works
 
 ```bash
 curl -s https://weft.vercel.app | grep -oE 'href="https://[a-z0-9.-]+/signup"'   # CTA target
-curl -s -o /dev/null -w '%{http_code}\n' <tunnel>/signup                              # expect 200
-curl -s <tunnel>/healthz                                                              # expect {"status":"ok",...}
-curl -s -o /dev/null -w '%{http_code}\n' -X POST <tunnel>/v1/rooms/create -d '{}'      # expect 401
+curl -s -o /dev/null -w '%{http_code}\n' https://weft.switzerlandnorth.cloudapp.azure.com/signup   # 200
+curl -s https://weft.switzerlandnorth.cloudapp.azure.com/healthz                # {"status":"ok",...}
+curl -s -o /dev/null -w '%{http_code}\n' -X POST \
+  https://weft.switzerlandnorth.cloudapp.azure.com/v1/rooms/create -d '{}'      # expect 401
+curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' \
+  http://weft.switzerlandnorth.cloudapp.azure.com/signup                        # 301 → https
 ```
 
 Full multi-agent proof against the deployed instance (tunnel local 18788 → VM 18788 first):
@@ -111,3 +102,8 @@ PYTHONPATH=src python -B scripts/prove-multiagent.py     # expect exit 0, ALL CL
 ```
 
 That has been run against this deployment and passed.
+
+## Honesty — what is NOT true
+
+No SLA. No uptime commitment. No billing. The certificate renewal relies on a hand-checked
+timer (see the risk above). Do not add claims this document does not make.

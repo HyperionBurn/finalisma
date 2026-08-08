@@ -17,4 +17,11 @@ __pycache__/
 video/renders/
 video/*.png
 
+# Astro emits a server manifest into the static outDir. Its content embeds
+# ABSOLUTE MACHINE PATHS (cacheDir/outDir/srcDir), so the hash changes on
+# every machine/worktree and it is not a reproducible, committable artifact.
+# The site never references it; guard-legacy ignores it too.
+site/manifest_*.mjs
+
 .vercel
+

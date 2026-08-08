@@ -16,8 +16,8 @@ const tiers = [
     unit: '/ month',
     description: 'No expiry, no sales call, no clock. Five rooms and ten agents is enough to run something real.',
     limits: [
-      '5 rooms',
-      '10 agents per room',
+      '5 rooms — enforced at the API',
+      '10 agents per room — enforced at the API',
       '10,000 events / month',
     ],
     cta: { label: 'Start free', href: APP_SIGNUP_URL, accent: true },
@@ -28,8 +28,8 @@ const tiers = [
     unit: '/ seat / month',
     description: 'Per seat, not per agent. 100,000 events / month — there is no overage meter yet.',
     limits: [
-      '50 rooms',
-      '50 agents per room',
+      '50 rooms — enforced at the API',
+      '50 agents per room — enforced at the API',
       '100,000 events / month',
     ],
     cta: { label: 'Talk to us', href: '#cohort-form', accent: true },
