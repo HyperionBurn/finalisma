@@ -34,7 +34,7 @@ class WebAppDriver:
     ("127.0.0.1", 0) with finally teardown.
     """
 
-    def __init__(self):
+    def __init__(self, smtp_configured: bool | None = None):
         import http.server
 
         self._tmp = tempfile.TemporaryDirectory()
@@ -45,6 +45,7 @@ class WebAppDriver:
             self.backend,
             static_dir=SITE_DIR,
             state_dir=str(Path(self._tmp.name) / "state"),
+            smtp_configured=smtp_configured,
         )
         self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), self.app.handler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -432,6 +433,124 @@ class TestGatedRoutes(unittest.TestCase):
                 self.assertEqual(headers["Location"], "/login")
                 # No dashboard content leaked.
                 self.assertNotIn("Rooms", body)
+
+
+class TestEmailMessaging(unittest.TestCase):
+    """JOB 2 — signup/reset messaging must be honest about whether mail can
+    actually be sent.
+
+    The login page renders a flash notice when it lands with
+    ``verify_sent``/``reset_sent`` query params. When SMTP is configured the
+    copy says "check your email". When it is NOT configured the copy says
+    plainly that email delivery is not enabled and what to do instead. The
+    branch is driven by the app's SMTP config, not a constant — assert both
+    branches. No reset token or link may ever appear in any response body or
+    page.
+    """
+
+    def _signup(self, driver: WebAppDriver) -> str:
+        email = f"msg{time.time_ns()}@example.com"
+        status, _, headers = driver.post(
+            "/signup", {"email": email, "password": "correct-horse-battery-staple", "_csrf": "x"}
+        )
+        self.assertEqual(status, 303)
+        self.assertTrue(headers["Location"].startswith("/login?verify_sent=1"))
+        return email
+
+    def test_signup_messaging_unconfigured_says_email_disabled(self):
+        driver = WebAppDriver(smtp_configured=False)
+        try:
+            self._signup(driver)
+            status, body, _ = driver.get("/login?verify_sent=1")
+            self.assertEqual(status, 200)
+            self.assertIn("Email delivery is not enabled", body)
+            self.assertIn("log in now without verifying", body)
+            self.assertNotIn("Check your email", body)
+        finally:
+            driver.close()
+
+    def test_signup_messaging_configured_says_check_your_email(self):
+        driver = WebAppDriver(smtp_configured=True)
+        try:
+            self._signup(driver)
+            status, body, _ = driver.get("/login?verify_sent=1")
+            self.assertEqual(status, 200)
+            self.assertIn("Check your email", body)
+            self.assertNotIn("Email delivery is not enabled", body)
+        finally:
+            driver.close()
+
+    def test_reset_request_messaging_unconfigured_says_contact_operator(self):
+        driver = WebAppDriver(smtp_configured=False)
+        try:
+            email = f"resetmsg{time.time_ns()}@example.com"
+            driver.backend.create_tenant("tenant-rm", email, "free")
+            from weft_cloud.identity.accounts import _create_account
+
+            _create_account(driver.backend, "tenant-rm", email, "old-password-ok", email_verified=1)
+            status, _, headers = driver.post("/reset-request", {"email": email})
+            self.assertEqual(status, 303)
+            self.assertTrue(headers["Location"].startswith("/login?reset_sent=1"))
+            status, body, _ = driver.get("/login?reset_sent=1")
+            self.assertEqual(status, 200)
+            self.assertIn("Email delivery is not enabled", body)
+            self.assertIn("Contact the operator", body)
+            self.assertNotIn("Check your email", body)
+        finally:
+            driver.close()
+
+    def test_reset_request_messaging_configured_says_check_your_email(self):
+        driver = WebAppDriver(smtp_configured=True)
+        try:
+            email = f"resetcfg{time.time_ns()}@example.com"
+            driver.backend.create_tenant("tenant-rc", email, "free")
+            from weft_cloud.identity.accounts import _create_account
+
+            _create_account(driver.backend, "tenant-rc", email, "old-password-ok", email_verified=1)
+            driver.post("/reset-request", {"email": email})
+            status, body, _ = driver.get("/login?reset_sent=1")
+            self.assertEqual(status, 200)
+            self.assertIn("Check your email", body)
+            self.assertNotIn("Email delivery is not enabled", body)
+        finally:
+            driver.close()
+
+    def test_no_reset_token_or_link_in_any_response_body_or_page(self):
+        """The reset-request flow must never leak a reset token or reset link.
+
+        We read the raw token out of the outbox row (the only place it is
+        written), then assert it appears in NO HTTP response body or page —
+        neither the 303 response nor the login page it redirects to.
+        """
+        driver = WebAppDriver(smtp_configured=False)
+        try:
+            email = f"leakcheck{time.time_ns()}@example.com"
+            driver.backend.create_tenant("tenant-lk", email, "free")
+            from weft_cloud.identity.accounts import _create_account
+
+            _create_account(driver.backend, "tenant-lk", email, "old-password-ok", email_verified=1)
+            status, body, headers = driver.post("/reset-request", {"email": email})
+            self.assertEqual(status, 303)
+            # 303 has no body, but assert the invariant anyway.
+            self.assertNotIn("frt_", body)
+            outbox_body = driver.last_outbox_body(email)
+            self.assertIsNotNone(outbox_body)
+            m = re.search(r"(frt_[A-Za-z0-9_\-]+)", outbox_body)
+            self.assertIsNotNone(m, "reset token must exist in outbox")
+            raw_token = m.group(1)
+
+            # Every HTTP surface reachable in this flow: the 303 body, the
+            # login page after redirect, and the login page with no params.
+            surfaces = [
+                body,
+                driver.get("/login?reset_sent=1")[1],
+                driver.get("/login")[1],
+            ]
+            for surface in surfaces:
+                self.assertNotIn(raw_token, surface)
+                self.assertNotIn("/reset?token=", surface)
+        finally:
+            driver.close()
 
 
 class TestNoSecretsInHtml(unittest.TestCase):
