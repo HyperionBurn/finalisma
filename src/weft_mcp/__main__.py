@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .core import WeftError, WeftStore
 from .server import WeftDispatcher, run_http, run_stdio
+from .stdio_bridge import StdioHttpBridge, run_stdio_bridge
 
 
 _LOOPBACK_HTTP_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
@@ -42,6 +43,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--allowed-origin", action="append", default=None, help="Allowed browser Origin; repeat for more than one")
     parser.add_argument("--team-id", default=os.environ.get("WEFT_TEAM_ID"), help="Optional hard boundary for this coordinator's team/workspace")
     parser.add_argument("--token-env", default="WEFT_HTTP_TOKEN", help="Environment variable containing the HTTP bearer token")
+    parser.add_argument(
+        "--remote",
+        default=None,
+        help=(
+            "Reach a HOSTED Weft /mcp endpoint (e.g. https://weft.example.com) "
+            "instead of a local coordinator. Speaks MCP over stdio to the client "
+            "and forwards every JSON-RPC message to <remote>/mcp with "
+            "Authorization: Bearer <token>, where the token is read from the "
+            "environment variable named by --token-env. Never pass the token on "
+            "the command line."
+        ),
+    )
     parser.add_argument("--public-url", default=os.environ.get("WEFT_PUBLIC_URL"), help="Public base URL embedded in generated pairing links")
     parser.add_argument(
         "--actor-auth",
@@ -54,6 +67,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.remote:
+        # Remote mode: no local coordinator, no local store, no local DB.
+        # The token is read from the env var named by --token-env, never argv.
+        try:
+            bridge = StdioHttpBridge(args.remote, args.token_env)
+        except WeftError as exc:
+            raise SystemExit(f"Weft: {exc.message}") from exc
+        except ValueError as exc:
+            raise SystemExit(f"Weft: {exc}") from exc
+        return run_stdio_bridge(bridge)
     store: WeftStore | None = None
     try:
         require_actor_auth = _resolve_actor_auth(args.transport, args.actor_auth, args.host)
