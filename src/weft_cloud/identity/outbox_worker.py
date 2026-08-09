@@ -29,15 +29,11 @@ database variable as the service — ``WEFT_DB_PATH`` (default
 ``./data/weft-cloud.db``) — so it drains the file the service writes to, not an
 empty one:
 
-    FINALISMA_SMTP_HOST=... FINALISMA_SMTP_PORT=587 \
-    FINALISMA_SMTP_USERNAME=... FINALISMA_SMTP_PASSWORD=... \
-    FINALISMA_SMTP_FROM=no-reply@example.com \
+    WEFT_SMTP_HOST=... WEFT_SMTP_PORT=587 \
+    WEFT_SMTP_USERNAME=... WEFT_SMTP_PASSWORD=... \
+    WEFT_SMTP_FROM=no-reply@example.com \
     WEFT_DB_PATH=./data/weft-cloud.db \
     PYTHONPATH=src python -B -m weft_cloud.identity.outbox_worker
-
-The old ``FINALISMA_DB_PATH`` name is still honoured as a fallback, but if both
-variables are set to different paths the worker fails loudly rather than
-silently draining the wrong file.
 
 Without SMTP settings the worker exits cleanly and mail stays in the outbox
 undelivered — that is the documented behaviour until credentials exist.
@@ -96,32 +92,21 @@ def _worker_id() -> str:
 
 #: The drain worker must read the SAME database the web/service processes write
 #: to. ``WEFT_DB_PATH`` is that canonical variable (matching
-#: ``weft_cloud.service``); ``FINALISMA_DB_PATH`` is the deprecated alias kept
-#: for backward compatibility only.
+#: ``weft_cloud.service``), defaulting to ``./data/weft-cloud.db``.
 _DB_PATH_DEFAULT = "./data/weft-cloud.db"
-_DB_PATH_LEGACY_VAR = "FINALISMA_DB_PATH"
 
 
 def _resolve_db_path(argv: list[str], environ: Mapping[str, str]) -> str:
-    """Resolve the database path: argv > WEFT_DB_PATH > FINALISMA_DB_PATH > default.
+    """Resolve the database path: argv > WEFT_DB_PATH > default.
 
     A flag (anything starting with ``-``, e.g. ``--once``) is never treated as a
-    path. Fails loudly (``ValueError``) when both ``WEFT_DB_PATH`` and the legacy
-    ``FINALISMA_DB_PATH`` are set to different paths — draining the wrong file
-    silently is worse than refusing to start.
+    path. The variable and default are the same ones ``weft_cloud.service``
+    uses, so the worker drains the file the web/service processes write to.
     """
     positional = [arg for arg in argv if not arg.startswith("-")]
     if positional:
         return positional[0]
-    weft = (environ.get("WEFT_DB_PATH") or "").strip() or None
-    legacy = (environ.get(_DB_PATH_LEGACY_VAR) or "").strip() or None
-    if weft is not None and legacy is not None and weft != legacy:
-        raise ValueError(
-            "WEFT_DB_PATH and FINALISMA_DB_PATH are both set and differ; the drain "
-            "worker must use the SAME database file as the web/service processes. "
-            "Set only WEFT_DB_PATH (FINALISMA_DB_PATH is the deprecated alias)."
-        )
-    return weft or legacy or _DB_PATH_DEFAULT
+    return (environ.get("WEFT_DB_PATH") or "").strip() or _DB_PATH_DEFAULT
 
 
 class OutboxDrainer:
@@ -262,14 +247,11 @@ def runtime_config(
 
     - ``WEFT_DB_PATH``              (default ``./data/weft-cloud.db``) — the
       SAME variable and default the service uses, so the worker drains the file
-      the web/service processes write to. ``FINALISMA_DB_PATH`` is honoured as
-      a legacy fallback when ``WEFT_DB_PATH`` is unset, but if both are set to
-      different paths the worker fails loudly instead of draining the wrong
-      file.
-    - ``FINALISMA_DRAIN_INTERVAL``   (default ``5``)
-    - ``FINALISMA_DRAIN_BATCH``      (default ``50``)
-    - ``FINALISMA_DRAIN_MAX_ATTEMPTS`` (default ``5``)
-    - ``FINALISMA_DRAIN_BACKOFF``    (default ``60``)
+      the web/service processes write to.
+    - ``WEFT_DRAIN_INTERVAL``        (default ``5``)
+    - ``WEFT_DRAIN_BATCH``           (default ``50``)
+    - ``WEFT_DRAIN_MAX_ATTEMPTS``    (default ``5``)
+    - ``WEFT_DRAIN_BACKOFF``         (default ``60``)
 
     A malformed interval/batch/attempts raises ``ValueError`` naming the
     variable, mirroring the port validation in the other launchers.
@@ -289,12 +271,12 @@ def runtime_config(
         return value
 
     db_path = _resolve_db_path(argv, environ)
-    interval = _positive("FINALISMA_DRAIN_INTERVAL", environ.get("FINALISMA_DRAIN_INTERVAL"), 5)
-    batch_size = int(_positive("FINALISMA_DRAIN_BATCH", environ.get("FINALISMA_DRAIN_BATCH"), 50))
+    interval = _positive("WEFT_DRAIN_INTERVAL", environ.get("WEFT_DRAIN_INTERVAL"), 5)
+    batch_size = int(_positive("WEFT_DRAIN_BATCH", environ.get("WEFT_DRAIN_BATCH"), 50))
     max_attempts = int(
-        _positive("FINALISMA_DRAIN_MAX_ATTEMPTS", environ.get("FINALISMA_DRAIN_MAX_ATTEMPTS"), 5)
+        _positive("WEFT_DRAIN_MAX_ATTEMPTS", environ.get("WEFT_DRAIN_MAX_ATTEMPTS"), 5)
     )
-    backoff_seconds = _positive("FINALISMA_DRAIN_BACKOFF", environ.get("FINALISMA_DRAIN_BACKOFF"), 60)
+    backoff_seconds = _positive("WEFT_DRAIN_BACKOFF", environ.get("WEFT_DRAIN_BACKOFF"), 60)
 
     return {
         "db_path": db_path,
@@ -326,7 +308,7 @@ def main(
     smtp_config = smtp_config_from_env(environ)
     if smtp_config is None:
         print(
-            "finalisma-drain: FINALISMA_SMTP_HOST not set - SMTP disabled; "
+            "finalisma-drain: WEFT_SMTP_HOST not set - SMTP disabled; "
             "mail stays in cloud_identity_outbox undelivered",
             file=sys.stderr,
         )

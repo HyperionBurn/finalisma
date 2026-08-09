@@ -22,7 +22,7 @@ works with no code change.
    and sends each through `SmtpMailer` (STARTTLS + AUTH, standard library
    only), marking every row `sent` or `failed`.
 3. **Selection is by environment.** `mailer.build_mailer(backend)` returns
-   `SmtpMailer` when `FINALISMA_SMTP_HOST` is set and `LocalOutboxMailer`
+   `SmtpMailer` when `WEFT_SMTP_HOST` is set and `LocalOutboxMailer`
    otherwise. The worker only ever drains with an SMTP mailer — it can never
    re-enqueue a row into the outbox it is draining.
 
@@ -30,16 +30,16 @@ works with no code change.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `FINALISMA_SMTP_HOST` | — (SMTP disabled) | SMTP relay host. Setting this enables delivery. |
-| `FINALISMA_SMTP_PORT` | `587` | Submission port (STARTTLS). |
-| `FINALISMA_SMTP_USERNAME` | — | Auth username (required once the host is set). |
-| `FINALISMA_SMTP_PASSWORD` | — | Auth password (required once the host is set). |
-| `FINALISMA_SMTP_FROM` | — | From address, e.g. `no-reply@example.com` (required once the host is set). |
-| `WEFT_DB_PATH` | `./data/weft-cloud.db` | The **same** SQLite file the web/service processes write to. The old `FINALISMA_DB_PATH` name is still honoured as a fallback, but if both are set to different paths the worker fails loudly instead of silently draining the wrong file. |
-| `FINALISMA_DRAIN_INTERVAL` | `5` | Seconds between passes. |
-| `FINALISMA_DRAIN_BATCH` | `50` | Max rows claimed per pass. |
-| `FINALISMA_DRAIN_MAX_ATTEMPTS` | `5` | Retries before a transient failure becomes terminal. |
-| `FINALISMA_DRAIN_BACKOFF` | `60` | Base seconds between retries (grows linearly per attempt). |
+| `WEFT_SMTP_HOST` | — (SMTP disabled) | SMTP relay host. Setting this enables delivery. |
+| `WEFT_SMTP_PORT` | `587` | Submission port (STARTTLS). |
+| `WEFT_SMTP_USERNAME` | — | Auth username (required once the host is set). |
+| `WEFT_SMTP_PASSWORD` | — | Auth password (required once the host is set). |
+| `WEFT_SMTP_FROM` | — | From address, e.g. `no-reply@example.com` (required once the host is set). |
+| `WEFT_DB_PATH` | `./data/weft-cloud.db` | The **same** SQLite file the web/service processes write to, so the worker drains the file the service writes to — never an empty one. |
+| `WEFT_DRAIN_INTERVAL` | `5` | Seconds between passes. |
+| `WEFT_DRAIN_BATCH` | `50` | Max rows claimed per pass. |
+| `WEFT_DRAIN_MAX_ATTEMPTS` | `5` | Retries before a transient failure becomes terminal. |
+| `WEFT_DRAIN_BACKOFF` | `60` | Base seconds between retries (grows linearly per attempt). |
 
 Validation follows the service launchers: a half-set SMTP configuration
 (host without username/password/from, or a malformed port/interval) raises a
@@ -78,9 +78,9 @@ backup (see `docs/DEPLOY.md` §4).
 As its own process (same idiom as `weft_cloud.service` / `.web`):
 
 ```bash
-FINALISMA_SMTP_HOST=smtp.example.com FINALISMA_SMTP_PORT=587 \
-FINALISMA_SMTP_USERNAME=apikey FINALISMA_SMTP_PASSWORD=secret \
-FINALISMA_SMTP_FROM=no-reply@example.com \
+WEFT_SMTP_HOST=smtp.example.com WEFT_SMTP_PORT=587 \
+WEFT_SMTP_USERNAME=apikey WEFT_SMTP_PASSWORD=secret \
+WEFT_SMTP_FROM=no-reply@example.com \
 WEFT_DB_PATH=./data/weft-cloud.db \
 PYTHONPATH=src python -B -m weft_cloud.identity.outbox_worker
 ```
