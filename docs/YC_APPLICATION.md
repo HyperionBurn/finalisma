@@ -29,9 +29,9 @@ conversation or sharing provider credentials.
 - One-use pairing links with preview-before-consent.
 - Member-bound session credentials and replayable ordered events.
 - Scoped tasks, leases, fencing tokens, artifact hashes, and evidence gates.
-- 647 passing standard-library tests, including concurrency, restart, HTTP,
-- 647 passing standard-library tests, including concurrency, restart, HTTP,
-- 647 passing standard-library tests, including concurrency, restart, HTTP,
+- 648 passing standard-library tests, including concurrency, restart, HTTP,
+- 648 passing standard-library tests, including concurrency, restart, HTTP,
+- 648 passing standard-library tests, including concurrency, restart, HTTP,
   tenancy isolation, roster routing, durable outbox, bridge adapters, SDK
   flows, room lifecycle, cloud storage, cross-team boundary cases, identity,
   and the stdio-to-hosted bridge (docs/STDIO_BRIDGE.md).
