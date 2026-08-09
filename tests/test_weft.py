@@ -406,7 +406,7 @@ class MCPProtocolTests(unittest.TestCase):
         handler.token = "test-token"
         handler.allowed_origins = {"http://localhost"}
         handler.rate_limiter = _WindowRateLimiter()
-        handler.mcp_rate_limiter = _WindowRateLimiter(limit=2, window_seconds=60, max_concurrent=2)
+        handler.mcp_rate_limiter = _WindowRateLimiter(limit=2, window_seconds=60, now=lambda: 0.0)
         handler.metrics = _Metrics()
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -475,7 +475,7 @@ class MCPProtocolTests(unittest.TestCase):
         handler.dispatcher = self.dispatcher
         handler.token = "test-token"
         handler.allowed_origins = {"http://localhost"}
-        handler.rate_limiter = _WindowRateLimiter(limit=3, window_seconds=60)
+        handler.rate_limiter = _WindowRateLimiter(limit=3, window_seconds=60, now=lambda: 0.0)
         handler.metrics = _Metrics()
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
