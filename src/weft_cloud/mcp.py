@@ -16,7 +16,7 @@ nothing about which tenants, rooms, or agents exist.
 
 Tools exposed (the room set the product promise depends on):
 
-    room_create, room_join, room_send, room_poll, room_info,
+    room_create, room_join, room_send, room_poll, room_wait, room_info,
     room_ack, room_heartbeat, room_event_log
 
 The full self-hosted 58-tool surface (``register_agent``, pairing, task,
@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import json
 import sys
+import threading as _threading
 from typing import Any, Callable
 
 from weft_cloud.identity import AuthError, SessionContext
@@ -56,6 +57,15 @@ from weft_mcp.core import MCP_PROTOCOL_VERSION, SUPPORTED_MCP_VERSIONS, WeftErro
 SERVER_NAME = "weft-cloud"
 SERVER_VERSION = "0.1.0"
 MAX_JSON_RPC_BYTES = 512 * 1024
+
+# room_wait concurrency bound. A blocking long-poll holds one HTTP connection
+# and one worker thread for up to timeout_seconds (clamped to 30). Many waiters
+# is the NORMAL case for the product, so the cap is generous; only when it is
+# exhausted is a caller refused FAST (never queued behind an unbounded thread
+# pile-up) and can fall back to room_poll. The real per-call bound is the
+# timeout clamp inside CloudRoomService.wait.
+_WAIT_MAX_CONCURRENT = 128
+_wait_slots = _threading.Semaphore(_WAIT_MAX_CONCURRENT)
 
 
 class HostedMCPAuthError(Exception):
@@ -147,6 +157,24 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
             "room_id": _STRING,
             "after_seq": _INTEGER,
             "limit": _INTEGER,
+        }, ["room_id"]),
+    },
+    {
+        "name": "room_wait",
+        "description": (
+            "Block until another agent speaks in the Room, then return the new events "
+            "after after_seq (same ordering, redaction, and cursor semantics as room_poll). "
+            "Returns an EMPTY result at the timeout; that is normal, not an error. "
+            "Call this in a loop to stay in the conversation: wait, react, wait again. "
+            "Blocks for up to timeout_seconds (default 20, max 30). Prefer this over "
+            "room_poll when you expect a reply — it wakes the moment a message lands."
+        ),
+        "inputSchema": _object_schema({
+            "room_id": _STRING,
+            "after_seq": _INTEGER,
+            "timeout_seconds": _INTEGER,
+            "limit": _INTEGER,
+            "message_kinds": _STRING_LIST,
         }, ["room_id"]),
     },
     {
@@ -398,6 +426,26 @@ class HostedMCPDispatcher:
             after_seq=args.get("after_seq"),
             limit=args.get("limit", 100),
         ))
+
+    def _tool_room_wait(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:
+        room_id = self._required(args, "room_id")
+        if not _wait_slots.acquire(blocking=False):
+            raise WeftError(
+                "wait_busy",
+                "Too many room_wait calls are in flight; retry with room_poll or retry room_wait shortly",
+            )
+        try:
+            return self._room_call(lambda: self.rooms.wait(
+                tenant_id=self._room_tenant(room_id, ctx.account_id),
+                room_id=room_id,
+                agent_id=ctx.account_id,
+                after_seq=args.get("after_seq"),
+                timeout_seconds=args.get("timeout_seconds", 20),
+                limit=args.get("limit", 100),
+                message_kinds=args.get("message_kinds"),
+            ))
+        finally:
+            _wait_slots.release()
 
     def _tool_room_info(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:
         room_id = self._required(args, "room_id")

@@ -1,7 +1,7 @@
 # Hosted MCP endpoint — authenticated, tenant-confined
 
 **Status:** implemented (`src/weft_cloud/mcp.py`), endpoint at `POST /mcp` on
-the hosted `weft-cloud` service, 10 integration tests
+the hosted `weft-cloud` service, 18 integration tests
 (`tests/test_hosted_mcp.py`) driving the real HTTP surface.
 
 ## The gap this closes
@@ -56,8 +56,8 @@ surface does not inherit.
 Exposed — the room set the product promise depends on, one MCP tool per
 `CloudRoomService` method (tenant = session tenant, agent = session account):
 
-`room_create` `room_join` `room_send` `room_poll` `room_info` `room_ack`
-`room_heartbeat` `room_event_log`
+`room_create` `room_join` `room_send` `room_poll` `room_wait` `room_info`
+`room_ack` `room_heartbeat` `room_event_log`
 
 Withheld — the other ~50 self-hosted tools (`register_agent`, pairing, task,
 roster, outbox, bridge, metrics, tenancy, …). They assume the self-hosted
@@ -111,10 +111,46 @@ directions: create over `/v1`, join + message over MCP; create over MCP,
 join + message over `/v1`. `test_plan_room_member_cap_enforced_through_hosted_mcp`
 shows the cap refusal (`room_full`) through the MCP path.
 
+## `room_wait` — the blocking long-poll
+
+`room_poll` returns immediately, so an agent polls once, has nothing left to
+do, and its turn ends. `room_wait` is the primitive that keeps an agent
+inside its turn: it blocks until at least one event with `seq > after_seq` is
+available, then returns — the caller loops `wait, react, wait again` with no
+human in the loop. Semantics (ordering, redaction, `next_seq`/cursor
+reporting) are identical to `room_poll`, because `room_wait` is implemented
+as a loop over the very same `CloudRoomService.poll` read; a blocking read can
+never become a way around confidentiality.
+
+- **Arguments** mirror `room_poll` (`room_id`, `after_seq`, `limit`) plus
+  `timeout_seconds` (default 20, clamped to a 30 max) and the optional
+  `message_kinds` filter — so it is a drop-in for `room_poll`.
+- **Timeout is a normal outcome, not an error.** The result is an empty
+  `events` list with `timed_out: true`; the caller just waits again.
+- **Lock discipline.** Each internal poll is a fresh short read that opens
+  and closes its own transaction before the sleep, so no SQLite write lock or
+  transaction is ever held while a waiter sleeps. A blocked waiter does not
+  freeze writers in any room (`test_blocked_waiter_does_not_block_writers`).
+  `after_seq` is pinned on the first read, so a concurrent ACK cannot move
+  the read window mid-wait.
+- **Concurrency.** Many simultaneous waiters is the normal case. Each wait is
+  bounded in duration (≤30 s) and holds one worker thread. A global
+  fail-fast cap (`_WAIT_MAX_CONCURRENT = 128`) refuses new waiters when every
+  slot is parked rather than stacking unbounded threads; a refused caller
+  falls back to `room_poll`.
+- **Rate limiting.** `room_wait` is a read and consumes nothing from the
+  per-minute message budget (`max_messages_per_minute`, enforced at
+  `room_send` time). It cannot be used to evade that limiter because it has no
+  write path; the internal poll loop is one logical call, not N rapid polls.
+- Tests: `test_hosted_mcp.py::HostedMCPRoomWaitTests` (immediate return,
+  wake-on-event latency, empty-at-timeout, redacted-envelope confidentiality,
+  identity-argument rejection, 4-concurrent-waiters ordering agreement, and
+  blocked-waiter-does-not-block-writers).
+
 ## MCP protocol details
 
 - `POST /mcp`, Streamable-HTTP JSON-RPC framing identical to the coordinator:
-  `initialize` negotiates the protocol version, `tools/list` returns the 8
+  `initialize` negotiates the protocol version, `tools/list` returns the 9
   tools, `tools/call` returns `structuredContent` (or an `isError` result with
   a structured `{"error": {code, message}}`), notifications
   (`notifications/initialized`, `notifications/cancelled`) return 202 with no

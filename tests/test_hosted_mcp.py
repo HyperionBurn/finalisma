@@ -25,6 +25,7 @@ import json
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -42,6 +43,7 @@ HOSTED_TOOL_NAMES = [
     "room_join",
     "room_send",
     "room_poll",
+    "room_wait",
     "room_info",
     "room_ack",
     "room_heartbeat",
@@ -72,7 +74,8 @@ def _post(base: str, path: str, body: dict, token: str | None = None) -> tuple[i
 
 
 def _mcp(base: str, method: str, params: dict | None, token: str | None = None,
-         request_id: int | None = 1, notification: bool = False) -> tuple[int, dict | None]:
+         request_id: int | None = 1, notification: bool = False,
+         timeout: int = 10) -> tuple[int, dict | None]:
     body: dict = {"jsonrpc": "2.0", "method": method}
     if not notification:
         body["id"] = request_id
@@ -84,7 +87,7 @@ def _mcp(base: str, method: str, params: dict | None, token: str | None = None,
     if token:
         req.add_header("Authorization", f"Bearer {token}")
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             raw = resp.read()
             return resp.status, json.loads(raw.decode("utf-8")) if raw else None
     except urllib.error.HTTPError as exc:
@@ -168,9 +171,10 @@ class HostedMCPTestBase(unittest.TestCase):
         self.assertEqual(status, HTTPStatus.CREATED, f"signup failed: {resp}")
         return resp
 
-    def _mcp_call(self, token: str, name: str, args: dict, request_id: int = 100) -> dict:
+    def _mcp_call(self, token: str, name: str, args: dict, request_id: int = 100,
+                  timeout: int = 10) -> dict:
         status, payload = _mcp(self.base, "tools/call", {"name": name, "arguments": args},
-                               token=token, request_id=request_id)
+                               token=token, request_id=request_id, timeout=timeout)
         self.assertEqual(status, HTTPStatus.OK, f"tools/call {name} HTTP {status}: {payload}")
         result = (payload or {}).get("result") or {}
         if result.get("isError"):
@@ -224,7 +228,7 @@ class HostedMCPHandshakeTests(HostedMCPTestBase):
         token = acct["session_token"]
         _, listing = _mcp(self.base, "tools/list", None, token=token, request_id=1)
         names = [t["name"] for t in listing["result"]["tools"]]
-        self.assertEqual(len(names), 8)
+        self.assertEqual(len(names), 9)
         for forbidden in ("register_agent", "create_pairing", "join_pairing",
                           "create_task", "claim_task", "verify_task",
                           "complete_task", "org_create", "roster_create"):
@@ -480,6 +484,247 @@ class HostedMCPRoomFlowTests(HostedMCPTestBase):
         by_id = {m["agent_id"]: m for m in info["members"]}
         self.assertIn(b["account_id"], by_id)
         self.assertEqual(by_id[b["account_id"]]["status"], "active")
+
+
+class HostedMCPRoomWaitTests(HostedMCPTestBase):
+    """``room_wait`` — the blocking long-poll that keeps agents IN their turn.
+
+    Every test drives the real hosted MCP endpoint over real HTTP. Wait
+    durations are asserted against wall-clock time so the suite proves
+    "woke on the event" (elapsed well under the timeout) rather than
+    "returned when the clock ran out".
+    """
+
+    def _room_head(self, token: str, room_id: str) -> int:
+        """Current room cursor_head (the last committed seq) for the caller."""
+        polled = self._assert_ok(token, "room_poll", {"room_id": room_id})
+        return polled["cursor_head"]
+
+    def _two_accounts(self, prefix: str) -> tuple[dict, dict]:
+        a = self._signup(f"{prefix}-a@example.com")
+        b = self._signup(f"{prefix}-b@example.com", tenant_id=a["tenant_id"])
+        return a, b
+
+    def _wait_async(self, token: str, args: dict, request_id: int) -> tuple[dict, threading.Thread]:
+        """Call room_wait in a daemon thread; return (holder, thread).
+
+        ``holder`` collects either ``{"resp": <mcp result>}`` or
+        ``{"error": <exception>}`` so a worker-thread failure is visible to
+        the main thread instead of silently killing the request.
+        """
+        holder: dict = {}
+
+        def _run() -> None:
+            try:
+                holder["resp"] = self._mcp_call(token, "room_wait", args, request_id, timeout=30)
+            except Exception as exc:  # pragma: no cover - defensive
+                holder["error"] = exc
+
+        thread = threading.Thread(target=_run, daemon=True)
+        thread.start()
+        return holder, thread
+
+    def _assert_wait_ok(self, holder: dict, thread: threading.Thread,
+                        timeout: float = 25.0) -> dict:
+        thread.join(timeout=timeout)
+        self.assertFalse(thread.is_alive(), "room_wait never returned")
+        self.assertNotIn("error", holder, f"room_wait raised: {holder.get('error')}")
+        resp = holder.get("resp")
+        self.assertIsNotNone(resp, "room_wait produced no response")
+        self.assertFalse(resp["isError"], f"room_wait returned an error: {resp}")
+        return resp["result"]
+
+    def test_returns_immediately_when_event_already_available(self) -> None:
+        """An event already present after after_seq must return with NO delay."""
+        a, b = self._two_accounts("immed")
+        created = self._assert_ok(a["session_token"], "room_create", {"cap": 4}, request_id=1)
+        self._assert_ok(b["session_token"], "room_join",
+                        {"room_id": created["room_id"], "link_token": created["link_token"],
+                         "consent": True}, request_id=2)
+        # b has pending events (the create + join) already; wait from seq 0.
+        start = time.monotonic()
+        result = self._assert_ok(b["session_token"], "room_wait",
+                                 {"room_id": created["room_id"], "after_seq": 0,
+                                  "timeout_seconds": 10}, request_id=3)
+        elapsed = time.monotonic() - start
+        self.assertLess(elapsed, 1.0, f"room_wait blocked {elapsed:.2f}s with events ready")
+        self.assertFalse(result["timed_out"])
+        self.assertTrue(result["events"], "expected the already-present events back")
+
+    def test_blocks_then_wakes_promptly_on_new_event(self) -> None:
+        """A blocked waiter must wake on the event, well under the timeout."""
+        a, b = self._two_accounts("wake")
+        created = self._assert_ok(a["session_token"], "room_create", {"cap": 4}, request_id=1)
+        self._assert_ok(b["session_token"], "room_join",
+                        {"room_id": created["room_id"], "link_token": created["link_token"],
+                         "consent": True}, request_id=2)
+        head = self._room_head(b["session_token"], created["room_id"])
+        self._assert_ok(b["session_token"], "room_ack", {"room_id": created["room_id"], "seq": head},
+                        request_id=3)
+
+        holder, thread = self._wait_async(
+            b["session_token"],
+            {"room_id": created["room_id"], "after_seq": head, "timeout_seconds": 10},
+            request_id=4)
+        time.sleep(0.6)  # let b get blocked inside the wait loop
+        start = time.monotonic()
+        self._assert_ok(a["session_token"], "room_send",
+                        {"room_id": created["room_id"], "target_spec": "*",
+                         "payload": {"kind": "message", "text": "wake up"}}, request_id=5)
+        result = self._assert_wait_ok(holder, thread)
+        elapsed = time.monotonic() - start
+        self.assertLess(elapsed, 4.0,
+                        f"woke on the clock, not the event ({elapsed:.2f}s vs 10s timeout)")
+        self.assertFalse(result["timed_out"])
+        texts = [e["payload"]["payload"]["text"] for e in result["events"]
+                 if e["kind"] == "room.message"]
+        self.assertIn("wake up", texts)
+
+    def test_returns_empty_not_error_at_timeout(self) -> None:
+        """Nobody speaks: EMPTY result at the deadline, not an error."""
+        a, b = self._two_accounts("timed")
+        created = self._assert_ok(a["session_token"], "room_create", {"cap": 4}, request_id=1)
+        self._assert_ok(b["session_token"], "room_join",
+                        {"room_id": created["room_id"], "link_token": created["link_token"],
+                         "consent": True}, request_id=2)
+        head = self._room_head(b["session_token"], created["room_id"])
+        self._assert_ok(b["session_token"], "room_ack", {"room_id": created["room_id"], "seq": head},
+                        request_id=3)
+
+        start = time.monotonic()
+        result = self._assert_ok(b["session_token"], "room_wait",
+                                 {"room_id": created["room_id"], "after_seq": head,
+                                  "timeout_seconds": 2}, request_id=4)
+        elapsed = time.monotonic() - start
+        self.assertGreaterEqual(elapsed, 1.5, f"returned early ({elapsed:.2f}s for a 2s timeout)")
+        self.assertTrue(result["timed_out"])
+        self.assertEqual(result["events"], [], "timeout must return an EMPTY event list")
+        self.assertEqual(result["next_seq"], head, "next_seq must stay pinned at after_seq")
+
+    def test_non_addressee_waiting_on_unicast_gets_redacted_envelope(self) -> None:
+        """A blocking read must not become a way around confidentiality."""
+        a = self._signup("redact-o@example.com")
+        b = self._signup("redact-b@example.com", tenant_id=a["tenant_id"])
+        c = self._signup("redact-c@example.com", tenant_id=a["tenant_id"])
+        created = self._assert_ok(a["session_token"], "room_create", {"cap": 4}, request_id=1)
+        for member in (b, c):
+            self._assert_ok(member["session_token"], "room_join",
+                            {"room_id": created["room_id"], "link_token": created["link_token"],
+                             "consent": True}, request_id=2)
+        head = self._room_head(c["session_token"], created["room_id"])
+        self._assert_ok(c["session_token"], "room_ack", {"room_id": created["room_id"], "seq": head},
+                        request_id=3)
+        self._assert_ok(b["session_token"], "room_ack", {"room_id": created["room_id"], "seq": head},
+                        request_id=4)
+
+        # a unicasts to b only; c is a member but NOT the addressee.
+        self._assert_ok(a["session_token"], "room_send",
+                        {"room_id": created["room_id"], "target_spec": b["account_id"],
+                         "payload": {"kind": "secret", "text": "for-b-eyes-only"}}, request_id=5)
+
+        b_result = self._assert_ok(b["session_token"], "room_wait",
+                                   {"room_id": created["room_id"], "after_seq": head,
+                                    "timeout_seconds": 3}, request_id=6)
+        c_result = self._assert_ok(c["session_token"], "room_wait",
+                                   {"room_id": created["room_id"], "after_seq": head,
+                                    "timeout_seconds": 3}, request_id=7)
+        b_msg = [e for e in b_result["events"] if e["kind"] == "room.message"][0]
+        c_msg = [e for e in c_result["events"] if e["kind"] == "room.message"][0]
+        self.assertEqual(b_msg["payload"]["payload"]["text"], "for-b-eyes-only")
+        self.assertEqual(c_msg["payload"], {"redacted": True, "reason": "not_the_addressee"})
+        # Both see the SAME envelope sequence position, never the body for c.
+        self.assertEqual(b_msg["seq"], c_msg["seq"])
+
+    def test_rejects_smuggled_identity_arguments(self) -> None:
+        """agent_id / sender_agent_id / tenant_id must be refused on room_wait."""
+        a = self._signup("smuggle@example.com")
+        token = a["session_token"]
+        created = self._assert_ok(token, "room_create", {"cap": 4}, request_id=1)
+        for bad_args in (
+            {"room_id": created["room_id"], "agent_id": a["account_id"]},
+            {"room_id": created["room_id"], "sender_agent_id": "someone-else"},
+            {"room_id": created["room_id"], "tenant_id": "tenant-evil"},
+        ):
+            resp = self._assert_is_error(token, "room_wait", bad_args, "invalid_argument",
+                                         request_id=2)
+            self.assertIn("not accepted", resp["error"]["message"])
+
+    def test_concurrent_waiters_one_sender_all_wake_and_agree_on_ordering(self) -> None:
+        """The multi-agent case: 4 waiters, 1 sender, every waiter wakes and
+        every waiter's events are the same ordered prefix of the broadcast."""
+        a = self._signup("conc-o@example.com")
+        waiters = [self._signup(f"conc-w{i}@example.com", tenant_id=a["tenant_id"])
+                   for i in range(4)]
+        created = self._assert_ok(a["session_token"], "room_create", {"cap": 8}, request_id=1)
+        for w in waiters:
+            self._assert_ok(w["session_token"], "room_join",
+                            {"room_id": created["room_id"], "link_token": created["link_token"],
+                             "consent": True}, request_id=2)
+        head = self._room_head(waiters[0]["session_token"], created["room_id"])
+        for w in waiters:
+            self._assert_ok(w["session_token"], "room_ack",
+                            {"room_id": created["room_id"], "seq": head}, request_id=3)
+
+        holders: list[dict] = []
+        threads: list[threading.Thread] = []
+        for i in range(4):
+            holder, thread = self._wait_async(
+                waiters[i]["session_token"],
+                {"room_id": created["room_id"], "after_seq": head, "timeout_seconds": 12},
+                request_id=10 + i)
+            holders.append(holder)
+            threads.append(thread)
+
+        time.sleep(0.7)  # let all four block inside their wait loops
+        for text in ("first", "second", "third"):
+            self._assert_ok(a["session_token"], "room_send",
+                            {"room_id": created["room_id"], "target_spec": "*",
+                             "payload": {"kind": "message", "text": text}}, request_id=20 + len(text))
+
+        start = time.monotonic()
+        results = [self._assert_wait_ok(h, t) for h, t in zip(holders, threads)]
+        elapsed = time.monotonic() - start
+        self.assertLess(elapsed, 8.0, f"waiters woke on the clock: {elapsed:.2f}s")
+
+        expected = [head + 1, head + 2, head + 3]
+        for i, result in enumerate(results):
+            self.assertFalse(result["timed_out"], f"waiter {i} timed out and never woke")
+            seqs = [e["seq"] for e in result["events"]]
+            self.assertTrue(seqs, f"waiter {i} woke with no events")
+            self.assertEqual(seqs, expected[:len(seqs)],
+                             f"waiter {i} saw divergent ordering: {seqs} vs {expected}")
+
+    def test_blocked_waiter_does_not_block_writers(self) -> None:
+        """A blocking read must not hold the SQLite writer lock: a send must
+        complete while another agent is blocked inside room_wait."""
+        a, b = self._two_accounts("nofreeze")
+        created = self._assert_ok(a["session_token"], "room_create", {"cap": 4}, request_id=1)
+        self._assert_ok(b["session_token"], "room_join",
+                        {"room_id": created["room_id"], "link_token": created["link_token"],
+                         "consent": True}, request_id=2)
+        head = self._room_head(b["session_token"], created["room_id"])
+        self._assert_ok(b["session_token"], "room_ack", {"room_id": created["room_id"], "seq": head},
+                        request_id=3)
+
+        holder, thread = self._wait_async(
+            b["session_token"],
+            {"room_id": created["room_id"], "after_seq": head, "timeout_seconds": 10},
+            request_id=4)
+        time.sleep(0.6)  # b is now blocked inside the wait loop
+        start = time.monotonic()
+        sent = self._assert_ok(a["session_token"], "room_send",
+                               {"room_id": created["room_id"], "target_spec": "*",
+                                "payload": {"kind": "message", "text": "still alive"}}, request_id=5)
+        write_elapsed = time.monotonic() - start
+        self.assertLess(write_elapsed, 2.0,
+                        f"writer starved by the blocked waiter ({write_elapsed:.2f}s)")
+        self.assertTrue(sent["receipts"])
+
+        result = self._assert_wait_ok(holder, thread)
+        self.assertFalse(result["timed_out"])
+        texts = [e["payload"]["payload"]["text"] for e in result["events"]
+                 if e["kind"] == "room.message"]
+        self.assertIn("still alive", texts)
 
 
 if __name__ == "__main__":
