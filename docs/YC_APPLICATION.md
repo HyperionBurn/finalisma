@@ -30,8 +30,10 @@ conversation or sharing provider credentials.
 - Member-bound session credentials and replayable ordered events.
 - Scoped tasks, leases, fencing tokens, artifact hashes, and evidence gates.
 - 629 passing standard-library tests, including concurrency, restart, HTTP,
+- 639 passing standard-library tests, including concurrency, restart, HTTP,
   tenancy isolation, roster routing, durable outbox, bridge adapters, SDK
-  flows, room lifecycle, cloud storage, cross-team boundary cases, identity.
+  flows, room lifecycle, cloud storage, cross-team boundary cases, identity,
+  and the stdio-to-hosted bridge (docs/STDIO_BRIDGE.md).
 - A locked same-machine coordinator benchmark with a re-baselined (2026-08-05)
   weighted median of ~68.8 ms against the current extended harness, with
   matching semantic digests and a green regression gate.
