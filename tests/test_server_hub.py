@@ -523,7 +523,7 @@ class HTTPTransportHardeningTests(unittest.TestCase):
     def test_http_rate_limiting_returns_429(self):
         handler = _make_handler(self.dispatcher)
         # Set a very low rate limit
-        handler.mcp_rate_limiter = _WindowRateLimiter(limit=2, window_seconds=60, max_concurrent=1)
+        handler.mcp_rate_limiter = _WindowRateLimiter(limit=2, window_seconds=60, now=lambda: 0.0)
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()

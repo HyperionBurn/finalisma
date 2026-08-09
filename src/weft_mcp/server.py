@@ -77,16 +77,18 @@ class _WindowRateLimiter:
     an accidental or local burst from exhausting the SQLite writer.
     """
 
-    def __init__(self, limit: int = 20, window_seconds: int = 60, max_concurrent: int | None = None):
+    def __init__(self, limit: int = 20, window_seconds: int = 60, max_concurrent: int | None = None,
+                 now: Callable[[], float] = time.monotonic):
         self.limit = limit
         self.window_seconds = window_seconds
         self.max_concurrent = max_concurrent
+        self._now = now
         self._lock = threading.Lock()
         self._events: dict[str, list[float]] = {}
         self._concurrent: dict[str, int] = {}
 
     def allow(self, key: str, reserve: bool = False) -> tuple[bool, int]:
-        now = time.monotonic()
+        now = self._now()
         with self._lock:
             if reserve and self.max_concurrent is not None and self._concurrent.get(key, 0) >= self.max_concurrent:
                 return False, 5
