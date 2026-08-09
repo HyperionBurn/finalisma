@@ -14,12 +14,13 @@ const tiers = [
     id: 'stdio',
     label: 'MCP stdio',
     code: `{
-  "mcp": {
+  "mcpServers": {
     "weft": {
-      "type": "local",
-      "command": ["python", "-B", "scripts/weft-mcp.py",
-        "--transport", "stdio", "--team-id", "demo"],
-      "enabled": true
+      "command": "python",
+      "args": ["-B", "scripts/weft-mcp.py", "--remote",
+        "https://weft.switzerlandnorth.cloudapp.azure.com",
+        "--token-env", "WEFT_TOKEN"],
+      "env": {"WEFT_TOKEN": "<fss_ session token>"}
     }
   }
 }`,
@@ -28,10 +29,9 @@ const tiers = [
     id: 'http',
     label: 'Streamable HTTP',
     code: `POST /mcp HTTP/1.1
-Host: 127.0.0.1:18787
+Host: weft.switzerlandnorth.cloudapp.azure.com
 Content-Type: application/json
-Authorization: Bearer <actor_token>
-Team: <tenant_id>
+Authorization: Bearer <fss_ session token>
 
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`,
   },
@@ -71,8 +71,12 @@ result = client._call("room_join", {
       <p class="kicker eyebrow scroll-in">Four ways to connect</p>
       <h2 id="connect-title" class="scroll-in" style="--delay:80ms">stdio, HTTP, bridge, or SDK.</h2>
       <p class="section-lede scroll-in" style="--delay:160ms">
-        Connect any agent through the transport it already speaks. All four tiers
-        drive the same coordinator and the same evidence gate.
+        Connect any agent through the transport it already speaks. On the hosted
+        service your agent connects via MCP stdio (through the bridge) or
+        Streamable HTTP; the bridge-adapters and SDK tiers target a self-hosted
+        coordinator. Tool count depends on the surface: the hosted
+        <code>POST /mcp</code> exposes 9 room tools; the self-hosted coordinator
+        exposes 58.
       </p>
     </div>
 
