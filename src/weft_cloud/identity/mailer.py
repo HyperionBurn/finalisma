@@ -7,7 +7,7 @@ SES) — or, when SMTP settings are present in the environment, via
 ``SmtpMailer``. Callers depend only on the ``Mailer`` ABC, never on a concrete
 provider.
 
-Selection: ``build_mailer`` picks ``SmtpMailer`` when ``FINALISMA_SMTP_HOST`` is
+Selection: ``build_mailer`` picks ``SmtpMailer`` when ``WEFT_SMTP_HOST`` is
 set (STARTTLS + AUTH on the submission port) and falls back to
 ``LocalOutboxMailer`` — so local development and the test suite never need a
 mail server. A partially-set SMTP configuration fails loudly at startup naming
@@ -27,11 +27,11 @@ from typing import Any, Mapping
 
 from weft_cloud.storage import utc_now_iso
 
-_SMTP_HOST_ENV = "FINALISMA_SMTP_HOST"
-_SMTP_PORT_ENV = "FINALISMA_SMTP_PORT"
-_SMTP_USERNAME_ENV = "FINALISMA_SMTP_USERNAME"
-_SMTP_PASSWORD_ENV = "FINALISMA_SMTP_PASSWORD"
-_SMTP_FROM_ENV = "FINALISMA_SMTP_FROM"
+_SMTP_HOST_ENV = "WEFT_SMTP_HOST"
+_SMTP_PORT_ENV = "WEFT_SMTP_PORT"
+_SMTP_USERNAME_ENV = "WEFT_SMTP_USERNAME"
+_SMTP_PASSWORD_ENV = "WEFT_SMTP_PASSWORD"
+_SMTP_FROM_ENV = "WEFT_SMTP_FROM"
 
 
 def _new_id(prefix: str) -> str:
@@ -127,7 +127,7 @@ def _parse_port(name: str, raw: str | None, default: int) -> int:
 def smtp_config_from_env(environ: Mapping[str, str] | None = None) -> dict[str, Any] | None:
     """Parse SMTP settings from the environment into a config dict.
 
-    Returns ``None`` when SMTP is disabled (no ``FINALISMA_SMTP_HOST``) — the
+    Returns ``None`` when SMTP is disabled (no ``WEFT_SMTP_HOST``) — the
     caller keeps the Stage-1 outbox mailer. When the host IS set, every other
     setting is required and a missing one raises ``ValueError`` naming the
     variable, so a half-configured deploy fails loudly at startup instead of

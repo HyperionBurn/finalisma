@@ -24,7 +24,10 @@ sibling design note in this wave's email-delivery doc.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import logging
+import re
 import smtplib
 import sys
 import tempfile
@@ -46,11 +49,11 @@ from weft_cloud.migrations import apply_migrations  # noqa: E402
 from weft_cloud.storage import SqliteWalBackend  # noqa: E402
 
 SMTP_ENV = {
-    "FINALISMA_SMTP_HOST": "smtp.example.com",
-    "FINALISMA_SMTP_PORT": "587",
-    "FINALISMA_SMTP_USERNAME": "smtp-user",
-    "FINALISMA_SMTP_PASSWORD": "smtp-pass",
-    "FINALISMA_SMTP_FROM": "no-reply@example.com",
+    "WEFT_SMTP_HOST": "smtp.example.com",
+    "WEFT_SMTP_PORT": "587",
+    "WEFT_SMTP_USERNAME": "smtp-user",
+    "WEFT_SMTP_PASSWORD": "smtp-pass",
+    "WEFT_SMTP_FROM": "no-reply@example.com",
 }
 
 
@@ -115,7 +118,7 @@ def make_backend() -> SqliteWalBackend:
 
 
 def smtp_mailer(**overrides) -> SmtpMailer:
-    kwargs = dict(host=SMTP_ENV["FINALISMA_SMTP_HOST"], port=587,
+    kwargs = dict(host=SMTP_ENV["WEFT_SMTP_HOST"], port=587,
                   username="smtp-user", password="smtp-pass",
                   from_addr="no-reply@example.com", smtp_factory=FakeSMTP)
     kwargs.update(overrides)
@@ -174,18 +177,18 @@ class EmailDeliveryTests(unittest.TestCase):
 
     def test_smtp_config_from_env_returns_none_without_host(self) -> None:
         self.assertIsNone(smtp_config_from_env(environ={}))
-        self.assertIsNone(smtp_config_from_env(environ={"FINALISMA_SMTP_PORT": "587"}))
+        self.assertIsNone(smtp_config_from_env(environ={"WEFT_SMTP_PORT": "587"}))
 
     def test_partial_smtp_env_fails_loudly_naming_variable(self) -> None:
         with self.assertRaises(ValueError) as ctx:
-            smtp_config_from_env(environ={"FINALISMA_SMTP_HOST": "smtp.example.com"})
-        self.assertIn("FINALISMA_SMTP_USERNAME", str(ctx.exception))
+            smtp_config_from_env(environ={"WEFT_SMTP_HOST": "smtp.example.com"})
+        self.assertIn("WEFT_SMTP_USERNAME", str(ctx.exception))
 
     def test_invalid_smtp_port_fails_loudly(self) -> None:
-        env = dict(SMTP_ENV, FINALISMA_SMTP_PORT="not-a-port")
+        env = dict(SMTP_ENV, WEFT_SMTP_PORT="not-a-port")
         with self.assertRaises(ValueError) as ctx:
             smtp_config_from_env(environ=env)
-        self.assertIn("FINALISMA_SMTP_PORT", str(ctx.exception))
+        self.assertIn("WEFT_SMTP_PORT", str(ctx.exception))
 
     # -- 2b. SmtpMailer sends via STARTTLS + AUTH through the double --
 
@@ -254,10 +257,30 @@ class OutboxDrainerTests(unittest.TestCase):
         self.assertEqual(row["status"], "sent")
         self.assertIsNotNone(row["dispatched_at"])
 
+        self.assertEqual(FakeSMTP.total_sent(), 1)
+        delivered = FakeSMTP.instances[-1].sent[0]
+        self.assertEqual(delivered["To"], "to@example.com")
+        self.assertEqual(delivered["Subject"], "Reset your password")
+        self.assertIn("frt_secret", delivered.get_content())
+
         second = drainer.drain_once()
         self.assertEqual(second["claimed"], 0)
         self.assertEqual(second["sent"], 0)
         self.assertEqual(FakeSMTP.total_sent(), 1)
+
+    def test_worker_delivers_with_weft_smtp_env(self) -> None:
+        config = smtp_config_from_env(environ=SMTP_ENV)
+        self.assertIsNotNone(config)
+        mailer = SmtpMailer(**config, smtp_factory=FakeSMTP)
+        self._seed()
+        drainer = outbox_worker.OutboxDrainer(self.backend, mailer)
+        result = drainer.drain_once()
+        self.assertEqual(result["sent"], 1)
+        delivered = FakeSMTP.instances[-1].sent[0]
+        self.assertEqual(delivered["To"], "to@example.com")
+        self.assertEqual(delivered["Subject"], "Reset your password")
+        self.assertIn("frt_secret", delivered.get_content())
+        self.assertEqual(self._row()["status"], "sent")
 
     def test_second_run_sends_nothing(self) -> None:
         self._seed()
@@ -367,35 +390,26 @@ class OutboxWorkerConfigTests(unittest.TestCase):
         cfg = outbox_worker.runtime_config(argv=[], environ={"WEFT_DB_PATH": "/data/cloud.db"})
         self.assertEqual(cfg["db_path"], "/data/cloud.db")
 
-    def test_runtime_config_legacy_finalisma_db_path_fallback(self) -> None:
-        cfg = outbox_worker.runtime_config(argv=[], environ={
-            "FINALISMA_DB_PATH": "/data/cloud.db",
-        })
-        self.assertEqual(cfg["db_path"], "/data/cloud.db")
-
-    def test_runtime_config_conflicting_db_paths_fail_loudly(self) -> None:
-        with self.assertRaises(ValueError) as ctx:
-            outbox_worker.runtime_config(argv=[], environ={
-                "WEFT_DB_PATH": "/data/cloud.db",
-                "FINALISMA_DB_PATH": "/data/other.db",
-            })
-        self.assertIn("WEFT_DB_PATH", str(ctx.exception))
-        self.assertIn("FINALISMA_DB_PATH", str(ctx.exception))
+    def test_worker_and_service_resolve_same_db_path(self) -> None:
+        from weft_cloud.service import runtime_config as service_runtime_config
+        for env in ({}, {"WEFT_DB_PATH": "/data/cloud.db"}):
+            worker = outbox_worker.runtime_config(argv=[], environ=dict(env))
+            service = service_runtime_config(argv=[], environ=dict(env))
+            self.assertEqual(worker["db_path"], service["db_path"], env)
 
     def test_runtime_config_argv_db_path_overrides_env(self) -> None:
         cfg = outbox_worker.runtime_config(argv=["/tmp/argv.db"], environ={
             "WEFT_DB_PATH": "/data/cloud.db",
-            "FINALISMA_DB_PATH": "/data/other.db",
         })
         self.assertEqual(cfg["db_path"], "/tmp/argv.db")
 
     def test_runtime_config_env_overrides(self) -> None:
         cfg = outbox_worker.runtime_config(argv=[], environ={
-            "FINALISMA_DB_PATH": "/data/cloud.db",
-            "FINALISMA_DRAIN_INTERVAL": "1",
-            "FINALISMA_DRAIN_BATCH": "10",
-            "FINALISMA_DRAIN_MAX_ATTEMPTS": "3",
-            "FINALISMA_DRAIN_BACKOFF": "30",
+            "WEFT_DB_PATH": "/data/cloud.db",
+            "WEFT_DRAIN_INTERVAL": "1",
+            "WEFT_DRAIN_BATCH": "10",
+            "WEFT_DRAIN_MAX_ATTEMPTS": "3",
+            "WEFT_DRAIN_BACKOFF": "30",
         })
         self.assertEqual(cfg["db_path"], "/data/cloud.db")
         self.assertEqual(cfg["interval"], 1)
@@ -405,18 +419,39 @@ class OutboxWorkerConfigTests(unittest.TestCase):
 
     def test_runtime_config_invalid_interval_raises(self) -> None:
         with self.assertRaises(ValueError) as ctx:
-            outbox_worker.runtime_config(argv=[], environ={"FINALISMA_DRAIN_INTERVAL": "abc"})
-        self.assertIn("FINALISMA_DRAIN_INTERVAL", str(ctx.exception))
+            outbox_worker.runtime_config(argv=[], environ={"WEFT_DRAIN_INTERVAL": "abc"})
+        self.assertIn("WEFT_DRAIN_INTERVAL", str(ctx.exception))
 
     def test_worker_without_smtp_config_exits_cleanly_and_sends_nothing(self) -> None:
         tmp = tempfile.TemporaryDirectory(prefix="email-worker-")
         db_path = str(Path(tmp.name) / "cloud.db")
         try:
-            code = outbox_worker.main(
-                argv=["--once"],
-                environ={"FINALISMA_DB_PATH": db_path},
+            backend = SqliteWalBackend(db_path)
+            backend.initialize()
+            apply_migrations(backend)
+            LocalOutboxMailer(backend).send(
+                "tenant_x", "to@example.com", "Reset your password", "Click: frt_secret"
             )
+            backend.close()
+
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                code = outbox_worker.main(
+                    argv=["--once"],
+                    environ={"WEFT_DB_PATH": db_path},
+                )
             self.assertEqual(code, 0)
+            self.assertIn("WEFT_SMTP_HOST", stderr.getvalue())
+
+            backend = SqliteWalBackend(db_path)
+            backend.initialize()
+            with backend.transaction() as tx:
+                row = tx.execute(
+                    "SELECT status, attempts FROM cloud_identity_outbox"
+                ).fetchone()
+            self.assertEqual(row["status"], "queued")
+            self.assertEqual(row["attempts"], 0)
+            backend.close()
         finally:
             tmp.cleanup()
         self.assertEqual(FakeSMTP.total_sent(), 0)
@@ -439,6 +474,38 @@ class OutboxWorkerConfigTests(unittest.TestCase):
             tmp = getattr(backend, "_tmpdir", None)
             if tmp is not None:
                 tmp.cleanup()
+
+
+class EnvNameGuardTests(unittest.TestCase):
+    """Regression guard: the ``FINALISMA_`` rename must never reappear.
+
+    The email subsystem shipped under the pre-rebrand ``FINALISMA_*`` env-var
+    names while every other component used ``WEFT_*``. That divergence is what
+    made a documented, correctly-configured deploy silently deliver nothing
+    (the worker defaulted to a different database file and reported success).
+    Any ``FINALISMA_``-prefixed env var name anywhere in ``src/`` is that same
+    defect returning — fail loudly instead of letting it ship again.
+    """
+
+    def test_no_finalisma_env_var_names_in_src(self) -> None:
+        src = Path(__file__).resolve().parents[1] / "src"
+        offenders: list[str] = []
+        for path in sorted(src.rglob("*")):
+            if not path.is_file():
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            for match in re.finditer(r"FINALISMA_[A-Z0-9_]+", text):
+                offenders.append(
+                    f"{path.relative_to(src.parent)}:{match.start()}:{match.group(0)}"
+                )
+        self.assertEqual(
+            offenders,
+            [],
+            "stale FINALISMA_ env var name(s) reappeared in src/: " + "; ".join(offenders),
+        )
 
 
 if __name__ == "__main__":
