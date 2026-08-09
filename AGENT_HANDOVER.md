@@ -566,9 +566,11 @@ Priority order for the next agent:
    Making it a real multi-node service is a storage-layer change.
 9. A hosted MCP endpoint now exists at `POST /mcp` on `weft-cloud`
    (`src/weft_cloud/mcp.py`, `docs/HOSTED_MCP_DESIGN.md`): authenticated with
-   cloud sessions, tenant-confined, exposing the 8 room tools over
+   cloud sessions, tenant-confined, exposing the 9 room tools over
    `CloudRoomService` (the same store `/v1` uses). The remaining validation is
-   breadth: the stdio tier is host-verified (OpenCode 1.18.13), but the
+   breadth: the stdio tier is host-verified (OpenCode 1.18.13) and stdio hosts
+   can reach the hosted `/mcp` endpoint through the `weft-mcp --remote`
+   bridge (verified end to end 2026-08-09), but the
    Streamable-HTTP tier still needs a **committed transcript from a real host
    pointing at the hosted `/mcp` endpoint** before it counts as "supported"
    per `docs/PRODUCT_ROADMAP.md` §3. A simulated driver (the integration tests

@@ -426,6 +426,47 @@ class TwoBridgeSharedRoomTests(StdioBridgeHostedTestBase):
             _stop_proc(proc_b)
 
 
+class StrictUtf8ToolsListTests(StdioBridgeHostedTestBase):
+    """Bridge output must be valid UTF-8 on every platform.
+
+    The hosted tool set includes a non-ASCII em-dash (U+2014) in the
+    ``room_wait`` description. On Windows the bridge child's stdout defaults
+    to the ANSI codepage (cp1252), so ``ensure_ascii=False`` JSON containing
+    that character is emitted as byte 0x97 — invalid UTF-8 that a real MCP
+    host reading stdout strictly cannot parse. The bridge must emit UTF-8
+    regardless of the console codepage.
+    """
+
+    def test_tools_list_round_trips_as_strict_utf8(self) -> None:
+        acct = self._signup("bridge-utf8@example.com")
+        # Deliberately strict: errors="replace" would mask a cp1252 byte.
+        env = dict(os_environ_for_token("WEFT_STDIO_TEST_TOKEN", acct["session_token"]))
+        proc = subprocess.Popen(
+            [sys.executable, "-B", "scripts/weft-mcp.py", "--remote", self.base,
+             "--token-env", "WEFT_STDIO_TEST_TOKEN"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            encoding="utf-8",
+            errors="strict",
+            cwd=str(PROJECT_ROOT),
+            env=env,
+            bufsize=1,
+        )
+        try:
+            init = _rpc(proc, {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                               "params": {"protocolVersion": "2025-11-25"}})
+            self.assertIsNotNone(init)
+            listing = _rpc(proc, {"jsonrpc": "2.0", "id": 2, "method": "tools/list",
+                                  "params": {}})
+            self.assertIsNotNone(listing, "tools/list must parse under strict UTF-8")
+            names = [t["name"] for t in listing["result"]["tools"]]
+            self.assertIn("room_wait", names)
+        finally:
+            _stop_proc(proc)
+
+
 class ParserTests(unittest.TestCase):
     """The new --remote flag is additive; local defaults are untouched."""
 

@@ -209,6 +209,18 @@ def run_stdio_bridge(
     """
     input_stream = input_stream or sys.stdin
     output_stream = output_stream or sys.stdout
+    # The hosted tool set contains non-ASCII characters (the room_wait
+    # description uses an em-dash). On Windows the child's stdout defaults to
+    # the ANSI codepage (cp1252), so ensure_ascii=False JSON would emit bytes
+    # that are invalid UTF-8 for a strict host reader. Reconfigure the output
+    # stream to UTF-8 explicitly, per the repo-wide rule for any script that
+    # prints non-ASCII (docs/DOGFOOD_FINDINGS_2026-08-07.md finding #6).
+    try:
+        output_stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError, OSError):
+        # An injected stream that does not support reconfigure (e.g. StringIO)
+        # is left untouched; it has no codepage to corrupt.
+        pass
     config_failed = not bridge.has_token()
     for raw_line in input_stream:
         if len(raw_line.encode("utf-8", errors="ignore")) > MAX_JSON_RPC_BYTES:
