@@ -884,5 +884,191 @@ class TestRoomMessageKind(CloudServiceTestBase):
                          "filtering must never expose a unicast body to a non-addressee")
 
 
+class TestRoomWaitRoute(CloudServiceTestBase):
+    """POST /v1/rooms/wait — REST parity with the MCP ``room_wait`` tool.
+
+    Every test drives the REAL HTTP route (never the internal function), and
+    wait durations are asserted against wall clock so the suite proves "woke
+    on the event" rather than "returned when the clock ran out".
+    """
+
+    def _wait_long(self, path: str, body: dict, token: str | None = None,
+                   timeout: float = 40.0) -> tuple[int, dict]:
+        """POST that tolerates a blocking long-poll (larger socket timeout)."""
+        data = json.dumps(body).encode("utf-8")
+        req = urllib.request.Request(self.base + path, data=data, method="POST")
+        req.add_header("Content-Type", "application/json")
+        if token:
+            req.add_header("Authorization", f"Bearer {token}")
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.status, json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            payload = {}
+            try:
+                payload = json.loads(exc.read().decode("utf-8"))
+            except Exception:
+                pass
+            finally:
+                exc.close()
+            return exc.code, payload
+
+    def _wait_async(self, token: str, body: dict) -> tuple[dict, threading.Thread]:
+        holder: dict = {}
+
+        def _run() -> None:
+            try:
+                holder["resp"] = self._wait_long("/v1/rooms/wait", body, token)
+            except Exception as exc:  # pragma: no cover - defensive
+                holder["error"] = exc
+
+        thread = threading.Thread(target=_run, daemon=True)
+        thread.start()
+        return holder, thread
+
+    def _post_wait_raw(self, room_id: str, token: str | None,
+                       timeout: float = 40.0) -> tuple[int, bytes]:
+        """Raw POST /v1/rooms/wait returning the exact response bytes."""
+        data = json.dumps({"room_id": room_id, "timeout_seconds": 1}).encode("utf-8")
+        req = urllib.request.Request(self.base + "/v1/rooms/wait", data=data, method="POST")
+        req.add_header("Content-Type", "application/json")
+        if token:
+            req.add_header("Authorization", f"Bearer {token}")
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.status, resp.read()
+        except urllib.error.HTTPError as exc:
+            try:
+                return exc.code, exc.read()
+            finally:
+                exc.close()
+
+    def _room_with_two_members(self, prefix: str) -> tuple[dict, dict, dict]:
+        owner = self._signup(f"{prefix}-owner@example.com", "CorrectHorse!1")
+        room = self._create_room(owner["session_token"], cap=6,
+                                 owner_agent_id=owner["account_id"])
+        peer = self._signup(f"{prefix}-peer@example.com", "AgentPass!1")
+        self._join_room(peer["session_token"], room["room_id"],
+                        room["link_token"], peer["account_id"])
+        return owner, peer, room
+
+    def _head(self, token: str, room_id: str) -> int:
+        status, poll = _post(self.base, "/v1/rooms/poll", {
+            "room_id": room_id, "after_seq": 0,
+        }, token)
+        self.assertEqual(status, 200, f"head poll failed: {poll}")
+        return poll["cursor_head"]
+
+    def test_blocks_then_wakes_promptly_on_new_event(self) -> None:
+        owner, peer, room = self._room_with_two_members("wake")
+        head = self._head(owner["session_token"], room["room_id"])
+
+        holder, thread = self._wait_async(
+            owner["session_token"],
+            {"room_id": room["room_id"], "after_seq": head, "timeout_seconds": 10},
+        )
+        time.sleep(0.6)  # let the waiter block inside its wait loop
+        start = time.monotonic()
+        status, sent = _post(self.base, "/v1/rooms/send", {
+            "room_id": room["room_id"],
+            "sender_agent_id": peer["account_id"],
+            "target_spec": "*",
+            "payload": {"kind": "message", "text": "wake up"},
+        }, peer["session_token"])
+        self.assertEqual(status, 200, f"send failed: {sent}")
+        thread.join(timeout=30)
+        self.assertFalse(thread.is_alive(), "wait never returned after the event")
+        self.assertNotIn("error", holder, f"wait raised: {holder.get('error')}")
+        wait_status, result = holder["resp"]
+        self.assertEqual(wait_status, 200)
+        elapsed = time.monotonic() - start
+        self.assertLess(elapsed, 4.0,
+                        f"woke on the clock, not the event ({elapsed:.2f}s vs 10s timeout)")
+        self.assertFalse(result["timed_out"])
+        texts = [e["payload"]["payload"]["text"] for e in result["events"]
+                 if e["kind"] == "room.message"]
+        self.assertIn("wake up", texts)
+
+    def test_returns_empty_not_error_at_timeout(self) -> None:
+        owner, _peer, room = self._room_with_two_members("timed")
+        head = self._head(owner["session_token"], room["room_id"])
+
+        start = time.monotonic()
+        status, result = self._wait_long(
+            "/v1/rooms/wait",
+            {"room_id": room["room_id"], "after_seq": head, "timeout_seconds": 2},
+            owner["session_token"],
+        )
+        elapsed = time.monotonic() - start
+        self.assertEqual(status, 200, "a timed-out wait must be a 200, not an error")
+        self.assertGreaterEqual(elapsed, 1.5,
+                                f"returned early ({elapsed:.2f}s for a 2s timeout)")
+        self.assertTrue(result["timed_out"])
+        self.assertEqual(result["events"], [], "timeout must return an EMPTY event list")
+
+    def test_requires_auth(self) -> None:
+        status, body = _post(self.base, "/v1/rooms/wait", {
+            "room_id": "room_any", "timeout_seconds": 1,
+        })
+        self.assertEqual(status, 401)
+        self.assertEqual(body["error"]["code"], "unauthorized")
+
+    def test_non_member_no_oracle_real_vs_fabricated_identical(self) -> None:
+        owner, _peer, room = self._room_with_two_members("nooracle")
+        outsider = self._signup("nooracle-outsider@example.com", "OutsiderPass!1")
+
+        real_status, real_raw = self._post_wait_raw(room["room_id"],
+                                                    outsider["session_token"])
+        fake_status, fake_raw = self._post_wait_raw(
+            "room_fabricated_0000000000000", outsider["session_token"])
+        self.assertEqual(real_status, fake_status,
+                         "non-member must get the SAME status for a real and a fabricated room")
+        self.assertEqual(real_raw, fake_raw,
+                         "non-member must get a BYTE-IDENTICAL body for a real and a fabricated room")
+        self.assertEqual(real_status, 404)
+
+    def test_smuggled_identity_arguments_rejected(self) -> None:
+        owner, _peer, room = self._room_with_two_members("smuggle")
+        for identity_arg in ("agent_id", "sender_agent_id", "caller_agent_id", "tenant_id"):
+            with self.subTest(arg=identity_arg):
+                status, body = _post(self.base, "/v1/rooms/wait", {
+                    "room_id": room["room_id"],
+                    identity_arg: "someone-else",
+                    "timeout_seconds": 1,
+                }, owner["session_token"])
+                self.assertEqual(status, 400, f"identity arg {identity_arg} not rejected")
+                self.assertEqual(body["error"]["code"], "invalid_argument")
+                self.assertIn("not accepted", body["error"]["message"])
+
+    def test_writer_can_write_while_waiter_blocked(self) -> None:
+        owner, peer, room = self._room_with_two_members("writest")
+        head = self._head(owner["session_token"], room["room_id"])
+
+        holder, thread = self._wait_async(
+            owner["session_token"],
+            {"room_id": room["room_id"], "after_seq": head, "timeout_seconds": 10},
+        )
+        time.sleep(0.6)  # let the waiter block inside its wait loop
+        send_start = time.monotonic()
+        status, sent = _post(self.base, "/v1/rooms/send", {
+            "room_id": room["room_id"],
+            "sender_agent_id": peer["account_id"],
+            "target_spec": "*",
+            "payload": {"kind": "message", "text": "writer not blocked"},
+        }, peer["session_token"])
+        send_elapsed = time.monotonic() - send_start
+        self.assertEqual(status, 200, f"writer blocked by waiter: {sent}")
+        self.assertLess(send_elapsed, 2.0,
+                        f"writer took {send_elapsed:.2f}s while a waiter was blocked")
+        thread.join(timeout=30)
+        self.assertNotIn("error", holder, f"wait raised: {holder.get('error')}")
+        wait_status, result = holder["resp"]
+        self.assertEqual(wait_status, 200)
+        self.assertFalse(result["timed_out"])
+        texts = [e["payload"]["payload"]["text"] for e in result["events"]
+                 if e["kind"] == "room.message"]
+        self.assertIn("writer not blocked", texts)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -44,7 +44,14 @@ from weft_cloud.identity import (
     ensure_identity_schema,
 )
 from weft_cloud.identity.schema import ensure_schema as _ensure_identity_schema
-from weft_cloud.mcp import HostedMCPAuthError, HostedMCPDispatcher, MAX_JSON_RPC_BYTES, _json_rpc_error
+from weft_cloud.mcp import (
+    HostedMCPAuthError,
+    HostedMCPDispatcher,
+    MAX_JSON_RPC_BYTES,
+    _FORBIDDEN_IDENTITY_ARGS,
+    _json_rpc_error,
+    _wait_slots,
+)
 from weft_cloud.quotas import QuotaError
 from weft_cloud.rate_limit import RateLimitedError
 from weft_cloud.rooms import CloudRoomService, RoomError, _token_hash, public_origin
@@ -600,6 +607,60 @@ class WeftCloudService:
                                  message_kinds=message_kinds)
         return _json_response(HTTPStatus.OK, result)
 
+    def handle_room_wait(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
+        """Blocking long-poll (POST /v1/rooms/wait) — REST parity with MCP ``room_wait``.
+
+        Shares the SAME waiting implementation the hosted MCP tool calls:
+        ``CloudRoomService.wait`` — one code path, two surfaces. No waiting
+        logic is forked here; this handler is only the /v1 framing around it
+        (auth, identity, tenant resolution, concurrency bound, JSON).
+
+        Identity is derived EXCLUSIVELY from the authenticated session. Any
+        identity argument smuggled in the body (``agent_id``, ``sender_agent_id``,
+        ``caller_agent_id``, ``tenant_id``, and friends) is rejected — that exact
+        pattern was a live cross-tenant impersonation vulnerability on this
+        service, and it is refused here exactly as the MCP surface refuses it.
+
+        A timeout is a NORMAL outcome: the empty poll result comes back as a
+        200 with ``timed_out: true``, never an error, so a caller simply loops.
+        A non-member resolves the uniform ``room_not_found`` 404 BEFORE any
+        blocking starts — byte-identical for a real room and a fabricated one,
+        so the endpoint is not a room-existence oracle.
+        """
+        ctx = self._authenticate(handler)
+        body = _read_body(handler)
+        supplied = sorted(set(body) & _FORBIDDEN_IDENTITY_ARGS)
+        if supplied:
+            raise _ServiceError(
+                "invalid_argument",
+                "Identity is derived from your authenticated session; argument(s) "
+                f"{', '.join(supplied)} are not accepted",
+            )
+        room_id = body.get("room_id")
+        if not room_id:
+            raise _ServiceError("invalid_argument", "room_id is required")
+        # Same concurrency bound as the MCP surface: a blocking long-poll holds
+        # one HTTP connection and one worker thread, so the shared semaphore
+        # caps combined in-flight waiters and refuses FAST when exhausted.
+        if not _wait_slots.acquire(blocking=False):
+            raise _ServiceError(
+                "wait_busy",
+                "Too many room_wait calls are in flight; retry with room_poll or retry room_wait shortly",
+                HTTPStatus.TOO_MANY_REQUESTS,
+            )
+        try:
+            tenant_id = self._room_tenant(room_id, ctx.account_id, _bearer_token(handler))
+            result = self.rooms.wait(
+                tenant_id, room_id, ctx.account_id,
+                after_seq=body.get("after_seq"),
+                timeout_seconds=body.get("timeout_seconds", 20),
+                limit=body.get("limit", 100),
+                message_kinds=body.get("message_kinds"),
+            )
+        finally:
+            _wait_slots.release()
+        return _json_response(HTTPStatus.OK, result)
+
     def handle_room_ack(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
         ctx = self._authenticate(handler)
         body = _read_body(handler)
@@ -896,6 +957,7 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
             "/v1/rooms/close": self.service.handle_room_close,
             "/v1/rooms/send": self.service.handle_room_send,
             "/v1/rooms/poll": self.service.handle_room_poll,
+            "/v1/rooms/wait": self.service.handle_room_wait,
             "/v1/rooms/ack": self.service.handle_room_ack,
             "/v1/rooms/heartbeat": self.service.handle_room_heartbeat,
             "/v1/rooms/revoke_link": self.service.handle_revoke_link,
