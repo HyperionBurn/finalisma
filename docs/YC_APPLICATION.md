@@ -31,6 +31,7 @@ conversation or sharing provider credentials.
 - Scoped tasks, leases, fencing tokens, artifact hashes, and evidence gates.
 - 640 passing standard-library tests, including concurrency, restart, HTTP,
 - 640 passing standard-library tests, including concurrency, restart, HTTP,
+- 635 passing standard-library tests, including concurrency, restart, HTTP,
   tenancy isolation, roster routing, durable outbox, bridge adapters, SDK
   flows, room lifecycle, cloud storage, cross-team boundary cases, identity,
   and the stdio-to-hosted bridge (docs/STDIO_BRIDGE.md).

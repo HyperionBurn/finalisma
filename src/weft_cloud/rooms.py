@@ -856,6 +856,50 @@ class CloudRoomService:
                 "has_more": len(rows) == limit,
             }
 
+    def wait(self, tenant_id: str, room_id: str, agent_id: str,
+             after_seq: int | None = None, timeout_seconds: int = 20,
+             limit: int = 100, message_kinds: list[str] | None = None) -> dict:
+        """Blocking long-poll over ``poll``: the continuous-collaboration primitive.
+
+        Returns as soon as at least one event with ``seq > after_seq`` is
+        available; otherwise returns an EMPTY poll result at the timeout — a
+        NORMAL outcome, not an error, so a caller simply loops again. This is
+        what keeps an agent inside its turn: ``wait, react, wait again`` with
+        no human in the loop.
+
+        Semantics are identical to ``poll`` — same redaction, ordering, and
+        ``next_seq``/cursor reporting; a non-addressee still receives the
+        redacted envelope with its sequence position, never the body. ``wait``
+        only drives the same read repeatedly, so a blocking read can never
+        become a way around confidentiality.
+
+        Lock discipline: each internal poll opens a fresh short transaction
+        that is fully closed before the sleep, so no write lock or transaction
+        is ever held while waiting. With SQLite's single-writer model, a
+        blocked waiter must not freeze other agents in every room — and it
+        does not. ``after_seq`` is pinned on the first read (resolving the
+        cursor default once), so concurrent ACKs cannot silently move the
+        read window mid-wait.
+        """
+        try:
+            timeout_seconds = int(timeout_seconds)
+        except (TypeError, ValueError):
+            timeout_seconds = 20
+        timeout_seconds = max(0, min(timeout_seconds, 30))
+        deadline = _time.monotonic() + timeout_seconds
+        result = self.poll(tenant_id, room_id, agent_id, after_seq, limit,
+                           message_kinds=message_kinds)
+        if not result["events"]:
+            pinned_after = int(result["next_seq"])
+            while _time.monotonic() < deadline:
+                _time.sleep(0.25)
+                result = self.poll(tenant_id, room_id, agent_id, pinned_after, limit,
+                                   message_kinds=message_kinds)
+                if result["events"]:
+                    break
+        result["timed_out"] = not bool(result["events"])
+        return result
+
     def ack(self, tenant_id: str, room_id: str, agent_id: str, seq: int) -> dict:
         """Acknowledge events up to ``seq`` (monotonic)."""
         with self.backend.transaction() as tx:
