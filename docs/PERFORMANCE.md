@@ -9,20 +9,24 @@ functions:
 - authenticated task creation, claim, update, message, evidence verification,
   and completion.
 
-## Current verified result (2026-08-05 re-baseline)
+## Current verified result (2026-08-10 re-baseline)
 
 On the Windows development host, the locked gate's seven-trial weighted median
-is now measured at **~68.8 ms** (weighted p95 ~79 ms) against the current
-extended harness. The gate passes with matching semantic digests for all three
-locked scenarios, all 225 tests, the protocol smoke flow, and no raw actor
-credential in evaluator output.
+is now measured at **~77.5 ms** (weighted p95 ~90.6 ms) against the current
+harness, re-captured on 2026-08-10 after the rebrand renamed the gate file
+(`finalisma_performance_gate.py` → `weft_performance_gate.py`). The gate
+passes with matching semantic digests for all three locked scenarios, all 661
+tests, the protocol smoke flow, and no raw actor credential in evaluator
+output. The 2026-08-05 re-baseline (~68.8 ms) is superseded and preserved in
+the baseline file's `history` array.
 
-**Provenance — do not confuse the two numbers:**
+**Provenance — do not confuse the numbers:**
 
 | Measurement | Weighted median | Harness | Status |
 | --- | --- | --- | --- |
 | Original pre-optimization reference (initial commit `b4f3026`) | 1,265.771 ms | 3-scenario harness | Historical — the 95.31% improvement was claimed against this |
-| Re-captured baseline (2026-08-05) | 68.844 ms | Extended harness (roster/tenancy scenarios added) | Current — what the gate verifies today |
+| Re-captured baseline (2026-08-05) | 68.844 ms | Extended harness (roster/tenancy scenarios added) | Superseded by the 2026-08-10 re-baseline |
+| Re-captured baseline (2026-08-10) | 77.504 ms | Current harness (post-rebrand rename) | Current — what the gate verifies today |
 
 The published "95.31% faster (1,265.771 ms → 59.314 ms)" figure was measured
 against a 3-scenario harness that no longer exists — the harness was extended
@@ -34,7 +38,11 @@ about current performance must use the re-baselined measurement above.
 
 This is a same-machine baseline comparison, not a universal latency promise.
 Filesystem, antivirus, CPU, Python, and SQLite differences can materially
-change absolute timings.
+change absolute timings. The absolute 2026-08-10 figures were captured while
+the host was under concurrent load (opencode/claude sessions active); the gate
+compares like-for-like against a baseline captured minutes earlier, so a
+loaded host does not cause a false regression, but the absolute numbers are
+higher than an idle-host run would show.
 
 ## Run the locked gate
 
