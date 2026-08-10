@@ -259,18 +259,18 @@ class WeftCloudService:
         })
 
     def handle_signout(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
-        ctx = self._authenticate(handler)
+        self._authenticate(handler)
         token = _bearer_token(handler)
         if token:
             from weft_cloud.identity.tokens import hash_token
             token_hash = hash_token(token)
-            with self.backend.transaction() as tx:
-                row = tx.execute(
-                    "SELECT session_id FROM cloud_identity_sessions WHERE token_hash = ?",
-                    (token_hash,),
-                ).fetchone()
-                if row:
-                    self.sessions.revoke(self.backend, row["session_id"])
+            # One transaction: revoke_by_token_hash does the lookup and the
+            # UPDATE under a single writer lock. Calling sessions.revoke from
+            # inside a nested transaction would BEGIN IMMEDIATE on a SECOND
+            # connection — SQLite has one writer, so that inner BEGIN blocks
+            # until this one commits, and this one cannot commit until the
+            # inner returns: a 15s self-deadlock surfacing as a 500.
+            self.sessions.revoke_by_token_hash(self.backend, token_hash)
         return _json_response(HTTPStatus.OK, {"signed_out": True})
 
     def handle_me(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:

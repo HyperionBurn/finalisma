@@ -1070,5 +1070,59 @@ class TestRoomWaitRoute(CloudServiceTestBase):
         self.assertIn("writer not blocked", texts)
 
 
+class TestSignoutNoDeadlock(CloudServiceTestBase):
+    """POST /v1/auth/signout must revoke the session in ONE transaction.
+
+    The auditor flagged a nested-writer hazard: ``handle_signout`` opened a
+    ``BEGIN IMMEDIATE`` transaction and then called ``sessions.revoke`` inside
+    it, which opened a SECOND writer transaction. SQLite has a single writer,
+    so the inner ``BEGIN IMMEDIATE`` blocks until the outer commits — but the
+    outer cannot commit until the inner returns. Signout wedged for the full
+    lock timeout (~15s) and then surfaced as a 500.
+
+    This test drives the real endpoint and asserts the response is prompt and
+    that the session really is revoked afterwards.
+    """
+
+    def _signout(self, token: str, timeout: float = 25.0) -> tuple[int, dict]:
+        data = json.dumps({}).encode("utf-8")
+        req = urllib.request.Request(self.base + "/v1/auth/signout", data=data, method="POST")
+        req.add_header("Content-Type", "application/json")
+        req.add_header("Authorization", f"Bearer {token}")
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.status, json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            payload = {}
+            try:
+                payload = json.loads(exc.read().decode("utf-8"))
+            except Exception:
+                pass
+            finally:
+                exc.close()
+            return exc.code, payload
+
+    def test_signout_revokes_session_promptly(self) -> None:
+        signup = self._signup("signout@example.com", "CorrectHorse!1")
+        token = signup["session_token"]
+        start = time.monotonic()
+        status, body = self._signout(token)
+        elapsed = time.monotonic() - start
+        self.assertEqual(status, 200, f"signout failed: {body}")
+        # The SQLite lock timeout is 15s; a wedged (nested-transaction) signout
+        # takes ~15s and returns 500. A healthy one is milliseconds.
+        self.assertLess(elapsed, 5.0,
+                        f"signout took {elapsed:.2f}s — likely a nested-writer deadlock")
+        self.assertTrue(body["signed_out"])
+
+    def test_signout_token_no_longer_authenticates(self) -> None:
+        signup = self._signup("signout2@example.com", "CorrectHorse!1")
+        token = signup["session_token"]
+        status, _ = self._signout(token)
+        self.assertEqual(status, 200)
+        status, body = _get(self.base, "/v1/me", token)
+        self.assertEqual(status, 401, f"revoked session still authenticates: {body}")
+
+
 if __name__ == "__main__":
     unittest.main()

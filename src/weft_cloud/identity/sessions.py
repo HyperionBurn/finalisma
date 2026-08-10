@@ -86,6 +86,26 @@ def revoke(backend: Any, session_id: str) -> None:
         tx.commit()
 
 
+def revoke_by_token_hash(backend: Any, token_hash: str) -> None:
+    """Revoke the session whose stored SHA-256 token hash matches.
+
+    Single transaction — the lookup and the UPDATE run under ONE writer lock.
+    Never call this from inside another ``backend.transaction()``: SQLite has
+    a single writer, so a nested ``BEGIN IMMEDIATE`` blocks until the outer
+    commits, and the outer cannot commit until the inner returns (a 15s
+    self-deadlock that surfaces as a 500).
+    """
+    ensure_schema(backend)
+    now = _time.time()
+    with backend.transaction() as tx:
+        tx.execute(
+            "UPDATE cloud_identity_sessions SET revoked_at = ? "
+            "WHERE token_hash = ? AND revoked_at IS NULL",
+            (now, token_hash),
+        )
+        tx.commit()
+
+
 def revoke_all_for_account(backend: Any, account_id: str) -> None:
     """Revoke every session for an account (password change/reset, role change)."""
     ensure_schema(backend)
@@ -126,6 +146,9 @@ class SessionStore:
 
     def revoke(self, backend, session_id):
         return revoke(backend, session_id)
+
+    def revoke_by_token_hash(self, backend, token_hash):
+        return revoke_by_token_hash(backend, token_hash)
 
     def revoke_all_for_account(self, backend, account_id):
         return revoke_all_for_account(backend, account_id)
