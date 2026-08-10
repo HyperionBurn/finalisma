@@ -62,6 +62,12 @@ class Migration:
     # statement is run with its own guard, so a partially-applied database
     # completes the missing columns instead of failing on an existing one.
     statements: list[GuardedStatement] | None = None
+    # Optional Python migration body. When supplied it takes precedence over
+    # everything else: the callable runs inside the migration's transaction
+    # with an ``execute`` function and performs the forward-only, idempotent
+    # data rewrite itself. Used by the room-membership recovery, whose per-row
+    # collision handling cannot be expressed safely as a single SQL statement.
+    up_fn: Callable[[Callable[[str, tuple], Any]], None] | None = None
 
 
 _CLOUD_TABLES_SQL = """
@@ -366,6 +372,123 @@ def _has_room_message_kind(execute: Callable[[str, tuple], Any]) -> bool:
         return False
 
 
+def _recover_room_membership_identity(execute: Callable[[str, tuple], Any]) -> None:
+    """Rewrite room-membership identity to the authenticated ACCOUNT.
+
+    The regression being repaired: room membership was bound to the SHA-256 of
+    the caller's SESSION token (``actor_token_hash``), which rotates on every
+    login — so a re-login silently revoked every room the user had joined.
+    The fix authorizes by the caller's account. That is only useful to
+    existing members if their membership rows can be re-keyed to an account.
+
+    Recovery: the membership row stores ``actor_token_hash``, the same SHA-256
+    the identity plane keeps on ``cloud_identity_sessions`` (``token_hash`` —
+    sessions are never deleted, only revoked, so expired sessions still
+    resolve). Where the join succeeds we recover the TRUE account that joined
+    and rewrite ``agent_id`` to it. Rows whose hash matches no session are
+    UNRECOVERABLE and are left untouched — they are inert under account-based
+    authorization because no account's id equals their ``agent_id``.
+
+    Collision handling: two rows in one room may resolve to the same account
+    (a forged join plus the real join). The earliest row wins; later rows that
+    duplicate an already-claimed account were never legitimate identities and
+    are deleted, along with their cursor row. A recovered member's cursor is
+    re-keyed to the account so its durable position survives.
+
+    The room's OWNER is recovered from the owner's own membership row (the row
+    whose ``agent_id`` equals ``cloud_rooms.owner_agent_id`` and whose session
+    hash resolves), so the owner keeps close/revoke powers under the new model.
+
+    Forward-only and idempotent: rows already keyed on the true account are
+    skipped, and re-running the migration is a no-op.
+    """
+    # 0. Recover the room OWNER FIRST, while the membership row still carries
+    # the (possibly client-supplied) owner_agent_id: the owner is the account
+    # whose session minted the room, found via the owner's own membership row.
+    owner_rows = execute(
+        "SELECT r.room_id, r.tenant_id, r.owner_agent_id "
+        "FROM cloud_rooms r "
+        "JOIN cloud_room_members m "
+        "  ON m.room_id = r.room_id AND m.tenant_id = r.tenant_id "
+        "  AND m.agent_id = r.owner_agent_id AND m.status = 'active'"
+    ).fetchall()
+    for row in owner_rows:
+        account = execute(
+            "SELECT s.account_id FROM cloud_identity_sessions s "
+            "WHERE s.token_hash = ("
+            "  SELECT actor_token_hash FROM cloud_room_members m "
+            "  WHERE m.tenant_id = ? AND m.room_id = ? AND m.agent_id = ? "
+            "  AND m.status = 'active' LIMIT 1)",
+            (row["tenant_id"], row["room_id"], row["owner_agent_id"]),
+        ).fetchone()
+        if account is None or account["account_id"] == row["owner_agent_id"]:
+            continue
+        execute(
+            "UPDATE cloud_rooms SET owner_agent_id = ? "
+            "WHERE tenant_id = ? AND room_id = ?",
+            (account["account_id"], row["tenant_id"], row["room_id"]),
+        )
+
+    # 1. Rewrite each member's identity to the true account.
+    rows = execute(
+        "SELECT tenant_id, room_id, agent_id, actor_token_hash, joined_at "
+        "FROM cloud_room_members "
+        "WHERE actor_token_hash IN (SELECT token_hash FROM cloud_identity_sessions) "
+        "ORDER BY joined_at, rowid"
+    ).fetchall()
+    claimed: set[tuple[str, str, str]] = set()
+    for row in rows:
+        account = execute(
+            "SELECT account_id FROM cloud_identity_sessions WHERE token_hash = ?",
+            (row["actor_token_hash"],),
+        ).fetchone()
+        if account is None:
+            continue
+        account_id = account["account_id"]
+        tenant_id, room_id, agent_id = row["tenant_id"], row["room_id"], row["agent_id"]
+        key = (tenant_id, room_id, account_id)
+        if agent_id == account_id:
+            # Already the true identity — nothing to do.
+            claimed.add(key)
+            continue
+        if key in claimed:
+            # A later row resolving to an already-claimed account is a forged
+            # duplicate; drop it (and its ghost cursor) so it cannot hold a seat.
+            execute(
+                "DELETE FROM cloud_room_members "
+                "WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
+                (tenant_id, room_id, agent_id),
+            )
+            execute(
+                "DELETE FROM cloud_room_cursors "
+                "WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
+                (tenant_id, room_id, agent_id),
+            )
+            continue
+        execute(
+            "UPDATE cloud_room_members SET agent_id = ? "
+            "WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
+            (account_id, tenant_id, room_id, agent_id),
+        )
+        if execute(
+            "SELECT 1 FROM cloud_room_cursors "
+            "WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
+            (tenant_id, room_id, account_id),
+        ).fetchone() is None:
+            execute(
+                "UPDATE cloud_room_cursors SET agent_id = ? "
+                "WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
+                (account_id, tenant_id, room_id, agent_id),
+            )
+        else:
+            execute(
+                "DELETE FROM cloud_room_cursors "
+                "WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
+                (tenant_id, room_id, agent_id),
+            )
+        claimed.add(key)
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         "cloud_001_init",
@@ -413,6 +536,11 @@ MIGRATIONS: list[Migration] = [
         _ROOM_MESSAGE_KIND_SQL,
         already_applied=_has_room_message_kind,
     ),
+    Migration(
+        "cloud_010_room_membership_account",
+        "bind room membership to the authenticated account (recoverable from session table)",
+        up_fn=_recover_room_membership_identity,
+    ),
 ]
 
 
@@ -452,7 +580,11 @@ def apply_migrations(store_or_backend: Any) -> None:
                 commit()
                 continue
             try:
-                if migration.statements is not None:
+                if migration.up_fn is not None:
+                    # Python body: runs inside the migration's transaction with
+                    # an ``execute`` function (see up_fn docstring).
+                    migration.up_fn(execute)
+                elif migration.statements is not None:
                     # Multi-statement ALTER: run each statement with its own
                     # guard. A column that already exists is skipped instead of
                     # raising ``duplicate column name``, so a partially-applied

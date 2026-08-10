@@ -737,7 +737,7 @@ class ProductionShapedUpgradeTests(unittest.TestCase):
             n = conn.execute(
                 "SELECT COUNT(*) AS c FROM schema_migrations"
             ).fetchone()["c"]
-            self.assertEqual(n, 9, "all nine cloud migrations must be recorded")
+            self.assertEqual(n, 10, "all ten cloud migrations must be recorded")
         finally:
             conn.close()
 
@@ -757,7 +757,7 @@ class ProductionShapedUpgradeTests(unittest.TestCase):
             n = conn.execute(
                 "SELECT COUNT(*) AS c FROM schema_migrations"
             ).fetchone()["c"]
-            self.assertEqual(n, 9, "no duplicate schema_migrations rows on rerun")
+            self.assertEqual(n, 10, "no duplicate schema_migrations rows on rerun")
         finally:
             conn.close()
 
@@ -802,6 +802,200 @@ class ProductionShapedUpgradeTests(unittest.TestCase):
         self.assertEqual(len(claimed), 3)
         self.assertEqual({r["entry_id"] for r in claimed},
                          {"obx_001", "obx_002", "obx_003"})
+
+
+# ---------------------------------------------------------------------------
+# cloud_010 — room-membership account recovery. Live memberships were bound to
+# the caller's SESSION-token hash (rotates on login) with a client-suppliable
+# agent_id; the migration re-keys them to the true account via the session
+# table, which is never deleted (only revoked).
+# ---------------------------------------------------------------------------
+
+
+class RoomMembershipAccountRecoveryTests(unittest.TestCase):
+    """cloud_010: existing room memberships are re-keyed to the ACCOUNT.
+
+    The regression bound room membership to ``actor_token_hash`` — the SHA-256
+    of a SESSION token that rotates on every login. cloud_010 recovers the
+    true account from ``cloud_identity_sessions.token_hash`` (sessions are
+    never deleted, only revoked, so even expired sessions resolve), rewrites
+    ``cloud_room_members.agent_id`` to that account, re-keys the member's
+    cursor, recovers the room owner, and de-duplicates forged rows.
+    """
+
+    def setUp(self) -> None:
+        from weft_cloud.storage import SqliteWalBackend
+
+        self.tmp = tempfile.TemporaryDirectory(prefix="room-recovery-")
+        self.root = Path(self.tmp.name)
+        self.cloud_path = self.root / "cloud.db"
+        self.backend = SqliteWalBackend(self.cloud_path)
+        self.backend.initialize()
+        self._build_fixture()
+
+    def tearDown(self) -> None:
+        try:
+            self.backend.close()
+        finally:
+            import gc
+            gc.collect()
+            self.tmp.cleanup()
+
+    def _build_fixture(self) -> None:
+        """Seed the PRE-cloud_010 production shape: sessions exist (never
+        deleted), memberships store actor_token_hash + a client-suppliable
+        agent_id that may be a bogus name or a forged duplicate."""
+        from weft_cloud.storage import utc_now_iso
+
+        now = utc_now_iso()
+        sess = {name: _token_hash(f"sess-{name}") for name in
+                ("acct_001", "acct_002", "acct_003", "acct_004")}
+        with self.backend._transaction() as conn:
+            conn.executescript(_pre_migration_schema_sql())
+            for migration_id in _PRE_CLOUD_008_MIGRATION_IDS:
+                conn.execute(
+                    "INSERT INTO schema_migrations(migration_id, applied_at) VALUES (?, ?)",
+                    (migration_id, now),
+                )
+            conn.execute(
+                "INSERT INTO cloud_tenants(tenant_id, name, plan_id, created_at) VALUES (?, ?, ?, ?)",
+                ("tenant_a", "Org A", "free", now),
+            )
+            for account_id, email in (("acct_001", "a1@example.com"),
+                                      ("acct_002", "a2@example.com"),
+                                      ("acct_003", "a3@example.com"),
+                                      ("acct_004", "a4@example.com")):
+                conn.execute(
+                    "INSERT INTO cloud_identity_accounts("
+                    " account_id, tenant_id, email, salt, password_hash, created_at)"
+                    " VALUES (?, 'tenant_a', ?, ?, ?, ?)",
+                    (account_id, email, b"\x00" * 16, b"\x00" * 32, now),
+                )
+            for account_id in ("acct_001", "acct_002", "acct_003", "acct_004"):
+                conn.execute(
+                    "INSERT INTO cloud_identity_sessions("
+                    " session_id, tenant_id, account_id, token_hash, created_at,"
+                    " expires_at, role_snapshot)"
+                    " VALUES (?, 'tenant_a', ?, ?, ?, ?, 'owner')",
+                    (f"ses_{account_id}", account_id, sess[account_id], now, 0),
+                )
+
+            # room_001: owner identity forged at create time.
+            conn.execute(
+                "INSERT INTO cloud_rooms(room_id, tenant_id, owner_agent_id, name, cap,"
+                " state, link_id, created_at, expires_at, cursor_head)"
+                " VALUES ('room_001', 'tenant_a', 'bogus-owner-id', 'Room One', 4,"
+                " 'active', 'link_001', ?, 0, 3)",
+                (now,),
+            )
+            # room_002: a forged duplicate membership for acct_004.
+            conn.execute(
+                "INSERT INTO cloud_rooms(room_id, tenant_id, owner_agent_id, name, cap,"
+                " state, link_id, created_at, expires_at, cursor_head)"
+                " VALUES ('room_002', 'tenant_a', 'acct_004', 'Room Two', 2,"
+                " 'active', 'link_002', ?, 0, 1)",
+                (now,),
+            )
+
+            members = [
+                # (tenant, room, agent_id, hash, status, joined_at order)
+                ("tenant_a", "room_001", "bogus-owner-id", sess["acct_001"], "active", 1),
+                ("tenant_a", "room_001", "acct_002", sess["acct_002"], "active", 2),
+                ("tenant_a", "room_001", "ghost-joiner", sess["acct_003"], "active", 3),
+                ("tenant_a", "room_001", "unrecoverable", "no-such-session", "active", 4),
+                ("tenant_a", "room_002", "acct_004", sess["acct_004"], "active", 1),
+                ("tenant_a", "room_002", "dup-forged", sess["acct_004"], "active", 2),
+            ]
+            for i, (tenant, room, agent, hash_, status, order) in enumerate(members):
+                conn.execute(
+                    "INSERT INTO cloud_room_members("
+                    " tenant_id, room_id, agent_id, joined_at, last_seen, status,"
+                    " capabilities_json, actor_token_hash)"
+                    " VALUES (?, ?, ?, ?, ?, ?, '[]', ?)",
+                    (tenant, room, agent, now, order, status, hash_),
+                )
+                conn.execute(
+                    "INSERT INTO cloud_room_cursors("
+                    " tenant_id, room_id, agent_id, last_ack_seq, updated_at)"
+                    " VALUES (?, ?, ?, ?, ?)",
+                    (tenant, room, agent, order, now),
+                )
+
+    def _members(self) -> set[tuple[str, str, str]]:
+        conn = sqlite3.connect(self.cloud_path)
+        try:
+            conn.row_factory = sqlite3.Row
+            return {tuple(r) for r in conn.execute(
+                "SELECT tenant_id, room_id, agent_id FROM cloud_room_members"
+            ).fetchall()}
+        finally:
+            conn.close()
+
+    def _owner(self, room_id: str) -> str:
+        conn = sqlite3.connect(self.cloud_path)
+        try:
+            conn.row_factory = sqlite3.Row
+            return conn.execute(
+                "SELECT owner_agent_id FROM cloud_rooms WHERE room_id = ?",
+                (room_id,),
+            ).fetchone()["owner_agent_id"]
+        finally:
+            conn.close()
+
+    def _cursors(self) -> set[tuple[str, str, str]]:
+        conn = sqlite3.connect(self.cloud_path)
+        try:
+            conn.row_factory = sqlite3.Row
+            return {tuple(r) for r in conn.execute(
+                "SELECT tenant_id, room_id, agent_id FROM cloud_room_cursors"
+            ).fetchall()}
+        finally:
+            conn.close()
+
+    def test_cloud_010_rekeys_membership_to_account_and_recovers_owner(self) -> None:
+        apply_migrations(self.backend)
+
+        members = self._members()
+        # Recoverable rows are re-keyed to the true account.
+        self.assertIn(("tenant_a", "room_001", "acct_001"), members)
+        self.assertIn(("tenant_a", "room_001", "acct_002"), members)
+        self.assertIn(("tenant_a", "room_001", "acct_003"), members)
+        # Forged agent_ids are gone.
+        self.assertNotIn(("tenant_a", "room_001", "bogus-owner-id"), members)
+        self.assertNotIn(("tenant_a", "room_001", "ghost-joiner"), members)
+        # The forged duplicate for acct_004 in room_002 is de-duplicated.
+        self.assertIn(("tenant_a", "room_002", "acct_004"), members)
+        self.assertNotIn(("tenant_a", "room_002", "dup-forged"), members)
+        # Unrecoverable rows (hash matches no session) are left untouched.
+        self.assertIn(("tenant_a", "room_001", "unrecoverable"), members)
+
+        # Owner recovered from the owner's own membership row.
+        self.assertEqual(self._owner("room_001"), "acct_001")
+        self.assertEqual(self._owner("room_002"), "acct_004")
+
+        # Cursors follow the recovered identity; the ghost cursor is removed.
+        cursors = self._cursors()
+        self.assertIn(("tenant_a", "room_001", "acct_003"), cursors)
+        self.assertNotIn(("tenant_a", "room_001", "ghost-joiner"), cursors)
+        self.assertIn(("tenant_a", "room_002", "acct_004"), cursors)
+        self.assertNotIn(("tenant_a", "room_002", "dup-forged"), cursors)
+
+    def test_cloud_010_is_idempotent(self) -> None:
+        apply_migrations(self.backend)
+        after_first = self._members()
+        apply_migrations(self.backend)
+        self.assertEqual(self._members(), after_first,
+                         "re-running cloud_010 must be a no-op")
+        conn = sqlite3.connect(self.cloud_path)
+        try:
+            conn.row_factory = sqlite3.Row
+            n = conn.execute(
+                "SELECT COUNT(*) AS c FROM schema_migrations"
+                " WHERE migration_id = 'cloud_010_room_membership_account'"
+            ).fetchone()["c"]
+            self.assertEqual(n, 1, "cloud_010 must be recorded exactly once")
+        finally:
+            conn.close()
 
 
 if __name__ == "__main__":
