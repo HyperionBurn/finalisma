@@ -557,7 +557,15 @@ class TestMemberCannotClose(unittest.TestCase):
 
 
 class TestMemberCanView(unittest.TestCase):
-    """§3.3: a member can VIEW a room and its connect page (view is member+)."""
+    """§3.3: a member can VIEW a room's detail page (read-only, no bearer secrets).
+
+    The room DETAIL page is deliberately viewable by any org member (roster +
+    redacted event log). The CONNECT page is different: it hands out the room's
+    raw rm_ link token — a multi-use bearer capability — so it requires the
+    caller to be the room's OWNER or an ACTIVE MEMBER of THAT room. A same-org
+    member who was invited to the org but never to the room gets the identical
+    404 as a room that does not exist (no existence oracle).
+    """
 
     def setUp(self):
         self.driver = WebAppDriver()
@@ -583,17 +591,104 @@ class TestMemberCanView(unittest.TestCase):
         self.driver.post("/login", {"email": self.member_email, "password": self.member_password})
 
     def tearDown(self):
+        if hasattr(self, "_cloud_httpd"):
+            try:
+                self._cloud_httpd.shutdown()
+            finally:
+                self._cloud_httpd.server_close()
         self.driver.close()
+
+    def _start_cloud_service(self):
+        """Serve the REAL WeftCloudService over the SAME backend as the web app."""
+        from weft_cloud.service import WeftCloudService, _CloudHTTPHandler
+
+        self._cloud = WeftCloudService(self.driver.backend,
+                                       origin=f"http://127.0.0.1:{self.driver.port}")
+        _CloudHTTPHandler.service = self._cloud
+        self._cloud_httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _CloudHTTPHandler)
+        self._cloud_port = self._cloud_httpd.server_address[1]
+        self._cloud_thread = threading.Thread(
+            target=self._cloud_httpd.serve_forever, daemon=True,
+        )
+        self._cloud_thread.start()
+
+    def _cloud_post(self, path: str, body: dict, token: str | None = None):
+        conn = http.client.HTTPConnection("127.0.0.1", self._cloud_port, timeout=10)
+        headers = {"Content-Type": "application/json"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        conn.request("POST", path, body=json.dumps(body), headers=headers)
+        resp = conn.getresponse()
+        raw = resp.read().decode("utf-8", errors="replace")
+        conn.close()
+        payload = {}
+        try:
+            payload = json.loads(raw)
+        except Exception:
+            pass
+        return resp.status, payload
 
     def test_member_can_view_room_detail(self):
         status, body, _ = self.driver.get(f"/room/{self.room_id}")
         self.assertEqual(status, 200)
         self.assertIn("War Room", body)
 
-    def test_member_can_view_connect_page_with_link_token(self):
+    def test_member_cannot_view_connect_page_with_link_token(self):
+        # A same-org member who was invited to the org but NEVER to this room
+        # must not receive the raw rm_ bearer token. The refusal is the
+        # identical 404 a nonexistent room returns (no existence oracle).
+        status, body, _ = self.driver.get(f"/room/{self.room_id}/connect")
+        self.assertEqual(status, 404)
+        self.assertIsNone(re.search(r"rm_[A-Za-z0-9_-]+", body),
+                          "connect page must not leak the link token to a non-room-member")
+
+    def test_connect_refusal_is_identical_to_nonexistent_room(self):
+        # The refusal for "room exists but you're not in it" must be byte-for-byte
+        # identical to the refusal for a room that never existed, or the endpoint
+        # becomes a room-existence oracle (the repo has already fixed three of
+        # these; this must not be a fourth).
+        status_real, body_real, _ = self.driver.get(f"/room/{self.room_id}/connect")
+        status_fake, body_fake, _ = self.driver.get("/room/room_0000deadbeef/connect")
+        self.assertEqual(status_real, 404)
+        self.assertEqual(status_fake, 404)
+        self.assertEqual(body_real, body_fake,
+                         "refusal for a real non-member room must be identical "
+                         "to the refusal for a nonexistent room")
+
+    def test_active_room_member_can_view_connect_page(self):
+        # The entitlement rule is "OWNER or ACTIVE MEMBER of THIS room", so a
+        # same-org member who actually JOINS the room via its link regains the
+        # connect page (they are entitled to share the link they redeemed).
+        # 1. Recover the raw link token as the owner.
+        saved_cookie = dict(self.driver.cookies)
+        self.driver.cookies = {}
+        self.driver.post("/login", {"email": self.owner_email, "password": self.owner_password})
+        owner_status, owner_body, _ = self.driver.get(f"/room/{self.room_id}/connect")
+        self.assertEqual(owner_status, 200)
+        link_token = re.search(r"(rm_[A-Za-z0-9_-]+)", owner_body).group(1)
+        self.driver.cookies = saved_cookie
+
+        # 2. Join the room as the member through the REAL /v1/rooms/join handler.
+        self._start_cloud_service()
+        signin_status, signin = self._cloud_post("/v1/auth/signin", {
+            "email": self.member_email, "password": self.member_password,
+        })
+        self.assertEqual(signin_status, 200, f"member signin failed: {signin}")
+        session_token = signin["session_token"]
+        join_status, joined = self._cloud_post("/v1/rooms/join", {
+            "room_id": self.room_id,
+            "link_token": link_token,
+            "agent_id": signin["account_id"],
+            "consent": True,
+            "capabilities": [],
+        }, token=session_token)
+        self.assertEqual(join_status, 200, f"member join failed: {joined}")
+
+        # 3. Now an active room member: the connect page renders the link token.
         status, body, _ = self.driver.get(f"/room/{self.room_id}/connect")
         self.assertEqual(status, 200)
-        self.assertIsNotNone(re.search(r"rm_[A-Za-z0-9_-]+", body))
+        self.assertIsNotNone(re.search(r"rm_[A-Za-z0-9_-]+", body),
+                             "an active room member must be able to share the link")
 
 
 class TestUnauthenticatedAccess(unittest.TestCase):

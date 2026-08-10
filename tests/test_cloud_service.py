@@ -188,6 +188,28 @@ class TestAccountAndOrgFlow(CloudServiceTestBase):
         })
         self.assertEqual(status, 400)
 
+    def test_signup_does_not_auto_verify_email(self) -> None:
+        # Signup must not self-consume its own email verification: ownership of
+        # the address is never proven by signing up. The session is issued
+        # immediately (the signup -> create-room flow works) but it does NOT
+        # imply a verified address — the response says so and the account row
+        # stays unverified with its verification token intact.
+        result = self._signup("verifyme@example.com", "SecurePass!1")
+        self.assertIs(result["email_verified"], False)
+        with self.service.backend.transaction() as tx:
+            row = tx.execute(
+                "SELECT email_verified, verification_token_hash "
+                "FROM cloud_identity_accounts WHERE account_id = ?",
+                (result["account_id"],),
+            ).fetchone()
+        self.assertEqual(row["email_verified"], 0)
+        # The token is NOT consumed by signup (verify_email NULLs it on success).
+        self.assertIsNotNone(row["verification_token_hash"])
+        # The immediate session still works for the signup -> create-room flow.
+        status, body = _get(self.base, "/v1/me", result["session_token"])
+        self.assertEqual(status, 200)
+        self.assertEqual(body["account_id"], result["account_id"])
+
     def test_signin_with_correct_credentials(self) -> None:
         self._signup("carol@example.com", "CorrectHorse!1")
         result = self._signin("carol@example.com", "CorrectHorse!1")

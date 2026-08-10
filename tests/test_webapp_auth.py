@@ -262,14 +262,40 @@ class TestVerify(unittest.TestCase):
         status2, body2, _ = self.driver.post("/verify", {"token": self.raw_token})
         self.assertEqual(status2, 400)
 
-    def test_verify_get_auto_verifies(self):
-        status, _, headers = self.driver.get(f"/verify?token={self.raw_token}")
-        self.assertEqual(status, 303)
-        self.assertTrue(headers["Location"].startswith("/login?verified=1"))
+    def test_verify_get_renders_confirm_page_but_does_not_verify(self):
+        # A GET must never mutate state: link scanners, antivirus and mail-client
+        # prefetchers fetch GET URLs automatically, which would verify the address
+        # without a human ever clicking. GET only renders a confirmation page;
+        # the POST confirm (the human click) is the actual verification step.
+        status, body, headers = self.driver.get(f"/verify?token={self.raw_token}")
+        self.assertEqual(status, 200)
+        self.assertNotIn("Location", headers)  # no redirect, no mutation
+        self.assertIn("Confirm your email", body)
+        self.assertIn('action="/verify"', body)  # POST confirm form
+        self.assertIn(self.raw_token, body)  # the confirm form carries the token
+        # The account is STILL unverified after the GET.
+        with self.driver.backend.transaction() as tx:
+            row = tx.execute(
+                "SELECT email_verified FROM cloud_identity_accounts WHERE email = ?",
+                (self.email,),
+            ).fetchone()
+        self.assertEqual(row["email_verified"], 0)
+        # The POST confirm — the human click — is what actually verifies.
+        status2, _, headers2 = self.driver.post("/verify", {"token": self.raw_token})
+        self.assertEqual(status2, 303)
+        self.assertTrue(headers2["Location"].startswith("/login?verified=1"))
 
-    def test_verify_garbage_token_renders_error(self):
+    def test_verify_get_with_garbage_token_renders_confirm_page(self):
+        # GET never validates the token: validating without consuming would be a
+        # token-validity oracle, and consuming on a GET is the mutation we just
+        # removed. Garbage tokens render the same confirm page; the 400 error is
+        # surfaced only at the POST confirm step.
         status, body, _ = self.driver.get("/verify?token=not_a_real_token")
-        self.assertEqual(status, 400)
+        self.assertEqual(status, 200)
+        self.assertIn("Confirm your email", body)
+        # POST with the garbage token is refused.
+        status2, _, _ = self.driver.post("/verify", {"token": "not_a_real_token"})
+        self.assertEqual(status2, 400)
 
 
 class TestResetPassword(unittest.TestCase):
