@@ -23,7 +23,17 @@ label, so the **hostname is permanent and survives reboots**. It is no longer a 
 ## Why this split
 
 Vercel hosts the marketing site because it is a static Astro build (`output: 'static'`, 16 HTML
-files) — free, TLS, real domain, no server.
+files) — free, TLS, real domain, no server. The Vercel build command is
+`scripts/vercel-build.py`, which runs the release materializer
+(`scripts/build-site-release.py`) over the committed `site/` bundle. The deploy
+therefore serves the **materialized** release — canonical/OG/JSON-LD URLs, the
+founder contact CTA, `sitemap.xml`, the `robots.txt` Sitemap line, and
+`release-manifest.json` — not the raw `site/` directory. The materializer reads
+`WEFT_SITE_ORIGIN` (default `https://finalisma.vercel.app`) and requires
+`WEFT_CONTACT_URL` (a founder-owned HTTPS contact form or `mailto:`); if the
+contact URL is unset the build fails rather than shipping a site whose contact
+link was never injected. Both are set in the Vercel project build environment,
+not in the repository.
 
 Vercel **cannot** host the backend: state is a SQLite file in WAL mode (one writer, persistent
 disk) and agents **poll** the room, so the service must stay warm. Vercel is ephemeral-filesystem

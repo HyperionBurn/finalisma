@@ -4,6 +4,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 import re
 import sys
 import tempfile
@@ -12,6 +13,7 @@ import unittest
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,6 +50,13 @@ _CRITIC_SPEC = importlib.util.spec_from_file_location(
 assert _CRITIC_SPEC and _CRITIC_SPEC.loader
 _CRITIC_MODULE = importlib.util.module_from_spec(_CRITIC_SPEC)
 _CRITIC_SPEC.loader.exec_module(_CRITIC_MODULE)
+
+_VERCEL_BUILD_SPEC = importlib.util.spec_from_file_location(
+    "vercel_build", ROOT / "scripts" / "vercel-build.py"
+)
+assert _VERCEL_BUILD_SPEC and _VERCEL_BUILD_SPEC.loader
+_VERCEL_BUILD_MODULE = importlib.util.module_from_spec(_VERCEL_BUILD_SPEC)
+_VERCEL_BUILD_SPEC.loader.exec_module(_VERCEL_BUILD_MODULE)
 
 
 class LaunchSurfaceTests(unittest.TestCase):
@@ -721,6 +730,58 @@ class WebsiteCriticStaleDataTests(unittest.TestCase):
             any("maxRuleDrift" in failure and "cannot compare" in failure for failure in failures),
             f"a measured drift must not be reported as absent data: {failures}",
         )
+
+
+class VercelDeployMaterializesReleaseTests(unittest.TestCase):
+    """The static Vercel deploy must serve the materialized release, not raw site/.
+
+    Release-gate finding: vercel.json pointed outputDirectory at the raw
+    ``site/`` source with no build command, so production shipped without the
+    canonical/OG/JSON-LD URLs, the founder contact CTA, sitemap.xml, the
+    robots.txt Sitemap line, and release-manifest.json that the release
+    materializer (build-site-release.py) produces. The deploy is now wired to
+    run that materializer as the build step; these tests pin the wiring so it
+    cannot silently regress back to a raw deploy.
+    """
+
+    def test_vercel_outputs_the_materialized_bundle_not_raw_site(self) -> None:
+        vercel = json.loads((ROOT / "vercel.json").read_text(encoding="utf-8"))
+        self.assertEqual(vercel["outputDirectory"], "artifacts/release-site")
+        self.assertEqual(vercel["buildCommand"], "python scripts/vercel-build.py")
+        self.assertIsNone(vercel["framework"], "deploy must remain a static (framework-less) build")
+
+    def test_vercel_build_materializes_release_bundle_with_env_values(self) -> None:
+        temp_root = ROOT / ".tmp"
+        temp_root.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="weft-vercel-build-", dir=temp_root) as temporary:
+            output = Path(temporary) / "release-site"
+            original_output = _VERCEL_BUILD_MODULE.OUTPUT
+            _VERCEL_BUILD_MODULE.OUTPUT = output
+            try:
+                result = _VERCEL_BUILD_MODULE.build_release_for_deploy(
+                    origin="https://weft.test",
+                    contact_url="mailto:founder@example.invalid",
+                )
+            finally:
+                _VERCEL_BUILD_MODULE.OUTPUT = original_output
+            home = (output / "index.html").read_text(encoding="utf-8")
+            self.assertEqual(result["origin"], "https://weft.test")
+            self.assertIn('rel="canonical" href="https://weft.test/"', home)
+            self.assertIn('data-founder-contact href="mailto:founder@example.invalid"', home)
+            self.assertTrue((output / "sitemap.xml").is_file())
+            self.assertTrue((output / "release-manifest.json").is_file())
+
+    def test_vercel_build_fails_cleanly_when_contact_url_unset(self) -> None:
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(ValueError, "WEFT_CONTACT_URL is unset"):
+                _VERCEL_BUILD_MODULE.build_release_for_deploy(origin="https://weft.test")
+
+    def test_vercel_build_refuses_unsafe_contact_values(self) -> None:
+        with self.assertRaises(ValueError):
+            _VERCEL_BUILD_MODULE.build_release_for_deploy(
+                origin="https://weft.test",
+                contact_url="javascript:alert(1)",
+            )
 
 
 class TestCountSyncTests(unittest.TestCase):
