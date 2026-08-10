@@ -23,8 +23,9 @@ import secrets
 import time as _time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
+from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from weft_cloud.identity import (
     AccountStore,
@@ -1430,20 +1431,29 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
         def _serve_static(self, path: str) -> None:
             if path == "/":
                 path = "/index.html"
-            safe = path.lstrip("/")
-            if ".." in safe or safe.startswith("/"):
+            # Resolve-then-assert, never blocklist. A blocklist misses
+            # backslashes, rooted absolute paths, drive letters, symlinks
+            # and percent-encoded separators; containment on the resolved
+            # path catches all of them on every host OS.
+            try:
+                root = Path(app.static_dir).resolve()
+                target = (root / unquote(path).lstrip("/\\")).resolve()
+            except (OSError, ValueError):
                 app._send_json(self, HTTPStatus.FORBIDDEN,
                                {"error": "forbidden"})
                 return
-            full = os.path.join(app.static_dir, safe)
-            if not os.path.isfile(full):
+            if not target.is_relative_to(root):
+                app._send_json(self, HTTPStatus.FORBIDDEN,
+                               {"error": "forbidden"})
+                return
+            if not target.is_file():
                 app._send_json(self, HTTPStatus.NOT_FOUND,
                                {"error": "not_found"})
                 return
             import mimetypes
-            ctype, _ = mimetypes.guess_type(full)
+            ctype, _ = mimetypes.guess_type(str(target))
             ctype = ctype or "application/octet-stream"
-            with open(full, "rb") as f:
+            with open(target, "rb") as f:
                 data = f.read()
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", ctype)
