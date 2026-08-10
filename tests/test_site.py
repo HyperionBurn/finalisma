@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import json
 import re
 import sys
@@ -39,6 +41,13 @@ _RELEASE_SPEC = importlib.util.spec_from_file_location(
 assert _RELEASE_SPEC and _RELEASE_SPEC.loader
 _RELEASE_MODULE = importlib.util.module_from_spec(_RELEASE_SPEC)
 _RELEASE_SPEC.loader.exec_module(_RELEASE_MODULE)
+
+_CRITIC_SPEC = importlib.util.spec_from_file_location(
+    "weft_website_critic", ROOT / "scripts" / "weft_website_critic.py"
+)
+assert _CRITIC_SPEC and _CRITIC_SPEC.loader
+_CRITIC_MODULE = importlib.util.module_from_spec(_CRITIC_SPEC)
+_CRITIC_SPEC.loader.exec_module(_CRITIC_MODULE)
 
 
 class LaunchSurfaceTests(unittest.TestCase):
@@ -618,6 +627,100 @@ class LaunchSurfaceTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
             thread.join(timeout=5)
+
+
+class WebsiteCriticStaleDataTests(unittest.TestCase):
+    """The website critic must not crash on absent/stale baseline QA data.
+
+    Release-gate finding: the rendered QA artifact can carry a stale baseline
+    where the ledger split was never measured, so ``maxRuleDrift`` (and the
+    sibling ``ruleWidth``/``ruleLeft``) are JSON ``null``. The critic used to
+    call ``float(None)`` and die. Absent baseline data is a DISTINCT outcome
+    from a passing comparison: the critic must report it as a clear failure
+    (the gate stays red — nobody should ship on "we never measured this"),
+    not crash, and not silently pass.
+    """
+
+    def _run_critic(self, *, qa: dict[str, object], report: str) -> tuple[int, list[str]]:
+        with tempfile.TemporaryDirectory(prefix="weft-critic-test-") as temporary:
+            qa_path = Path(temporary) / "qa-results.json"
+            report_path = Path(temporary) / "design-qa.md"
+            qa_path.write_text(json.dumps(qa), encoding="utf-8")
+            report_path.write_text(report, encoding="utf-8")
+            stream = io.StringIO()
+            with contextlib.redirect_stdout(stream):
+                code = _CRITIC_MODULE.main(["--qa", str(qa_path), "--report", str(report_path)])
+            payload = json.loads(stream.getvalue())
+        return code, list(payload.get("failures", []))
+
+    def _stale_top_level(self) -> dict[str, object]:
+        return {
+            "oneH1": True,
+            "initialStoryCtaHidden": True,
+            "ruleFixed": False,
+            "ruleWidth": None,
+            "ruleLeft": None,
+            "maxRuleDrift": None,
+            "unpostedCount": 0,
+            "allUnpostedLabelled": True,
+            "formLabels": True,
+            "htmlHasJsClass": True,
+        }
+
+    def test_null_max_rule_drift_reports_no_baseline_failure_not_crash(self) -> None:
+        qa = {
+            "topLevelChecks": self._stale_top_level(),
+            "interactions": {},
+            "signals": {},
+            "performanceChecks": {},
+        }
+        code, failures = self._run_critic(qa=qa, report="final result: passed\n")
+        self.assertEqual(code, 1)
+        self.assertTrue(
+            any("maxRuleDrift" in failure and "cannot compare" in failure for failure in failures),
+            f"expected a clear no-baseline failure naming maxRuleDrift, got: {failures}",
+        )
+
+    def test_absent_max_rule_drift_reports_no_baseline_failure_not_crash(self) -> None:
+        qa = {
+            "topLevelChecks": {"oneH1": True, "htmlHasJsClass": True},
+            "interactions": {},
+            "signals": {},
+            "performanceChecks": {},
+        }
+        code, failures = self._run_critic(qa=qa, report="final result: passed\n")
+        self.assertEqual(code, 1)
+        self.assertTrue(
+            any("maxRuleDrift" in failure and "cannot compare" in failure for failure in failures),
+            f"expected a clear no-baseline failure naming maxRuleDrift, got: {failures}",
+        )
+
+    def test_present_max_rule_drift_still_fails_on_real_drift(self) -> None:
+        qa = {
+            "topLevelChecks": {
+                "oneH1": True,
+                "htmlHasJsClass": True,
+                "ruleFixed": True,
+                "maxRuleDrift": 3.4,
+                "allUnpostedLabelled": True,
+                "formLabels": True,
+                "initialStoryCtaHidden": True,
+            },
+            "interactions": {},
+            "signals": {},
+            "performanceChecks": {"cls": 0.01, "lcp": 200, "transferBytes": 100_000},
+        }
+        code, failures = self._run_critic(qa=qa, report="final result: passed\n")
+        self.assertEqual(code, 1)
+        self.assertTrue(
+            any("exceeds 1.5" in failure for failure in failures),
+            f"real drift must still fail the comparison, got: {failures}",
+        )
+        # Absent-data handling must not swallow the real-drift outcome.
+        self.assertFalse(
+            any("maxRuleDrift" in failure and "cannot compare" in failure for failure in failures),
+            f"a measured drift must not be reported as absent data: {failures}",
+        )
 
 
 class TestCountSyncTests(unittest.TestCase):

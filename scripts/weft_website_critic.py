@@ -26,6 +26,21 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _as_number(value: object) -> float | None:
+    """Coerce a QA measurement to float, or None when it is absent/stale.
+
+    A JSON ``null`` (or a missing key) means the baseline was never measured,
+    not that it is zero. Returning ``None`` lets callers emit a distinct
+    "cannot compare" failure instead of crashing on ``float(None)``.
+    """
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     qa_path = Path(args.qa).resolve()
@@ -98,7 +113,10 @@ def main(argv: list[str] | None = None) -> int:
     for key, expected in expected_top.items():
         if top.get(key) is not expected:
             failures.append(f"rendered top-level check failed: {key}")
-    if float(top.get("maxRuleDrift", 999)) > 1.5:
+    max_drift = _as_number(top.get("maxRuleDrift"))
+    if max_drift is None:
+        failures.append("ledger split baseline is absent (maxRuleDrift is null) — cannot compare")
+    elif max_drift > 1.5:
         failures.append("ledger split drift exceeds 1.5 CSS pixels")
     if top.get("thirdParty"):
         failures.append("homepage loaded a third-party runtime resource")
@@ -171,11 +189,20 @@ def main(argv: list[str] | None = None) -> int:
     for key in ("consoleErrors", "failedRequests", "badResponses"):
         if signals.get(key):
             failures.append(f"browser signal is not empty: {key}")
-    if float(performance.get("cls", 1)) > 0.1:
+    cls = _as_number(performance.get("cls"))
+    if cls is None:
+        failures.append("CLS baseline is absent (cls is null) — cannot compare")
+    elif cls > 0.1:
         failures.append("CLS exceeds 0.1")
-    if float(performance.get("lcp", 99999)) > 2500:
+    lcp = _as_number(performance.get("lcp"))
+    if lcp is None:
+        failures.append("local LCP baseline is absent (lcp is null) — cannot compare")
+    elif lcp > 2500:
         failures.append("local LCP exceeds 2500 ms")
-    if int(performance.get("transferBytes", 9_999_999)) > 2_000_000:
+    transfer_bytes = _as_number(performance.get("transferBytes"))
+    if transfer_bytes is None:
+        failures.append("transfer baseline is absent (transferBytes is null) — cannot compare")
+    elif int(transfer_bytes) > 2_000_000:
         failures.append("homepage transfer exceeds 2 MB")
 
     if "final result: passed" not in report.lower():
