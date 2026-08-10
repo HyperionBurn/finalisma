@@ -111,6 +111,10 @@ CREATE TABLE IF NOT EXISTS cloud_outbox (
         CHECK(status IN ('queued','claimed','delivered','dead')),
     attempts INTEGER NOT NULL DEFAULT 0,
     next_attempt_at REAL NOT NULL DEFAULT 0,
+    claimed_at REAL,
+    claimed_by TEXT,
+    last_error TEXT,
+    dispatched_at REAL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -366,6 +370,42 @@ def _has_room_message_kind(execute: Callable[[str, tuple], Any]) -> bool:
         return False
 
 
+def _has_cloud_outbox_column(column: str) -> Callable[[Callable[[str, tuple], Any]], bool]:
+    """True when cloud_outbox already has ``column``."""
+
+    def _guard(execute: Callable[[str, tuple], Any]) -> bool:
+        try:
+            row = execute(
+                "SELECT 1 FROM pragma_table_info('cloud_outbox') WHERE name = ?",
+                (column,),
+            ).fetchone()
+            return row is not None
+        except Exception:
+            return False
+
+    return _guard
+
+
+_CLOUD_OUTBOX_LIFECYCLE_STATEMENTS = [
+    GuardedStatement(
+        "ALTER TABLE cloud_outbox ADD COLUMN claimed_at REAL",
+        _has_cloud_outbox_column("claimed_at"),
+    ),
+    GuardedStatement(
+        "ALTER TABLE cloud_outbox ADD COLUMN claimed_by TEXT",
+        _has_cloud_outbox_column("claimed_by"),
+    ),
+    GuardedStatement(
+        "ALTER TABLE cloud_outbox ADD COLUMN last_error TEXT",
+        _has_cloud_outbox_column("last_error"),
+    ),
+    GuardedStatement(
+        "ALTER TABLE cloud_outbox ADD COLUMN dispatched_at REAL",
+        _has_cloud_outbox_column("dispatched_at"),
+    ),
+]
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         "cloud_001_init",
@@ -412,6 +452,11 @@ MIGRATIONS: list[Migration] = [
         "cloud room event log message_kind column",
         _ROOM_MESSAGE_KIND_SQL,
         already_applied=_has_room_message_kind,
+    ),
+    Migration(
+        "cloud_010_cloud_outbox_lifecycle",
+        "hosted delivery outbox completion lifecycle (lease/retry/delivered/dead)",
+        statements=_CLOUD_OUTBOX_LIFECYCLE_STATEMENTS,
     ),
 ]
 

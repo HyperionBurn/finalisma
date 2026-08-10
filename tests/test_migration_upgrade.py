@@ -706,8 +706,9 @@ class ProductionShapedUpgradeTests(unittest.TestCase):
         """Bug 1: ensure_schema must NOT short-circuit on an existing table.
 
         The pre-cloud_008 production shape is brought fully up to date — all six
-        delivery columns and message_kind added, all nine migrations recorded —
-        without losing a single pre-existing row.
+        delivery columns, message_kind, and the cloud_outbox lifecycle columns
+        added, all ten migrations recorded — without losing a single
+        pre-existing row.
         """
         from weft_cloud.identity.schema import ensure_schema
 
@@ -737,7 +738,7 @@ class ProductionShapedUpgradeTests(unittest.TestCase):
             n = conn.execute(
                 "SELECT COUNT(*) AS c FROM schema_migrations"
             ).fetchone()["c"]
-            self.assertEqual(n, 9, "all nine cloud migrations must be recorded")
+            self.assertEqual(n, 10, "all ten cloud migrations must be recorded")
         finally:
             conn.close()
 
@@ -757,7 +758,7 @@ class ProductionShapedUpgradeTests(unittest.TestCase):
             n = conn.execute(
                 "SELECT COUNT(*) AS c FROM schema_migrations"
             ).fetchone()["c"]
-            self.assertEqual(n, 9, "no duplicate schema_migrations rows on rerun")
+            self.assertEqual(n, 10, "no duplicate schema_migrations rows on rerun")
         finally:
             conn.close()
 

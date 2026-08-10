@@ -143,8 +143,30 @@ class StorageBackend(ABC):
         """
 
     @abstractmethod
-    def claim_due_outbox(self, tenant_id: str, limit: int) -> list[dict]:
-        ...
+    def claim_due_outbox(self, tenant_id: str, limit: int, *,
+                         lease_seconds: float = 60.0,
+                         worker_id: str | None = None,
+                         now: float | None = None) -> list[dict]:
+        """Atomically claim due outbox rows for one worker.
+
+        Claims rows that are ``queued`` OR ``claimed`` by a worker whose lease
+        has expired (``claimed_at < now - lease_seconds``) — so a dead worker's
+        claim is reclaimed. Stamps ``claimed_at`` / ``claimed_by``.
+        """
+
+    @abstractmethod
+    def mark_outbox_delivered(self, tenant_id: str, entry_id: str) -> None:
+        """Terminal state: mark a claimed outbox row delivered."""
+
+    @abstractmethod
+    def mark_outbox_retry(self, tenant_id: str, entry_id: str, attempts: int,
+                          next_attempt_at: float, error: str) -> None:
+        """Return a claimed row to ``queued`` with backoff after a transient failure."""
+
+    @abstractmethod
+    def mark_outbox_dead(self, tenant_id: str, entry_id: str, attempts: int,
+                         error: str) -> None:
+        """Terminal dead-letter state after repeated failure."""
 
     # --- audit ---
     @abstractmethod
@@ -212,6 +234,10 @@ CREATE TABLE IF NOT EXISTS cloud_outbox (
         CHECK(status IN ('queued','claimed','delivered','dead')),
     attempts INTEGER NOT NULL DEFAULT 0,
     next_attempt_at REAL NOT NULL DEFAULT 0,
+    claimed_at REAL,
+    claimed_by TEXT,
+    last_error TEXT,
+    dispatched_at REAL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -501,21 +527,63 @@ class SqliteWalBackend(StorageBackend):
         self._insert_outbox(tx, entry_id, tenant_id, envelope_id, recipient, payload)
         return entry_id
 
-    def claim_due_outbox(self, tenant_id: str, limit: int) -> list[dict]:
+    def claim_due_outbox(self, tenant_id: str, limit: int, *,
+                         lease_seconds: float = 60.0,
+                         worker_id: str | None = None,
+                         now: float | None = None) -> list[dict]:
+        import time as _time
+        now = _time.time() if now is None else now
+        now_iso = utc_now_iso()
         with self._transaction() as conn:
+            # Claim queued rows OR rows claimed by a worker whose lease expired
+            # (dead worker's claim is reclaimed). All inside one writer lock so
+            # concurrent drainers never claim the same row twice.
             rows = conn.execute(
-                "SELECT * FROM cloud_outbox WHERE tenant_id = ? AND status = 'queued' ORDER BY created_at LIMIT ?",
-                (tenant_id, limit),
+                "SELECT * FROM cloud_outbox WHERE tenant_id = ? "
+                "AND ((status = 'queued') OR "
+                "     (status = 'claimed' AND claimed_at IS NOT NULL AND claimed_at < ?)) "
+                "AND next_attempt_at <= ? ORDER BY created_at LIMIT ?",
+                (tenant_id, now - lease_seconds, now, limit),
             ).fetchall()
             ids = [r["entry_id"] for r in rows]
             if ids:
                 placeholders = ",".join("?" for _ in ids)
                 conn.execute(
-                    f"UPDATE cloud_outbox SET status = 'claimed', updated_at = ? WHERE entry_id IN ({placeholders})",
-                    (utc_now_iso(), *ids),
+                    f"UPDATE cloud_outbox SET status = 'claimed', claimed_at = ?, claimed_by = ?, "
+                    f"updated_at = ? WHERE entry_id IN ({placeholders})",
+                    (now, worker_id, now_iso, *ids),
                 )
             # Return with the NEW status ('claimed'), not the pre-update snapshot.
-            return [dict(r, **{"status": "claimed"}) for r in rows]
+            return [dict(r, **{"status": "claimed", "claimed_at": now,
+                               "claimed_by": worker_id}) for r in rows]
+
+    def mark_outbox_delivered(self, tenant_id: str, entry_id: str) -> None:
+        with self._transaction() as conn:
+            conn.execute(
+                "UPDATE cloud_outbox SET status = 'delivered', dispatched_at = ?, "
+                "last_error = NULL WHERE tenant_id = ? AND entry_id = ? AND status = 'claimed'",
+                (utc_now_iso(), tenant_id, entry_id),
+            )
+
+    def mark_outbox_retry(self, tenant_id: str, entry_id: str, attempts: int,
+                          next_attempt_at: float, error: str) -> None:
+        with self._transaction() as conn:
+            conn.execute(
+                "UPDATE cloud_outbox SET status = 'queued', attempts = ?, next_attempt_at = ?, "
+                "claimed_at = NULL, claimed_by = NULL, last_error = ? "
+                "WHERE tenant_id = ? AND entry_id = ? AND status = 'claimed'",
+                (attempts, next_attempt_at, error, tenant_id, entry_id),
+            )
+
+    def mark_outbox_dead(self, tenant_id: str, entry_id: str, attempts: int,
+                         error: str) -> None:
+        with self._transaction() as conn:
+            conn.execute(
+                "UPDATE cloud_outbox SET status = 'dead', attempts = ?, "
+                "claimed_at = NULL, claimed_by = NULL, last_error = ? "
+                "WHERE tenant_id = ? AND entry_id = ? AND status = 'claimed'",
+                (attempts, error, tenant_id, entry_id),
+            )
 
     def append_audit(self, tenant_id: str, action: str, actor: str, object_id: str, payload: str) -> None:
         with self._transaction() as conn:
