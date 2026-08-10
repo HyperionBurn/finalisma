@@ -941,13 +941,23 @@ class CloudRoomService:
 
     def room_send(self, tenant_id: str, room_id: str, sender_agent_id: str,
                   target_spec: Any, payload: Any, exclude_sender: bool = True,
-                  message_kind: str | None = None) -> dict:
+                  message_kind: str | None = None,
+                  idempotency_key: str | None = None) -> dict:
         """Send a message to targets. Returns the event seq and per-target receipts.
 
         ``message_kind`` is an optional sender-set semantic label (e.g. "result"
         for a finished unit of work, "status" for liveness) stored as a
         first-class column on the event row so it is queryable without parsing
         the payload.
+
+        ``idempotency_key`` makes the send safe to retry: a second call with
+        the same key returns the ORIGINAL event's seq and receipts instead of
+        creating a duplicate event or duplicate receipts. When omitted, every
+        call appends a fresh event (existing behaviour).
+
+        Atomicity: the event and ALL its delivery receipts commit in ONE
+        transaction. A crash between the two leaves nothing — never a visible
+        event with partial or zero receipts.
         """
         # Verify the sender is an active member BEFORE the rate gate, so a
         # non-member cannot consume the room's per-minute message budget.
@@ -977,24 +987,49 @@ class CloudRoomService:
             targets = self._route_targets(tx, tenant_id, room_id, target_spec)
             if exclude_sender and sender_agent_id in targets:
                 targets = [t for t in targets if t != sender_agent_id]
+
+            # Idempotent replay: an event with this key already exists for this
+            # sender — return its seq and its original receipts, write nothing.
+            if idempotency_key:
+                existing = tx.execute(
+                    "SELECT seq FROM cloud_room_event_log "
+                    "WHERE tenant_id = ? AND room_id = ? AND origin_agent = ? "
+                    "AND idempotency_key = ? AND kind = 'room.message'",
+                    (tenant_id, room_id, sender_agent_id, idempotency_key),
+                ).fetchone()
+                if existing is not None:
+                    seq = int(existing["seq"])
+                    payload_json = _json({"room_id": room_id, "seq": seq,
+                                          "payload": payload, "sender": sender_agent_id})
+                    rows = tx.execute(
+                        "SELECT entry_id, recipient FROM cloud_outbox "
+                        "WHERE tenant_id = ? AND payload_json = ? ORDER BY recipient",
+                        (tenant_id, payload_json),
+                    ).fetchall()
+                    receipts = [{"agent_id": r["recipient"], "entry_id": r["entry_id"],
+                                 "status": "queued"} for r in rows]
+                    return {"room_id": room_id, "seq": seq, "receipts": receipts}
+
             # Enforce + count the monthly event budget in the SAME transaction
             # as the append, so a refused message leaves no counter trace.
             enforce_events_per_month(tx, tenant_id, plan_id, plan)
             seq = self._append_event(tx, tenant_id, room_id, sender_agent_id, "room.message",
                                      {"payload": payload, "target_spec": target_spec,
                                       "targets": targets},
-                                     message_kind=message_kind)
+                                     message_kind=message_kind,
+                                     idempotency_key=idempotency_key)
+            # Build receipts (one per target) — durable via the cloud outbox,
+            # committed IN THE SAME transaction as the event (all-or-nothing).
+            envelope_id = _new_id("oev")
+            receipts = []
+            for target in targets:
+                entry_id = self.backend.enqueue_outbox_in_tx(
+                    tx, tenant_id, envelope_id, target,
+                    _json({"room_id": room_id, "seq": seq, "payload": payload,
+                           "sender": sender_agent_id}),
+                )
+                receipts.append({"agent_id": target, "entry_id": entry_id, "status": "queued"})
             tx.commit()
-
-        # Build receipts (one per target) — durable via the cloud outbox.
-        receipts = []
-        envelope_id = _new_id("oev")
-        for target in targets:
-            entry_id = self.backend.enqueue_outbox(
-                tenant_id, envelope_id, target,
-                _json({"room_id": room_id, "seq": seq, "payload": payload, "sender": sender_agent_id}),
-            )
-            receipts.append({"agent_id": target, "entry_id": entry_id, "status": "queued"})
 
         return {"room_id": room_id, "seq": seq, "receipts": receipts}
 

@@ -133,6 +133,16 @@ class StorageBackend(ABC):
         ...
 
     @abstractmethod
+    def enqueue_outbox_in_tx(self, tx: StorageTransaction, tenant_id: str,
+                             envelope_id: str, recipient: str, payload: str) -> str:
+        """Enqueue an outbox entry inside a caller-owned transaction.
+
+        The caller owns commit/rollback, so a multi-step write (e.g. a room
+        event plus its delivery receipts) can commit atomically. Never open a
+        new transaction here — SQLite has a single writer.
+        """
+
+    @abstractmethod
     def claim_due_outbox(self, tenant_id: str, limit: int) -> list[dict]:
         ...
 
@@ -470,16 +480,25 @@ class SqliteWalBackend(StorageBackend):
                 )
             return (True, max(0, max_allowed - (current + 1)))
 
+    def _insert_outbox(self, conn: Any, entry_id: str, tenant_id: str,
+                       envelope_id: str, recipient: str, payload: str) -> None:
+        conn.execute(
+            "INSERT INTO cloud_outbox(entry_id, tenant_id, envelope_id, recipient, payload_json, status, attempts, next_attempt_at, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, 'queued', 0, 0, ?, ?)",
+            (entry_id, tenant_id, envelope_id, recipient, payload, utc_now_iso(), utc_now_iso()),
+        )
+
     def enqueue_outbox(self, tenant_id: str, envelope_id: str, recipient: str, payload: str) -> str:
-        import time as _time
         entry_id = _new_id("oeb")
-        now = _time.time()
         with self._transaction() as conn:
-            conn.execute(
-                "INSERT INTO cloud_outbox(entry_id, tenant_id, envelope_id, recipient, payload_json, status, attempts, next_attempt_at, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, 'queued', 0, 0, ?, ?)",
-                (entry_id, tenant_id, envelope_id, recipient, payload, utc_now_iso(), utc_now_iso()),
-            )
+            self._insert_outbox(conn, entry_id, tenant_id, envelope_id, recipient, payload)
+        return entry_id
+
+    def enqueue_outbox_in_tx(self, tx: StorageTransaction, tenant_id: str,
+                             envelope_id: str, recipient: str, payload: str) -> str:
+        """Enqueue inside a caller-owned transaction (atomic with its other writes)."""
+        entry_id = _new_id("oeb")
+        self._insert_outbox(tx, entry_id, tenant_id, envelope_id, recipient, payload)
         return entry_id
 
     def claim_due_outbox(self, tenant_id: str, limit: int) -> list[dict]:
