@@ -54,7 +54,7 @@ from weft_cloud.mcp import (
 )
 from weft_cloud.quotas import QuotaError
 from weft_cloud.rate_limit import RateLimitedError
-from weft_cloud.rooms import CloudRoomService, RoomError, _token_hash, public_origin
+from weft_cloud.rooms import CloudRoomService, RoomError, public_origin
 from weft_cloud.storage import SqliteWalBackend, StorageBackend
 
 # Secrets are never logged. Tokens are hashed at rest, never stored raw.
@@ -325,26 +325,62 @@ class WeftCloudService:
     # Room endpoints
     # ------------------------------------------------------------------
 
-    def _resolve_room_tenant(self, room_id: str, agent_id: str,
-                             actor_token_hash: str | None = None) -> str:
-        """Resolve the effective tenant_id for a room operation.
+    def _reject_identity_args(self, body: Mapping[str, Any], *,
+                              allow_self_owner: bool = False) -> None:
+        """Refuse any client-supplied identity argument.
 
-        A member may belong to a different tenant than the room's owner
-        (cross-tenant join via link). We resolve via the membership row,
-        scoped by the caller's own actor credential when supplied.
+        Identity is derived from the authenticated session (``ctx``) and NEVER
+        from the request body — accepting ``agent_id`` / ``sender_agent_id`` /
+        ``owner_agent_id`` and friends was the live cross-tenant impersonation
+        vulnerability on this service. ``allow_self_owner`` lets the room
+        create/connect endpoints accept an ``owner_agent_id`` that names the
+        caller THEMSELVES (redundant, but harmless); the handler still verifies
+        it equals ``ctx.account_id``.
         """
-        with self.backend.transaction() as tx:
-            return self.rooms._resolve_room_tenant(tx, room_id, agent_id,
-                                                   actor_token_hash)
+        supplied = sorted(set(body) & _FORBIDDEN_IDENTITY_ARGS)
+        if not supplied:
+            return
+        if allow_self_owner and set(supplied) <= {"owner_agent_id"}:
+            return
+        raise _ServiceError(
+            "invalid_argument",
+            "Identity is derived from your authenticated session; argument(s) "
+            f"{', '.join(supplied)} are not accepted",
+        )
+
+    def _room_tenant(self, room_id: str, agent_id: str) -> str:
+        """Resolve the effective tenant for a room operation via membership.
+
+        Agents who joined via a cross-tenant link have their membership in
+        the room's owning tenant, not their own. Resolution goes through the
+        membership row keyed on ``agent_id`` — the caller's authenticated
+        ACCOUNT, established by the session and never by the request body — so
+        a caller can only ever resolve a room they are an active member of.
+        Anything else yields the uniform ``room_not_found`` — identical to a
+        fabricated room_id, so the endpoint is not a room-existence oracle.
+        """
+        try:
+            with self.backend.transaction() as tx:
+                return self.rooms._resolve_room_tenant(tx, room_id, agent_id)
+        except RoomError:
+            raise _ServiceError("room_not_found", "Room not found", HTTPStatus.NOT_FOUND)
 
     def handle_create_room(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
         ctx = self._authenticate(handler)
         body = _read_body(handler)
+        self._reject_identity_args(body, allow_self_owner=True)
         owner_agent_id = body.get("owner_agent_id", ctx.account_id)
+        if owner_agent_id != ctx.account_id:
+            raise _ServiceError(
+                "invalid_argument",
+                "Identity is derived from your authenticated session; "
+                "owner_agent_id must be your own account",
+            )
         cap = body.get("cap", 10)
         name = body.get("name")
         ttl_seconds = body.get("ttl_seconds", 86400)
-        # The actor token is derived from the session — the room binds it.
+        # The actor token is derived from the session — recorded as an
+        # informational hash only; room authorization is bound to the account.
         actor_token = _bearer_token(handler)
         result = self.rooms.create_room(
             ctx.tenant_id, owner_agent_id, actor_token, cap=cap,
@@ -376,7 +412,14 @@ class WeftCloudService:
         """
         ctx = self._authenticate(handler)
         body = _read_body(handler)
+        self._reject_identity_args(body, allow_self_owner=True)
         owner_agent_id = body.get("owner_agent_id", ctx.account_id)
+        if owner_agent_id != ctx.account_id:
+            raise _ServiceError(
+                "invalid_argument",
+                "Identity is derived from your authenticated session; "
+                "owner_agent_id must be your own account",
+            )
         cap = body.get("cap", 10)
         name = body.get("name")
         ttl_seconds = body.get("ttl_seconds", 86400)
@@ -533,47 +576,22 @@ class WeftCloudService:
     def handle_join_room(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
         ctx = self._authenticate(handler)
         body = _read_body(handler)
+        self._reject_identity_args(body)
         room_id = body.get("room_id")
         link_token = body.get("link_token")
-        agent_id = body.get("agent_id", ctx.account_id)
         consent = body.get("consent", False)
         capabilities = body.get("capabilities", [])
         actor_token = _bearer_token(handler)
         if not room_id or not link_token:
             raise _ServiceError("invalid_argument", "room_id and link_token are required")
         result = self.rooms.join_room(
-            ctx.tenant_id, room_id, link_token, agent_id, consent, actor_token, capabilities,
+            ctx.tenant_id, room_id, link_token, ctx.account_id, consent, actor_token, capabilities,
         )
         self.backend.append_audit(
             ctx.tenant_id, "room.join", ctx.account_id, room_id,
-            json.dumps({"agent_id": agent_id}),
+            json.dumps({"agent_id": ctx.account_id}),
         )
         return _json_response(HTTPStatus.OK, result)
-
-    def _room_tenant(self, room_id: str, agent_id: str, actor_token: str | None) -> str:
-        """Resolve the effective tenant for a room operation, bound to the caller.
-
-        Agents who joined via a cross-tenant link have their membership in
-        the room's owning tenant, not their own. Resolution goes through the
-        membership row AND the caller's actor credential (the bearer session
-        token's hash is stored on the membership at join time), so a caller
-        can only resolve a room as an agent it is an active member of, using
-        proof it is that agent. Anything else yields the uniform
-        ``room_not_found`` — identical to a fabricated room_id, so the
-        endpoint is not a room-existence oracle.
-        """
-        # ``_authenticate`` ran first, so the bearer token is present; a
-        # malformed token still degrades to "no such credential" (no match),
-        # never to an unscoped lookup.
-        actor_token_hash = None
-        try:
-            actor_token_hash = _token_hash(actor_token) if actor_token else None
-        except ValueError:
-            actor_token_hash = None
-        try:
-            return self._resolve_room_tenant(room_id, agent_id, actor_token_hash)
-        except RoomError:
-            raise _ServiceError("room_not_found", "Room not found", HTTPStatus.NOT_FOUND)
 
     def handle_room_info(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
         ctx = self._authenticate(handler)
@@ -585,25 +603,26 @@ class WeftCloudService:
                     k, v = pair.split("=", 1)
                     params[k] = v
         room_id = params.get("room_id")
-        agent_id = params.get("agent_id", ctx.account_id)
         if not room_id:
             raise _ServiceError("invalid_argument", "room_id query parameter is required")
-        tenant_id = self._room_tenant(room_id, agent_id, _bearer_token(handler))
-        result = self.rooms.room_info(tenant_id, room_id, agent_id)
+        # A query-param agent_id is IGNORED, never honoured: the caller
+        # resolves as their OWN authenticated account.
+        tenant_id = self._room_tenant(room_id, ctx.account_id)
+        result = self.rooms.room_info(tenant_id, room_id, ctx.account_id)
         return _json_response(HTTPStatus.OK, result)
 
     def handle_room_poll(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
         ctx = self._authenticate(handler)
         body = _read_body(handler)
+        self._reject_identity_args(body)
         room_id = body.get("room_id")
-        agent_id = body.get("agent_id", ctx.account_id)
         after_seq = body.get("after_seq")
         limit = body.get("limit", 100)
         message_kinds = body.get("message_kinds")
         if not room_id:
             raise _ServiceError("invalid_argument", "room_id is required")
-        tenant_id = self._room_tenant(room_id, agent_id, _bearer_token(handler))
-        result = self.rooms.poll(tenant_id, room_id, agent_id, after_seq, limit,
+        tenant_id = self._room_tenant(room_id, ctx.account_id)
+        result = self.rooms.poll(tenant_id, room_id, ctx.account_id, after_seq, limit,
                                  message_kinds=message_kinds)
         return _json_response(HTTPStatus.OK, result)
 
@@ -629,13 +648,7 @@ class WeftCloudService:
         """
         ctx = self._authenticate(handler)
         body = _read_body(handler)
-        supplied = sorted(set(body) & _FORBIDDEN_IDENTITY_ARGS)
-        if supplied:
-            raise _ServiceError(
-                "invalid_argument",
-                "Identity is derived from your authenticated session; argument(s) "
-                f"{', '.join(supplied)} are not accepted",
-            )
+        self._reject_identity_args(body)
         room_id = body.get("room_id")
         if not room_id:
             raise _ServiceError("invalid_argument", "room_id is required")
@@ -649,7 +662,7 @@ class WeftCloudService:
                 HTTPStatus.TOO_MANY_REQUESTS,
             )
         try:
-            tenant_id = self._room_tenant(room_id, ctx.account_id, _bearer_token(handler))
+            tenant_id = self._room_tenant(room_id, ctx.account_id)
             result = self.rooms.wait(
                 tenant_id, room_id, ctx.account_id,
                 after_seq=body.get("after_seq"),
@@ -664,29 +677,29 @@ class WeftCloudService:
     def handle_room_ack(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
         ctx = self._authenticate(handler)
         body = _read_body(handler)
+        self._reject_identity_args(body)
         room_id = body.get("room_id")
         seq = body.get("seq")
-        agent_id = body.get("agent_id", ctx.account_id)
         if not room_id or seq is None:
             raise _ServiceError("invalid_argument", "room_id and seq are required")
-        tenant_id = self._room_tenant(room_id, agent_id, _bearer_token(handler))
-        result = self.rooms.ack(tenant_id, room_id, agent_id, seq)
+        tenant_id = self._room_tenant(room_id, ctx.account_id)
+        result = self.rooms.ack(tenant_id, room_id, ctx.account_id, seq)
         return _json_response(HTTPStatus.OK, result)
 
     def handle_room_send(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
         ctx = self._authenticate(handler)
         body = _read_body(handler)
+        self._reject_identity_args(body)
         room_id = body.get("room_id")
         target_spec = body.get("target_spec", "*")
         payload = body.get("payload", {})
         exclude_sender = body.get("exclude_sender", True)
         message_kind = body.get("message_kind")
-        sender_agent_id = body.get("sender_agent_id", ctx.account_id)
         if not room_id:
             raise _ServiceError("invalid_argument", "room_id is required")
-        tenant_id = self._room_tenant(room_id, sender_agent_id, _bearer_token(handler))
+        tenant_id = self._room_tenant(room_id, ctx.account_id)
         result = self.rooms.room_send(
-            tenant_id, room_id, sender_agent_id, target_spec, payload, exclude_sender,
+            tenant_id, room_id, ctx.account_id, target_spec, payload, exclude_sender,
             message_kind=message_kind,
         )
         return _json_response(HTTPStatus.OK, result)
@@ -694,35 +707,35 @@ class WeftCloudService:
     def handle_room_leave(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
         ctx = self._authenticate(handler)
         body = _read_body(handler)
+        self._reject_identity_args(body)
         room_id = body.get("room_id")
-        agent_id = body.get("agent_id", ctx.account_id)
         if not room_id:
             raise _ServiceError("invalid_argument", "room_id is required")
-        tenant_id = self._room_tenant(room_id, agent_id, _bearer_token(handler))
-        result = self.rooms.leave_room(tenant_id, room_id, agent_id)
+        tenant_id = self._room_tenant(room_id, ctx.account_id)
+        result = self.rooms.leave_room(tenant_id, room_id, ctx.account_id)
         return _json_response(HTTPStatus.OK, result)
 
     def handle_room_close(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
         ctx = self._authenticate(handler)
         body = _read_body(handler)
+        self._reject_identity_args(body)
         room_id = body.get("room_id")
-        caller_agent_id = body.get("caller_agent_id", ctx.account_id)
         if not room_id:
             raise _ServiceError("invalid_argument", "room_id is required")
-        tenant_id = self._room_tenant(room_id, caller_agent_id, _bearer_token(handler))
-        result = self.rooms.close_room(tenant_id, room_id, caller_agent_id)
+        tenant_id = self._room_tenant(room_id, ctx.account_id)
+        result = self.rooms.close_room(tenant_id, room_id, ctx.account_id)
         return _json_response(HTTPStatus.OK, result)
 
     def handle_revoke_link(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
         ctx = self._authenticate(handler)
         body = _read_body(handler)
+        self._reject_identity_args(body)
         room_id = body.get("room_id")
         link_id = body.get("link_id")
-        owner_agent_id = body.get("owner_agent_id", ctx.account_id)
         if not room_id or not link_id:
             raise _ServiceError("invalid_argument", "room_id and link_id are required")
-        tenant_id = self._room_tenant(room_id, owner_agent_id, _bearer_token(handler))
-        result = self.rooms.revoke_link(tenant_id, room_id, owner_agent_id, link_id)
+        tenant_id = self._room_tenant(room_id, ctx.account_id)
+        result = self.rooms.revoke_link(tenant_id, room_id, ctx.account_id, link_id)
         return _json_response(HTTPStatus.OK, result)
 
     def handle_list_rooms(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
@@ -752,37 +765,37 @@ class WeftCloudService:
     def handle_event_log(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
         ctx = self._authenticate(handler)
         body = _read_body(handler)
+        self._reject_identity_args(body)
         room_id = body.get("room_id")
-        agent_id = body.get("agent_id", ctx.account_id)
         if not room_id:
             raise _ServiceError("invalid_argument", "room_id is required")
-        tenant_id = self._room_tenant(room_id, agent_id, _bearer_token(handler))
-        events = self.rooms.event_log(tenant_id, room_id, agent_id)
+        tenant_id = self._room_tenant(room_id, ctx.account_id)
+        events = self.rooms.event_log(tenant_id, room_id, ctx.account_id)
         return _json_response(HTTPStatus.OK, {"events": events})
 
     def handle_room_heartbeat(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
         ctx = self._authenticate(handler)
         body = _read_body(handler)
+        self._reject_identity_args(body)
         room_id = body.get("room_id")
-        agent_id = body.get("agent_id", ctx.account_id)
         if not room_id:
             raise _ServiceError("invalid_argument", "room_id is required")
-        tenant_id = self._room_tenant(room_id, agent_id, _bearer_token(handler))
-        result = self.rooms.heartbeat(tenant_id, room_id, agent_id)
+        tenant_id = self._room_tenant(room_id, ctx.account_id)
+        result = self.rooms.heartbeat(tenant_id, room_id, ctx.account_id)
         return _json_response(HTTPStatus.OK, result)
 
     def handle_groups(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
         ctx = self._authenticate(handler)
         body = _read_body(handler)
+        self._reject_identity_args(body)
         room_id = body.get("room_id")
         group_name = body.get("group_name")
         action = body.get("action", "list")
         members = body.get("members")
-        agent_id = body.get("agent_id", ctx.account_id)
         if not room_id or not group_name:
             raise _ServiceError("invalid_argument", "room_id and group_name are required")
-        tenant_id = self._room_tenant(room_id, agent_id, _bearer_token(handler))
-        result = self.rooms.groups(tenant_id, room_id, agent_id, group_name, action, members)
+        tenant_id = self._room_tenant(room_id, ctx.account_id)
+        result = self.rooms.groups(tenant_id, room_id, ctx.account_id, group_name, action, members)
         return _json_response(HTTPStatus.OK, result)
 
 

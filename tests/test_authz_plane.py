@@ -210,36 +210,39 @@ class TestCrossTenantImpersonationSealed(AuthzPlaneTestBase):
 
     def test_foreign_member_agent_id_is_sealed_and_no_oracle(self) -> None:
         alice = self._signup("alice@example.com", "AlicePass!1")
-        room = self._create_room(alice["session_token"], cap=6,
-                                 owner_agent_id="alice-agent")
+        room = self._create_room(alice["session_token"], cap=6)
         room_id = room["room_id"]
         bob = self._signup("bob@example.com", "BobPass!1")
 
         fake_room_id = "room_" + "f" * 32
 
+        # HOLE 2: an attacker in tenant B stuffs a tenant-A member's account_id
+        # into every identity argument. Identity is derived from the
+        # authenticated session — NEVER the request body — so each argument is
+        # refused outright, and the refusal is byte-identical for a real room
+        # and a fabricated one (no existence oracle).
         attempts = [
-            # (method, path, body)
-            ("POST", "/v1/rooms/poll", {"room_id": room_id, "agent_id": "alice-agent"}),
+            ("POST", "/v1/rooms/poll", {"room_id": room_id, "agent_id": alice["account_id"]}),
             ("POST", "/v1/rooms/send", {
-                "room_id": room_id, "sender_agent_id": "alice-agent",
+                "room_id": room_id, "sender_agent_id": alice["account_id"],
                 "target_spec": "*", "payload": {"text": "forged"}}),
             ("POST", "/v1/rooms/close", {
-                "room_id": room_id, "caller_agent_id": "alice-agent"}),
+                "room_id": room_id, "caller_agent_id": alice["account_id"]}),
             ("POST", "/v1/rooms/leave", {
-                "room_id": room_id, "agent_id": "alice-agent"}),
+                "room_id": room_id, "agent_id": alice["account_id"]}),
             ("POST", "/v1/rooms/event_log", {
-                "room_id": room_id, "agent_id": "alice-agent"}),
+                "room_id": room_id, "agent_id": alice["account_id"]}),
             ("POST", "/v1/rooms/heartbeat", {
-                "room_id": room_id, "agent_id": "alice-agent"}),
+                "room_id": room_id, "agent_id": alice["account_id"]}),
             ("POST", "/v1/rooms/ack", {
-                "room_id": room_id, "agent_id": "alice-agent", "seq": 1}),
+                "room_id": room_id, "agent_id": alice["account_id"], "seq": 1}),
         ]
 
         for method, path, body in attempts:
             with self.subTest(path=path):
-                # Real room, wrong credential.
+                # Real room, smuggled identity.
                 s_real, b_real = self._do(method, path, body, bob["session_token"])
-                # Fabricated room, same wrong credential.
+                # Fabricated room, same smuggled identity.
                 fake_body = dict(body)
                 fake_body["room_id"] = fake_room_id
                 s_fake, b_fake = self._do(method, path, fake_body, bob["session_token"])
@@ -247,15 +250,18 @@ class TestCrossTenantImpersonationSealed(AuthzPlaneTestBase):
                                  f"{path}: real vs fake room must not differ")
                 self.assertEqual(b_real, b_fake,
                                  f"{path}: real vs fake room must be byte-identical (no oracle)")
-                self.assertEqual(s_real, 404)
-                self.assertEqual(b_real["error"]["code"], "room_not_found")
+                self.assertEqual(s_real, 400)
+                self.assertEqual(b_real["error"]["code"], "invalid_argument")
+                self.assertIn("not accepted", b_real["error"]["message"])
 
-        # room_info goes through a GET query string.
+        # room_info goes through a GET query string; the query-param agent_id
+        # is IGNORED (never honoured) and the caller resolves as its OWN
+        # account — bob, not a member -> uniform 404 for real and fake alike.
         s_real, b_real = _get(self.base,
-                              f"/v1/rooms/info?{urlencode({'room_id': room_id, 'agent_id': 'alice-agent'})}",
+                              f"/v1/rooms/info?{urlencode({'room_id': room_id, 'agent_id': alice['account_id']})}",
                               bob["session_token"])
         s_fake, b_fake = _get(self.base,
-                              f"/v1/rooms/info?{urlencode({'room_id': fake_room_id, 'agent_id': 'alice-agent'})}",
+                              f"/v1/rooms/info?{urlencode({'room_id': fake_room_id, 'agent_id': alice['account_id']})}",
                               bob["session_token"])
         self.assertEqual(s_real, s_fake)
         self.assertEqual(b_real, b_fake)
@@ -263,28 +269,28 @@ class TestCrossTenantImpersonationSealed(AuthzPlaneTestBase):
 
     def test_link_join_still_admits_a_real_cross_tenant_member(self) -> None:
         """The fix must NOT break the legitimate cross-tenant link capability:
-        an outsider who JOINS via the link and carries its own credential can
-        then operate as a member."""
+        an outsider who JOINS via the link can then operate as a member under
+        their own authenticated account."""
         alice = self._signup("alice2@example.com", "AlicePass!1")
-        room = self._create_room(alice["session_token"], cap=6,
-                                 owner_agent_id="alice-agent")
+        room = self._create_room(alice["session_token"], cap=6)
         bob = self._signup("bob2@example.com", "BobPass!1")
 
-        # Before joining, bob is sealed.
+        # Before joining, bob is sealed — a uniform room_not_found.
         s, b = _post(self.base, "/v1/rooms/poll",
-                     {"room_id": room["room_id"], "agent_id": "bob-agent"},
+                     {"room_id": room["room_id"]},
                      bob["session_token"])
         self.assertEqual(s, 404)
 
-        # Bob joins via the real link with his own agent_id + credential.
-        self._join_room(bob["session_token"], room["room_id"], room["link_token"],
-                        "bob-agent")
+        # Bob joins via the real link under his own account.
+        joined = self._join_room(bob["session_token"], room["room_id"], room["link_token"])
+        self.assertEqual(joined["status"], "active")
 
-        # Now bob can operate — resolved through HIS membership.
+        # Now bob can operate — resolved through HIS membership (his account).
         s, b = _post(self.base, "/v1/rooms/poll",
-                     {"room_id": room["room_id"], "agent_id": "bob-agent"},
+                     {"room_id": room["room_id"]},
                      bob["session_token"])
         self.assertEqual(s, 200)
+        self.assertEqual(b["room_id"], room["room_id"])
 
     def _do(self, method: str, path: str, body: dict, token: str) -> tuple[int, dict]:
         if method == "POST":
@@ -322,8 +328,7 @@ class TestListRoomsScopedToCaller(AuthzPlaneTestBase):
         # A member's own rooms across tenants: alice joins bob's room via the
         # link under her OWN account identity (the /v1 join pattern) and now
         # sees both of her memberships.
-        self._join_room(alice["session_token"], room_b["room_id"], room_b["link_token"],
-                        alice["account_id"])
+        self._join_room(alice["session_token"], room_b["room_id"], room_b["link_token"])
         status, body = _get(self.base, "/v1/rooms", alice["session_token"])
         self.assertEqual(status, 200)
         self.assertEqual(sorted(r["room_id"] for r in body["rooms"]),
@@ -338,18 +343,17 @@ class TestEventLogRedactsLikePoll(AuthzPlaneTestBase):
         super().setUp()
         alice = self._signup("evt-alice@example.com", "AlicePass!1")
         self.alice_token = alice["session_token"]
-        self.room = self._create_room(alice["session_token"], cap=6,
-                                      owner_agent_id="evt-alice-agent")
+        self.alice_id = alice["account_id"]
+        self.room = self._create_room(alice["session_token"], cap=6)
         carol = self._signup("evt-carol@example.com", "CarolPass!1")
         self.carol_token = carol["session_token"]
-        self._join_room(self.carol_token, self.room["room_id"], self.room["link_token"],
-                        "evt-carol-agent")
+        self.carol_id = carol["account_id"]
+        self._join_room(self.carol_token, self.room["room_id"], self.room["link_token"])
 
-        # Alice sends a unicast to carol.
+        # Alice sends a unicast to carol's account.
         status, body = _post(self.base, "/v1/rooms/send", {
             "room_id": self.room["room_id"],
-            "sender_agent_id": "evt-alice-agent",
-            "target_spec": "evt-carol-agent",
+            "target_spec": self.carol_id,
             "payload": {"text": "TOP-SECRET-UNICAST"},
         }, self.alice_token)
         self.assertEqual(status, 200)
@@ -360,12 +364,12 @@ class TestEventLogRedactsLikePoll(AuthzPlaneTestBase):
     def test_poll_and_event_log_redact_identically(self) -> None:
         # The addressee sees the body in BOTH surfaces.
         _, poll_addressee = _post(self.base, "/v1/rooms/poll", {
-            "room_id": self.room["room_id"], "agent_id": "evt-carol-agent", "after_seq": 0,
+            "room_id": self.room["room_id"], "after_seq": 0,
         }, self.carol_token)
         self.assertEqual(poll_addressee["events"][-1]["payload"]["payload"]["text"],
                          "TOP-SECRET-UNICAST")
         _, log_addressee = _post(self.base, "/v1/rooms/event_log", {
-            "room_id": self.room["room_id"], "agent_id": "evt-carol-agent",
+            "room_id": self.room["room_id"],
         }, self.carol_token)
         self.assertEqual(log_addressee["events"][-1]["payload"]["payload"]["text"],
                          "TOP-SECRET-UNICAST")
@@ -373,14 +377,14 @@ class TestEventLogRedactsLikePoll(AuthzPlaneTestBase):
         # A NON-addressee sees the redacted envelope in BOTH surfaces, and the
         # secret never appears in the serialized response.
         _, poll_outsider = _post(self.base, "/v1/rooms/poll", {
-            "room_id": self.room["room_id"], "agent_id": "evt-alice-agent", "after_seq": 0,
+            "room_id": self.room["room_id"], "after_seq": 0,
         }, self.alice_token)
         poll_msg = self._message_events(poll_outsider)[-1]
         self.assertEqual(poll_msg["payload"],
                          {"redacted": True, "reason": "not_the_addressee"})
 
         _, log_outsider = _post(self.base, "/v1/rooms/event_log", {
-            "room_id": self.room["room_id"], "agent_id": "evt-alice-agent",
+            "room_id": self.room["room_id"],
         }, self.alice_token)
         log_msg = self._message_events(log_outsider)[-1]
         self.assertEqual(log_msg["payload"],

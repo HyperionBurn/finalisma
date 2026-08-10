@@ -277,31 +277,27 @@ class CloudRoomService:
             raise RoomError("room_not_found", "Room not found", 404)
         return row
 
-    def _resolve_room_tenant(self, tx: Any, room_id: str, agent_id: str | None = None,
-                             actor_token_hash: str | None = None) -> str:
+    def _resolve_room_tenant(self, tx: Any, room_id: str, agent_id: str | None = None) -> str:
         """Find the tenant_id for a room, optionally scoped to a member.
 
         Used when the caller's session tenant may differ from the room's
         owning tenant (cross-tenant join via link). If agent_id is given,
         only returns the tenant if the agent is an active member.
 
-        ``actor_token_hash`` binds the resolution to a specific credential:
-        when supplied, the membership row must ALSO carry that actor token
-        hash. This is the cross-tenant impersonation fix — an attacker who
-        holds another tenant's member ``agent_id`` but not the actor token
-        that joined resolves the same uniform ``room_not_found`` as a room
-        that never existed (no existence oracle).
+        Membership is bound to the ACCOUNT — ``agent_id`` is the account id,
+        established by the authenticated session layer, never by the request
+        body. Resolving by the account alone is what makes membership survive
+        a re-login (the session token rotates on every sign-in while the
+        account never changes). A caller who is not an active member of the
+        room resolves the same uniform ``room_not_found`` as a room that never
+        existed (no existence oracle).
         """
         if agent_id:
-            query = (
+            row = tx.execute(
                 "SELECT tenant_id FROM cloud_room_members "
-                "WHERE room_id = ? AND agent_id = ? AND status = 'active'"
-            )
-            params: list[Any] = [room_id, agent_id]
-            if actor_token_hash is not None:
-                query += " AND actor_token_hash = ?"
-                params.append(actor_token_hash)
-            row = tx.execute(query, params).fetchone()
+                "WHERE room_id = ? AND agent_id = ? AND status = 'active'",
+                (room_id, agent_id),
+            ).fetchone()
             if row is None:
                 raise RoomError("room_not_found", "Room not found", 404)
             return row["tenant_id"]
@@ -414,8 +410,12 @@ class CloudRoomService:
                     origin: str | None = None) -> dict:
         """Create a room and return its shareable link.
 
-        The owner auto-joins as the first active member. The raw link token is
-        returned EXACTLY ONCE — only its SHA-256 is stored.
+        The owner auto-joins as the first active member. ``owner_agent_id``
+        is the caller's ACCOUNT — the identity that owns the room and every
+        authorization that follows. ``actor_token`` is recorded only as an
+        informational SHA-256 hash (the session that minted the membership);
+        it is never consulted to authorize a later room operation, so a
+        re-login cannot revoke the owner's seat.
 
         ``shareable_link`` is an absolute, self-describing URL
         (``{origin}/j/{link_token}``) so an agent that receives ONLY the link
@@ -540,8 +540,10 @@ class CloudRoomService:
         """Redeem a multi-use link to join a room.
 
         ``consent`` must be the literal JSON boolean ``true``. The link is
-        multi-use up to the cap — it is NOT consumed. Re-join with the same
-        agent_id is idempotent.
+        multi-use up to the cap — it is NOT consumed. ``agent_id`` is the
+        caller's ACCOUNT (the authenticated session's account id); re-join
+        with the same account is idempotent and refreshes presence, so a
+        member who signs in again keeps their seat with a fresh session.
 
         The link is a cross-tenant capability: the room is resolved by the
         link's token_hash, and the room's OWN tenant_id is used for all
@@ -578,12 +580,12 @@ class CloudRoomService:
             ).fetchone()
 
             if existing is not None and existing["status"] == "active":
-                # Existing active identity: verify it is the SAME actor, then
-                # refresh presence. Idempotent re-joins are NOT re-counted
-                # against the plan member cap and never re-gated by the room cap.
-                if existing["actor_token_hash"] and existing["actor_token_hash"] != actor_token_hash:
-                    raise RoomError("actor_auth_invalid",
-                                    "Link cannot overwrite an existing member identity", 403)
+                # Existing active membership for THIS account: refresh presence.
+                # Identity is the account, so the same human re-joining after a
+                # re-login (fresh session token) simply refreshes presence —
+                # the credential is never an authorization input here.
+                # Idempotent re-joins are NOT re-counted against the plan
+                # member cap and never re-gated by the room cap.
                 now = utc_now_iso()
                 tx.execute(
                     "UPDATE cloud_room_members SET status = 'active', last_seen = ?, "
@@ -608,9 +610,6 @@ class CloudRoomService:
             # and the room cap is enforced before the membership is recorded.
             # BEGIN IMMEDIATE serializes concurrent joins, so exactly one can
             # take the last slot.
-            if existing is not None and existing["actor_token_hash"] and existing["actor_token_hash"] != actor_token_hash:
-                raise RoomError("actor_auth_invalid",
-                                "Link cannot overwrite an existing member identity", 403)
             plan_id, plan = resolve_plan(self.backend, real_tenant_id)
             increment_room_member_counter(tx, real_tenant_id, room_id, plan_id, plan)
 

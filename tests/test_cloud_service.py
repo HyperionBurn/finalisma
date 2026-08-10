@@ -906,11 +906,10 @@ class TestRoomWaitRoute(CloudServiceTestBase):
 
     def _room_with_two_members(self, prefix: str) -> tuple[dict, dict, dict]:
         owner = self._signup(f"{prefix}-owner@example.com", "CorrectHorse!1")
-        room = self._create_room(owner["session_token"], cap=6,
-                                 owner_agent_id=owner["account_id"])
+        room = self._create_room(owner["session_token"], cap=6)
         peer = self._signup(f"{prefix}-peer@example.com", "AgentPass!1")
         self._join_room(peer["session_token"], room["room_id"],
-                        room["link_token"], peer["account_id"])
+                        room["link_token"])
         return owner, peer, room
 
     def _head(self, token: str, room_id: str) -> int:
@@ -932,7 +931,6 @@ class TestRoomWaitRoute(CloudServiceTestBase):
         start = time.monotonic()
         status, sent = _post(self.base, "/v1/rooms/send", {
             "room_id": room["room_id"],
-            "sender_agent_id": peer["account_id"],
             "target_spec": "*",
             "payload": {"kind": "message", "text": "wake up"},
         }, peer["session_token"])
