@@ -175,7 +175,7 @@ class WeftCloudService:
             raise _ServiceError("invalid_argument", "password must be at least 8 characters")
 
         try:
-            account_id, verification_token = self.accounts.signup(
+            account_id, _verification_token = self.accounts.signup(
                 self.backend, tenant_id, email, password
             )
         except AuthError as exc:
@@ -186,12 +186,13 @@ class WeftCloudService:
                                     "An account with this email already exists",
                                     HTTPStatus.BAD_REQUEST)
             raise
-        # Auto-verify for the hosted preview (no email provider in v1).
-        try:
-            self.accounts.verify_email(self.backend, verification_token)
-        except AuthError:
-            pass
-        # Issue a session so the user is signed in immediately.
+        # The session is issued immediately so the signup -> create-room flow
+        # works in one call, but it does NOT imply a verified email: the
+        # verification token is left unconsumed in the outbox and the account
+        # row stays email_verified=0 until the address is actually proven.
+        # Ownership of the email is never asserted by signup itself. The
+        # response exposes email_verified so the caller cannot mistake the
+        # session for proof of a verified address.
         session_id, session_token = self.sessions.create(
             self.backend, tenant_id, account_id, "owner"
         )
@@ -209,6 +210,7 @@ class WeftCloudService:
             "session_token": session_token,
             "email": email,
             "role": "owner",
+            "email_verified": False,
         })
 
     def handle_signin(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:

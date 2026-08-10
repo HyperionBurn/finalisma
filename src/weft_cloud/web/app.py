@@ -635,13 +635,33 @@ class WeftWebApp:
                             _page("Verification failed",
                                   '<p>Missing verification token.</p>'))
             return
-        try:
-            _identity_verify(self.backend, token)
-            self._redirect(handler, "/login?verified=1")
-        except AuthError:
-            self._send_html(handler, HTTPStatus.BAD_REQUEST,
-                            _page("Verification failed",
-                                  '<p>Invalid or expired verification link.</p>'))
+        # GET must NEVER mutate state: link scanners, antivirus and mail-client
+        # prefetchers fetch GET URLs automatically, which would "verify" the
+        # address without a human ever clicking. So GET only renders a
+        # confirmation page; the actual verification happens on the POST below
+        # (POST /verify), which prefetchers do not issue. This also matches the
+        # reset flow (GET renders the form, POST performs the action).
+        csrf = _new_csrf()
+        form = (
+            '<h1>Confirm your email</h1>'
+            '<p>Click the button below to confirm that this email address '
+            'belongs to you. This is the only step that verifies your email.</p>'
+            '<form method="post" action="/verify">'
+            f'{_csrf_input(csrf)}'
+            f'<input type="hidden" name="token" value="{_esc(token)}">'
+            '<button type="submit">Confirm email address</button>'
+            '</form>'
+            '<p><a href="/login">Back to log in</a></p>'
+        )
+        body = _page("Confirm your email", form, csrf_token=csrf)
+        handler.send_response(HTTPStatus.OK)
+        self._set_csrf_cookie(handler, csrf)
+        handler.send_header("Content-Type", "text/html; charset=utf-8")
+        handler.send_header("Content-Length", str(len(body)))
+        handler.send_header("Cache-Control", "no-store")
+        handler.send_header("X-Content-Type-Options", "nosniff")
+        handler.end_headers()
+        handler.wfile.write(body)
 
     def handle_post_reset_request(self, handler: BaseHTTPRequestHandler) -> None:
         form = self._read_form(handler)
