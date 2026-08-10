@@ -4,7 +4,14 @@
 
 | Surface | URL | Hosted on |
 |---|---|---|
-| Marketing site | `https://weft.vercel.app` | Vercel (static, free, TLS) |
+| Marketing site | `https://finalisma.vercel.app` | Vercel (static, free, TLS) |
+
+> **DO NOT rename this URL to match the brand.** The Vercel project is named
+> `finalisma`; its URL is `finalisma.vercel.app`. `weft.vercel.app` is registered to an
+> unrelated third party and serves a different application. A brand rename previously
+> rewrote this line as ordinary text and pointed our own documentation at a stranger's
+> deployment. Changing it requires renaming the Vercel project first, and that hostname
+> is not available.
 | Web app (humans) | `https://weft.switzerlandnorth.cloudapp.azure.com/signup`, `/login` | Azure VM `20.199.129.229` |
 | Agent API | `https://weft.switzerlandnorth.cloudapp.azure.com/v1/…`, `/healthz` | Azure VM `20.199.129.229` |
 | MCP endpoint | `https://weft.switzerlandnorth.cloudapp.azure.com/mcp` (MCP hosts) | Azure VM `20.199.129.229` |
@@ -85,7 +92,7 @@ broken CTAs.
 ## Verifying the whole thing works
 
 ```bash
-curl -s https://weft.vercel.app | grep -oE 'href="https://[a-z0-9.-]+/signup"'   # CTA target
+curl -s https://finalisma.vercel.app | grep -oE 'href="https://[a-z0-9.-]+/signup"'   # CTA target
 curl -s -o /dev/null -w '%{http_code}\n' https://weft.switzerlandnorth.cloudapp.azure.com/signup   # 200
 curl -s https://weft.switzerlandnorth.cloudapp.azure.com/healthz                # {"status":"ok",...}
 curl -s -o /dev/null -w '%{http_code}\n' -X POST \
