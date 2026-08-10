@@ -287,6 +287,36 @@ class TestResetPassword(unittest.TestCase):
     def tearDown(self):
         self.driver.close()
 
+    def test_reset_request_get_renders_form_with_csrf(self):
+        """GET /reset-request must render the request form (email + CSRF),
+        posting to the existing POST handler — the login page links here, so
+        a user who forgets their password needs a working entry point.
+        """
+        status, body, _ = self.driver.get("/reset-request")
+        self.assertEqual(status, 200)
+        self.assertIn('name="email"', body)
+        self.assertIsNotNone(self.driver.extract_csrf(body))
+        self.assertIn('action="/reset-request"', body)
+        self.assertIn('type="email"', body)
+
+    def test_reset_request_click_through_posts_and_writes_outbox(self):
+        """End-to-end click-through: GET the form, submit it, and confirm the
+        POST is accepted and a reset row lands in the outbox.
+        """
+        status, body, _ = self.driver.get("/reset-request")
+        self.assertEqual(status, 200)
+        csrf = self.driver.extract_csrf(body)
+        self.assertIsNotNone(csrf)
+        post_status, _, headers = self.driver.post(
+            "/reset-request", {"email": self.email, "_csrf": csrf}
+        )
+        self.assertEqual(post_status, 303)
+        self.assertTrue(headers["Location"].startswith("/login?reset_sent=1"))
+        outbox_body = self.driver.last_outbox_body(self.email)
+        self.assertIsNotNone(outbox_body, "reset request must write an outbox row")
+        m = re.search(r"(frt_[A-Za-z0-9_\-]+)", outbox_body)
+        self.assertIsNotNone(m, "reset token must appear in outbox body")
+
     def test_reset_request_always_redirects_no_enumeration(self):
         status_known, _, headers_known = self.driver.post(
             "/reset-request", {"email": self.email}

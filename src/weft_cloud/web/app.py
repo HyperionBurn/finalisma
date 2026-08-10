@@ -615,6 +615,27 @@ class WeftWebApp:
                             _page("Verification failed",
                                   '<p>Invalid or expired verification link.</p>'))
 
+    def handle_get_reset_request(self, handler: BaseHTTPRequestHandler) -> None:
+        token = _new_csrf()
+        form = (
+            '<h1>Reset password</h1>'
+            '<form method="post" action="/reset-request">'
+            f'{_csrf_input(token)}'
+            f'{_label("Email", _input("email", "email", required="required"))}'
+            '<button type="submit">Send reset link</button>'
+            '</form>'
+            '<p><a href="/login">Back to login</a></p>'
+        )
+        body = _page("Reset password", form, csrf_token=token)
+        handler.send_response(HTTPStatus.OK)
+        self._set_csrf_cookie(handler, token)
+        handler.send_header("Content-Type", "text/html; charset=utf-8")
+        handler.send_header("Content-Length", str(len(body)))
+        handler.send_header("Cache-Control", "no-store")
+        handler.send_header("X-Content-Type-Options", "nosniff")
+        handler.end_headers()
+        handler.wfile.write(body)
+
     def handle_post_reset_request(self, handler: BaseHTTPRequestHandler) -> None:
         form = self._read_form(handler)
         email = (form.get("email") or "").strip()
@@ -1303,6 +1324,9 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
                 return
             if method == "GET" and path == "/reset":
                 app.handle_get_reset(self)
+                return
+            if method == "GET" and path == "/reset-request":
+                app.handle_get_reset_request(self)
                 return
             if method == "GET" and path in ("/terms.html", "/privacy.html") and app.static_dir:
                 self._serve_static(path)
