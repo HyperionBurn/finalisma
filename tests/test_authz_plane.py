@@ -129,12 +129,10 @@ class AuthzPlaneTestBase(unittest.TestCase):
         self.assertEqual(status, 201, f"room create failed: {body}")
         return body
 
-    def _join_room(self, token: str, room_id: str, link_token: str,
-                   agent_id: str) -> dict:
+    def _join_room(self, token: str, room_id: str, link_token: str) -> dict:
         status, body = _post(self.base, "/v1/rooms/join", {
             "room_id": room_id,
             "link_token": link_token,
-            "agent_id": agent_id,
             "consent": True,
         }, token)
         self.assertEqual(status, 200, f"join failed: {body}")
