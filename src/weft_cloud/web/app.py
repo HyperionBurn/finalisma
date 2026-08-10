@@ -310,6 +310,34 @@ class WeftWebApp:
             ).fetchone()
         return row is not None
 
+    def _room_connect_entitled(self, tenant_id: str, room_id: str,
+                               account_id: str) -> bool:
+        """True only if ``account_id`` may receive this room's raw link token.
+
+        The ``rm_`` link token is a multi-use bearer capability that admits
+        anyone to the room, so the caller must be the room's OWNER or an ACTIVE
+        MEMBER of THIS specific room. Org membership alone is NOT enough.
+
+        This deliberately returns False for both "the room does not exist in
+        this tenant" and "the room exists but the caller is neither owner nor
+        member", so the refusal cannot be used as a room-existence oracle.
+        """
+        with self.backend.transaction() as tx:
+            room = tx.execute(
+                "SELECT owner_agent_id FROM cloud_rooms "
+                "WHERE tenant_id = ? AND room_id = ?",
+                (tenant_id, room_id),
+            ).fetchone()
+            if room is None:
+                return False
+            member = tx.execute(
+                "SELECT 1 FROM cloud_room_members "
+                "WHERE tenant_id = ? AND room_id = ? AND agent_id = ? "
+                "AND status = 'active'",
+                (tenant_id, room_id, account_id),
+            ).fetchone()
+            return room["owner_agent_id"] == account_id or member is not None
+
     def _poll_for_member(self, tenant_id: str, room_id: str, after_seq: int,
                          agent_id: str) -> dict:
         """Event poll for an org member (doesn't require room membership).
@@ -1206,19 +1234,16 @@ class WeftWebApp:
         ctx = self._require_auth(handler)
         if ctx is None:
             return
-        if not self._room_belongs_to_tenant(room_id, ctx.tenant_id):
+        # The page returns the room's raw rm_ link token — a multi-use bearer
+        # capability that admits anyone to the room. Only the room's OWNER or
+        # an ACTIVE MEMBER of THIS room may receive it. The caller's identity
+        # comes from the authenticated session, never from the request.
+        # A caller who is not entitled (including a same-org member who was
+        # never in the room) gets the IDENTICAL 404 as a room that does not
+        # exist, so the endpoint is not an existence oracle.
+        if not self._room_connect_entitled(ctx.tenant_id, room_id, ctx.account_id):
             self._send_html(handler, HTTPStatus.NOT_FOUND,
                             _page("Not found", '<p>Room not found.</p>'))
-            return
-        try:
-            info = self._room_info_for_member(ctx.tenant_id, room_id)
-        except RoomError as exc:
-            if exc.status == 404:
-                self._send_html(handler, HTTPStatus.NOT_FOUND,
-                                _page("Not found", '<p>Room not found.</p>'))
-            else:
-                self._send_html(handler, HTTPStatus.FORBIDDEN,
-                                _page("Forbidden", '<p>Not a member.</p>'))
             return
         link_token = self._get_room_link_token(room_id) or ""
         body_html = (
