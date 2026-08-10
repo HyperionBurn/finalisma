@@ -93,20 +93,20 @@ class QuotaCounterBug2Base(unittest.TestCase):
             body["name"] = name
         return _post(self.base, "/v1/rooms/create", body, token)
 
-    def _join(self, token: str, room_id: str, link_token: str, agent_id: str) -> tuple[int, dict]:
+    def _join(self, token: str, room_id: str, link_token: str) -> tuple[int, dict]:
         return _post(self.base, "/v1/rooms/join", {
             "room_id": room_id, "link_token": link_token,
-            "agent_id": agent_id, "consent": True,
+            "consent": True,
         }, token)
 
-    def _leave(self, token: str, room_id: str, agent_id: str) -> tuple[int, dict]:
+    def _leave(self, token: str, room_id: str) -> tuple[int, dict]:
         return _post(self.base, "/v1/rooms/leave", {
-            "room_id": room_id, "agent_id": agent_id,
+            "room_id": room_id,
         }, token)
 
-    def _close(self, token: str, room_id: str, caller: str) -> tuple[int, dict]:
+    def _close(self, token: str, room_id: str) -> tuple[int, dict]:
         return _post(self.base, "/v1/rooms/close", {
-            "room_id": room_id, "caller_agent_id": caller,
+            "room_id": room_id,
         }, token)
 
     def _member_counter(self, tenant_id: str, room_id: str) -> int:
@@ -166,43 +166,46 @@ class TestLeaveFreesMemberSlot(QuotaCounterBug2Base):
 
     def test_leave_frees_seat_and_reactivation_is_gated(self) -> None:
         owner = self._signup("leave-owner@example.com")
-        fleet = self._signup("leave-fleet@example.com")
         otok, oten = owner["session_token"], owner["tenant_id"]
-        ftok = fleet["session_token"]
 
         status, room = self._create(otok, cap=4, name="leave")
         self.assertEqual(status, 201)
         rid = room["room_id"]
+        lk = room["link_token"]
 
-        for agent in ("a", "b", "c"):
-            status, body = self._join(ftok, rid, room["link_token"], agent)
-            self.assertEqual(status, 200, f"join {agent}: {body}")
+        # Three DISTINCT accounts a, b, c join.
+        tokens = {name: self._signup(f"leave-{name}@example.com")["session_token"]
+                  for name in ("a", "b", "c")}
+        for name in ("a", "b", "c"):
+            status, body = self._join(tokens[name], rid, lk)
+            self.assertEqual(status, 200, f"join {name}: {body}")
 
         # Room is full (owner + a + b + c = 4).
         self.assertEqual(self._member_counter(oten, rid), 4)
 
         # a leaves — the seat is freed and the counter follows the member.
-        status, _ = self._leave(ftok, rid, "a")
+        status, _ = self._leave(tokens["a"], rid)
         self.assertEqual(status, 200)
         self.assertEqual(self._member_counter(oten, rid), 3)
         self.assertEqual(self._member_counter(oten, rid), self._active_members(oten, rid))
 
-        # d takes the freed seat.
-        status, body = self._join(ftok, rid, room["link_token"], "d")
+        # d (a fresh account) takes the freed seat.
+        d_tok = self._signup("leave-d@example.com")["session_token"]
+        status, body = self._join(d_tok, rid, lk)
         self.assertEqual(status, 200, f"join d failed: {body}")
         self.assertEqual(self._member_counter(oten, rid), 4)
 
         # a tries to reactivate — the seat is gone, so the room refuses. This
         # must NOT oversubscribe the room or leave a counter trace.
-        status, body = self._join(ftok, rid, room["link_token"], "a")
+        status, body = self._join(tokens["a"], rid, lk)
         self.assertEqual(status, 409)
         self.assertEqual(body["error"]["code"], "room_full")
         self.assertEqual(self._member_counter(oten, rid), self._active_members(oten, rid))
 
         # b leaves, freeing a seat; b reactivates into it.
-        self.assertEqual(self._leave(ftok, rid, "b")[0], 200)
+        self.assertEqual(self._leave(tokens["b"], rid)[0], 200)
         self.assertEqual(self._member_counter(oten, rid), 3)
-        status, body = self._join(ftok, rid, room["link_token"], "b")
+        status, body = self._join(tokens["b"], rid, lk)
         self.assertEqual(status, 200, f"reactivation must succeed: {body}")
         self.assertEqual(self._member_counter(oten, rid), 4)
         self.assertEqual(self._member_counter(oten, rid), self._active_members(oten, rid))
@@ -228,7 +231,7 @@ class TestCloseFreesRoomQuota(QuotaCounterBug2Base):
         self.assertEqual(self._rooms_counter(ten), self._active_rooms(ten))
 
         for body in created:
-            status, _ = self._close(tok, body["room_id"], owner["account_id"])
+            status, _ = self._close(tok, body["room_id"])
             self.assertEqual(status, 200)
 
         # Closing released every room back to the tenant's ACTIVE-room quota.
@@ -248,9 +251,7 @@ class TestCounterInvariant(QuotaCounterBug2Base):
 
     def test_invariant_after_mixed_sequence(self) -> None:
         owner = self._signup("inv-owner@example.com")
-        fleet = self._signup("inv-fleet@example.com")
         otok, oten = owner["session_token"], owner["tenant_id"]
-        ftok = fleet["session_token"]
 
         status, room1 = self._create(otok, cap=4, name="room1")
         self.assertEqual(status, 201)
@@ -259,36 +260,37 @@ class TestCounterInvariant(QuotaCounterBug2Base):
         r1, r2 = room1["room_id"], room2["room_id"]
         lk1 = room1["link_token"]
 
-        def join(agent, room_id=r1, lk=lk1):
-            return self._join(ftok, room_id, lk, agent)
-
-        for agent in ("a", "b", "c"):
-            status, body = join(agent)
-            self.assertEqual(status, 200, f"join {agent}: {body}")
+        # Three DISTINCT accounts join room1.
+        tokens = {name: self._signup(f"inv-{name}@example.com")["session_token"]
+                  for name in ("a", "b", "c")}
+        for name in ("a", "b", "c"):
+            status, body = self._join(tokens[name], r1, lk1)
+            self.assertEqual(status, 200, f"join {name}: {body}")
 
         # A join past the room cap is refused room_full.
-        status, body = join("d")
+        d_tok = self._signup("inv-d@example.com")["session_token"]
+        status, body = self._join(d_tok, r1, lk1)
         self.assertEqual(status, 409)
         self.assertEqual(body["error"]["code"], "room_full")
 
         # b leaves; d takes the freed seat.
-        self.assertEqual(self._leave(ftok, r1, "b")[0], 200)
-        self.assertEqual(join("d")[0], 200)
+        self.assertEqual(self._leave(tokens["b"], r1)[0], 200)
+        self.assertEqual(self._join(d_tok, r1, lk1)[0], 200)
 
         # b tries to rejoin — the seat is gone, so reactivation is refused
         # without oversubscribing or drifting the counter.
-        status, body = join("b")
+        status, body = self._join(tokens["b"], r1, lk1)
         self.assertEqual(status, 409)
         self.assertEqual(body["error"]["code"], "room_full")
         self.assertEqual(self._member_counter(oten, r1), self._active_members(oten, r1))
 
         # a leaves and rejoins — a genuine reactivation restores the seat.
-        self.assertEqual(self._leave(ftok, r1, "a")[0], 200)
-        status, body = join("a")
+        self.assertEqual(self._leave(tokens["a"], r1)[0], 200)
+        status, body = self._join(tokens["a"], r1, lk1)
         self.assertEqual(status, 200, f"reactivation must succeed: {body}")
 
         # Close room2, then create a third room to prove quota was freed.
-        self.assertEqual(self._close(otok, r2, owner["account_id"])[0], 200)
+        self.assertEqual(self._close(otok, r2)[0], 200)
         status, room3 = self._create(otok, cap=3, name="room3")
         self.assertEqual(status, 201)
 

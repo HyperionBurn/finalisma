@@ -89,10 +89,10 @@ class QuotaCounterBug1Base(unittest.TestCase):
     def _create(self, token: str, cap: int = 10) -> tuple[int, dict]:
         return _post(self.base, "/v1/rooms/create", {"cap": cap}, token)
 
-    def _join(self, token: str, room_id: str, link_token: str, agent_id: str) -> tuple[int, dict]:
+    def _join(self, token: str, room_id: str, link_token: str) -> tuple[int, dict]:
         return _post(self.base, "/v1/rooms/join", {
             "room_id": room_id, "link_token": link_token,
-            "agent_id": agent_id, "consent": True,
+            "consent": True,
         }, token)
 
     def _member_counter(self, tenant_id: str, room_id: str) -> int:
@@ -119,23 +119,23 @@ class TestFailedJoinsDoNotBurnSlots(QuotaCounterBug1Base):
 
     def test_spam_room_full_joins_leave_counter_untouched(self) -> None:
         owner = self._signup("dos-owner@example.com")
-        fleet = self._signup("dos-fleet@example.com")
         otok, oten = owner["session_token"], owner["tenant_id"]
-        ftok = fleet["session_token"]
 
         status, room = self._create(otok, cap=2)
         self.assertEqual(status, 201)
         rid = room["room_id"]
 
-        # Owner + agent-a fill the room to its declared cap of 2.
-        status, body = self._join(ftok, rid, room["link_token"], "agent-a")
+        # Owner + one DISTINCT account fill the room to its declared cap of 2.
+        a = self._signup("dos-agent-a@example.com")
+        status, body = self._join(a["session_token"], rid, room["link_token"])
         self.assertEqual(status, 200, f"join agent-a failed: {body}")
         self.assertEqual(self._member_counter(oten, rid), 2)
 
         # An attacker holding ONLY the share link spams 8 joins with 8 fresh
         # identities. All must be refused room_full.
         for i in range(8):
-            status, body = self._join(ftok, rid, room["link_token"], f"attacker-{i}")
+            spam = self._signup(f"dos-attacker-{i}@example.com")
+            status, body = self._join(spam["session_token"], rid, room["link_token"])
             self.assertEqual(status, 409, f"spam join {i} should be room_full: {body}")
             self.assertEqual(body["error"]["code"], "room_full")
 
@@ -147,7 +147,8 @@ class TestFailedJoinsDoNotBurnSlots(QuotaCounterBug1Base):
         # room_full — NOT quota_exceeded. Before the fix, the spam had driven
         # the counter to the plan cap, so this join was refused quota_exceeded
         # and the room was permanently bricked.
-        status, body = self._join(ftok, rid, room["link_token"], "genuine-x")
+        genuine = self._signup("dos-genuine@example.com")
+        status, body = self._join(genuine["session_token"], rid, room["link_token"])
         self.assertEqual(status, 409)
         self.assertEqual(body["error"]["code"], "room_full")
 
@@ -158,31 +159,33 @@ class TestConcurrentJoinsOneSeat(QuotaCounterBug1Base):
 
     def test_one_of_n_concurrent_joins_wins_and_counter_matches(self) -> None:
         owner = self._signup("race1-owner@example.com")
-        fleet = self._signup("race1-fleet@example.com")
         otok, oten = owner["session_token"], owner["tenant_id"]
-        ftok = fleet["session_token"]
 
         status, room = self._create(otok, cap=FREE_MAX_MEMBERS_PER_ROOM)
         self.assertEqual(status, 201)
         rid = room["room_id"]
 
-        # Owner + 8 agents = 9 active members, one slot left (cap 10).
+        # Owner + 8 DISTINCT accounts = 9 active members, one slot left (cap 10).
         for i in range(FREE_MAX_MEMBERS_PER_ROOM - 2):
-            status, body = self._join(ftok, rid, room["link_token"], f"pre-{i}")
+            tok = self._signup(f"race1-pre-{i}@example.com")["session_token"]
+            status, body = self._join(tok, rid, room["link_token"])
             self.assertEqual(status, 200, f"pre-join {i} failed: {body}")
 
         results: list[tuple[int, dict]] = []
         lock = threading.Lock()
         barrier = threading.Barrier(5)
 
-        def attempt(agent_id: str) -> None:
+        def attempt(i: int) -> None:
+            # Each racer is a FRESH account — five distinct identities contend
+            # for the single remaining seat.
+            tok = self._signup(f"race1-fresh-{i}@example.com")["session_token"]
             barrier.wait()
-            s, body = self._join(ftok, rid, room["link_token"], agent_id)
+            s, body = self._join(tok, rid, room["link_token"])
             with lock:
                 results.append((s, body))
 
         threads = [
-            threading.Thread(target=attempt, args=(f"race-{i}",)) for i in range(5)
+            threading.Thread(target=attempt, args=(i,)) for i in range(5)
         ]
         for t in threads:
             t.start()

@@ -146,19 +146,15 @@ class QuotaEnforcementTestBase(unittest.TestCase):
     def _raw_create(self, token: str, cap: int, **kwargs) -> tuple[int, dict]:
         return _post(self.base, "/v1/rooms/create", {"cap": cap, **kwargs}, token)
 
-    def _raw_join(self, token: str, room_id: str, link_token: str,
-                  agent_id: str) -> tuple[int, dict]:
+    def _raw_join(self, token: str, room_id: str, link_token: str) -> tuple[int, dict]:
         return _post(self.base, "/v1/rooms/join", {
             "room_id": room_id,
             "link_token": link_token,
-            "agent_id": agent_id,
             "consent": True,
         }, token)
 
-    def _room_info(self, token: str, room_id: str, agent_id: str) -> tuple[int, dict]:
-        from urllib.parse import urlencode
-        return _get(self.base, f"/v1/rooms/info?{urlencode({'room_id': room_id, 'agent_id': agent_id})}",
-                    token)
+    def _room_info(self, token: str, room_id: str) -> tuple[int, dict]:
+        return _get(self.base, f"/v1/rooms/info?room_id={room_id}", token)
 
 
 class TestMemberCapEnforced(QuotaEnforcementTestBase):
@@ -166,21 +162,21 @@ class TestMemberCapEnforced(QuotaEnforcementTestBase):
 
     def test_eleventh_member_refused_with_quota_exceeded(self) -> None:
         owner = self._signup("cap-owner@example.com", "CorrectHorse!1")
-        fleet = self._signup("cap-fleet@example.com", "CorrectHorse!1")
 
         status, room = self._raw_create(owner["session_token"], cap=FREE_MAX_MEMBERS_PER_ROOM)
         self.assertEqual(status, 201)
         self.assertEqual(room["cap"], FREE_MAX_MEMBERS_PER_ROOM)
 
-        # Owner auto-joins as member 1; 9 more fill the room to the cap of 10.
+        # Owner auto-joins as member 1; 9 DISTINCT accounts fill the room to
+        # the cap of 10 (each account is one member).
         for i in range(FREE_MAX_MEMBERS_PER_ROOM - 1):
-            s, body = self._raw_join(
-                fleet["session_token"], room["room_id"], room["link_token"], f"agent-{i}")
+            fleet = self._signup(f"cap-fleet-{i}@example.com", "CorrectHorse!1")
+            s, body = self._raw_join(fleet["session_token"], room["room_id"], room["link_token"])
             self.assertEqual(s, 200, f"join {i} should succeed: {body}")
 
         # The 11th member is refused by the PLAN cap, not the room's own cap.
-        s, body = self._raw_join(
-            fleet["session_token"], room["room_id"], room["link_token"], "agent-last")
+        fleet_last = self._signup("cap-fleet-last@example.com", "CorrectHorse!1")
+        s, body = self._raw_join(fleet_last["session_token"], room["room_id"], room["link_token"])
         self.assertEqual(s, 409)
         self.assertEqual(body["error"]["code"], "quota_exceeded")
         self.assertEqual(body["error"]["limit"]["name"], "max_members_per_room")
@@ -188,7 +184,7 @@ class TestMemberCapEnforced(QuotaEnforcementTestBase):
         self.assertEqual(body["error"]["limit"]["plan"], "free")
 
         # The roster is still exactly at the cap — nothing oversubscribed.
-        s, info = self._room_info(owner["session_token"], room["room_id"], owner["account_id"])
+        s, info = self._room_info(owner["session_token"], room["room_id"])
         self.assertEqual(s, 200)
         self.assertEqual(info["member_count"], FREE_MAX_MEMBERS_PER_ROOM)
 
@@ -242,14 +238,13 @@ class TestProPlanHonored(QuotaEnforcementTestBase):
         self.assertEqual(room["cap"], PRO_MAX_MEMBERS_PER_ROOM)
 
         # Member cap honors pro: 11 members (owner + 11) sails past the free
-        # cap of 10, joined cross-tenant via the link from a free fleet tenant.
-        fleet = self._signup("pro-fleet@example.com", "CorrectHorse!1")
+        # cap of 10, joined cross-tenant via the link from fresh fleet tenants.
         for i in range(FREE_MAX_MEMBERS_PER_ROOM + 1):
-            s, body = self._raw_join(
-                fleet["session_token"], room["room_id"], room["link_token"], f"pro-agent-{i}")
+            fleet = self._signup(f"pro-fleet-{i}@example.com", "CorrectHorse!1")
+            s, body = self._raw_join(fleet["session_token"], room["room_id"], room["link_token"])
             self.assertEqual(s, 200, f"pro join {i} should succeed: {body}")
 
-        s, info = self._room_info(owner["session_token"], room["room_id"], owner["account_id"])
+        s, info = self._room_info(owner["session_token"], room["room_id"])
         self.assertEqual(s, 200)
         self.assertEqual(info["member_count"], FREE_MAX_MEMBERS_PER_ROOM + 2)  # owner + 11
 
@@ -271,7 +266,6 @@ class TestPerMinuteMessageRateLimit(QuotaEnforcementTestBase):
         for i in range(60):
             s, body = _post(self.base, "/v1/rooms/send", {
                 "room_id": room["room_id"],
-                "sender_agent_id": owner["account_id"],
                 "target_spec": "*",
                 "payload": {"text": f"m-{i}"},
             }, owner["session_token"])
@@ -280,7 +274,6 @@ class TestPerMinuteMessageRateLimit(QuotaEnforcementTestBase):
         # The 61st is refused with rate_limited and a Retry-After value.
         s, body = _post(self.base, "/v1/rooms/send", {
             "room_id": room["room_id"],
-            "sender_agent_id": owner["account_id"],
             "target_spec": "*",
             "payload": {"text": "over"},
         }, owner["session_token"])
@@ -294,30 +287,31 @@ class TestAtomicMemberCapUnderConcurrency(QuotaEnforcementTestBase):
 
     def test_concurrent_joins_at_last_slot_admit_exactly_one(self) -> None:
         owner = self._signup("race-owner@example.com", "CorrectHorse!1")
-        fleet = self._signup("race-fleet@example.com", "CorrectHorse!1")
 
         status, room = self._raw_create(owner["session_token"], cap=FREE_MAX_MEMBERS_PER_ROOM)
         self.assertEqual(status, 201)
 
-        # Owner + 8 agents = 9 active members, one slot left (cap 10).
+        # Owner + 8 DISTINCT accounts = 9 active members, one slot left (cap 10).
         for i in range(FREE_MAX_MEMBERS_PER_ROOM - 2):
-            s, body = self._raw_join(
-                fleet["session_token"], room["room_id"], room["link_token"], f"pre-{i}")
+            tok = self._signup(f"race-pre-{i}@example.com", "CorrectHorse!1")["session_token"]
+            s, body = self._raw_join(tok, room["room_id"], room["link_token"])
             self.assertEqual(s, 200, f"pre-join {i} failed: {body}")
 
         results: list[tuple[int, dict]] = []
         lock = threading.Lock()
         barrier = threading.Barrier(5)
 
-        def attempt(agent_id: str) -> None:
+        def attempt(i: int) -> None:
+            # Each racer is a FRESH account — five distinct identities race
+            # the last slot, so the seat is genuinely contended.
+            tok = self._signup(f"race-fresh-{i}@example.com", "CorrectHorse!1")["session_token"]
             barrier.wait()
-            s, body = self._raw_join(
-                fleet["session_token"], room["room_id"], room["link_token"], agent_id)
+            s, body = self._raw_join(tok, room["room_id"], room["link_token"])
             with lock:
                 results.append((s, body))
 
         threads = [
-            threading.Thread(target=attempt, args=(f"race-{i}",)) for i in range(5)
+            threading.Thread(target=attempt, args=(i,)) for i in range(5)
         ]
         for t in threads:
             t.start()
@@ -337,7 +331,7 @@ class TestAtomicMemberCapUnderConcurrency(QuotaEnforcementTestBase):
 
         # The roster reflects exactly the cap — the atomic gate oversubscribed
         # nothing.
-        s, info = self._room_info(owner["session_token"], room["room_id"], owner["account_id"])
+        s, info = self._room_info(owner["session_token"], room["room_id"])
         self.assertEqual(s, 200)
         self.assertEqual(info["member_count"], FREE_MAX_MEMBERS_PER_ROOM)
 

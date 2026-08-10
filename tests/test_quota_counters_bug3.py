@@ -104,8 +104,7 @@ class TestMonthlyEventLimitEnforced(unittest.TestCase):
 
         def send(text: str) -> tuple[int, dict]:
             return _post(self.base, "/v1/rooms/send", {
-                "room_id": rid, "sender_agent_id": owner["account_id"],
-                "target_spec": "*", "payload": {"text": text},
+                "room_id": rid, "target_spec": "*", "payload": {"text": text},
             }, tok)
 
         # The first message is accepted...
