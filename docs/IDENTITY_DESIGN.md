@@ -733,8 +733,12 @@ Identity migrations extend the existing `MIGRATIONS` list in `migrations.py`. Th
 | `cloud_004_identity_members` | identity membership | `cloud_identity_members` |
 | `cloud_005_identity_invites` | identity invites | `cloud_identity_invites` |
 | `cloud_006_identity_outbox` | identity email outbox | `cloud_identity_outbox` |
+| `cloud_007_room_tables` | cloud room lifecycle + event log + addressing | `cloud_rooms`, `cloud_room_members`, `cloud_room_links`, `cloud_room_event_log`, `cloud_room_cursors`, `cloud_room_groups`, `cloud_room_group_members` |
+| `cloud_008_identity_outbox_delivery` | identity email outbox delivery state | ALTERs `cloud_identity_outbox` (status/attempts/backoff/lease) |
+| `cloud_009_room_message_kind` | room event log `message_kind` column | ALTER `cloud_room_event_log` |
+| `cloud_010_cloud_outbox_lifecycle` | hosted delivery outbox completion lifecycle | ALTERs `cloud_outbox` (`claimed_at`/`claimed_by`/`last_error`/`dispatched_at`) |
 
-**Note:** `cloud_001_init` is Wave F's and already exists. Wave G appends `cloud_002` through `cloud_006`. The existing migration is not modified.
+**Note:** `cloud_001_init` is Wave F's and already exists. Wave G appends `cloud_002` through `cloud_006`; later waves append `cloud_007` through `cloud_010`. Existing migrations are not modified.
 
 ---
 

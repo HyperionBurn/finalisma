@@ -158,7 +158,13 @@ Rules that must survive future edits:
   `quotas.py`/`rate_limit.py` are plan-driven seams (Wave I adds billing). `mcp.py` is the
   hosted MCP endpoint at `POST /mcp` — authenticated with cloud sessions, tenant-confined,
   exposing the 8 room tools over `CloudRoomService`; `service.py` routes `/mcp` to it
-  (Design: `docs/CLOUD_SPINE_DESIGN.md`, `docs/HOSTED_MCP_DESIGN.md`).
+   (Design: `docs/CLOUD_SPINE_DESIGN.md`, `docs/HOSTED_MCP_DESIGN.md`).
+   `cloud_outbox` (the HOSTED delivery outbox — distinct from the email
+   `cloud_identity_outbox`) has a full completion lifecycle: migration `cloud_010`
+   adds `claimed_at`/`claimed_by`/`last_error`/`dispatched_at`, the backend exposes
+   lease-aware `claim_due_outbox` + `mark_outbox_delivered/retry/dead`, and
+   `delivery_worker.py` drains it with a pluggable `Deliverer` (lease reclaim,
+   retry with backoff, terminal `delivered`, dead-letter after max attempts).
   This plane MAY take pinned deps; v1 uses none (stdlib).
 - `src/weft_cloud/identity/` — the Wave G identity plane (stdlib only). `accounts.py`
   (scrypt password hashing, per-user salt, constant-time compare, timing-invariant unknown-email

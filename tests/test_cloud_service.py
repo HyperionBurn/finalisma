@@ -1050,5 +1050,180 @@ class TestRoomWaitRoute(CloudServiceTestBase):
         self.assertIn("writer not blocked", texts)
 
 
+class TestSignoutNoDeadlock(CloudServiceTestBase):
+    """POST /v1/auth/signout must revoke the session in ONE transaction.
+
+    The auditor flagged a nested-writer hazard: ``handle_signout`` opened a
+    ``BEGIN IMMEDIATE`` transaction and then called ``sessions.revoke`` inside
+    it, which opened a SECOND writer transaction. SQLite has a single writer,
+    so the inner ``BEGIN IMMEDIATE`` blocks until the outer commits — but the
+    outer cannot commit until the inner returns. Signout wedged for the full
+    lock timeout (~15s) and then surfaced as a 500.
+
+    This test drives the real endpoint and asserts the response is prompt and
+    that the session really is revoked afterwards.
+    """
+
+    def _signout(self, token: str, timeout: float = 25.0) -> tuple[int, dict]:
+        data = json.dumps({}).encode("utf-8")
+        req = urllib.request.Request(self.base + "/v1/auth/signout", data=data, method="POST")
+        req.add_header("Content-Type", "application/json")
+        req.add_header("Authorization", f"Bearer {token}")
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.status, json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            payload = {}
+            try:
+                payload = json.loads(exc.read().decode("utf-8"))
+            except Exception:
+                pass
+            finally:
+                exc.close()
+            return exc.code, payload
+
+    def test_signout_revokes_session_promptly(self) -> None:
+        signup = self._signup("signout@example.com", "CorrectHorse!1")
+        token = signup["session_token"]
+        start = time.monotonic()
+        status, body = self._signout(token)
+        elapsed = time.monotonic() - start
+        self.assertEqual(status, 200, f"signout failed: {body}")
+        # The SQLite lock timeout is 15s; a wedged (nested-transaction) signout
+        # takes ~15s and returns 500. A healthy one is milliseconds.
+        self.assertLess(elapsed, 5.0,
+                        f"signout took {elapsed:.2f}s — likely a nested-writer deadlock")
+        self.assertTrue(body["signed_out"])
+
+    def test_signout_token_no_longer_authenticates(self) -> None:
+        signup = self._signup("signout2@example.com", "CorrectHorse!1")
+        token = signup["session_token"]
+        status, _ = self._signout(token)
+        self.assertEqual(status, 200)
+        status, body = _get(self.base, "/v1/me", token)
+        self.assertEqual(status, 401, f"revoked session still authenticates: {body}")
+
+
+class TestRoomSendAtomicityAndIdempotency(CloudServiceTestBase):
+    """room_send must persist the event AND its delivery receipts atomically.
+
+    The auditor flagged two defects in the old implementation:
+      1. The event committed first, then each recipient's receipt was written
+         in a SEPARATE transaction — a crash between the two left a visible
+         event with partial or zero receipts.
+      2. A retried send had no idempotency key, so it DUPLICATED the event.
+
+    Fix: event + receipts commit under ONE transaction, and a caller-supplied
+    idempotency key makes a retry a no-op that returns the original result.
+    """
+
+    def _room_with_members(self, prefix: str, n_agents: int = 2) -> tuple[dict, list[dict]]:
+        owner = self._signup(f"{prefix}-owner@example.com", "CorrectHorse!1")
+        room = self._create_room(owner["session_token"], cap=n_agents + 2,
+                                 owner_agent_id=f"{prefix}-owner-agent")
+        link_token = room["link_token"]
+        room_id = room["room_id"]
+        agents = [owner]
+        for i in range(n_agents):
+            s = self._signup(f"{prefix}-agent-{i}@example.com", f"AgentPass-{i}!1")
+            self._join_room(s["session_token"], room_id, link_token, f"{prefix}-agent-{i}")
+            agents.append(s)
+        return room, agents
+
+    def _event_rows(self, tenant_id: str, room_id: str) -> list[dict]:
+        with self.service.backend.transaction() as tx:
+            rows = tx.execute(
+                "SELECT seq, kind, idempotency_key FROM cloud_room_event_log "
+                "WHERE tenant_id = ? AND room_id = ? AND kind = 'room.message' ORDER BY seq",
+                (tenant_id, room_id),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def _outbox_rows(self, tenant_id: str) -> list[dict]:
+        with self.service.backend.transaction() as tx:
+            rows = tx.execute(
+                "SELECT entry_id, recipient, status FROM cloud_outbox "
+                "WHERE tenant_id = ? ORDER BY recipient",
+                (tenant_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def test_send_with_receipt_failure_leaves_no_event_no_receipts(self) -> None:
+        """A crash between the event write and the receipts leaves NOTHING.
+
+        Monkeypatch the receipt-writer to raise mid-send. The old code had
+        already committed the event in its own transaction, so the event
+        survived the crash. The fixed code commits event + receipts together,
+        so the failure rolls the whole send back.
+        """
+        import unittest.mock as mock
+        room, agents = self._room_with_members("atomic")
+        tenant_id = agents[0]["tenant_id"]
+        owner_token = agents[0]["session_token"]
+        with mock.patch.object(self.service.backend, "enqueue_outbox_in_tx",
+                               side_effect=RuntimeError("simulated crash")):
+            status, body = _post(self.base, "/v1/rooms/send", {
+                "room_id": room["room_id"],
+                "sender_agent_id": f"atomic-owner-agent",
+                "target_spec": "*",
+                "payload": {"text": "must not persist"},
+            }, owner_token)
+            # The send failed server-side — never a 200.
+            self.assertEqual(status, 500, f"send should fail, got {status}: {body}")
+        # ALL-OR-NOTHING: no event row, no receipt row may survive the crash.
+        events = self._event_rows(tenant_id, room["room_id"])
+        self.assertEqual(events, [], "event persisted without its receipts — not atomic")
+        outbox = self._outbox_rows(tenant_id)
+        self.assertEqual(outbox, [], "receipt rows persisted for a rolled-back send")
+
+    def test_send_with_idempotency_key_does_not_duplicate(self) -> None:
+        """Two sends with the same idempotency key produce exactly one event."""
+        room, agents = self._room_with_members("idem")
+        tenant_id = agents[0]["tenant_id"]
+        owner_token = agents[0]["session_token"]
+        first = _post(self.base, "/v1/rooms/send", {
+            "room_id": room["room_id"],
+            "sender_agent_id": "idem-owner-agent",
+            "target_spec": "*",
+            "payload": {"text": "once"},
+            "idempotency_key": "send-1",
+        }, owner_token)
+        self.assertEqual(first[0], 200, first[1])
+        seq1 = first[1]["seq"]
+        second = _post(self.base, "/v1/rooms/send", {
+            "room_id": room["room_id"],
+            "sender_agent_id": "idem-owner-agent",
+            "target_spec": "*",
+            "payload": {"text": "once"},
+            "idempotency_key": "send-1",
+        }, owner_token)
+        self.assertEqual(second[0], 200, second[1])
+        # Same seq returned for the retry — the event was NOT re-created.
+        self.assertEqual(second[1]["seq"], seq1)
+        events = self._event_rows(tenant_id, room["room_id"])
+        self.assertEqual(len(events), 1, f"duplicate event created: {events}")
+        # Receipts are not doubled either.
+        outbox = self._outbox_rows(tenant_id)
+        expected_receipts = 2  # owner + 2 agents, sender excluded
+        self.assertEqual(len(outbox), expected_receipts,
+                         f"receipts doubled by retry: {len(outbox)}")
+
+    def test_distinct_idempotency_keys_create_distinct_events(self) -> None:
+        room, agents = self._room_with_members("idem2")
+        tenant_id = agents[0]["tenant_id"]
+        owner_token = agents[0]["session_token"]
+        for key in ("a", "b"):
+            status, body = _post(self.base, "/v1/rooms/send", {
+                "room_id": room["room_id"],
+                "sender_agent_id": "idem2-owner-agent",
+                "target_spec": "*",
+                "payload": {"text": key},
+                "idempotency_key": key,
+            }, owner_token)
+            self.assertEqual(status, 200, body)
+        events = self._event_rows(tenant_id, room["room_id"])
+        self.assertEqual(len(events), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

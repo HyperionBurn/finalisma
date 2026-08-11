@@ -380,9 +380,14 @@ CREATE TABLE IF NOT EXISTS cloud_outbox (
     envelope_id TEXT NOT NULL,
     recipient TEXT NOT NULL,
     payload_json TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'queued',
+    status TEXT NOT NULL DEFAULT 'queued'
+        CHECK(status IN ('queued','claimed','delivered','dead')),
     attempts INTEGER NOT NULL DEFAULT 0,
     next_attempt_at REAL NOT NULL DEFAULT 0,
+    claimed_at REAL,
+    claimed_by TEXT,
+    last_error TEXT,
+    dispatched_at REAL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );

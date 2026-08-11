@@ -706,8 +706,9 @@ class ProductionShapedUpgradeTests(unittest.TestCase):
         """Bug 1: ensure_schema must NOT short-circuit on an existing table.
 
         The pre-cloud_008 production shape is brought fully up to date — all six
-        delivery columns and message_kind added, all nine migrations recorded —
-        without losing a single pre-existing row.
+        delivery columns, message_kind, and the cloud_outbox lifecycle columns
+        added, all ten migrations recorded — without losing a single
+        pre-existing row.
         """
         from weft_cloud.identity.schema import ensure_schema
 

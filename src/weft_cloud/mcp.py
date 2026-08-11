@@ -142,12 +142,13 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "room_send",
-        "description": "Address one member, a named group, or the whole room with a payload, returning durable per-recipient delivery receipts.",
+        "description": "Address one member, a named group, or the whole room with a payload, returning durable per-recipient delivery receipts. Pass the same idempotency_key when retrying a send that may have succeeded but lost its response — the retry returns the original event's seq and receipts instead of duplicating.",
         "inputSchema": _object_schema({
             "room_id": _STRING,
             "target_spec": _JSON_VALUE,
             "payload": _JSON_VALUE,
             "exclude_sender": _BOOLEAN,
+            "idempotency_key": _STRING,
         }, ["room_id", "target_spec", "payload"]),
     },
     {
@@ -415,6 +416,7 @@ class HostedMCPDispatcher:
             target_spec=self._required(args, "target_spec"),
             payload=self._required(args, "payload"),
             exclude_sender=bool(args.get("exclude_sender", True)),
+            idempotency_key=args.get("idempotency_key"),
         ))
 
     def _tool_room_poll(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:
