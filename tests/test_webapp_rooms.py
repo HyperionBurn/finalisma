@@ -679,7 +679,6 @@ class TestMemberCanView(unittest.TestCase):
         join_status, joined = self._cloud_post("/v1/rooms/join", {
             "room_id": self.room_id,
             "link_token": link_token,
-            "agent_id": signin["account_id"],
             "consent": True,
             "capabilities": [],
         }, token=session_token)
