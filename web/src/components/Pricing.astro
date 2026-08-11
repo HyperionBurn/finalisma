@@ -2,10 +2,12 @@
 /**
  * Pricing.astro — Three-tier pricing (pricing decision 2026-08-07).
  * Free is permanent and routes to the real signup; Pro and Enterprise route to
- * a contact form, NOT a checkout — there is no billing system. No SSO/SAML, no
- * SLA, no uptime %, no support-response claim, no invented logos or counts.
- * The contact form below builds a portable brief and copies it to clipboard.
- * Nothing is transmitted from this page.
+ * a contact widget, NOT a checkout — there is no billing system. No SSO/SAML,
+ * no SLA, no uptime %, no support-response claim, no invented logos or counts.
+ * The contact widget below builds a portable brief and copies it to clipboard.
+ * It is deliberately NOT a <form> element, so without JavaScript no default
+ * GET submission can serialise the typed details into the URL, history, or
+ * referrer. Nothing is transmitted from this page.
  */
 import { APP_SIGNUP_URL } from '../lib/app';
 
@@ -96,10 +98,10 @@ const tiers = [
     <div class="cohort-form-wrap scroll-in" style="--delay:400ms">
       <h3 class="cohort-form__title" id="cohort-form">Talk to us about Pro or Enterprise</h3>
       <p class="cohort-form__lede">
-        Fill in your details. The form builds a short brief and copies it to your
+        Fill in your details. This builds a short brief and copies it to your
         clipboard. <strong>Nothing is transmitted from this page.</strong>
       </p>
-      <form class="cohort-form" data-cohort-form>
+      <div class="cohort-form" data-cohort-form>
         <div class="field">
           <label for="cohort-team">Team / organisation</label>
           <input id="cohort-team" name="team" type="text" placeholder="Acme Corp" required />
@@ -116,30 +118,36 @@ const tiers = [
           <label for="cohort-scenario">What you want to coordinate</label>
           <textarea id="cohort-scenario" name="scenario" rows="3" placeholder="Rooms, agents, and the handoffs you want to run."></textarea>
         </div>
-        <button class="btn btn-accent group" type="submit">Build the brief<span class="btn__icon" aria-hidden="true">→</span></button>
+        <button class="btn btn-accent group" type="button" data-cohort-build>Build the brief<span class="btn__icon" aria-hidden="true">→</span></button>
         <div class="cohort-form__status" data-cohort-status role="status" aria-live="polite"></div>
-      </form>
+      </div>
     </div>
   </div>
 </section>
 
 <script>
-  // Contact brief builder — assembles a portable brief, copies to clipboard, no transmission
+  // Contact brief builder — assembles a portable brief, copies to clipboard.
+  // The widget is NOT a <form>, so there is no default submission: without JS,
+  // the build button does nothing and nothing can be serialised into the URL.
   (function () {
-    const form = document.querySelector('[data-cohort-form]');
+    const widget = document.querySelector('[data-cohort-form]');
+    const buildBtn = document.querySelector('[data-cohort-build]');
     const statusEl = document.querySelector('[data-cohort-status]');
 
     function setStatus(msg: string) {
       if (statusEl) statusEl.textContent = msg;
     }
 
-    form?.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const data = new FormData(form);
-      const team = (data.get('team') as string || '').trim();
-      const contact = (data.get('contact') as string || '').trim();
-      const hosts = (data.get('hosts') as string || '').trim();
-      const scenario = (data.get('scenario') as string || '').trim();
+    function fieldValue(name: string): string {
+      const control = widget?.querySelector(`[name="${name}"]`);
+      return (control && (control as HTMLInputElement).value || '').trim();
+    }
+
+    async function buildBrief() {
+      const team = fieldValue('team');
+      const contact = fieldValue('contact');
+      const hosts = fieldValue('hosts');
+      const scenario = fieldValue('scenario');
 
       if (!team || !contact) {
         setStatus('Team and contact email are required.');
@@ -173,6 +181,17 @@ const tiers = [
         setStatus('Brief copied to clipboard. Send it to the channel that brought you here.');
       } catch {
         setStatus('Copy failed — select and copy the text manually.');
+      }
+    }
+
+    buildBtn?.addEventListener('click', buildBrief);
+    // Enter in a single-line field builds the brief (parity with the old
+    // form's implicit submission) — JS-only; there is no form to submit.
+    widget?.addEventListener('keydown', (e) => {
+      const target = e.target as HTMLElement;
+      if (e.key === 'Enter' && target.tagName === 'INPUT' && target.getAttribute('type') !== 'submit') {
+        e.preventDefault();
+        buildBrief();
       }
     });
   })();

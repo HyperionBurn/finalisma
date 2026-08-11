@@ -204,6 +204,67 @@ class LaunchSurfaceTests(unittest.TestCase):
         self.assertGreaterEqual(len(re.findall(r"<li", fallback.group(1))), 5)
         self.assertIn("aria-live", html)
 
+    def test_no_contact_form_leaks_typed_data_without_javascript(self) -> None:
+        """Contact-widget data-leak invariant (external audit 2026-08-11).
+
+        The Pro/Enterprise cohort widget used to be a bare ``<form>`` with no
+        action and no method. With JavaScript disabled, its default GET
+        submission serialised the entered name/email/company into the query
+        string — putting them in the URL, browser history and any referrer —
+        while the page claimed "Nothing is transmitted from this page." That
+        promise next to a leaking mechanism is the defect. Chosen fix (option
+        a): make the widget genuinely inert without JS by removing the
+        ``<form>`` element entirely, so no default submission can exist at
+        all. There is no contact backend endpoint and no publishable email
+        address, so a real destination (option b) would have to be invented.
+
+        Invariants asserted here (plus a headless no-JS measurement in the QA
+        harness):
+
+        * no ``<form>`` element anywhere in the built bundle carries the
+          leaking shape — named inputs + GET (or absent) method + no action;
+        * the cohort widget is not a ``<form>`` element (it is a container);
+        * no ``type="submit"`` control remains on the landing page;
+        * the privacy claim is still printed verbatim.
+        """
+        html = (SITE / "index.html").read_text(encoding="utf-8")
+
+        def form_regions(page_html: str) -> list[tuple[str, str]]:
+            regions: list[tuple[str, str]] = []
+            for opening in re.finditer(r"<form\b[^>]*>", page_html, re.I):
+                start = opening.end()
+                closing = re.search(r"</form\s*>", page_html[start:], re.I)
+                body = page_html[start : start + closing.start()] if closing else ""
+                regions.append((opening.group(0), body))
+            return regions
+
+        for page in sorted(SITE.rglob("*.html")):
+            page_html = page.read_text(encoding="utf-8")
+            for tag, body in form_regions(page_html):
+                with self.subTest(page=page.relative_to(ROOT), form=tag[:60]):
+                    named_inputs = re.search(
+                        r"<(?:input|select|textarea)\b[^>]*\bname\s*=", body, re.I
+                    )
+                    method_is_get_or_absent = not re.search(
+                        r'\bmethod\s*=\s*["\']post["\']', tag, re.I
+                    )
+                    no_action = not re.search(r"\baction\s*=", tag, re.I)
+                    self.assertFalse(
+                        named_inputs and method_is_get_or_absent and no_action,
+                        "form with named inputs and no destination would GET-"
+                        "serialise typed data into the URL when JS is disabled",
+                    )
+
+        # The cohort widget must no longer be a <form> element at all.
+        self.assertRegex(html, r'<div\b[^>]*data-cohort-form')
+        self.assertNotRegex(html, r"<form\b[^>]*data-cohort-form")
+        # No submit-type control left on the landing page to trigger a
+        # default submission.
+        self.assertNotIn('type="submit"', html)
+        # The privacy promise the page makes is still printed and now matches
+        # the mechanism (nothing can be transmitted — there is no form).
+        self.assertIn("Nothing is transmitted from this page.", html)
+
     def test_marketing_site_does_not_claim_dependency_free_website(self) -> None:
         """The marketing site is built with a toolchain (Astro/R3F/npm).
 
