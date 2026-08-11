@@ -1119,14 +1119,13 @@ class TestRoomSendAtomicityAndIdempotency(CloudServiceTestBase):
 
     def _room_with_members(self, prefix: str, n_agents: int = 2) -> tuple[dict, list[dict]]:
         owner = self._signup(f"{prefix}-owner@example.com", "CorrectHorse!1")
-        room = self._create_room(owner["session_token"], cap=n_agents + 2,
-                                 owner_agent_id=f"{prefix}-owner-agent")
+        room = self._create_room(owner["session_token"], cap=n_agents + 2)
         link_token = room["link_token"]
         room_id = room["room_id"]
         agents = [owner]
         for i in range(n_agents):
             s = self._signup(f"{prefix}-agent-{i}@example.com", f"AgentPass-{i}!1")
-            self._join_room(s["session_token"], room_id, link_token, f"{prefix}-agent-{i}")
+            self._join_room(s["session_token"], room_id, link_token)
             agents.append(s)
         return room, agents
 
@@ -1164,7 +1163,6 @@ class TestRoomSendAtomicityAndIdempotency(CloudServiceTestBase):
                                side_effect=RuntimeError("simulated crash")):
             status, body = _post(self.base, "/v1/rooms/send", {
                 "room_id": room["room_id"],
-                "sender_agent_id": f"atomic-owner-agent",
                 "target_spec": "*",
                 "payload": {"text": "must not persist"},
             }, owner_token)
@@ -1183,7 +1181,6 @@ class TestRoomSendAtomicityAndIdempotency(CloudServiceTestBase):
         owner_token = agents[0]["session_token"]
         first = _post(self.base, "/v1/rooms/send", {
             "room_id": room["room_id"],
-            "sender_agent_id": "idem-owner-agent",
             "target_spec": "*",
             "payload": {"text": "once"},
             "idempotency_key": "send-1",
@@ -1192,7 +1189,6 @@ class TestRoomSendAtomicityAndIdempotency(CloudServiceTestBase):
         seq1 = first[1]["seq"]
         second = _post(self.base, "/v1/rooms/send", {
             "room_id": room["room_id"],
-            "sender_agent_id": "idem-owner-agent",
             "target_spec": "*",
             "payload": {"text": "once"},
             "idempotency_key": "send-1",
@@ -1215,7 +1211,6 @@ class TestRoomSendAtomicityAndIdempotency(CloudServiceTestBase):
         for key in ("a", "b"):
             status, body = _post(self.base, "/v1/rooms/send", {
                 "room_id": room["room_id"],
-                "sender_agent_id": "idem2-owner-agent",
                 "target_spec": "*",
                 "payload": {"text": key},
                 "idempotency_key": key,

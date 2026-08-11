@@ -697,7 +697,6 @@ class WeftCloudService:
         payload = body.get("payload", {})
         exclude_sender = body.get("exclude_sender", True)
         message_kind = body.get("message_kind")
-        sender_agent_id = body.get("sender_agent_id", ctx.account_id)
         idempotency_key = body.get("idempotency_key")
         if not room_id:
             raise _ServiceError("invalid_argument", "room_id is required")
