@@ -154,11 +154,10 @@ class CloudServiceTestBase(unittest.TestCase):
         return body
 
     def _join_room(self, token: str, room_id: str, link_token: str,
-                   agent_id: str, consent: bool = True) -> dict:
+                   consent: bool = True) -> dict:
         status, body = _post(self.base, "/v1/rooms/join", {
             "room_id": room_id,
             "link_token": link_token,
-            "agent_id": agent_id,
             "consent": consent,
         }, token)
         self.assertEqual(status, 200, f"join failed: {body}")
@@ -256,35 +255,30 @@ class TestRoomLifecycle(CloudServiceTestBase):
 
     def test_owner_auto_joined(self) -> None:
         signup = self._signup("owner2@example.com", "CorrectHorse!1")
-        room = self._create_room(signup["session_token"], cap=4,
-                                 owner_agent_id="owner-agent")
-        # Owner can poll immediately.
+        room = self._create_room(signup["session_token"], cap=4)
+        # Owner can poll immediately — identity is the authenticated account.
         status, body = _post(self.base, "/v1/rooms/poll", {
             "room_id": room["room_id"],
-            "agent_id": "owner-agent",
         }, signup["session_token"])
         self.assertEqual(status, 200)
         # room.created + room.joined = 2 events.
         self.assertEqual(len(body["events"]), 2)
 
     def test_four_agents_join_same_link(self) -> None:
-        """The core product claim: ONE link, N agents."""
+        """The core product claim: ONE link, N agents (each an authenticated account)."""
         signup = self._signup("multi-owner@example.com", "CorrectHorse!1")
-        room = self._create_room(signup["session_token"], cap=6,
-                                 owner_agent_id="multi-owner-agent")
+        room = self._create_room(signup["session_token"], cap=6)
         link_token = room["link_token"]
         room_id = room["room_id"]
         tokens = []
         for i in range(4):
             agent_signup = self._signup(f"agent-{i}@example.com", f"AgentPass-{i}!1")
             tokens.append(agent_signup["session_token"])
-            result = self._join_room(
-                agent_signup["session_token"], room_id, link_token, f"agent-{i}",
-            )
+            result = self._join_room(agent_signup["session_token"], room_id, link_token)
             self.assertEqual(result["status"], "active")
         # Room should now be active (owner + 4 agents > 1).
         status, body = _post(self.base, "/v1/rooms/poll", {
-            "room_id": room_id, "agent_id": "agent-0",
+            "room_id": room_id,
         }, tokens[0])
         self.assertEqual(status, 200)
         # Events: room.created, owner.joined, agent-0.joined, ..., agent-3.joined.
@@ -292,13 +286,11 @@ class TestRoomLifecycle(CloudServiceTestBase):
 
     def test_join_without_consent_refused(self) -> None:
         signup = self._signup("noconsent@example.com", "CorrectHorse!1")
-        room = self._create_room(signup["session_token"], cap=4,
-                                 owner_agent_id="noconsent-owner")
+        room = self._create_room(signup["session_token"], cap=4)
         agent_signup = self._signup("refused@example.com", "AgentPass!1")
         status, body = _post(self.base, "/v1/rooms/join", {
             "room_id": room["room_id"],
             "link_token": room["link_token"],
-            "agent_id": "refused-agent",
             "consent": "yes",  # string, not boolean
         }, agent_signup["session_token"])
         self.assertEqual(status, 400)
@@ -306,13 +298,11 @@ class TestRoomLifecycle(CloudServiceTestBase):
 
     def test_join_with_wrong_link_refused(self) -> None:
         signup = self._signup("wronglink@example.com", "CorrectHorse!1")
-        room = self._create_room(signup["session_token"], cap=4,
-                                 owner_agent_id="wronglink-owner")
+        room = self._create_room(signup["session_token"], cap=4)
         agent_signup = self._signup("wronglink-agent@example.com", "AgentPass!1")
         status, body = _post(self.base, "/v1/rooms/join", {
             "room_id": room["room_id"],
             "link_token": "frl_wrongtokenvalue",
-            "agent_id": "wrong-agent",
             "consent": True,
         }, agent_signup["session_token"])
         self.assertEqual(status, 403)
@@ -320,18 +310,16 @@ class TestRoomLifecycle(CloudServiceTestBase):
 
     def test_join_room_full_refused(self) -> None:
         signup = self._signup("full@example.com", "CorrectHorse!1")
-        room = self._create_room(signup["session_token"], cap=2,
-                                 owner_agent_id="full-owner")  # owner + 1
+        room = self._create_room(signup["session_token"], cap=2)  # owner + 1
         link_token = room["link_token"]
         # First agent joins OK.
         a1 = self._signup("full-a1@example.com", "AgentPass!1")
-        self._join_room(a1["session_token"], room["room_id"], link_token, "full-a1")
+        self._join_room(a1["session_token"], room["room_id"], link_token)
         # Second agent — room is full.
         a2 = self._signup("full-a2@example.com", "AgentPass!1")
         status, body = _post(self.base, "/v1/rooms/join", {
             "room_id": room["room_id"],
             "link_token": link_token,
-            "agent_id": "full-a2",
             "consent": True,
         }, a2["session_token"])
         self.assertEqual(status, 409)
@@ -339,25 +327,22 @@ class TestRoomLifecycle(CloudServiceTestBase):
 
     def test_rejoin_idempotent(self) -> None:
         signup = self._signup("rejoin@example.com", "CorrectHorse!1")
-        room = self._create_room(signup["session_token"], cap=4,
-                                 owner_agent_id="rejoin-owner")
+        room = self._create_room(signup["session_token"], cap=4)
         agent_signup = self._signup("rejoin-agent@example.com", "AgentPass!1")
         link_token = room["link_token"]
         room_id = room["room_id"]
         # Join twice.
-        r1 = self._join_room(agent_signup["session_token"], room_id, link_token, "rejoin-agent")
-        r2 = self._join_room(agent_signup["session_token"], room_id, link_token, "rejoin-agent")
+        r1 = self._join_room(agent_signup["session_token"], room_id, link_token)
+        r2 = self._join_room(agent_signup["session_token"], room_id, link_token)
         self.assertEqual(r1["status"], "active")
         self.assertEqual(r2["status"], "active")
 
     def test_close_room_refuses_new_joins(self) -> None:
         signup = self._signup("close-owner@example.com", "CorrectHorse!1")
-        room = self._create_room(signup["session_token"], cap=4,
-                                 owner_agent_id="close-owner-agent")
+        room = self._create_room(signup["session_token"], cap=4)
         # Close the room.
         status, body = _post(self.base, "/v1/rooms/close", {
             "room_id": room["room_id"],
-            "caller_agent_id": "close-owner-agent",
         }, signup["session_token"])
         self.assertEqual(status, 200)
         self.assertEqual(body["state"], "closed")
@@ -366,20 +351,17 @@ class TestRoomLifecycle(CloudServiceTestBase):
         status, body = _post(self.base, "/v1/rooms/join", {
             "room_id": room["room_id"],
             "link_token": room["link_token"],
-            "agent_id": "late-agent",
             "consent": True,
         }, agent_signup["session_token"])
         self.assertIn(status, (409, 410))  # room_closed or link_revoked
 
     def test_revoke_link_refuses_new_joins(self) -> None:
         signup = self._signup("revoke-owner@example.com", "CorrectHorse!1")
-        room = self._create_room(signup["session_token"], cap=4,
-                                 owner_agent_id="revoke-owner-agent")
+        room = self._create_room(signup["session_token"], cap=4)
         # Revoke the link.
         status, body = _post(self.base, "/v1/rooms/revoke_link", {
             "room_id": room["room_id"],
             "link_id": room["link_id"],
-            "owner_agent_id": "revoke-owner-agent",
         }, signup["session_token"])
         self.assertEqual(status, 200)
         self.assertTrue(body["revoked"])
@@ -388,7 +370,6 @@ class TestRoomLifecycle(CloudServiceTestBase):
         status, body = _post(self.base, "/v1/rooms/join", {
             "room_id": room["room_id"],
             "link_token": room["link_token"],
-            "agent_id": "revoked-agent",
             "consent": True,
         }, agent_signup["session_token"])
         self.assertEqual(status, 410)
@@ -407,8 +388,7 @@ class TestJoinDescriptorAndAgentCard(CloudServiceTestBase):
     def setUp(self) -> None:
         super().setUp()
         self.owner = self._signup("discover-owner@example.com", "CorrectHorse!1")
-        self.room = self._create_room(self.owner["session_token"], cap=6,
-                                      owner_agent_id="discover-owner-agent")
+        self.room = self._create_room(self.owner["session_token"], cap=6)
         self.link_token = self.room["link_token"]
         self.room_id = self.room["room_id"]
 
@@ -442,21 +422,21 @@ class TestJoinDescriptorAndAgentCard(CloudServiceTestBase):
 
     def test_join_descriptor_is_pure_read_no_mutation(self) -> None:
         # Snapshot membership count + event-log length.
-        _, info_before = _get(self.base, f"/v1/rooms/info?room_id={self.room_id}&agent_id=discover-owner-agent",
+        _, info_before = _get(self.base, f"/v1/rooms/info?room_id={self.room_id}",
                               self.owner["session_token"])
         before_members = info_before["member_count"]
         _, poll_before = _post(self.base, "/v1/rooms/poll", {
-            "room_id": self.room_id, "agent_id": "discover-owner-agent", "after_seq": 0,
+            "room_id": self.room_id, "after_seq": 0,
         }, self.owner["session_token"])
         before_events = len(poll_before["events"])
         # Fetch the descriptor — this must NOT change anything.
         status, body = self._json_descriptor(self.link_token)
         self.assertEqual(status, 200)
-        _, info_after = _get(self.base, f"/v1/rooms/info?room_id={self.room_id}&agent_id=discover-owner-agent",
+        _, info_after = _get(self.base, f"/v1/rooms/info?room_id={self.room_id}",
                              self.owner["session_token"])
         after_members = info_after["member_count"]
         _, poll_after = _post(self.base, "/v1/rooms/poll", {
-            "room_id": self.room_id, "agent_id": "discover-owner-agent", "after_seq": 0,
+            "room_id": self.room_id, "after_seq": 0,
         }, self.owner["session_token"])
         after_events = len(poll_after["events"])
         self.assertEqual(after_members, before_members,
@@ -465,8 +445,7 @@ class TestJoinDescriptorAndAgentCard(CloudServiceTestBase):
                          "GET /j mutated the event log")
         # And the token STILL works for a real join afterwards — not consumed.
         newcomer = self._signup("discover-newcomer@example.com", "AgentPass!1")
-        joined = self._join_room(newcomer["session_token"], self.room_id,
-                                 self.link_token, "discover-newcomer")
+        joined = self._join_room(newcomer["session_token"], self.room_id, self.link_token)
         self.assertEqual(joined["status"], "active")
 
     def test_join_descriptor_bad_token_is_no_oracle(self) -> None:
@@ -538,7 +517,7 @@ class TestJoinDescriptorAndAgentCard(CloudServiceTestBase):
         # The high-level tool collapses room_create + returns the URL; a second
         # agent joins using ONLY that URL.
         status, body = _post(self.base, "/v1/rooms/connect", {
-            "cap": 5, "owner_agent_id": "connect-owner",
+            "cap": 5,
         }, self.owner["session_token"])
         self.assertEqual(status, 201)
         shareable = body["shareable_link"]
@@ -551,8 +530,7 @@ class TestJoinDescriptorAndAgentCard(CloudServiceTestBase):
         fetch_status, raw, _ = _get_url(shareable, accept="application/json")
         self.assertEqual(fetch_status, 200)
         descriptor = json.loads(raw.decode("utf-8"))
-        joined = self._join_room(newcomer["session_token"], descriptor["room_id"],
-                                 token, "connect-newcomer")
+        joined = self._join_room(newcomer["session_token"], descriptor["room_id"], token)
         self.assertEqual(joined["status"], "active")
 
 
@@ -562,21 +540,21 @@ class TestOrderedDelivery(CloudServiceTestBase):
     def setUp(self) -> None:
         super().setUp()
         self.owner = self._signup("delivery-owner@example.com", "CorrectHorse!1")
-        self.room = self._create_room(self.owner["session_token"], cap=6,
-                                      owner_agent_id="delivery-owner-agent")
+        self.room = self._create_room(self.owner["session_token"], cap=6)
         self.link_token = self.room["link_token"]
         self.room_id = self.room["room_id"]
         self.agent_tokens = []
+        self.agent_ids = []
         for i in range(4):
             s = self._signup(f"delivery-agent-{i}@example.com", f"AgentPass-{i}!1")
             self.agent_tokens.append(s["session_token"])
-            self._join_room(s["session_token"], self.room_id, self.link_token, f"delivery-agent-{i}")
+            self.agent_ids.append(s["account_id"])
+            self._join_room(s["session_token"], self.room_id, self.link_token)
 
     def test_broadcast_reaches_all_in_order(self) -> None:
         # Agent 0 sends a broadcast.
         status, body = _post(self.base, "/v1/rooms/send", {
             "room_id": self.room_id,
-            "sender_agent_id": "delivery-agent-0",
             "target_spec": "*",
             "payload": {"text": "broadcast-1"},
         }, self.agent_tokens[0])
@@ -585,7 +563,6 @@ class TestOrderedDelivery(CloudServiceTestBase):
         # Agent 1 sends another.
         status, body = _post(self.base, "/v1/rooms/send", {
             "room_id": self.room_id,
-            "sender_agent_id": "delivery-agent-1",
             "target_spec": "*",
             "payload": {"text": "broadcast-2"},
         }, self.agent_tokens[1])
@@ -596,7 +573,6 @@ class TestOrderedDelivery(CloudServiceTestBase):
         for i in range(4):
             status, poll = _post(self.base, "/v1/rooms/poll", {
                 "room_id": self.room_id,
-                "agent_id": f"delivery-agent-{i}",
                 "after_seq": 0,
             }, self.agent_tokens[i])
             self.assertEqual(status, 200)
@@ -608,20 +584,18 @@ class TestOrderedDelivery(CloudServiceTestBase):
     def test_unicast_reaches_only_target(self) -> None:
         status, body = _post(self.base, "/v1/rooms/send", {
             "room_id": self.room_id,
-            "sender_agent_id": "delivery-agent-2",
-            "target_spec": "delivery-agent-3",
+            "target_spec": self.agent_ids[3],
             "payload": {"text": "private"},
             "exclude_sender": True,
         }, self.agent_tokens[2])
         self.assertEqual(status, 200)
         targets = [r["agent_id"] for r in body["receipts"]]
-        self.assertEqual(targets, ["delivery-agent-3"])
+        self.assertEqual(targets, [self.agent_ids[3]])
 
     def test_non_member_send_refused(self) -> None:
         stranger = self._signup("delivery-stranger@example.com", "StrangerPass!1")
         status, body = _post(self.base, "/v1/rooms/send", {
             "room_id": self.room_id,
-            "sender_agent_id": "stranger",
             "target_spec": "*",
             "payload": {"text": "should be refused"},
         }, stranger["session_token"])
@@ -633,7 +607,6 @@ class TestOrderedDelivery(CloudServiceTestBase):
         stranger = self._signup("poll-stranger@example.com", "StrangerPass!1")
         status, body = _post(self.base, "/v1/rooms/poll", {
             "room_id": self.room_id,
-            "agent_id": "stranger",
         }, stranger["session_token"])
         self.assertIn(status, (403, 404))
 
@@ -641,7 +614,6 @@ class TestOrderedDelivery(CloudServiceTestBase):
         stranger = self._signup("log-stranger@example.com", "StrangerPass!1")
         status, body = _post(self.base, "/v1/rooms/event_log", {
             "room_id": self.room_id,
-            "agent_id": "stranger",
         }, stranger["session_token"])
         self.assertIn(status, (403, 404))
 
@@ -650,17 +622,15 @@ class TestOrderedDelivery(CloudServiceTestBase):
         stranger = self._signup("clean-stranger@example.com", "StrangerPass!1")
         _post(self.base, "/v1/rooms/send", {
             "room_id": self.room_id,
-            "sender_agent_id": "stranger",
             "target_spec": "*",
             "payload": {"text": "refused"},
         }, stranger["session_token"])
         # The event log should NOT contain the stranger's action.
         status, body = _post(self.base, "/v1/rooms/event_log", {
             "room_id": self.room_id,
-            "agent_id": "delivery-agent-0",
         }, self.agent_tokens[0])
         self.assertEqual(status, 200)
-        stranger_events = [e for e in body["events"] if e["origin_agent"] == "stranger"]
+        stranger_events = [e for e in body["events"] if e["origin_agent"] == stranger["account_id"]]
         self.assertEqual(len(stranger_events), 0,
                          "refused action leaked into event log")
 
@@ -675,26 +645,22 @@ class TestCrossTenantIsolation(CloudServiceTestBase):
         invisible to other tenants.
         """
         a = self._signup("tenant-a2@example.com", "CorrectHorse!1")
-        room = self._create_room(a["session_token"], cap=4,
-                                 owner_agent_id="tenant-a-owner")
+        room = self._create_room(a["session_token"], cap=4)
         b = self._signup("tenant-b2@example.com", "CorrectHorse!1")
         # Tenant B tries to poll without being a member — refused.
         status, body = _post(self.base, "/v1/rooms/poll", {
             "room_id": room["room_id"],
-            "agent_id": "tenant-b-agent",
         }, b["session_token"])
         self.assertIn(status, (404, 403))
 
     def test_cross_tenant_join_with_wrong_link_refused(self) -> None:
         """Tenant B cannot join with a fabricated/garbled link."""
         a = self._signup("tenant-a3@example.com", "CorrectHorse!1")
-        room = self._create_room(a["session_token"], cap=4,
-                                 owner_agent_id="tenant-a3-owner")
+        room = self._create_room(a["session_token"], cap=4)
         b = self._signup("tenant-b3@example.com", "CorrectHorse!1")
         status, body = _post(self.base, "/v1/rooms/join", {
             "room_id": room["room_id"],
             "link_token": "frl_fabricated_token_value_here",
-            "agent_id": "tenant-b-agent",
             "consent": True,
         }, b["session_token"])
         self.assertEqual(status, 403)
@@ -703,14 +669,12 @@ class TestCrossTenantIsolation(CloudServiceTestBase):
     def test_valid_link_allows_cross_tenant_join(self) -> None:
         """A valid link IS the cross-tenant capability — holder can join."""
         a = self._signup("tenant-a4@example.com", "CorrectHorse!1")
-        room = self._create_room(a["session_token"], cap=4,
-                                 owner_agent_id="tenant-a4-owner")
+        room = self._create_room(a["session_token"], cap=4)
         b = self._signup("tenant-b4@example.com", "CorrectHorse!1")
         # Tenant B uses the VALID link — join succeeds.
         status, body = _post(self.base, "/v1/rooms/join", {
             "room_id": room["room_id"],
             "link_token": room["link_token"],
-            "agent_id": "tenant-b-agent",
             "consent": True,
         }, b["session_token"])
         self.assertEqual(status, 200)
@@ -730,20 +694,20 @@ class TestRoomMessageKind(CloudServiceTestBase):
     def setUp(self) -> None:
         super().setUp()
         self.owner = self._signup("mk-owner@example.com", "CorrectHorse!1")
-        self.room = self._create_room(self.owner["session_token"], cap=8,
-                                      owner_agent_id="mk-owner-agent")
+        self.room = self._create_room(self.owner["session_token"], cap=8)
         self.room_id = self.room["room_id"]
         self.link_token = self.room["link_token"]
         self.tokens: dict[str, str] = {}
+        self.ids: dict[str, str] = {}
         for name in ("agent-0", "agent-1", "agent-2", "agent-3"):
             s = self._signup(f"mk-{name}@example.com", "AgentPass!1")
             self.tokens[name] = s["session_token"]
-            self._join_room(s["session_token"], self.room_id, self.link_token, name)
+            self.ids[name] = s["account_id"]
+            self._join_room(s["session_token"], self.room_id, self.link_token)
 
     def _send(self, agent: str, *, kind: str | None, text: str, target: str = "*") -> dict:
         body = {
             "room_id": self.room_id,
-            "sender_agent_id": agent,
             "target_spec": target,
             "payload": {"text": text},
         }
@@ -755,7 +719,7 @@ class TestRoomMessageKind(CloudServiceTestBase):
 
     def _poll(self, agent: str, after_seq: int | None = 0,
               kinds: list[str] | None = None) -> dict:
-        body: dict = {"room_id": self.room_id, "agent_id": agent}
+        body: dict = {"room_id": self.room_id}
         if after_seq is not None:
             body["after_seq"] = after_seq
         if kinds is not None:
@@ -824,11 +788,11 @@ class TestRoomMessageKind(CloudServiceTestBase):
 
         # Both callers consume what they saw and ack their cursor.
         status, _ = _post(self.base, "/v1/rooms/ack", {
-            "room_id": self.room_id, "agent_id": "agent-2", "seq": f_seqs[-1],
+            "room_id": self.room_id, "seq": f_seqs[-1],
         }, self.tokens["agent-2"])
         self.assertEqual(status, 200)
         status, _ = _post(self.base, "/v1/rooms/ack", {
-            "room_id": self.room_id, "agent_id": "agent-3", "seq": u_seqs[-1],
+            "room_id": self.room_id, "seq": u_seqs[-1],
         }, self.tokens["agent-3"])
         self.assertEqual(status, 200)
 
@@ -854,7 +818,6 @@ class TestRoomMessageKind(CloudServiceTestBase):
         for bad in ("UPPER", "x" * 33, "has spaces", "has.dot", ""):
             status, body = _post(self.base, "/v1/rooms/send", {
                 "room_id": self.room_id,
-                "sender_agent_id": "agent-0",
                 "target_spec": "*",
                 "message_kind": bad,
                 "payload": {"text": "bad"},
@@ -867,7 +830,6 @@ class TestRoomMessageKind(CloudServiceTestBase):
         for bad in ("result", 42, ["result", "BAD"], [""]):
             status, body = _post(self.base, "/v1/rooms/poll", {
                 "room_id": self.room_id,
-                "agent_id": "agent-2",
                 "message_kinds": bad,
             }, self.tokens["agent-2"])
             self.assertEqual(status, 400, f"message_kinds={bad!r} must be rejected")
@@ -879,13 +841,12 @@ class TestRoomMessageKind(CloudServiceTestBase):
         filtering on the message_kind sees the redacted envelope, never the body."""
         status, body = _post(self.base, "/v1/rooms/send", {
             "room_id": self.room_id,
-            "sender_agent_id": "agent-1",
-            "target_spec": "agent-2",
+            "target_spec": self.ids["agent-2"],
             "message_kind": "result",
             "payload": {"text": "TOP-SECRET-UNICAST"},
         }, self.tokens["agent-1"])
         self.assertEqual(status, 200)
-        self.assertEqual([r["agent_id"] for r in body["receipts"]], ["agent-2"])
+        self.assertEqual([r["agent_id"] for r in body["receipts"]], [self.ids["agent-2"]])
 
         # The addressee sees the body when filtering on the same kind.
         addressee = self._poll("agent-2", kinds=["result"])
@@ -967,11 +928,10 @@ class TestRoomWaitRoute(CloudServiceTestBase):
 
     def _room_with_two_members(self, prefix: str) -> tuple[dict, dict, dict]:
         owner = self._signup(f"{prefix}-owner@example.com", "CorrectHorse!1")
-        room = self._create_room(owner["session_token"], cap=6,
-                                 owner_agent_id=owner["account_id"])
+        room = self._create_room(owner["session_token"], cap=6)
         peer = self._signup(f"{prefix}-peer@example.com", "AgentPass!1")
         self._join_room(peer["session_token"], room["room_id"],
-                        room["link_token"], peer["account_id"])
+                        room["link_token"])
         return owner, peer, room
 
     def _head(self, token: str, room_id: str) -> int:
@@ -993,7 +953,6 @@ class TestRoomWaitRoute(CloudServiceTestBase):
         start = time.monotonic()
         status, sent = _post(self.base, "/v1/rooms/send", {
             "room_id": room["room_id"],
-            "sender_agent_id": peer["account_id"],
             "target_spec": "*",
             "payload": {"kind": "message", "text": "wake up"},
         }, peer["session_token"])
@@ -1074,7 +1033,6 @@ class TestRoomWaitRoute(CloudServiceTestBase):
         send_start = time.monotonic()
         status, sent = _post(self.base, "/v1/rooms/send", {
             "room_id": room["room_id"],
-            "sender_agent_id": peer["account_id"],
             "target_spec": "*",
             "payload": {"kind": "message", "text": "writer not blocked"},
         }, peer["session_token"])

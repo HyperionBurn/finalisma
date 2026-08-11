@@ -29,7 +29,9 @@ def _migration_fingerprint() -> tuple[str, ...]:
     parts: list[str] = []
     for migration in MIGRATIONS:
         parts.append(migration.migration_id)
-        if migration.statements is not None:
+        if migration.up_fn is not None:
+            parts.append(f"python:{migration.migration_id}")
+        elif migration.statements is not None:
             parts.extend(statement.sql for statement in migration.statements)
         else:
             parts.append(migration.up_sql)

@@ -461,10 +461,11 @@ class TestConnectPageRequestShapeDrivesRealJoin(unittest.TestCase):
         self.assertEqual(signup_status, 201, f"signup failed: {signup}")
         # The agent's org is brand-new, so this is a cross-tenant redeem.
         self.assertNotEqual(signup["tenant_id"], room_tenant)
+        # Identity comes from the authenticated session — the documented shape
+        # carries no agent_id argument.
         join_status, joined = self._cloud_post("/v1/rooms/join", {
             "room_id": doc_room_id,
             "link_token": doc_link_token,
-            "agent_id": "my-agent",
             "consent": True,
             "capabilities": [],
         }, token=signup["session_token"])

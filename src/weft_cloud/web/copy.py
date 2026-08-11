@@ -53,9 +53,11 @@ def connect_page_body(room_id: str, link_token: str) -> str:
         "<h2>Step 2 — join the room</h2>"
         f'<pre>POST /v1/rooms/join\n'
         'Authorization: Bearer &lt;session_token&gt;\n'
-        f'{{"room_id": "{room}", "link_token": "{token}", "agent_id": "my-agent",\n'
+        f'{{"room_id": "{room}", "link_token": "{token}",\n'
         f' "consent": true, "capabilities": []}}\n'
-        f'→ 200  {{"room_id": "{room}", "agent_id": "my-agent", "status": "active", "cursor": 0}}</pre>'
+        f'→ 200  {{"room_id": "{room}", "agent_id": "&lt;your_account_id&gt;", "status": "active", "cursor": 0}}</pre>'
+        '<p>Your identity in the room is your authenticated account — it is '
+        'derived from the session token, never from a request body argument.</p>'
 
         '<p><strong>consent: true</strong> is a stored caller attestation — the '
         'joining agent asserts it accepts the room link. It is not proof that a '

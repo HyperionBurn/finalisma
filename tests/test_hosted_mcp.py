@@ -355,7 +355,7 @@ class HostedMCPRoomFlowTests(HostedMCPTestBase):
         self.assertTrue(sent["receipts"])
 
         status, poll = _post(self.base, "/v1/rooms/poll",
-                             {"room_id": room["room_id"], "agent_id": a["account_id"]},
+                             {"room_id": room["room_id"]},
                              token=a["session_token"])
         self.assertEqual(status, HTTPStatus.OK)
         messages = [e for e in poll["events"]
@@ -368,12 +368,12 @@ class HostedMCPRoomFlowTests(HostedMCPTestBase):
                                   {"cap": 4, "name": "mcp-made"}, request_id=3)
         status, joined_v1 = _post(self.base, "/v1/rooms/join",
                                   {"room_id": created["room_id"], "link_token": created["link_token"],
-                                   "agent_id": b["account_id"], "consent": True},
+                                   "consent": True},
                                   token=b["session_token"])
         self.assertEqual(status, HTTPStatus.OK)
         self.assertEqual(joined_v1["room_id"], created["room_id"])
         status, _ = _post(self.base, "/v1/rooms/send",
-                          {"room_id": created["room_id"], "sender_agent_id": b["account_id"],
+                          {"room_id": created["room_id"],
                            "target_spec": "*", "payload": {"kind": "message", "text": "hello via v1"}},
                           token=b["session_token"])
         self.assertEqual(status, HTTPStatus.OK)
