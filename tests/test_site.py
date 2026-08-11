@@ -638,6 +638,55 @@ class LaunchSurfaceTests(unittest.TestCase):
             thread.join(timeout=5)
 
 
+    def test_site_server_sends_security_response_headers(self) -> None:
+        """The standalone site server ships the full security header block.
+
+        The live service shipped no HSTS/CSP/frame-protection/
+        Referrer-Policy/Permissions-Policy on HTML responses. The site server
+        (scripts/weft-site.py) is one of the surfaces a self-hoster runs
+        without nginx, so IT must carry the headers — not just the web app.
+        """
+        handler = lambda *args, **kwargs: QuietSiteHandler(*args, directory=str(ROOT), **kwargs)
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            host, port = server.server_address
+
+            def get(path: str) -> tuple[int, dict[str, str]]:
+                connection = HTTPConnection(host, port, timeout=5)
+                connection.request("GET", path)
+                response = connection.getresponse()
+                body = response.read()
+                headers = dict(response.getheaders())
+                status = response.status
+                connection.close()
+                return status, headers
+
+            for path in ("/", "/terms.html", "/docs/index.html"):
+                with self.subTest(path=path):
+                    status, headers = get(path)
+                    self.assertEqual(status, 200, f"{path} must return 200")
+                    self.assertEqual(headers.get("X-Content-Type-Options"), "nosniff")
+                    self.assertEqual(
+                        headers.get("Referrer-Policy"),
+                        "strict-origin-when-cross-origin",
+                    )
+                    self.assertEqual(headers.get("X-Frame-Options"), "DENY")
+                    self.assertTrue(
+                        headers.get("Strict-Transport-Security", "").startswith("max-age="),
+                        f"{path}: missing HSTS",
+                    )
+                    csp = headers.get("Content-Security-Policy", "")
+                    self.assertIn("default-src 'none'", csp, f"{path}: missing CSP")
+                    self.assertIn("frame-ancestors 'none'", csp, f"{path}: no frame protection")
+                    self.assertIn("Permissions-Policy", headers, f"{path}: missing Permissions-Policy")
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+
 class WebsiteCriticStaleDataTests(unittest.TestCase):
     """The website critic must not crash on absent/stale baseline QA data.
 
