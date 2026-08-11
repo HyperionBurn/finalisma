@@ -53,7 +53,7 @@ from weft_cloud.mcp import (
     _wait_slots,
 )
 from weft_cloud.quotas import QuotaError
-from weft_cloud.rate_limit import RateLimitedError
+from weft_cloud.rate_limit import RateLimitedError, enforce_auth_rate_limit
 from weft_cloud.rooms import CloudRoomService, RoomError, public_origin
 from weft_cloud.storage import SqliteWalBackend, StorageBackend
 
@@ -129,9 +129,11 @@ class WeftCloudService:
     by ``WHERE tenant_id = ?``.
     """
 
-    def __init__(self, backend: StorageBackend, origin: str | None = None) -> None:
+    def __init__(self, backend: StorageBackend, origin: str | None = None,
+                 auth_rate_limits: Mapping[str, Any] | None = None) -> None:
         self.backend = backend
         self.origin = public_origin(origin)
+        self.auth_rate_limits = auth_rate_limits
         self.accounts = AccountStore(backend)
         self.sessions = SessionStore(backend)
         self.orgs = OrgStore(backend)
@@ -173,6 +175,15 @@ class WeftCloudService:
             raise _ServiceError("invalid_argument", "email must be a valid email address")
         if not isinstance(password, str) or len(password) < 8:
             raise _ServiceError("invalid_argument", "password must be at least 8 characters")
+
+        # Public endpoint: signup mints a tenant + writes rows, so it is both a
+        # storage-exhaustion vector and a mail-bomb vector (verification
+        # outbox). Enforce the shared auth limiter BEFORE any account work —
+        # keyed on the client IP and the requested email, so unlimited account
+        # creation from one source and repeated attempts at one address are
+        # both refused. Refusals are identical for any email: no oracle.
+        enforce_auth_rate_limit(self.backend, handler, "signup", email=email,
+                                limits=self.auth_rate_limits)
 
         try:
             account_id, _verification_token = self.accounts.signup(
@@ -219,6 +230,15 @@ class WeftCloudService:
         password = body.get("password")
         if not email or not password:
             raise _ServiceError("invalid_argument", "email and password are required")
+        # Enforce the shared auth limiter BEFORE the tenant lookup. Both tiers
+        # (client IP and the email, counted regardless of existence) run before
+        # any branch that depends on whether the account exists, so a throttled
+        # known email and a throttled unknown email return the byte-identical
+        # 429 — the limit is not an account-existence oracle. The limiter's
+        # work is identical for both, so the known-vs-unknown scrypt timing
+        # equalisation (burn_scrypt_cost below) is unchanged.
+        enforce_auth_rate_limit(self.backend, handler, "signin", email=email,
+                                limits=self.auth_rate_limits)
         # Look up the tenant for this email. When the same email exists in more
         # than one tenant (possible via org-invite provisioning), pick the
         # NEWEST tenant — the same rule web/app.py uses — so both surfaces

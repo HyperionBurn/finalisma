@@ -1,0 +1,270 @@
+"""Auth-endpoint rate limiting — real HTTP, one mechanism (rate_limit.py).
+
+Drives POST /v1/auth/signup and POST /v1/auth/signin over a REAL HTTP server
+and asserts the limits are enforced through the SAME ``RateLimiter`` that room
+messages already use (weft_cloud/rate_limit.py): trigger-after-N, throttled
+known vs throttled unknown responses are byte-identical (no existence
+oracle), the window resets, normal usage is unaffected, and the known-vs-
+unknown timing ratio stays below 3.0.
+
+The web-app reset-request surface is covered in test_webapp_auth.py
+(TestResetRequestRateLimits) against the same mechanism.
+"""
+
+from __future__ import annotations
+
+import json
+import shutil
+import statistics
+import sys
+import tempfile
+import threading
+import time
+import unittest
+import urllib.error
+import urllib.request
+from http.server import ThreadingHTTPServer
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
+from weft_cloud.service import WeftCloudService, _CloudHTTPHandler
+from weft_cloud.storage import SqliteWalBackend
+
+# Test-tuned limits. The email tier for signin is lowered so "triggers after
+# N attempts" and "throttled-known == throttled-unknown" are exercised without
+# tripping the (generous) per-IP tier; the signin/reset windows are shortened
+# so "resets after its window" does not require a 15-minute sleep.
+TEST_AUTH_LIMITS = {
+    "signup": {"ip": 20, "email": 5, "window_seconds": 900},
+    "signin": {"ip": 40, "email": 5, "window_seconds": 2},
+    "reset_request": {"ip": 10, "email": 3, "window_seconds": 2},
+}
+
+KNOWN_EMAIL = "known@example.com"
+UNKNOWN_EMAIL = "ghost@example.org"
+PASSWORD = "CorrectHorse!1"
+WRONG = "wrong-password-1"
+
+
+class _ServiceHarness:
+    """Real HTTP server + service, torn down even when a test fails."""
+
+    def __init__(self, auth_rate_limits=None):
+        self._tmp = tempfile.mkdtemp(prefix="authrl-")
+        self._httpd = ThreadingHTTPServer(("127.0.0.1", 0), _CloudHTTPHandler)
+        port = self._httpd.server_address[1]
+        self.base = f"http://127.0.0.1:{port}"
+        self.service = WeftCloudService(
+            SqliteWalBackend(str(Path(self._tmp) / "rl.db")),
+            origin=self.base,
+            auth_rate_limits=auth_rate_limits,
+        )
+        _CloudHTTPHandler.service = self.service
+        self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
+        self._thread.start()
+
+    def post_full(self, path: str, body: dict) -> tuple[int, dict, dict]:
+        data = json.dumps(body).encode("utf-8")
+        req = urllib.request.Request(self.base + path, data=data, method="POST")
+        req.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                raw = resp.read()
+                parsed = json.loads(raw.decode("utf-8")) if raw else {}
+                return resp.status, parsed, dict(resp.headers)
+        except urllib.error.HTTPError as exc:
+            try:
+                raw = exc.read()
+                parsed = json.loads(raw.decode("utf-8")) if raw else {}
+                return exc.code, parsed, dict(exc.headers)
+            finally:
+                exc.close()
+
+    def post(self, path: str, body: dict) -> tuple[int, dict]:
+        status, parsed, _ = self.post_full(path, body)
+        return status, parsed
+
+    def close(self):
+        try:
+            self._httpd.shutdown()
+        finally:
+            self._httpd.server_close()
+        try:
+            self.service.backend.close()
+        except Exception:
+            pass
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+
+class AuthRateLimitTestBase(unittest.TestCase):
+    def setUp(self):
+        self.harness = _ServiceHarness(auth_rate_limits=TEST_AUTH_LIMITS)
+
+    def tearDown(self):
+        self.harness.close()
+
+
+class TestSigninRateLimit(AuthRateLimitTestBase):
+    """POST /v1/auth/signin — brute-force protection via the shared limiter."""
+
+    def _signup_known(self) -> None:
+        status, body = self.harness.post("/v1/auth/signup",
+                                         {"email": KNOWN_EMAIL, "password": PASSWORD})
+        self.assertEqual(status, 201, f"signup failed: {body}")
+
+    def test_limit_triggers_after_n_attempts(self):
+        self._signup_known()
+        for i in range(5):
+            status, body = self.harness.post(
+                "/v1/auth/signin", {"email": KNOWN_EMAIL, "password": WRONG})
+            self.assertEqual(status, 401, f"attempt {i+1} must be allowed: {body}")
+        status, body = self.harness.post(
+            "/v1/auth/signin", {"email": KNOWN_EMAIL, "password": WRONG})
+        self.assertEqual(status, 429, f"6th attempt must be refused: {body}")
+        self.assertEqual(body["error"]["code"], "rate_limited")
+
+    def test_throttled_known_equals_throttled_unknown(self):
+        """A throttled unknown email returns the BYTE-IDENTICAL response to a
+        throttled known email — the 429 cannot be used to enumerate accounts."""
+        self._signup_known()
+        # Exhaust the per-email window for the known email.
+        for _ in range(5):
+            self.harness.post("/v1/auth/signin",
+                              {"email": KNOWN_EMAIL, "password": WRONG})
+        known_status, known_body, known_headers = self.harness.post_full(
+            "/v1/auth/signin", {"email": KNOWN_EMAIL, "password": WRONG})
+        # Exhaust the per-email window for an unknown email (counted the same way).
+        for _ in range(5):
+            self.harness.post("/v1/auth/signin",
+                              {"email": UNKNOWN_EMAIL, "password": "irrelevant"})
+        unknown_status, unknown_body, unknown_headers = self.harness.post_full(
+            "/v1/auth/signin", {"email": UNKNOWN_EMAIL, "password": "irrelevant"})
+
+        self.assertEqual(known_status, 429)
+        self.assertEqual(unknown_status, 429)
+        self.assertEqual(known_body, unknown_body,
+                         "throttled-known and throttled-unknown bodies differ — oracle")
+        self.assertEqual(
+            known_headers.get("Retry-After"), unknown_headers.get("Retry-After"),
+            "Retry-After differs between throttled-known and throttled-unknown",
+        )
+        self.assertIsNotNone(known_headers.get("Retry-After"))
+
+    def test_limit_resets_after_window(self):
+        self._signup_known()
+        for _ in range(5):
+            self.harness.post("/v1/auth/signin",
+                              {"email": KNOWN_EMAIL, "password": WRONG})
+        status, _ = self.harness.post(
+            "/v1/auth/signin", {"email": KNOWN_EMAIL, "password": WRONG})
+        self.assertEqual(status, 429, "6th attempt must be refused")
+        time.sleep(2.4)
+        status, _ = self.harness.post(
+            "/v1/auth/signin", {"email": KNOWN_EMAIL, "password": WRONG})
+        self.assertEqual(status, 401,
+                         "after the window the limit must reset and allow attempts")
+
+    def test_normal_usage_unaffected(self):
+        """A person who mistypes once and retries still signs in fine."""
+        self._signup_known()
+        status, _ = self.harness.post(
+            "/v1/auth/signin", {"email": KNOWN_EMAIL, "password": "Oops-mistyped!"})
+        self.assertEqual(status, 401, "one mistype is an ordinary refusal")
+        status, body = self.harness.post(
+            "/v1/auth/signin", {"email": KNOWN_EMAIL, "password": PASSWORD})
+        self.assertEqual(status, 200, f"correct retry must succeed: {body}")
+        self.assertIn("session_token", body)
+
+
+class TestSignupRateLimit(AuthRateLimitTestBase):
+    """POST /v1/auth/signup — storage-exhaustion + repeated-address protection."""
+
+    def test_same_email_repeated_signup_limited(self):
+        for _ in range(5):
+            status, _ = self.harness.post(
+                "/v1/auth/signup", {"email": "spam@example.com", "password": PASSWORD})
+            self.assertIn(status, (201, 400))
+        status, body = self.harness.post(
+            "/v1/auth/signup", {"email": "spam@example.com", "password": PASSWORD})
+        self.assertEqual(status, 429, f"6th signup for the same email: {body}")
+        self.assertEqual(body["error"]["code"], "rate_limited")
+
+    def test_mass_signup_from_one_ip_limited(self):
+        for i in range(20):
+            status, body = self.harness.post(
+                "/v1/auth/signup",
+                {"email": f"bulk{i}@example.com", "password": PASSWORD})
+            self.assertEqual(status, 201, f"signup {i} failed: {body}")
+        status, body = self.harness.post(
+            "/v1/auth/signup", {"email": "bulk20@example.com", "password": PASSWORD})
+        self.assertEqual(status, 429,
+                         f"21st unique signup from one IP must be refused: {body}")
+
+    def test_normal_signup_unaffected(self):
+        status, body = self.harness.post(
+            "/v1/auth/signup", {"email": "normal@example.com", "password": PASSWORD})
+        self.assertEqual(status, 201, f"a normal signup must succeed: {body}")
+
+
+class TestAuthTimingRatio(unittest.TestCase):
+    """The signin limiter must not reintroduce a known-vs-unknown timing gap.
+
+    Uses DEFAULT limits so the per-email tier (20) and per-IP tier (40) leave
+    headroom for a statistically useful sample — the invariant is the same
+    scrypt work is done for known and unknown emails, so the ratio stays ~1.0x.
+    """
+
+    def _post(self, base, path, body):
+        data = json.dumps(body).encode("utf-8")
+        req = urllib.request.Request(base + path, data=data, method="POST")
+        req.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return resp.status, json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            try:
+                raw = exc.read()
+                return exc.code, json.loads(raw.decode("utf-8")) if raw else {}
+            finally:
+                exc.close()
+
+    def test_known_vs_unknown_ratio_below_3x(self):
+        harness = _ServiceHarness(auth_rate_limits=None)
+        try:
+            status, _ = harness.post("/v1/auth/signup",
+                                     {"email": KNOWN_EMAIL, "password": PASSWORD})
+            self.assertEqual(status, 201)
+
+            def _signin_ms(email, password):
+                t0 = time.perf_counter()
+                status, _ = harness.post("/v1/auth/signin",
+                                         {"email": email, "password": password})
+                self.assertEqual(status, 401)
+                return (time.perf_counter() - t0) * 1000.0
+
+            for _ in range(3):
+                _signin_ms(KNOWN_EMAIL, WRONG)
+                _signin_ms(UNKNOWN_EMAIL, "irrelevant")
+
+            unknown_times = []
+            wrong_pw_times = []
+            for _ in range(12):
+                wrong_pw_times.append(_signin_ms(KNOWN_EMAIL, WRONG))
+                unknown_times.append(_signin_ms(UNKNOWN_EMAIL, "irrelevant"))
+
+            med_unknown = statistics.median(unknown_times)
+            med_wrong = statistics.median(wrong_pw_times)
+            ratio = med_wrong / med_unknown if med_unknown > 0 else float("inf")
+            self.assertLess(
+                ratio, 3.0,
+                f"known-vs-unknown signin ratio {ratio:.2f}x "
+                f"({med_unknown:.2f}ms vs {med_wrong:.2f}ms) exceeds 3.0 — "
+                "the rate limiter reintroduced a timing oracle",
+            )
+        finally:
+            harness.close()
+
+
+if __name__ == "__main__":
+    unittest.main()

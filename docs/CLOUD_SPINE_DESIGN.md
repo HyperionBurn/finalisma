@@ -502,6 +502,15 @@ class RateResult:
 **v1 implementation:** `SqliteRateLimiter` uses `cloud_rate_windows` rows with windowed
 cleanup. **Wave I** swaps in a Redis-backed limiter without touching enforcement code.
 
+**Auth endpoints reuse this seam.** `enforce_auth_rate_limit` (rate_limit.py) maps the
+public signup / signin / reset-request actions onto the same `RateLimiter`, keyed on the
+client IP and the normalized email. The email tier is counted regardless of whether the
+account exists, so a throttled known and a throttled unknown address return a
+byte-identical 429 — the refusal cannot enumerate accounts — and the limiter runs before
+any existence-dependent branch, preserving the signin timing equalisation. Limits are
+per-instance overridable (`auth_rate_limits`) over the defaults in
+`DEFAULT_AUTH_RATE_LIMITS`.
+
 ### 5.4 Error codes
 
 | Code | Meaning |
