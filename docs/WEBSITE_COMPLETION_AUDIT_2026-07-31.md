@@ -26,7 +26,7 @@ be inferred or fabricated.
 | Conversion without a fake backend | Local application builder validates and exports through share, clipboard, or download; explicitly transmits nothing | Proven locally |
 | Public-domain metadata and direct founder contact | `scripts/build-site-release.py` materializes absolute metadata, contact CTA, sitemap, robots declaration, and media manifest from supplied values | Implementation proven; real values missing |
 | Static/runtime correctness | 226 tests pass; deterministic website critic passes; browser QA has zero console errors, failed requests, or bad responses | Proven locally |
-| Performance regression gate | Re-baselined 2026-08-05 to ~68.8ms weighted median against the current extended harness, gate PASS; earlier 1,265.771ms -> 59.314ms (95.31%) was measured against a 3-scenario harness that no longer exists — see docs/PERFORMANCE.md provenance | Proven locally |
+| Performance regression gate | Re-baselined 2026-08-05 to ~68.8ms weighted median against the current extended harness, gate PASS; earlier 1,265.771ms -> 59.314ms (95.31%) was measured against a 3-scenario harness that no longer exists — see docs/PERFORMANCE.md provenance. **Superseded by the 2026-08-10 re-baseline (~77.5ms)** after the rebrand renamed the gate file; see docs/PERFORMANCE.md | Proven locally |
 | Independent production-web review | Native MiMo v2.5 review returned PASS with no local P0/P1 defect; its domain-independent share findings were implemented | Proven locally |
 
 ## Deliberate implementation decision

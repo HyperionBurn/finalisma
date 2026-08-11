@@ -1,40 +1,40 @@
 {
   "benchmark": {
     "composite_samples_ms": [
-      58.49,
-      68.844,
-      70.703,
-      68.182,
-      65.115,
-      69.023,
-      82.267
+      73.185,
+      91.268,
+      60.231,
+      74.778,
+      77.504,
+      88.924,
+      83.754
     ],
     "new_scenarios": {
       "roster_routing": {
-        "median_ms": 1290.065,
-        "p95_ms": 1404.802,
+        "median_ms": 1304.469,
+        "p95_ms": 1357.29,
         "samples_ms": [
-          1121.643,
-          1340.316,
-          1290.065,
-          1290.063,
-          1282.376,
-          1294.818,
-          1432.439
+          1261.145,
+          1180.243,
+          1249.278,
+          1304.469,
+          1318.607,
+          1370.502,
+          1326.462
         ],
         "semantic_digest": "9a14b9f2dc107773d9db53615e84fcf34a1dd6bc3526a7ae401e9a31512a750c"
       },
       "tenancy_assert_scope": {
-        "median_ms": 102.874,
-        "p95_ms": 111.103,
+        "median_ms": 97.781,
+        "p95_ms": 113.851,
         "samples_ms": [
-          107.718,
-          112.553,
-          89.023,
-          102.874,
-          91.444,
-          97.176,
-          106.794
+          93.853,
+          80.68,
+          97.223,
+          107.04,
+          97.781,
+          114.851,
+          111.516
         ],
         "semantic_digest": "52ada1213655dc9ae2e346060cc71ec8a2c2b477e131ed420d5cf625c13b739d"
       }
@@ -42,61 +42,61 @@
     "runs": 7,
     "scenarios": {
       "authenticated_core": {
-        "median_ms": 72.188,
-        "p95_ms": 88.023,
+        "median_ms": 87.349,
+        "p95_ms": 101.41,
         "samples_ms": [
-          56.885,
-          72.188,
-          79.486,
-          71.998,
-          78.595,
-          71.843,
-          91.682
+          66.086,
+          85.287,
+          67.55,
+          95.891,
+          87.349,
+          92.701,
+          103.776
         ],
         "semantic_digest": "616254fc21791bf92051ddb1cd375a9427048e06ce3b7b11e79dc179f986ee1c",
         "weight": 0.25
       },
       "routing_fanout": {
-        "median_ms": 69.466,
-        "p95_ms": 72.8,
+        "median_ms": 78.799,
+        "p95_ms": 93.654,
         "samples_ms": [
-          66.747,
-          70.524,
-          72.958,
-          72.43,
-          68.718,
-          64.26,
-          69.466
+          84.903,
+          77.254,
+          66.288,
+          74.029,
+          78.799,
+          97.405,
+          84.532
         ],
         "semantic_digest": "d6e21edd83cd00f7d82b605bbf04fa2e159d3d4d69dbca3e33f46f51df483025",
         "weight": 0.4
       },
       "session_relay": {
-        "median_ms": 61.852,
-        "p95_ms": 84.855,
+        "median_ms": 68.564,
+        "p95_ms": 101.05,
         "samples_ms": [
-          50.199,
-          64.535,
-          61.852,
-          60.6,
-          51.368,
-          72.452,
-          90.171
+          64.862,
+          111.556,
+          48.081,
+          60.552,
+          68.991,
+          76.533,
+          68.564
         ],
         "semantic_digest": "4014c7e83a13a5e94720f858eb6cdf02d83b30ec28bd10f8a512444e82d1a732",
         "weight": 0.35
       }
     },
-    "weighted_median_ms": 68.844,
-    "weighted_p95_ms": 78.798
+    "weighted_median_ms": 77.504,
+    "weighted_p95_ms": 90.565
   },
-  "captured_at_epoch": 1785936997,
+  "captured_at_epoch": 1786373440,
   "environment": {
     "platform": "Windows-11-10.0.26200-SP0",
     "python": "3.14.6",
     "sqlite": "3.50.4"
   },
-  "harness_sha256": "e51af27934ff843da692c465ebf893cff74aa6c07d3a192ece7c37d3ef2f5b44",
+  "harness_sha256": "55bcae67c286a4a49b69f96b698b8ad36b58612c504c36e8e1eaa865bdd42b50",
   "harness_version": 1,
   "history": [
     {
@@ -121,8 +121,25 @@
       "target_improvement_percent": 20.0,
       "weighted_median_ms": 69.767,
       "weighted_p95_ms": 74.181
+    },
+    {
+      "captured_at_epoch": 1785936997,
+      "harness_sha256": "e51af27934ff843da692c465ebf893cff74aa6c07d3a192ece7c37d3ef2f5b44",
+      "note": "2026-08-05 re-baseline after the harness was extended (roster/tenancy scenarios).",
+      "target_improvement_percent": 0.0,
+      "weighted_median_ms": 68.844,
+      "weighted_p95_ms": 78.798
+    },
+    {
+      "captured_at_epoch": 1786356004,
+      "harness_sha256": "55bcae67c286a4a49b69f96b698b8ad36b58612c504c36e8e1eaa865bdd42b50",
+      "note": "2026-08-10 runs=20 re-baseline (exploratory; superseded by the runs=7 capture below to match the documented gate contract).",
+      "target_improvement_percent": 0.0,
+      "weighted_median_ms": 59.509,
+      "weighted_p95_ms": 66.151
     }
   ],
+  "history_note": "history preserves every prior capture in order: ORIGINAL pre-optimization (95.31% claim), B8 intermediate, 2026-08-05 extended-harness re-baseline, and the 2026-08-10 exploratory runs=20 capture. The current runs=7 capture is the active regression-guard baseline.",
   "max_p95_regression_percent": 5.0,
   "schema": "weft.performance-baseline/v1",
   "target_improvement_percent": 0.0

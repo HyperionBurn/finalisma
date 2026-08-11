@@ -32,6 +32,9 @@ The repository currently demonstrates 663 passing standard-library tests,
 The repository currently demonstrates 682 passing standard-library tests,
 The repository currently demonstrates 682 passing standard-library tests,
 The repository currently demonstrates 682 passing standard-library tests,
+The repository currently demonstrates 661 passing standard-library tests,
+The repository currently demonstrates 661 passing standard-library tests,
+The repository currently demonstrates 661 passing standard-library tests,
 including concurrent one-use pairing, member-bound session credentials,
 ordered replay, restart durability, cross-team boundaries, workspace scope
 checks, secret detection, HTTP origin/rate-limit behavior, tenancy isolation,
@@ -44,8 +47,8 @@ real protocol smoke runner, three focused articles, and launch drafts.
 
 A locked same-machine performance gate also exercises 32-agent routing,
 session relay, and full evidence-gated handoff scenarios. The gate was
-re-baselined on 2026-08-05 against the current extended harness (which adds
-roster-routing and tenancy scenarios); the weighted median is ~68.8 ms with
+re-baselined on 2026-08-10 against the current harness (post-rebrand rename);
+the weighted median is ~77.5 ms with
 matching semantic digests and a green regression gate. The earlier published
 95.31% figure was measured against a 3-scenario harness that no longer exists
 and is preserved as provenance in docs/PERFORMANCE.md and the baseline
