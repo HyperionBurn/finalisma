@@ -784,6 +784,71 @@ class VercelDeployMaterializesReleaseTests(unittest.TestCase):
             )
 
 
+class DeployproofReleaseContentTests(unittest.TestCase):
+    """Pins the SEO/release content fixes from the deployproof lane.
+
+    External audit (measured on the live marketing site): /sitemap.xml 404,
+    /release-manifest.json 404, no canonical, no og:url, and robots.txt was
+    only "Allow: /". The materializer produces all of these for the built
+    bundle; these tests pin the SOURCE content so a raw deploy is correct too:
+    a real robots.txt policy, canonical + og:url on every indexable page at
+    the documented marketing origin, and a committed sitemap.xml that lists
+    only pages that exist.
+    """
+
+    ORIGIN = "https://finalisma.vercel.app"
+    NOINDEX = {"404.html", "demo-stage.html"}
+
+    def test_source_robots_txt_is_a_real_policy(self) -> None:
+        robots = (SITE / "robots.txt").read_text(encoding="utf-8")
+        self.assertIn("User-agent: *", robots)
+        self.assertIn("Allow: /", robots)
+        self.assertIn(f"Sitemap: {self.ORIGIN}/sitemap.xml", robots)
+        self.assertNotEqual(
+            robots.strip().replace("\r", ""),
+            "User-agent: *\nAllow: /",
+            "robots.txt must be a real policy, not only Allow: /",
+        )
+
+    def test_indexable_source_pages_carry_canonical_and_og_url(self) -> None:
+        pages = sorted(
+            p for p in SITE.rglob("*.html") if p.relative_to(SITE).name not in self.NOINDEX
+        )
+        self.assertGreaterEqual(len(pages), 16)
+        for page in pages:
+            rel = page.relative_to(SITE).as_posix()
+            url = f"{self.ORIGIN}/" if rel == "index.html" else f"{self.ORIGIN}/{rel}"
+            text = page.read_text(encoding="utf-8")
+            with self.subTest(page=rel):
+                self.assertIn(f'<link rel="canonical" href="{url}">', text)
+                self.assertIn(f'<meta property="og:url" content="{url}">', text)
+
+    def test_committed_sitemap_lists_only_existing_pages(self) -> None:
+        sitemap = (SITE / "sitemap.xml").read_text(encoding="utf-8")
+        locs = re.findall(rf"<loc>({re.escape(self.ORIGIN)}/[^<]*)</loc>", sitemap)
+        self.assertGreaterEqual(len(locs), 16, "sitemap must list the indexable pages")
+        for loc in locs:
+            rel = loc.removeprefix(self.ORIGIN)
+            target = SITE / "index.html" if rel == "/" else SITE / rel.lstrip("/")
+            with self.subTest(loc=loc):
+                self.assertTrue(target.is_file(), f"sitemap URL points at a missing page: {loc}")
+
+    def test_materializer_robots_sitemap_line_is_single_and_origin_scoped(self) -> None:
+        temp_root = ROOT / ".tmp"
+        temp_root.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="weft-robots-idempotent-", dir=temp_root) as temporary:
+            output = Path(temporary) / "site"
+            _RELEASE_MODULE.build_release(
+                origin="https://weft.test",
+                contact_url="mailto:founder@example.invalid",
+                output=output,
+            )
+            robots = (output / "robots.txt").read_text(encoding="utf-8")
+            sitemap_lines = [ln for ln in robots.splitlines() if ln.strip().startswith("Sitemap:")]
+            self.assertEqual(len(sitemap_lines), 1, f"exactly one Sitemap line, got {sitemap_lines}")
+            self.assertEqual(sitemap_lines[0].strip(), "Sitemap: https://weft.test/sitemap.xml")
+
+
 class TestCountSyncTests(unittest.TestCase):
     """Single source of truth for the published test count.
 
