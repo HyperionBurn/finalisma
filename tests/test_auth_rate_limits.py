@@ -85,6 +85,21 @@ class _ServiceHarness:
         status, parsed, _ = self.post_full(path, body)
         return status, parsed
 
+    def post_raw(self, path: str, body: dict) -> tuple[int, bytes, dict]:
+        """POST returning the RAW response bytes — the strongest form of a
+        "full body" equality assertion (byte-identical, not just dict-equal)."""
+        data = json.dumps(body).encode("utf-8")
+        req = urllib.request.Request(self.base + path, data=data, method="POST")
+        req.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return resp.status, resp.read(), dict(resp.headers)
+        except urllib.error.HTTPError as exc:
+            try:
+                return exc.code, exc.read(), dict(exc.headers)
+            finally:
+                exc.close()
+
     def close(self):
         try:
             self._httpd.shutdown()
@@ -175,6 +190,60 @@ class TestSigninRateLimit(AuthRateLimitTestBase):
             "/v1/auth/signin", {"email": KNOWN_EMAIL, "password": PASSWORD})
         self.assertEqual(status, 200, f"correct retry must succeed: {body}")
         self.assertIn("session_token", body)
+
+    def test_known_and_unknown_signin_identical_full_body_every_attempt(self):
+        """The assertion the message-leak oracle slipped past: FULL bodies
+        (status AND raw bytes) must be equal for a known and an unknown email
+        at the SAME point in the attempt sequence.
+
+        The signin leak survived for weeks because every check compared STATUS
+        CODES, and the statuses were identical (401 vs 401, 429 vs 429). The
+        leak lived in the message text. This test compares the two responses
+        TO EACH OTHER — status AND body bytes — at every attempt-pair, for an
+        equal number of prior attempts for each, across the whole sequence so
+        the comparison holds on BOTH tiers: before the rate limiter engages
+        (401) and after it has engaged (429).
+
+        The email tier is set to 5 so the limiter provably engages partway
+        through the 25 pairs; the IP tier is set high so the email tier is the
+        one that trips (deterministic). A high per-IP cap keeps the per-email
+        keys independent of the shared-IP counter.
+        """
+        harness = _ServiceHarness(auth_rate_limits={
+            "signup": {"ip": 20, "email": 5, "window_seconds": 900},
+            "signin": {"ip": 200, "email": 5, "window_seconds": 2},
+            "reset_request": {"ip": 10, "email": 3, "window_seconds": 2},
+        })
+        try:
+            status, body = harness.post(
+                "/v1/auth/signup", {"email": KNOWN_EMAIL, "password": PASSWORD})
+            self.assertEqual(status, 201, f"signup failed: {body}")
+
+            pairs = 25
+            seen_statuses: set[int] = set()
+            for i in range(pairs):
+                known_status, known_raw, _ = harness.post_raw(
+                    "/v1/auth/signin", {"email": KNOWN_EMAIL, "password": WRONG})
+                unknown_status, unknown_raw, _ = harness.post_raw(
+                    "/v1/auth/signin", {"email": UNKNOWN_EMAIL, "password": "irrelevant"})
+                self.assertEqual(
+                    known_status, unknown_status,
+                    f"attempt pair {i + 1}: statuses differ "
+                    f"({known_status} vs {unknown_status}) — oracle",
+                )
+                self.assertEqual(
+                    known_raw, unknown_raw,
+                    f"attempt pair {i + 1}: bodies differ — oracle "
+                    f"(known={known_raw!r} unknown={unknown_raw!r})",
+                )
+                seen_statuses.add(known_status)
+            # Prove BOTH tiers were exercised, not just one.
+            self.assertIn(401, seen_statuses,
+                          "sequence never exercised the pre-limit (401) tier")
+            self.assertIn(429, seen_statuses,
+                          "rate limiter never engaged during the 25 pairs")
+        finally:
+            harness.close()
 
 
 class TestSignupRateLimit(AuthRateLimitTestBase):

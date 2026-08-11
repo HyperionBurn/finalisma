@@ -253,10 +253,20 @@ class WeftCloudService:
             # Timing parity: an unknown email must cost the same scrypt work
             # as a wrong password on a known email, or signin becomes a
             # user-enumeration timing oracle. Run the dummy computation, then
-            # refuse with the identical response.
+            # refuse with the IDENTICAL response.
+            #
+            # The refusal MUST be an AuthError("invalid_credentials") — the
+            # exact exception the wrong-password path raises one branch down —
+            # so both travel through the same _handle() handler and produce
+            # byte-identical bodies. A _ServiceError here rendered a different
+            # message string ("Invalid email or password") than the AuthError
+            # path ("invalid_credentials"): statuses matched, so every
+            # status-only test passed, while the body text let anyone
+            # enumerate registered email addresses. A caller still gets a
+            # usable error; the code and message are simply identical for a
+            # known and an unknown account at the same point in the sequence.
             self.accounts.burn_scrypt_cost(password)
-            raise _ServiceError("invalid_credentials", "Invalid email or password",
-                                HTTPStatus.UNAUTHORIZED)
+            raise AuthError("invalid_credentials")
         tenant_id = row["tenant_id"]
         account_id = self.accounts.authenticate(self.backend, tenant_id, email, password)
         session_id, session_token = self.sessions.create(
