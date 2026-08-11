@@ -574,11 +574,18 @@ MIGRATIONS: list[Migration] = [
         _ROOM_MESSAGE_KIND_SQL,
         already_applied=_has_room_message_kind,
     ),
+    # Two parallel branches each authored a migration numbered cloud_010: the
+    # membership-identity recovery and the hosted-outbox lifecycle. They are
+    # separate migrations and both are required, so the outbox one is renumbered
+    # to cloud_011. Migration ids are the ledger's primary key — two rows sharing
+    # an id would make "has this run?" unanswerable.
     Migration(
         "cloud_010_room_membership_account",
         "bind room membership to the authenticated account (recoverable from session table)",
         up_fn=_recover_room_membership_identity,
-        "cloud_010_cloud_outbox_lifecycle",
+    ),
+    Migration(
+        "cloud_011_cloud_outbox_lifecycle",
         "hosted delivery outbox completion lifecycle (lease/retry/delivered/dead)",
         statements=_CLOUD_OUTBOX_LIFECYCLE_STATEMENTS,
     ),

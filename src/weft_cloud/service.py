@@ -704,8 +704,6 @@ class WeftCloudService:
         tenant_id = self._room_tenant(room_id, ctx.account_id)
         result = self.rooms.room_send(
             tenant_id, room_id, ctx.account_id, target_spec, payload, exclude_sender,
-            message_kind=message_kind,
-            tenant_id, room_id, sender_agent_id, target_spec, payload, exclude_sender,
             message_kind=message_kind, idempotency_key=idempotency_key,
         )
         return _json_response(HTTPStatus.OK, result)
