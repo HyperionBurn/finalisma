@@ -1,8 +1,11 @@
 """Build a deployment-ready Weft site from the truthful local source.
 
-The source bundle deliberately contains no invented public origin or founder
-address. This command accepts those two deployment-owned values and writes an
-isolated release bundle under artifacts/ by default.
+The source bundle carries the documented marketing origin (canonical/OG URLs,
+robots Sitemap line, committed sitemap.xml) but no invented placeholder domain
+or founder address. This command accepts the deployment-owned origin and
+contact values, rewrites the canonical/OG URLs and robots Sitemap line to the
+deployment origin, and writes an isolated release bundle under artifacts/ by
+default.
 """
 
 from __future__ import annotations
