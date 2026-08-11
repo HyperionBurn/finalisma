@@ -56,6 +56,7 @@ from weft_cloud.quotas import QuotaError
 from weft_cloud.rate_limit import RateLimitedError
 from weft_cloud.rooms import CloudRoomService, RoomError, public_origin
 from weft_cloud.storage import SqliteWalBackend, StorageBackend
+from weft_cloud.web.security_headers import security_headers
 
 # Secrets are never logged. Tokens are hashed at rest, never stored raw.
 # The service never echoes a raw token or password in any response or error.
@@ -473,7 +474,7 @@ class WeftCloudService:
                 handler.send_header("Content-Type", "text/html; charset=utf-8")
                 handler.send_header("Content-Length", str(len(body)))
                 handler.send_header("Cache-Control", "no-store")
-                handler.send_header("X-Content-Type-Options", "nosniff")
+                handler._send_security_headers(html=True)
                 handler.end_headers()
                 handler.wfile.write(body)
             return
@@ -508,7 +509,7 @@ class WeftCloudService:
             handler.send_header("Content-Type", "application/json")
             handler.send_header("Content-Length", str(len(body)))
             handler.send_header("Cache-Control", "no-store")
-            handler.send_header("X-Content-Type-Options", "nosniff")
+            handler._send_security_headers()
             handler.end_headers()
             handler.wfile.write(body)
             return
@@ -525,7 +526,7 @@ class WeftCloudService:
         handler.send_header("Content-Type", "text/html; charset=utf-8")
         handler.send_header("Content-Length", str(len(body)))
         handler.send_header("Cache-Control", "no-store")
-        handler.send_header("X-Content-Type-Options", "nosniff")
+        handler._send_security_headers(html=True)
         handler.end_headers()
         handler.wfile.write(body)
 
@@ -571,7 +572,7 @@ class WeftCloudService:
         handler.send_header("Content-Type", "application/json")
         handler.send_header("Content-Length", str(len(body)))
         handler.send_header("Cache-Control", "public, max-age=3600")
-        handler.send_header("X-Content-Type-Options", "nosniff")
+        handler._send_security_headers()
         handler.end_headers()
         handler.wfile.write(body)
 
@@ -821,13 +822,23 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
         # Never log request bodies or tokens.
         return
 
+    def _send_security_headers(self, *, html: bool = False) -> None:
+        """Emit the shared security header block (web/security_headers.py).
+
+        ``html=True`` also sends the Content-Security-Policy; CSP is scoped to
+        HTML responses on purpose. JSON/SSE responses get the always-on set
+        (HSTS, nosniff, Referrer-Policy, X-Frame-Options, Permissions-Policy).
+        """
+        for name, value in security_headers(html=html):
+            self.send_header(name, value)
+
     def _send_json(self, status: int, payload: dict[str, Any]) -> None:
         body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
+        self._send_security_headers()
         self.end_headers()
         self.wfile.write(body)
 
@@ -875,6 +886,7 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
         if response is None:
             self.send_response(HTTPStatus.ACCEPTED)
             self.send_header("Content-Length", "0")
+            self._send_security_headers()
             self.end_headers()
             return
         self._send_json(HTTPStatus.OK, response)
@@ -886,7 +898,7 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Content-Type-Options", "nosniff")
+            self._send_security_headers()
             self.end_headers()
             self.wfile.write(body)
         except _ServiceError as exc:
@@ -915,7 +927,7 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Retry-After", retry_after)
             self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Content-Type-Options", "nosniff")
+            self._send_security_headers()
             self.end_headers()
             self.wfile.write(body.encode("utf-8"))
         except AuthError as exc:
