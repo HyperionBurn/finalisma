@@ -46,6 +46,7 @@ from weft_cloud.identity.accounts import burn_scrypt_cost as _identity_burn_scry
 from weft_cloud.identity.schema import ensure_schema as _ensure_identity_schema
 from weft_cloud.identity.tokens import hash_token as _hash_token
 from weft_cloud.quotas import QuotaError
+from weft_cloud.rate_limit import RateLimitedError, enforce_auth_rate_limit
 from weft_cloud.rooms import CloudRoomService, RoomError, _parse_json
 from weft_cloud.storage import StorageBackend
 from weft_cloud.web.copy import connect_page_body
@@ -115,10 +116,12 @@ class WeftWebApp:
     """Browser front-end over the cloud identity + room planes."""
 
     def __init__(self, backend: StorageBackend, static_dir: str = "", state_dir: str = "",
-                 *, smtp_configured: bool | None = None) -> None:
+                 *, smtp_configured: bool | None = None,
+                 auth_rate_limits: dict | None = None) -> None:
         self.backend = backend
         self.static_dir = static_dir
         self.state_dir = state_dir
+        self.auth_rate_limits = auth_rate_limits
         # "Email can actually be delivered" is a deployment property read from
         # the same environment the outbox worker uses. When unset we derive it
         # here so the web app self-corrects as soon as SMTP credentials land;
@@ -494,6 +497,11 @@ class WeftWebApp:
                                   '<p>Invalid email or password too short.</p>'
                                   '<p><a href="/signup">Try again</a></p>'))
             return
+        # Public endpoint: each signup mints a tenant + writes rows, so the
+        # shared auth limiter runs BEFORE any account work. Keyed on the client
+        # IP and the requested email; the refusal is identical for any email.
+        enforce_auth_rate_limit(self.backend, handler, "signup", email=email,
+                                limits=self.auth_rate_limits)
         # Check for duplicate email across all tenants BEFORE creating one.
         if self._email_exists(email):
             self._send_html(handler, HTTPStatus.BAD_REQUEST,
@@ -585,6 +593,11 @@ class WeftWebApp:
         form = self._read_form(handler)
         email = (form.get("email") or "").strip()
         password = form.get("password") or ""
+        # Enforce the shared auth limiter BEFORE the tenant lookup, keyed on
+        # the client IP and the email (counted whether or not the account
+        # exists), so throttling cannot reveal whether an email is registered.
+        enforce_auth_rate_limit(self.backend, handler, "signin", email=email,
+                                limits=self.auth_rate_limits)
         tenant_id = self._tenant_for_email(email)
         if tenant_id is None:
             # Timing parity: an unknown email must cost the same scrypt work as
@@ -689,6 +702,12 @@ class WeftWebApp:
         form = self._read_form(handler)
         email = (form.get("email") or "").strip()
         if email:
+            # Public endpoint and a mail-bomb vector now that real delivery is
+            # live: the shared auth limiter runs on the email REGARDLESS of
+            # whether the account exists, so a throttled unknown address gets
+            # the identical 429 as a throttled known one (no existence oracle).
+            enforce_auth_rate_limit(self.backend, handler, "reset_request",
+                                    email=email, limits=self.auth_rate_limits)
             tenant_id = self._tenant_for_email(email)
             if tenant_id:
                 _identity_reset_request(self.backend, tenant_id, email)
@@ -1342,6 +1361,32 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
                 self._dispatch()
             except _WebError:
                 pass
+            except RateLimitedError as exc:
+                # A static, identical page for every throttled request (the
+                # limiter runs before any existence-dependent branch, so this
+                # body can never vary between a known and an unknown email).
+                try:
+                    retry_after = str(int(max(1.0, exc.retry_after or 1.0)))
+                    body = (
+                        b'<!DOCTYPE html>'
+                        b'<html lang="en"><head><meta charset="utf-8">'
+                        b'<meta name="viewport" content="width=device-width,initial-scale=1">'
+                        b'<title>Too many requests</title></head>'
+                        b'<body><h1>Too many requests</h1>'
+                        b'<p>Slow down and try again shortly.</p>'
+                        b'<p><a href="/login">Back to log in</a></p>'
+                        b'</body></html>'
+                    )
+                    self.send_response(HTTPStatus.TOO_MANY_REQUESTS)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.send_header("Retry-After", retry_after)
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("X-Content-Type-Options", "nosniff")
+                    self.end_headers()
+                    self.wfile.write(body)
+                except Exception:
+                    pass
             except Exception:
                 try:
                     self.send_response(HTTPStatus.INTERNAL_SERVER_ERROR)

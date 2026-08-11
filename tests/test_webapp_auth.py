@@ -34,7 +34,7 @@ class WebAppDriver:
     ("127.0.0.1", 0) with finally teardown.
     """
 
-    def __init__(self, smtp_configured: bool | None = None):
+    def __init__(self, smtp_configured: bool | None = None, auth_rate_limits=None):
         import http.server
 
         self._tmp = tempfile.TemporaryDirectory()
@@ -46,6 +46,7 @@ class WebAppDriver:
             static_dir=SITE_DIR,
             state_dir=str(Path(self._tmp.name) / "state"),
             smtp_configured=smtp_configured,
+            auth_rate_limits=auth_rate_limits,
         )
         self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), self.app.handler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -607,6 +608,77 @@ class TestEmailMessaging(unittest.TestCase):
                 self.assertNotIn("/reset?token=", surface)
         finally:
             driver.close()
+
+
+class TestResetRequestRateLimits(unittest.TestCase):
+    """POST /reset-request — mail-bomb protection via the shared rate_limit.py.
+
+    The limit is keyed on the email REGARDLESS of whether the account exists,
+    so a throttled unknown address returns the identical 429 as a throttled
+    known address — the refusal is not an existence oracle (mirroring the
+    existing always-redirects enumeration invariant, which survives: under the
+    limit both known and unknown addresses still 303 to reset_sent).
+    """
+
+    _LIMITS = {"reset_request": {"ip": 10, "email": 3, "window_seconds": 2}}
+
+    def setUp(self):
+        self.driver = WebAppDriver(auth_rate_limits=self._LIMITS)
+
+    def tearDown(self):
+        self.driver.close()
+
+    def _post(self, email: str):
+        return self.driver.post("/reset-request", {"email": email})
+
+    def test_limit_triggers_after_n_requests(self):
+        for _ in range(3):
+            status, _, headers = self._post("target@example.com")
+            self.assertEqual(status, 303, "first 3 requests must be allowed")
+            self.assertTrue(headers["Location"].startswith("/login?reset_sent=1"))
+        status, _, headers = self._post("target@example.com")
+        self.assertEqual(status, 429, "4th request to the same address must be refused")
+        self.assertEqual(headers.get("Retry-After"), "2")
+
+    def test_throttled_known_equals_throttled_unknown(self):
+        # A known address (registered) and a ghost address must be refused
+        # with an IDENTICAL 429 so throttling cannot enumerate accounts.
+        self.driver.backend.create_tenant("t-reset", "known@example.com", "free")
+        from weft_cloud.identity.accounts import _create_account
+        _create_account(
+            self.driver.backend, "t-reset", "known@example.com", "CorrectHorse!1",
+            email_verified=1,
+        )
+        for _ in range(3):
+            self._post("known@example.com")
+        known = self._post("known@example.com")
+        for _ in range(3):
+            self._post("ghost@example.org")
+        ghost = self._post("ghost@example.org")
+
+        self.assertEqual(known[0], 429)
+        self.assertEqual(ghost[0], 429)
+        self.assertEqual(known[1], ghost[1],
+                         "throttled-known and throttled-unknown bodies differ — oracle")
+        self.assertEqual(known[2].get("Retry-After"), ghost[2].get("Retry-After"))
+
+    def test_limit_resets_after_window(self):
+        for _ in range(3):
+            self._post("reset-me@example.com")
+        status, _, _ = self._post("reset-me@example.com")
+        self.assertEqual(status, 429)
+        time.sleep(2.4)
+        status, _, headers = self._post("reset-me@example.com")
+        self.assertEqual(status, 303,
+                         "after the window the limit must reset and allow again")
+        self.assertTrue(headers["Location"].startswith("/login?reset_sent=1"))
+
+    def test_normal_usage_unaffected(self):
+        # A person asking for a reset once, then again after a mistake, works.
+        status, _, _ = self._post("person@example.com")
+        self.assertEqual(status, 303)
+        status, _, _ = self._post("person@example.com")
+        self.assertEqual(status, 303)
 
 
 class TestNoSecretsInHtml(unittest.TestCase):
