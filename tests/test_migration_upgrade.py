@@ -707,7 +707,7 @@ class ProductionShapedUpgradeTests(unittest.TestCase):
 
         The pre-cloud_008 production shape is brought fully up to date — all six
         delivery columns, message_kind, and the cloud_outbox lifecycle columns
-        added, all ten migrations recorded — without losing a single
+        added, all eleven migrations recorded — without losing a single
         pre-existing row.
         """
         from weft_cloud.identity.schema import ensure_schema
@@ -738,7 +738,7 @@ class ProductionShapedUpgradeTests(unittest.TestCase):
             n = conn.execute(
                 "SELECT COUNT(*) AS c FROM schema_migrations"
             ).fetchone()["c"]
-            self.assertEqual(n, 10, "all ten cloud migrations must be recorded")
+            self.assertEqual(n, 11, "all eleven cloud migrations must be recorded")
         finally:
             conn.close()
 
@@ -758,7 +758,7 @@ class ProductionShapedUpgradeTests(unittest.TestCase):
             n = conn.execute(
                 "SELECT COUNT(*) AS c FROM schema_migrations"
             ).fetchone()["c"]
-            self.assertEqual(n, 10, "no duplicate schema_migrations rows on rerun")
+            self.assertEqual(n, 11, "no duplicate schema_migrations rows on rerun")
         finally:
             conn.close()
 
