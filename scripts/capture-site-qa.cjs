@@ -309,16 +309,47 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
   await desktop.waitForTimeout(200);
   const tierCopied = await desktop.evaluate(() => window.__weftCopied || "");
 
-  // Cohort form copy builder.
+  // Cohort brief builder (no form element — see Pricing.astro; the widget is
+  // inert without JS so the button is a plain type="button").
   const form = desktop.locator("[data-cohort-form]");
   await form.locator('[name="team"]').fill("Ledger Labs · 24 people");
   await form.locator('[name="contact"]').fill("operator@example.com");
   await form.locator('[name="hosts"]').fill("OpenCode + Claude Code");
   await form.locator('[name="scenario"]').fill("Retry timeout reproduction in a disposable incident mirror.");
-  await form.locator('button[type="submit"]').click();
+  await form.locator('[data-cohort-build]').click();
   await desktop.waitForTimeout(200);
   const cohortStatus = await form.locator("[data-cohort-status]").textContent();
   const cohortClipboard = await desktop.evaluate(() => window.__weftCopied || "");
+
+  // No-JS leak gate: the cohort widget must be inert with scripting disabled.
+  // Filling the fields and clicking the build trigger must NOT change
+  // location.search and must NOT navigate. (Regression gate for the external
+  // audit finding that a bare <form> GET-submitted typed data into the URL.)
+  const noJsCohort = await (async () => {
+    const ctx = await browser.newContext({ javaScriptEnabled: false });
+    const noJsPage = await ctx.newPage();
+    try {
+      await noJsPage.goto(siteUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+      const beforeUrl = noJsPage.url();
+      const noJsWidget = noJsPage.locator("[data-cohort-form]");
+      await noJsWidget.locator('[name="team"]').fill("Ledger Labs");
+      await noJsWidget.locator('[name="contact"]').fill("operator@example.com");
+      await noJsWidget.locator('[name="hosts"]').fill("OpenCode");
+      await noJsWidget.locator('[name="scenario"]').fill("Handoff coordination");
+      const trigger = noJsWidget.locator('[data-cohort-build], button[type="submit"]').first();
+      await trigger.click();
+      await noJsPage.waitForTimeout(500);
+      const afterUrl = noJsPage.url();
+      const search = new URL(afterUrl).search;
+      return {
+        locationSearch: search,
+        navigated: afterUrl !== beforeUrl,
+        leakFree: search === "" && afterUrl === beforeUrl,
+      };
+    } finally {
+      await ctx.close();
+    }
+  })();
 
   const supportingPageChecks = {};
   for (const [name, route, destination, requiredText] of [
@@ -464,6 +495,7 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
       tierCopied,
       cohortStatus,
       cohortApplicationPrepared: cohortClipboard.includes("WEFT"),
+      noJsCohort,
       gateTriggered: gateAfterTrigger,
       gateStateText,
       mobileResults,
@@ -523,6 +555,7 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
     || tierSwitched.selectedTab !== "true"
     || !tierCopied.includes("mcp")
     || !cohortClipboard.includes("WEFT")
+    || !noJsCohort.leakFree
     || !Object.values(supportingPageChecks).every((checks) => Object.values(checks).every(Boolean))
     || !demoPageChecks.oneH1
     || !demoPageChecks.boundaryVisible
