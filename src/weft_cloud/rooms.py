@@ -112,6 +112,33 @@ def _validate_message_kind(value: Any, field: str = "message_kind") -> str | Non
     return value
 
 
+# Idempotency keys are validated at the request boundary, BEFORE they are used
+# as a database key anywhere. Max 256 characters: room for namespaced keys
+# (e.g. ``dispatch:<task_id>``) and a full UUID, while bounding the stored
+# bytes per row; a non-string (list/dict/int/bool/float) previously crashed
+# the SQLite bind (500) or was silently type-confused into an int key.
+_IDEMPOTENCY_KEY_MAX_LEN = 256
+
+
+def _validate_idempotency_key(value: Any) -> str | None:
+    """Validate a caller-supplied ``idempotency_key`` (optional, bounded string).
+
+    ``None`` keeps the current "no idempotency" behaviour. Otherwise the key
+    must be a non-empty STRING of at most ``_IDEMPOTENCY_KEY_MAX_LEN``
+    characters. The error message is static and NEVER echoes the caller's
+    value (a 64KB key must not be reflected into the error body or logs).
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip() or len(value) > _IDEMPOTENCY_KEY_MAX_LEN:
+        raise RoomError(
+            "invalid_argument",
+            f"idempotency_key must be a non-empty string of at most "
+            f"{_IDEMPOTENCY_KEY_MAX_LEN} characters",
+        )
+    return value
+
+
 def _validate_message_kinds(value: Any) -> list[str] | None:
     """Validate the optional ``message_kinds`` poll filter.
 
@@ -1156,6 +1183,10 @@ class CloudRoomService:
         transaction. A crash between the two leaves nothing — never a visible
         event with partial or zero receipts.
         """
+        # The idempotency_key is validated at the request boundary BEFORE it is
+        # used as a key in any query or insert, so a malformed value is the
+        # caller's 400 invalid_argument — never a 500.
+        idempotency_key = _validate_idempotency_key(idempotency_key)
         # Verify the sender is an active member BEFORE the rate gate, so a
         # non-member cannot consume the room's per-minute message budget.
         message_kind = _validate_message_kind(message_kind)

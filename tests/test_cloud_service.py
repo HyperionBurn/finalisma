@@ -1371,5 +1371,110 @@ class TestRoomSendAtomicityAndIdempotency(CloudServiceTestBase):
         self.assertEqual(len(events), 2)
 
 
+class TestRoomSendIdempotencyKeyValidation(CloudServiceTestBase):
+    """The idempotency_key field is validated at the request boundary.
+
+    A malformed idempotency_key must be the caller's error (400
+    ``invalid_argument``) — NEVER a 500. Reproduced on production: a list or
+    dict key crashed the handler with an unhashable/unsupported bind type
+    (``TypeError`` / sqlite ``ProgrammingError``) that surfaced as 500, an
+    integer or bool was silently accepted (type confusion), and an unbounded
+    string was stored (storage vector). The key must be a non-empty STRING of
+    bounded length, and a null/absent key keeps the current "no idempotency"
+    behaviour.
+    """
+
+    MAX_LEN = 256
+
+    def _reject(self, key: Any) -> tuple[int, dict]:
+        counter = getattr(self, "_key_counter", 0)
+        self._key_counter = counter + 1
+        acct = self._signup(f"idemval-{counter}@example.com", "CorrectHorse!1")
+        room = self._create_room(acct["session_token"], cap=4)
+        status, body = _post(self.base, "/v1/rooms/send", {
+            "room_id": room["room_id"],
+            "target_spec": "*",
+            "payload": {"text": "x"},
+            "idempotency_key": key,
+        }, acct["session_token"])
+        return status, body
+
+    def _assert_rejected_400(self, key: Any) -> None:
+        status, body = self._reject(key)
+        self.assertEqual(status, 400, f"expected 400 for key {key!r}, got {status}: {body}")
+        self.assertEqual(body["error"]["code"], "invalid_argument",
+                         f"expected invalid_argument for key {key!r}: {body}")
+        self.assertNotEqual(body["error"]["code"], "internal_error",
+                            f"key {key!r} must never be a 500: {body}")
+
+    def test_non_string_types_are_rejected_never_500(self) -> None:
+        # Each of list/dict/int/bool/float previously either 500'd (list, dict)
+        # or was silently accepted with type confusion (int, bool).
+        for key in (["a", "b"], {"k": "v"}, 12345, True, 1.5):
+            self._assert_rejected_400(key)
+
+    def test_empty_and_whitespace_only_strings_are_rejected(self) -> None:
+        for key in ("", "   ", "\t\n"):
+            self._assert_rejected_400(key)
+
+    def test_over_length_key_is_rejected_but_boundary_is_accepted(self) -> None:
+        self._assert_rejected_400("k" * (self.MAX_LEN + 1))
+        # A key exactly at the limit is still valid.
+        status, body = self._reject("k" * self.MAX_LEN)
+        self.assertEqual(status, 200, f"max-length key must be accepted: {body}")
+
+    def test_absent_or_null_key_keeps_no_idempotency_behaviour(self) -> None:
+        room = self._create_room(self._signup("idemval-absent@example.com", "CorrectHorse!1")["session_token"], cap=4)
+        token = self._signin("idemval-absent@example.com", "CorrectHorse!1")["session_token"]
+        seqs = []
+        for body in ({"room_id": room["room_id"], "target_spec": "*", "payload": {"text": "a"}},
+                     {"room_id": room["room_id"], "target_spec": "*", "payload": {"text": "b"},
+                      "idempotency_key": None}):
+            status, resp = _post(self.base, "/v1/rooms/send", body, token)
+            self.assertEqual(status, 200, resp)
+            seqs.append(resp["seq"])
+        # No dedup: each send appended its own event.
+        self.assertEqual(len(set(seqs)), 2, f"absent/null keys must not dedupe: {seqs}")
+
+    def test_valid_key_reused_returns_same_seq_and_no_duplicate_event(self) -> None:
+        acct = self._signup("idemval-reuse@example.com", "CorrectHorse!1")
+        room = self._create_room(acct["session_token"], cap=4)
+        token = acct["session_token"]
+        tenant_id = acct["tenant_id"]
+        status, first = _post(self.base, "/v1/rooms/send", {
+            "room_id": room["room_id"], "target_spec": "*", "payload": {"text": "once"},
+            "idempotency_key": "abc-123",
+        }, token)
+        self.assertEqual(status, 200, first)
+        status, second = _post(self.base, "/v1/rooms/send", {
+            "room_id": room["room_id"], "target_spec": "*", "payload": {"text": "once"},
+            "idempotency_key": "abc-123",
+        }, token)
+        self.assertEqual(status, 200, second)
+        self.assertEqual(second["seq"], first["seq"],
+                         "same key must return the SAME seq (retry-dedup must not regress)")
+        with self.service.backend.transaction() as tx:
+            rows = tx.execute(
+                "SELECT COUNT(*) AS n FROM cloud_room_event_log "
+                "WHERE tenant_id = ? AND room_id = ? AND kind = 'room.message'",
+                (tenant_id, room["room_id"]),
+            ).fetchone()
+        self.assertEqual(rows["n"], 1, "same key twice must not create a duplicate event")
+
+    def test_uuid_and_idem_prefix_keys_still_pass(self) -> None:
+        import uuid
+        for key in (str(uuid.uuid4()), f"idem_{uuid.uuid4().hex}"):
+            status, body = self._reject(key)
+            self.assertEqual(status, 200, f"valid key {key[:20]}... rejected: {body}")
+
+    def test_error_never_echoes_the_raw_key_value(self) -> None:
+        secret_key = "k" * 300  # over-length
+        status, body = self._reject(secret_key)
+        self.assertEqual(status, 400, body)
+        rendered = json.dumps(body)
+        self.assertNotIn(secret_key, rendered,
+                         "the raw idempotency_key must not be echoed into the error body")
+
+
 if __name__ == "__main__":
     unittest.main()

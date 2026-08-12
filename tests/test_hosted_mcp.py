@@ -525,6 +525,93 @@ class HostedMCPRoomFlowTests(HostedMCPTestBase):
         self.assertEqual(by_id[b["account_id"]]["status"], "active")
 
 
+class HostedMCPIdempotencyTests(HostedMCPTestBase):
+    """``room_send`` idempotency_key validation — identical to the REST surface.
+
+    The hosted MCP ``room_send`` tool and REST ``/v1/rooms/send`` share the
+    same ``CloudRoomService.room_send`` implementation, so a malformed
+    idempotency_key must refuse with the SAME ``invalid_argument`` error here
+    as it does over REST — never a server error. A list or dict key used to
+    crash the handler (500) on production; int/bool were silently accepted.
+    """
+
+    MAX_LEN = 256
+
+    def _owner_room(self, prefix: str) -> tuple[dict, dict]:
+        acct = self._signup(f"{prefix}@example.com")
+        room = self._assert_ok(acct["session_token"], "room_create", {"cap": 4}, request_id=1)
+        return acct, room
+
+    def _assert_room_send_invalid_argument(self, token: str, room_id: str, key: Any,
+                                           request_id: int) -> None:
+        resp = self._mcp_call(token, "room_send", {
+            "room_id": room_id,
+            "target_spec": "*",
+            "payload": {"text": "x"},
+            "idempotency_key": key,
+        }, request_id=request_id)
+        self.assertTrue(resp["isError"], f"key {key!r} unexpectedly accepted: {resp}")
+        self.assertEqual(resp["error"].get("code"), "invalid_argument",
+                         f"key {key!r} must be invalid_argument, got: {resp}")
+        self.assertNotEqual(resp["error"].get("code"), "internal_error",
+                            f"key {key!r} must never surface as a server error: {resp}")
+
+    def test_non_string_types_are_invalid_argument_not_server_error(self) -> None:
+        acct, room = self._owner_room("mcp-idemval-types")
+        for i, key in enumerate((["a", "b"], {"k": "v"}, 12345, True, 1.5)):
+            self._assert_room_send_invalid_argument(acct["session_token"], room["room_id"], key,
+                                                    request_id=10 + i)
+
+    def test_empty_and_whitespace_only_strings_are_rejected(self) -> None:
+        acct, room = self._owner_room("mcp-idemval-blank")
+        for i, key in enumerate(("", "   ", "\t\n")):
+            self._assert_room_send_invalid_argument(acct["session_token"], room["room_id"], key,
+                                                    request_id=20 + i)
+
+    def test_over_length_key_is_rejected(self) -> None:
+        acct, room = self._owner_room("mcp-idemval-len")
+        self._assert_room_send_invalid_argument(acct["session_token"], room["room_id"],
+                                                "k" * (self.MAX_LEN + 1), request_id=31)
+
+    def test_absent_or_null_key_is_still_accepted(self) -> None:
+        acct, room = self._owner_room("mcp-idemval-null")
+        for i, args in enumerate(({"room_id": room["room_id"], "target_spec": "*",
+                                   "payload": {"text": "a"}},
+                                  {"room_id": room["room_id"], "target_spec": "*",
+                                   "payload": {"text": "b"}, "idempotency_key": None})):
+            resp = self._assert_ok(acct["session_token"], "room_send", args, request_id=40 + i)
+            self.assertIn("seq", resp)
+
+    def test_valid_key_reused_returns_same_seq_no_duplicate(self) -> None:
+        acct, room = self._owner_room("mcp-idemval-reuse")
+        args = {"room_id": room["room_id"], "target_spec": "*", "payload": {"text": "once"},
+                "idempotency_key": "mcp-idem-1"}
+        first = self._assert_ok(acct["session_token"], "room_send", args, request_id=51)
+        second = self._assert_ok(acct["session_token"], "room_send", args, request_id=52)
+        self.assertEqual(second["seq"], first["seq"],
+                         "same key must return the SAME seq over the hosted MCP path")
+        log = self._assert_ok(acct["session_token"], "room_event_log",
+                              {"room_id": room["room_id"]}, request_id=53)
+        messages = [e for e in log["events"] if e["kind"] == "room.message"]
+        self.assertEqual(len(messages), 1, "same key twice must not create a duplicate event")
+
+    def test_error_never_echoes_the_raw_key_value(self) -> None:
+        acct, room = self._owner_room("mcp-idemval-noleak")
+        secret_key = "k" * 300
+        self._assert_room_send_invalid_argument(acct["session_token"], room["room_id"],
+                                                secret_key, request_id=61)
+        # Assert the raw key is absent from the rendered error surface too.
+        status, payload = _mcp(self.base, "tools/call",
+                               {"name": "room_send", "arguments": {
+                                   "room_id": room["room_id"], "target_spec": "*",
+                                   "payload": {"text": "x"}, "idempotency_key": secret_key}},
+                               token=acct["session_token"], request_id=62)
+        self.assertEqual(status, HTTPStatus.OK)
+        text = json.dumps(payload)
+        self.assertNotIn(secret_key, text,
+                         "the raw idempotency_key must not be echoed into the MCP error")
+
+
 class HostedMCPRoomWaitTests(HostedMCPTestBase):
     """``room_wait`` — the blocking long-poll that keeps agents IN their turn.
 
