@@ -418,14 +418,14 @@ class MigrationPreservesLiveSessionsTests(unittest.TestCase):
         # All live sessions still validate.
         self._tokens_validate(tokens)
 
-        # And the schema_migrations ledger is complete (all 11 cloud migrations).
+        # And the schema_migrations ledger is complete (all 12 cloud migrations).
         conn = sqlite3.connect(self.cloud_path)
         try:
             conn.row_factory = sqlite3.Row
             n = conn.execute("SELECT COUNT(*) AS c FROM schema_migrations").fetchone()["c"]
         finally:
             conn.close()
-        self.assertEqual(n, 11, "all cloud migrations must be recorded after upgrade")
+        self.assertEqual(n, 12, "all cloud migrations must be recorded after upgrade")
 
     def test_migrations_then_restart_preserves_live_sessions(self) -> None:
         """Migration + restart together (the exact deploy sequence)."""
