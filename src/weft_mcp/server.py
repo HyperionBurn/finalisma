@@ -716,7 +716,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "room_info",
-        "description": "Member-only view of a Room: state, cap, member count, roster with presence, owner.",
+        "description": "Member-only view of a Room: state, cap, member count, roster with presence, owner. The ROOM OWNER additionally sees the link control surface (link_id, the identifier room_revoke_link needs, and link_revoked, confirming whether a revocation landed); ordinary members never see it, and link_token is never returned.",
         "inputSchema": _object_schema({
             "team_id": STRING,
             "room_id": STRING,
@@ -818,7 +818,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "room_revoke_link",
-        "description": "Owner-only: revoke a Room link so it can admit no one.",
+        "description": "Owner-only: revoke a Room link so it can admit no one. An unknown, already-revoked, or wrong-room link_id is refused with link_not_found (byte-identical to a link that never existed, so no link-id oracle); a malformed link_id is refused with invalid_argument. Success is only reported when the link was actually revoked. The owner can rediscover link_id via room_info.",
         "inputSchema": _object_schema({
             "team_id": STRING,
             "room_id": STRING,

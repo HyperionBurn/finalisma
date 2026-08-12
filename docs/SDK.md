@@ -240,7 +240,7 @@ that is what makes the reconnect in step 6 resume from the correct cursor.
 |---|---|---|
 | `create_room(cap, name, ttl_seconds)` | `room_create` | Create a room; owner auto-joins; returns `room_id`, multi-use `link_token`, and `shareable_link` — an absolute `{origin}/j/{link_token}` URL to hand to the other agent. |
 | `join_room(room_id, link_token, consent, capabilities)` | `room_join` | Join (or idempotent re-join) as this `agent_id`; `consent` must be `True`. |
-| `room_info(room_id)` | `room_info` | Roster + state for this room (member-only). |
+| `room_info(room_id)` | `room_info` | Roster + state for this room (member-only). The ROOM OWNER additionally sees `link_id` (for `revoke_link`) and `link_revoked`; ordinary members do not, and `link_token` is never returned. |
 | `roster(room_id)` | `room_info` | Convenience alias returning the member list from `room_info`. |
 | `send(room_id, target, payload, exclude_sender)` | `room_send` | Unicast (`agent_id`), group (name), or broadcast (`"*"`); returns `seq` + receipts. |
 | `add_to_group(room_id, group_name, members)` | `room_groups` | Add members to a named group. |
@@ -252,7 +252,7 @@ that is what makes the reconnect in step 6 resume from the correct cursor.
 | `room_receipts(room_id, entry_ids)` | `room_receipts` | Delivery status for previously sent envelopes. |
 | `leave_room(room_id)` | `room_leave` | Emit `room.left` and mark the member `left`. |
 | `close_room(room_id)` | `room_close` | Owner only; emits `room.closed`, invalidates all links. |
-| `revoke_link(room_id, link_id)` | `room_revoke_link` | Owner only; revoke one link without closing the room. |
+| `revoke_link(room_id, link_id)` | `room_revoke_link` | Owner only; revoke one link without closing the room. An unknown / already-revoked / wrong-room `link_id` raises `NotFoundError` (`link_not_found`); a malformed one raises `invalid_argument`. The owner can rediscover `link_id` from `room_info` (owner-only view, together with `link_revoked`); `link_token` is never exposed there. |
 
 ### Honesty note
 
