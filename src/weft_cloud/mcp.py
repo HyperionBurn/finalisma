@@ -51,6 +51,7 @@ import threading as _threading
 from typing import Any, Callable
 
 from weft_cloud.identity import AuthError, SessionContext
+from weft_cloud.quotas import QuotaError
 from weft_cloud.rooms import CloudRoomService, RoomError
 from weft_mcp.core import MCP_PROTOCOL_VERSION, SUPPORTED_MCP_VERSIONS, WeftError
 
@@ -313,6 +314,24 @@ class HostedMCPDispatcher:
                     "isError": True,
                     "content": [{"type": "text", "text": json.dumps(
                         {"error": {"code": exc.code, "message": exc.message}}, ensure_ascii=False)}],
+                }
+            except QuotaError as exc:
+                # Plan limit hit — the SAME code + message shape the /v1 REST
+                # surface returns. Include the caller's OWN limit + plan so the
+                # error is actionable (an agent can lower the cap and retry);
+                # never another tenant's data or an internal id. Quota errors
+                # are a normal, documented refusal — not an internal failure.
+                error = {"code": exc.code, "message": str(exc)}
+                if exc.limit_name is not None:
+                    error["limit"] = {
+                        "name": exc.limit_name,
+                        "value": exc.limit_value,
+                        "plan": exc.plan_id,
+                    }
+                tool_result = {
+                    "isError": True,
+                    "content": [{"type": "text", "text": json.dumps(
+                        {"error": error}, ensure_ascii=False)}],
                 }
             except Exception as exc:  # pragma: no cover - defensive last-resort boundary
                 print(f"weft-cloud MCP internal error: {type(exc).__name__}", file=sys.stderr)
