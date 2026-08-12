@@ -330,6 +330,15 @@ class WeftWebApp:
     # Form parsing
     # ------------------------------------------------------------------
 
+    def _discard_request_body(self, handler: BaseHTTPRequestHandler, max_bytes: int = 1_048_576) -> None:
+        try:
+            length = int(handler.headers.get("Content-Length", "0"))
+        except ValueError:
+            length = 0
+        if length <= 0:
+            return
+        handler.rfile.read(min(length, max_bytes))
+
     def _read_form(self, handler: BaseHTTPRequestHandler, max_bytes: int = 1_048_576) -> dict[str, str]:
         try:
             length = int(handler.headers.get("Content-Length", "0"))
@@ -1681,6 +1690,8 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
             # --- Everything below requires auth ---
             ctx = app._session_context(self)
             if ctx is None:
+                if method == "POST":
+                    app._discard_request_body(self)
                 # Clear any stale session cookie and redirect to login.
                 self.send_response(HTTPStatus.SEE_OTHER)
                 self.send_header("Location", "/login")

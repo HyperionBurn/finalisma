@@ -1671,6 +1671,15 @@ class _MCPRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(encoded)
 
+    def _discard_request_body(self, max_bytes: int = MAX_JSON_RPC_BYTES) -> None:
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            length = 0
+        if length <= 0:
+            return
+        self.rfile.read(min(length, max_bytes))
+
     def _send_text(self, status: int, body: str, content_type: str = "text/plain; version=0.0.4") -> None:
         encoded = body.encode("utf-8")
         metrics = getattr(self, "metrics", None)
@@ -1773,6 +1782,7 @@ class _MCPRequestHandler(BaseHTTPRequestHandler):
             return
         allowed, retry_after = self.rate_limiter.allow(self.client_address[0])
         if not allowed:
+            self._discard_request_body()
             self._send_rate_limited(retry_after)
             return
         try:
@@ -1836,6 +1846,7 @@ class _MCPRequestHandler(BaseHTTPRequestHandler):
 
     def _handle_mcp_post(self) -> None:
         if not self._authorized():
+            self._discard_request_body()
             self._send_json(HTTPStatus.FORBIDDEN, _json_rpc_error(None, -32001, "Unauthorized"))
             return
         try:
@@ -1873,6 +1884,7 @@ class _MCPRequestHandler(BaseHTTPRequestHandler):
             self._handle_join_post(path)
             return
         if path != "/mcp":
+            self._discard_request_body()
             self._send_json(HTTPStatus.NOT_FOUND, {"error": "Use POST /mcp"})
             return
         limiter = getattr(self, "mcp_rate_limiter", None)
@@ -1883,6 +1895,7 @@ class _MCPRequestHandler(BaseHTTPRequestHandler):
         limiter_key = f"mcp:{self.client_address[0]}"
         allowed, retry_after = limiter.allow(limiter_key, reserve=True)
         if not allowed:
+            self._discard_request_body()
             self._send_rate_limited(retry_after)
             return
         try:
