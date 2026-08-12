@@ -104,7 +104,7 @@ error the client will *display*, never a silent exit:
 | Condition | What the client sees |
 | --- | --- |
 | `WEFT_TOKEN` unset/empty | JSON-RPC error: `no Weft session token found: environment variable WEFT_TOKEN is not set or empty`; process exits non-zero |
-| Upstream returns 401 | JSON-RPC error: `authentication failed: the Weft session token is invalid or expired (the hosted endpoint returned 401); obtain a fresh token from POST /v1/auth/signin` |
+| Upstream returns 401 | JSON-RPC error naming the cause (deploy/password reset/expiry) and the recovery: re-authenticate at `POST /v1/auth/signin` (`{"email": ..., "password": ...}` → `session_token`, prefix `fss_`), export it in the `--token-env` variable, and restart the client |
 | Connection refused / DNS failure | JSON-RPC error naming the origin it tried, e.g. `could not reach the Weft hosted MCP endpoint at http://127.0.0.1:1234 (ConnectionRefusedError: ...)` |
 | Upstream non-200 | JSON-RPC error: `the Weft hosted endpoint at <origin> returned HTTP <status>` |
 | Unparseable body | JSON-RPC error: `the Weft hosted endpoint returned an unparseable response` |

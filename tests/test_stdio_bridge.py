@@ -17,6 +17,7 @@ Authoritative spec: docs/STDIO_BRIDGE.md.
 
 from __future__ import annotations
 
+import io
 import json
 import subprocess
 import sys
@@ -35,7 +36,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from weft_cloud.service import WeftCloudService, _CloudHTTPHandler  # noqa: E402
 from weft_cloud.storage import SqliteWalBackend  # noqa: E402
 from weft_mcp.__main__ import build_parser  # noqa: E402
-from weft_mcp.stdio_bridge import unwrap_response_body  # noqa: E402
+from weft_mcp.stdio_bridge import run_stdio_bridge, unwrap_response_body  # noqa: E402
 
 
 def _post(base: str, path: str, body: dict, token: str | None = None) -> tuple[int, dict]:
@@ -203,6 +204,15 @@ class UpstreamAuthTests(StdioBridgeHostedTestBase):
                 "invalid" in message or "expired" in message or "unauthorized" in message,
                 f"401 error must name token validity, got: {error}",
             )
+            # A long-running agent has no human watching; the message must tell
+            # it what happened AND how to recover, or the agent just sees a dead
+            # channel mid-conversation. The recovery step must name the re-auth
+            # endpoint, the request shape that yields a fresh session token, and
+            # the --token-env restart path.
+            for needle in ("/v1/auth/signin", "session_token", "--token-env"):
+                self.assertIn(needle, message,
+                              f"401 error must be actionable for a long-running agent: "
+                              f"missing '{needle}' in: {error}")
         finally:
             _stop_proc(proc)
 
@@ -254,6 +264,65 @@ class UnwrapTests(unittest.TestCase):
 
     def test_empty_body_returns_none(self) -> None:
         self.assertIsNone(unwrap_response_body(b"", "application/json"))
+
+
+class Cp1252InputDecodeTests(unittest.TestCase):
+    """Regression: INBOUND JSON-RPC bytes must be decoded as UTF-8.
+
+    On Windows ``sys.stdin`` defaults to the ANSI codepage (cp1252) while MCP
+    hosts (Codex, Claude Desktop, Cursor) write UTF-8 bytes, so decoding them
+    as cp1252 mangles every non-ASCII character — the ``room_49db8055...``
+    incident where an em dash U+2014 arrived as ``â€”``. The outbound direction
+    was fixed long ago; this class guards the inbound one.
+
+    The streams are deliberately driven as ``TextIOWrapper`` over ``BytesIO``
+    with ``encoding="cp1252"`` to model the broken Windows host condition, so
+    these tests FAIL on the old code even on a machine whose locale is UTF-8.
+    """
+
+    class _EchoBridge:
+        """Echoes the request back so the exact received codepoints surface."""
+
+        def has_token(self) -> bool:
+            return True
+
+        def exchange(self, request):
+            return {"jsonrpc": "2.0", "id": request.get("id"),
+                    "result": {"echo": request.get("params")}}
+
+    def _run_round_trip(self, text: str) -> str:
+        request = {"jsonrpc": "2.0", "id": 5, "method": "echo",
+                   "params": {"text": text}}
+        # A real client writes UTF-8 bytes; do the same at the byte level.
+        line = json.dumps(request, ensure_ascii=False,
+                          separators=(",", ":")).encode("utf-8") + b"\n"
+        raw_in = io.BytesIO(line)
+        raw_out = io.BytesIO()
+        inp = io.TextIOWrapper(raw_in, encoding="cp1252")
+        outp = io.TextIOWrapper(raw_out, encoding="cp1252")
+        rc = run_stdio_bridge(self._EchoBridge(), inp, outp)
+        self.assertEqual(rc, 0)
+        payload = json.loads(raw_out.getvalue().decode("utf-8"))
+        return payload["result"]["echo"]["text"]
+
+    def test_em_dash_survives_round_trip(self) -> None:
+        echoed = self._run_round_trip("quote \u2014 end")
+        self.assertEqual(echoed, "quote \u2014 end")
+        self.assertIn("\u2014", echoed)
+
+    def test_astral_emoji_survives_round_trip(self) -> None:
+        echoed = self._run_round_trip("wave \U0001f600")
+        self.assertEqual(echoed, "wave \U0001f600")
+        self.assertIn("\U0001f600", echoed)
+
+    def test_accented_cafe_survives_round_trip(self) -> None:
+        echoed = self._run_round_trip("caf\u00e9")
+        self.assertEqual(echoed, "caf\u00e9")
+        self.assertIn("\u00e9", echoed)
+
+    def test_mixed_non_ascii_survives_round_trip(self) -> None:
+        echoed = self._run_round_trip("caf\u00e9 \u2014 \U0001f600")
+        self.assertEqual(echoed, "caf\u00e9 \u2014 \U0001f600")
 
 
 class EndToEndSseStubTests(unittest.TestCase):

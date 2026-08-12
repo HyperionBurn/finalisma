@@ -169,11 +169,21 @@ class StdioHttpBridge:
             )
 
         if status == 401:
+            # A long-running agent has no human watching to notice a logout.
+            # The message must say BOTH what happened AND how to recover, or the
+            # agent just sees a dead channel mid-conversation. It names the
+            # recovery step (a fresh signin) and the exact request shape, but
+            # never the old token or any credentials.
             return _json_rpc_error(
                 request.get("id") if isinstance(request, dict) else None,
                 -32000,
                 "authentication failed: the Weft session token is invalid or expired "
-                "(the hosted endpoint returned 401); obtain a fresh token from POST /v1/auth/signin",
+                "(the hosted endpoint returned 401). The session token stops working "
+                "if the service was redeployed, the account's password was reset, or "
+                "the token expired. Re-authenticate: POST /v1/auth/signin with "
+                "{\"email\": ..., \"password\": ...} returns a fresh session_token "
+                "(prefix fss_); export it in the environment variable used for this "
+                "bridge (the --token-env name) and restart this client",
             )
         if status == 202:
             return None
@@ -209,12 +219,19 @@ def run_stdio_bridge(
     """
     input_stream = input_stream or sys.stdin
     output_stream = output_stream or sys.stdout
-    # The hosted tool set contains non-ASCII characters (the room_wait
-    # description uses an em-dash). On Windows the child's stdout defaults to
-    # the ANSI codepage (cp1252), so ensure_ascii=False JSON would emit bytes
-    # that are invalid UTF-8 for a strict host reader. Reconfigure the output
-    # stream to UTF-8 explicitly, per the repo-wide rule for any script that
-    # prints non-ASCII (docs/DOGFOOD_FINDINGS_2026-08-07.md finding #6).
+    # The MCP spec requires JSON-RPC over UTF-8 in BOTH directions. On Windows
+    # Python defaults stdin/stdout to the ANSI codepage (cp1252), which corrupts
+    # every non-ASCII character a client sends. The outbound side was fixed
+    # before; reconfigure the INPUT stream too so inbound bytes are decoded as
+    # UTF-8. errors="strict": a frame that is not valid UTF-8 is a JSON-RPC
+    # protocol violation and must fail loudly, not be silently replaced with
+    # U+FFFD and re-corrupted without a signal.
+    try:
+        input_stream.reconfigure(encoding="utf-8", errors="strict")
+    except (AttributeError, ValueError, OSError):
+        # An injected stream that does not support reconfigure (e.g. StringIO)
+        # is left untouched; it has no codepage to corrupt.
+        pass
     try:
         output_stream.reconfigure(encoding="utf-8", errors="replace")
     except (AttributeError, ValueError, OSError):
