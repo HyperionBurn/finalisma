@@ -405,6 +405,45 @@ class HostedMCPRoomFlowTests(HostedMCPTestBase):
         info = self._assert_ok(a["session_token"], "room_info", {"room_id": created["room_id"]}, request_id=4)
         self.assertEqual(info["member_count"], 3)
 
+    def test_over_limit_cap_is_quota_exceeded_across_both_surfaces(self) -> None:
+        """A cap above the free plan's member limit must surface as
+        quota_exceeded (never internal_error) on the hosted MCP surface, with
+        the SAME code and plan-naming message the /v1 REST surface returns.
+        The message (max 10 members per room, free plan) is what lets an agent
+        lower the cap and retry instead of assuming the product crashed."""
+        a = self._signup("quota-cap@example.com")
+
+        # MCP surface: cap=17 is above the free plan's 10-member room limit.
+        mcp = self._mcp_call(a["session_token"], "room_create",
+                             {"cap": 17, "name": "over-limit"}, request_id=1)
+        self.assertTrue(mcp["isError"], f"over-limit cap must be an error: {mcp}")
+        self.assertEqual(mcp["error"]["code"], "quota_exceeded")
+        self.assertNotEqual(mcp["error"]["code"], "internal_error",
+                            "quota must not masquerade as an internal failure")
+        self.assertIn("max 10 members per room", mcp["error"]["message"])
+        self.assertIn("free plan", mcp["error"]["message"])
+        self.assertEqual(mcp["error"]["limit"]["name"], "max_members_per_room")
+        self.assertEqual(mcp["error"]["limit"]["value"], 10)
+        self.assertEqual(mcp["error"]["limit"]["plan"], "free")
+
+        # REST surface: the same condition yields the same code + limit detail.
+        status, rest = _post(self.base, "/v1/rooms/create", {"cap": 17},
+                             token=a["session_token"])
+        self.assertEqual(status, HTTPStatus.CONFLICT)
+        self.assertEqual(rest["error"]["code"], "quota_exceeded")
+        self.assertIn("max 10 members per room", rest["error"]["message"])
+        self.assertEqual(rest["error"]["limit"], mcp["error"]["limit"],
+                         "the two surfaces must agree on the limit detail")
+
+        # Both surfaces still accept a cap within the plan limit.
+        within_mcp = self._assert_ok(a["session_token"], "room_create",
+                                     {"cap": 8, "name": "within"}, request_id=2)
+        self.assertIn("room_id", within_mcp)
+        self.assertEqual(within_mcp["cap"], 8)
+        status, within_rest = _post(self.base, "/v1/rooms/create", {"cap": 8},
+                                    token=a["session_token"])
+        self.assertEqual(status, HTTPStatus.CREATED)
+
     def test_cross_tenant_link_join_grants_membership_not_privilege(self) -> None:
         """A link is the cross-tenant capability (as on /v1): tenant B may
         join A's room with the link and then operate as a member, while a
