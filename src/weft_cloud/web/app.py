@@ -240,7 +240,7 @@ class WeftWebApp:
         secure = "; Secure" if self._cookie_secure(handler) else ""
         handler.send_header(
             "Set-Cookie",
-            f"{CSRF_COOKIE}={token}; Path=/; SameSite=Lax; Max-Age=86400{secure}",
+            f"{CSRF_COOKIE}={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400{secure}",
         )
 
     def _read_csrf_cookie(self, handler: BaseHTTPRequestHandler) -> str | None:

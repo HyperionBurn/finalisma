@@ -408,6 +408,32 @@ class TestLoginStillWorks(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("Dashboard", body)
 
+    def test_lax_cookie_survives_following_a_room_link_from_an_external_page(self):
+        # SameSite=Lax sends the session cookie on top-level GET navigations.
+        # That is exactly the flow this app depends on: a logged-in member
+        # clicks a room link pasted into an external channel (a top-level
+        # cross-site navigation) and must land on the room, authenticated.
+        # Simulate the browser: cross-site Referer + Sec-Fetch-Site, cookie
+        # jar already holding the Lax session.
+        self.assertTrue(self.d.signup_verify_login("ext@example.com", "Password123!"))
+        _, dashboard, _ = self.d.get("/")
+        csrf = re.search(r'name="_csrf"\s+value="([^"]+)"', dashboard).group(1)
+        status, _, hdrs = self.d.post(
+            "/rooms", {"name": "External-room", "cap": "8", "_csrf": csrf}
+        )
+        self.assertEqual(status, 303)
+        room_path = hdrs.get("Location", "")
+        self.assertTrue(room_path.startswith("/room/"), f"unexpected Location {room_path!r}")
+        cross_site = {
+            "Referer": "https://external.example.com/team-chat",
+            "Sec-Fetch-Site": "cross-site",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Dest": "document",
+        }
+        status, body, _ = self.d.get(room_path, extra_headers=cross_site)
+        self.assertEqual(status, 200, "Lax cookie must still authenticate a cross-site top-level GET")
+        self.assertIn("External-room", body)
+
 
 if __name__ == "__main__":
     unittest.main()
