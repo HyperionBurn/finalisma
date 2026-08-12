@@ -29,6 +29,7 @@ import os
 import re
 import secrets
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from http import HTTPStatus
 from typing import Any, Mapping
@@ -72,6 +73,50 @@ class _ServiceError(Exception):
         self.code = code
         self.message = message
         self.status = status
+
+
+class _HostedMCPRateLimiter:
+    """Bound hosted MCP bursts for a single-node preview deployment.
+
+    This is intentionally process-local. Public multi-instance deployments
+    still require a distributed edge/store-backed limiter.
+    """
+
+    def __init__(self, limit: int = 120, window_seconds: int = 60,
+                 max_concurrent: int = 16) -> None:
+        self.limit = limit
+        self.window_seconds = window_seconds
+        self.max_concurrent = max_concurrent
+        self._lock = threading.Lock()
+        self._events: dict[str, list[float]] = {}
+        self._concurrent: dict[str, int] = {}
+
+    def allow(self, key: str, reserve: bool = False) -> tuple[bool, int]:
+        now = time.monotonic()
+        with self._lock:
+            if reserve and self._concurrent.get(key, 0) >= self.max_concurrent:
+                return False, 5
+            recent = [
+                stamp for stamp in self._events.get(key, [])
+                if stamp > now - self.window_seconds
+            ]
+            if len(recent) >= self.limit:
+                retry_after = max(1, int(self.window_seconds - (now - recent[0])))
+                self._events[key] = recent
+                return False, retry_after
+            recent.append(now)
+            self._events[key] = recent
+            if reserve:
+                self._concurrent[key] = self._concurrent.get(key, 0) + 1
+            return True, 0
+
+    def release(self, key: str) -> None:
+        with self._lock:
+            current = self._concurrent.get(key, 0)
+            if current <= 1:
+                self._concurrent.pop(key, None)
+            else:
+                self._concurrent[key] = current - 1
 
 
 def _json_response(status: int, payload: dict[str, Any]) -> tuple[int, bytes]:
@@ -143,6 +188,15 @@ class WeftCloudService:
         self.orgs = OrgStore(backend)
         self.invites = InviteStore(backend)
         self.rooms = CloudRoomService(backend)
+        self.mcp_rate_limiter = _HostedMCPRateLimiter()
+        # A higher global circuit breaker protects the process when many
+        # authenticated identities arrive through one reverse proxy. The
+        # primary limiter below is keyed by the authenticated tenant/agent;
+        # this separate breaker is deliberately looser and is not the user
+        # fairness mechanism.
+        self.mcp_ip_rate_limiter = _HostedMCPRateLimiter(
+            limit=600, window_seconds=60, max_concurrent=64,
+        )
         # Ensure identity + room schema exist.
         _ensure_identity_schema(backend)
         self.rooms._ensure_room_schema()
@@ -355,17 +409,16 @@ class WeftCloudService:
             raise AuthError("invalid_credentials")
         tenant_id = row["tenant_id"]
         account_id = self.accounts.authenticate(self.backend, tenant_id, email, password)
-        session_id, session_token = self.sessions.create(
-            self.backend, tenant_id, account_id, "member"
-        )
-        # Resolve the account's actual role from membership.
+        # A password remains valid for account recovery, but it cannot mint a
+        # tenant session after the account has been removed from that tenant.
         with self.backend.transaction() as tx:
             member_row = tx.execute(
                 "SELECT role FROM cloud_identity_members WHERE tenant_id = ? AND account_id = ?",
                 (tenant_id, account_id),
             ).fetchone()
-        role = member_row["role"] if member_row else "member"
-        # Re-issue with the correct role.
+        if member_row is None:
+            raise AuthError("invalid_credentials")
+        role = member_row["role"]
         session_id, session_token = self.sessions.create(
             self.backend, tenant_id, account_id, role
         )
@@ -604,11 +657,10 @@ class WeftCloudService:
                 "join": {
                     "endpoint": f"{self.origin}/v1/rooms/join",
                     "method": "POST",
-                    "auth_scheme": "bearer-session-token",
+                    "auth_scheme": "bearer-session-or-agent-key",
                     "request": {
                         "room_id": room_id,
                         "link_token": link_token,
-                        "agent_id": "<the joining agent's own id>",
                         "consent": True,
                         "capabilities": [],
                     },
@@ -666,7 +718,7 @@ class WeftCloudService:
             "origin": self.origin,
             "join_endpoint": f"{self.origin}/v1/rooms/join",
             "join_method": "POST",
-            "auth_scheme": "bearer-session-token",
+            "auth_scheme": "bearer-session-or-agent-key",
             "link_format": f"{self.origin}/j/<link_token>",
             "connection_tiers": [
                 {"tier": "mcp-stdio",
@@ -948,15 +1000,57 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
         for name, value in security_headers(html=html):
             self.send_header(name, value)
 
-    def _send_json(self, status: int, payload: dict[str, Any]) -> None:
+    def _send_json(self, status: int, payload: dict[str, Any],
+                   extra_headers: Mapping[str, str] | None = None) -> None:
         body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self._send_security_headers()
+        for key, value in (extra_headers or {}).items():
+            self.send_header(key, value)
         self.end_headers()
         self.wfile.write(body)
+
+    def _send_rate_limited(self, retry_after: int) -> None:
+        retry_after = max(1, int(retry_after))
+        self._send_json(
+            HTTPStatus.TOO_MANY_REQUESTS,
+            {"error": {
+                "code": "rate_limited",
+                "message": f"Rate limit exceeded. Retry after {retry_after} seconds.",
+            }},
+            {"Retry-After": str(retry_after)},
+        )
+
+    def _discard_mcp_body(self) -> None:
+        """Drain a bounded request body before closing a rejected connection."""
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            length = 0
+        remaining = min(max(length, 0), MAX_JSON_RPC_BYTES)
+        while remaining:
+            chunk = self.rfile.read(min(64 * 1024, remaining))
+            if not chunk:
+                break
+            remaining -= len(chunk)
+
+    def _mcp_identity_limiter_key(self) -> str:
+        """Return a fairness key derived from authenticated identity when possible."""
+        token = _bearer_token(self)
+        if token:
+            try:
+                ctx = self.service.resolve_identity(token)
+            except AuthError:
+                pass
+            else:
+                return f"mcp:tenant:{ctx.tenant_id}:agent:{ctx.agent_id}"
+        # Invalid/unauthenticated requests have no trusted identity. Keep
+        # those on the source-IP circuit breaker rather than creating a
+        # user-controlled key from an untrusted header or body field.
+        return f"mcp:ip:{self.client_address[0]}"
 
     def _handle_mcp_post(self) -> None:
         """Serve the authenticated, tenant-confined MCP endpoint at POST /mcp.
@@ -1091,7 +1185,32 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         path = urlsplit(self.path).path
         if path == "/mcp":
-            self._handle_mcp_post()
+            limiter = getattr(type(self), "mcp_rate_limiter", None)
+            if limiter is None:
+                limiter = self.service.mcp_rate_limiter
+            ip_limiter = getattr(type(self), "mcp_ip_rate_limiter", None)
+            if ip_limiter is None:
+                ip_limiter = self.service.mcp_ip_rate_limiter
+            ip_key = f"mcp:ip:{self.client_address[0]}"
+            ip_allowed, ip_retry_after = ip_limiter.allow(ip_key, reserve=True)
+            if not ip_allowed:
+                self.close_connection = True
+                self._discard_mcp_body()
+                self._send_rate_limited(ip_retry_after)
+                return
+            limiter_key = self._mcp_identity_limiter_key()
+            allowed, retry_after = limiter.allow(limiter_key, reserve=True)
+            if not allowed:
+                ip_limiter.release(ip_key)
+                self.close_connection = True
+                self._discard_mcp_body()
+                self._send_rate_limited(retry_after)
+                return
+            try:
+                self._handle_mcp_post()
+            finally:
+                limiter.release(limiter_key)
+                ip_limiter.release(ip_key)
             return
         routes = {
             "/v1/auth/signup": self.service.handle_signup,

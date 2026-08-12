@@ -720,8 +720,12 @@ class WeftWebApp:
             self.handle_get_login(handler, error="Invalid email or password.")
             return
         role = self._role_for_account(tenant_id, account_id)
+        if role is None:
+            # Do not mint a session for an account removed from this tenant.
+            self.handle_get_login(handler, error="Invalid email or password.")
+            return
         session_id, raw_token = self.sessions.create(
-            self.backend, tenant_id, account_id, role or "member"
+            self.backend, tenant_id, account_id, role
         )
         handler.send_response(HTTPStatus.SEE_OTHER)
         handler.send_header("Location", "/")

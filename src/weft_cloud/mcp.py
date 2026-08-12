@@ -56,6 +56,7 @@ from typing import Any, Callable
 
 from weft_cloud.identity import AuthError, SessionContext
 from weft_cloud.quotas import QuotaError
+from weft_cloud.rate_limit import RateLimitedError
 from weft_cloud.rooms import CloudRoomService, RoomError
 from weft_mcp.core import MCP_PROTOCOL_VERSION, SUPPORTED_MCP_VERSIONS, WeftError
 
@@ -321,6 +322,19 @@ class HostedMCPDispatcher:
                     "isError": True,
                     "content": [{"type": "text", "text": json.dumps(
                         {"error": {"code": exc.code, "message": exc.message}}, ensure_ascii=False)}],
+                }
+            except RateLimitedError as exc:
+                retry_after = float(exc.retry_after or 0.0)
+                tool_result = {
+                    "isError": True,
+                    "content": [{"type": "text", "text": json.dumps({
+                        "error": {
+                            "code": exc.code,
+                            "message": f"Rate limit exceeded; retry after {retry_after:g} seconds",
+                            "retry_after": retry_after,
+                            "details": {"retry_after": retry_after},
+                        }
+                    }, ensure_ascii=False)}],
                 }
             except QuotaError as exc:
                 # Plan limit hit — the SAME code + message shape the /v1 REST

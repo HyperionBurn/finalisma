@@ -1,7 +1,7 @@
 # Hosted agent keys
 
 Hosted Weft agent keys are long-lived bearer credentials for non-interactive
-REST/MCP clients. They are separate from browser sessions and from the legacy
+REST clients and remote-mode MCP bridge clients. They are separate from browser sessions and from the legacy
 self-hosted actor and pairing credentials.
 
 ## Credential planes
@@ -37,27 +37,28 @@ Do not present the legacy `fst_*` credentials as aliases for hosted `agk_` keys.
 
 ## Identity boundary
 
-An `agk_` key authenticates the account that owns it; multiple keys for one
-account do not create separate hosted agent identities. Use separate accounts
-when separate attributable identities are required. Client-supplied
+An `agk_` key authenticates the account that owns it and derives a distinct,
+stable room identity from its server-side key id. Multiple keys for one
+account therefore create separate hosted agent identities while preserving
+the same account-level ownership and role. Client-supplied
 `agent_id`, `tenant_id`, `team_id`, and sender/owner identity arguments are not
 an override for the authenticated account.
 
 ## Hosted MCP versus stdio
 
-Hosted MCP is `POST /mcp` and accepts a hosted `fss_` session or `agk_` key.
+Hosted MCP is the Streamable HTTP endpoint `POST /mcp` and accepts a hosted `fss_` session or `agk_` key.
 The hosted dispatcher exposes the cloud room tools currently listed by
 `tools/list`; it intentionally does not expose the self-hosted registration,
 pairing, task, roster, outbox, or tenancy surface. Link revocation is currently
 available through the hosted REST route, not the hosted MCP tool list.
 
-The stdio bridge is a separate local process boundary. It can forward a hosted
+The stdio bridge is a separate local process boundary, not a hosted stdio endpoint. It can forward a hosted
 bearer to the remote `/mcp` endpoint when configured for remote mode, but the
 legacy self-hosted actor/pairing credentials are not interchangeable with
 hosted cloud credentials.
 
 ## Claims this document does not make
 
-This contract does not promise separate identities per key, universal
-third-party MCP-host compatibility, SSO/OIDC, enterprise compliance, an SLA,
-or production-data readiness. Those claims require separate evidence.
+This contract does not promise universal third-party MCP-host compatibility,
+SSO/OIDC, enterprise compliance, an SLA, or production-data readiness. Those
+claims require separate evidence.

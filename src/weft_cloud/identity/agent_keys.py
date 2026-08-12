@@ -65,6 +65,13 @@ def create(backend: Any, tenant_id: str, account_id: str, label: str = "default"
     raw_token = generate_token(AGENT_KEY_PREFIX)
     token_hash = hash_token(raw_token)
     with backend.transaction() as tx:
+        member = tx.execute(
+            "SELECT 1 FROM cloud_identity_members "
+            "WHERE tenant_id = ? AND account_id = ?",
+            (tenant_id, account_id),
+        ).fetchone()
+        if member is None:
+            raise AuthError("invalid_session")
         tx.execute(
             "INSERT INTO cloud_identity_agent_keys("
             " key_id, tenant_id, account_id, label, token_hash, created_at"

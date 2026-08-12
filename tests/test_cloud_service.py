@@ -465,6 +465,7 @@ class TestJoinDescriptorAndAgentCard(CloudServiceTestBase):
         self.assertEqual(body["join"]["request"]["room_id"], self.room_id)
         self.assertTrue(body["join"]["endpoint"].startswith(self.base))
         self.assertEqual(body["join"]["method"], "POST")
+        self.assertEqual(body["join"]["auth_scheme"], "bearer-session-or-agent-key")
         self.assertIn("agent_card", body)
         self.assertEqual(body["agent_card"], f"{self.base}/.well-known/agent-card.json")
 
@@ -551,7 +552,8 @@ class TestJoinDescriptorAndAgentCard(CloudServiceTestBase):
         status, raw, _ = _get_url(f"{self.base}/j/{self.link_token}", accept="text/html")
         self.assertEqual(status, 200)
         page = raw.decode("utf-8", errors="replace")
-        self.assertIn("cannot redeem a hosted cloud room's link", page)
+        self.assertIn("This is not a hosted stdio server", page)
+        self.assertIn("remote mode", page)
         self.assertIn("no <code>bridge webhook</code> CLI", page)
         self.assertIn("WeftClient.connect()", page)
         self.assertIn("not proof that a human saw and approved", page)
@@ -560,7 +562,7 @@ class TestJoinDescriptorAndAgentCard(CloudServiceTestBase):
         self.assertIn("link IS the authorization", page)
         self.assertGreaterEqual(
             page.count("To join this hosted room use the Streamable HTTP call above"),
-            3,
+            2,
         )
 
     def test_join_descriptor_html_documents_a_working_join(self) -> None:
@@ -1306,6 +1308,52 @@ class TestRoomSendAtomicityAndIdempotency(CloudServiceTestBase):
         expected_receipts = 2  # owner + 2 agents, sender excluded
         self.assertEqual(len(outbox), expected_receipts,
                          f"receipts doubled by retry: {len(outbox)}")
+
+    def test_changed_payload_replay_returns_original_result_without_rate_burn(self) -> None:
+        """A lost-response retry must ignore changed input and consume no new budget."""
+        room, agents = self._room_with_members("idem-changed")
+        tenant_id = agents[0]["tenant_id"]
+        owner_token = agents[0]["session_token"]
+        first = _post(self.base, "/v1/rooms/send", {
+            "room_id": room["room_id"],
+            "target_spec": "*",
+            "payload": {"text": "original"},
+            "idempotency_key": "send-changed-1",
+        }, owner_token)
+        self.assertEqual(first[0], 200, first[1])
+        before = self._outbox_rows(tenant_id)
+        second = _post(self.base, "/v1/rooms/send", {
+            "room_id": room["room_id"],
+            "target_spec": "*",
+            "payload": {"text": "tampered-retry"},
+            "idempotency_key": "send-changed-1",
+        }, owner_token)
+        self.assertEqual(second[0], 409, second[1])
+        self.assertEqual(second[1]["error"]["code"], "idempotency_conflict")
+        self.assertEqual(self._event_rows(tenant_id, room["room_id"]), [
+            {"seq": first[1]["seq"], "kind": "room.message", "idempotency_key": "send-changed-1"}
+        ])
+        self.assertEqual(self._outbox_rows(tenant_id), before)
+
+        with self.service.backend.transaction() as tx:
+            rate_row = tx.execute(
+                "SELECT count FROM cloud_rate_windows WHERE tenant_id = ? "
+                "AND room_id = ? AND limit_key = 'messages'",
+                (tenant_id, room["room_id"]),
+            ).fetchone()
+        self.assertEqual(rate_row["count"], 1)
+
+    def test_malformed_short_link_is_a_controlled_client_error(self) -> None:
+        signup = self._signup("short-link-owner@example.com", "CorrectHorse!1")
+        room = self._create_room(signup["session_token"], cap=4)
+        joiner = self._signup("short-link-joiner@example.com", "AgentPass!1")
+        status, body = _post(self.base, "/v1/rooms/join", {
+            "room_id": room["room_id"],
+            "link_token": "rm_short",
+            "consent": True,
+        }, joiner["session_token"])
+        self.assertEqual(status, 403)
+        self.assertEqual(body["error"]["code"], "invalid_link")
 
     def test_distinct_idempotency_keys_create_distinct_events(self) -> None:
         room, agents = self._room_with_members("idem2")

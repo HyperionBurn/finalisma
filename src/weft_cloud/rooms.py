@@ -25,8 +25,10 @@ import json
 import os
 import re
 import secrets
+import threading
 import time as _time
 import uuid
+from contextlib import nullcontext
 from typing import Any
 
 from weft_cloud.storage import StorageBackend, utc_now_iso
@@ -35,10 +37,9 @@ from .identity.context import SessionContext, require_db_role
 from .identity.tokens import AuthError, hash_token
 from .quotas import (
     QuotaError,
-    create_room_with_quota,
+    bind_room_with_quota_in_tx,
     enforce_events_per_month,
     increment_room_member_counter,
-    join_room_with_quota,
     plan_limits,
     resolve_plan,
     validate_room_cap,
@@ -78,6 +79,7 @@ def _token_hash(token: str) -> str:
 
 _MESSAGE_KIND_RE = re.compile(r"^[a-z0-9_-]{1,32}$")
 _LINK_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
+_ROOM_NAME_MAX_LENGTH = 160
 
 
 def _validate_link_id(link_id: Any) -> None:
@@ -131,6 +133,23 @@ def _validate_message_kinds(value: Any) -> list[str] | None:
     return validated
 
 
+def _validate_room_name(value: Any) -> str | None:
+    """Validate optional room name before any quota/counter mutation."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise RoomError("invalid_argument", "name must be an optional string")
+    stripped = value.strip()
+    if not stripped:
+        raise RoomError("invalid_argument", "name must not be empty when provided")
+    if len(stripped) > _ROOM_NAME_MAX_LENGTH:
+        raise RoomError(
+            "invalid_argument",
+            f"name must be at most {_ROOM_NAME_MAX_LENGTH} characters",
+        )
+    return stripped
+
+
 def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
@@ -142,6 +161,116 @@ def _parse_json(raw: str | None, default: Any) -> Any:
         return json.loads(raw)
     except json.JSONDecodeError:
         raise ValueError("Persisted JSON is invalid")
+
+
+def _idempotent_receipts(tx: Any, tenant_id: str, room_id: str,
+                         sender_agent_id: str, event_row: Any) -> list[dict]:
+    """Return durable receipts for a persisted room.message event."""
+    event_payload = _parse_json(event_row["payload_json"], {})
+    original_payload = event_payload.get("payload") if isinstance(event_payload, dict) else None
+    payload_json = _json({
+        "room_id": room_id,
+        "seq": int(event_row["seq"]),
+        "payload": original_payload,
+        "sender": sender_agent_id,
+    })
+    rows = tx.execute(
+        "SELECT entry_id, recipient, status FROM cloud_outbox "
+        "WHERE tenant_id = ? AND payload_json = ? ORDER BY recipient, entry_id",
+        (tenant_id, payload_json),
+    ).fetchall()
+    return [{
+        "agent_id": row["recipient"],
+        "entry_id": row["entry_id"],
+        "status": row["status"],
+    } for row in rows]
+
+
+def _check_idempotency_conflict(event_row: Any, payload: Any,
+                                target_spec: Any, exclude_sender: bool,
+                                message_kind: str | None) -> None:
+    """Reject reuse of a key for a materially different send request."""
+    event_payload = _parse_json(event_row["payload_json"], {})
+    if not isinstance(event_payload, dict):
+        raise RoomError("idempotency_conflict", "Idempotency key is already in use", 409)
+    if (
+        event_payload.get("payload") != payload
+        or event_payload.get("target_spec") != target_spec
+        or event_payload.get("exclude_sender", True) != exclude_sender
+        or event_row["message_kind"] != message_kind
+    ):
+        raise RoomError(
+            "idempotency_conflict",
+            "Idempotency key was already used with different send parameters",
+            409,
+        )
+
+
+def _append_event_tx(tx: Any, tenant_id: str, room_id: str, origin: str,
+                     kind: str, payload: Any) -> int:
+    """Append a lifecycle event using the caller's open transaction."""
+    row = tx.execute(
+        "SELECT cursor_head FROM cloud_rooms WHERE tenant_id = ? AND room_id = ?",
+        (tenant_id, room_id),
+    ).fetchone()
+    seq = int(row["cursor_head"]) + 1
+    event_id = _new_id("revt")
+    tx.execute(
+        "INSERT INTO cloud_room_event_log("
+        " event_id, room_id, tenant_id, seq, origin_agent, kind, message_kind,"
+        " payload_json, idempotency_key, trace_id, created_at"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)",
+        (event_id, room_id, tenant_id, seq, origin, kind, None,
+         _json(payload), f"{room_id}:{kind}:{_new_id('idem')}", utc_now_iso()),
+    )
+    tx.execute(
+        "UPDATE cloud_rooms SET cursor_head = ? WHERE tenant_id = ? AND room_id = ?",
+        (seq, tenant_id, room_id),
+    )
+    return seq
+
+
+def offboard_account_memberships_in_tx(tx: Any, tenant_id: str,
+                                       account_id: str) -> int:
+    """Mark an account's active account/key room seats as left atomically."""
+    key_rows = tx.execute(
+        "SELECT key_id FROM cloud_identity_agent_keys "
+        "WHERE tenant_id = ? AND account_id = ?",
+        (tenant_id, account_id),
+    ).fetchall()
+    identities = [account_id, *[row["key_id"] for row in key_rows]]
+    placeholders = ",".join("?" for _ in identities)
+    rows = tx.execute(
+        "SELECT room_id, agent_id FROM cloud_room_members "
+        "WHERE tenant_id = ? AND status = 'active' AND agent_id IN (" + placeholders + ")",
+        (tenant_id, *identities),
+    ).fetchall()
+    for row in rows:
+        tx.execute(
+            "UPDATE cloud_room_members SET status = 'left' "
+            "WHERE tenant_id = ? AND room_id = ? AND agent_id = ? AND status = 'active'",
+            (tenant_id, row["room_id"], row["agent_id"]),
+        )
+        tx.execute(
+            "DELETE FROM cloud_room_group_members "
+            "WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
+            (tenant_id, row["room_id"], row["agent_id"]),
+        )
+        tx.execute(
+            "DELETE FROM cloud_room_cursors "
+            "WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
+            (tenant_id, row["room_id"], row["agent_id"]),
+        )
+        tx.execute(
+            "UPDATE cloud_room_counters SET value = MAX(0, value - 1), updated_at = ? "
+            "WHERE tenant_id = ? AND room_id = ? AND counter = 'members'",
+            (utc_now_iso(), tenant_id, row["room_id"]),
+        )
+        _append_event_tx(
+            tx, tenant_id, row["room_id"], row["agent_id"], "room.left",
+            {"agent_id": row["agent_id"], "reason": "org_member_removed"},
+        )
+    return len(rows)
 
 
 class RoomError(Exception):
@@ -250,6 +379,11 @@ class CloudRoomService:
 
     def __init__(self, backend: StorageBackend) -> None:
         self.backend = backend
+        # SQLite serializes writers, but the rate window is checked in a
+        # separate transaction from the event append. Serialize keyed sends
+        # in-process so two same-key retries cannot both consume the budget
+        # before one discovers the other's committed event.
+        self._idempotency_lock = threading.Lock()
         self._ensure_room_schema()
 
     # ------------------------------------------------------------------
@@ -445,6 +579,7 @@ class CloudRoomService:
             raise RoomError("invalid_argument", "cap must be an integer >= 2")
         if not isinstance(ttl_seconds, int) or ttl_seconds < 1:
             raise RoomError("invalid_argument", "ttl_seconds must be a positive integer")
+        name = _validate_room_name(name)
         # Plan-aware cap bound: a room may never ask for more members than its
         # plan allows. PLANS is the single source of truth for the limit.
         validate_room_cap(self.backend, tenant_id, cap)
@@ -458,15 +593,16 @@ class CloudRoomService:
         expires_at = now_epoch + ttl_seconds
         base_origin = public_origin(origin)
 
-        # Quota gates — both atomic in their own transactions (BEGIN IMMEDIATE).
-        # 1. Enforce the tenant's max_rooms cap; records the room binding and
-        #    increments the rooms counter in the SAME transaction as the check.
-        # 2. Count the owner's auto-join in the room's member counter so the
-        #    plan member cap counts the owner exactly like every other join.
-        create_room_with_quota(self.backend, tenant_id, room_id, self.backend.state_path)
-        join_room_with_quota(self.backend, tenant_id, room_id, owner_agent_id)
-
+        # ONE transaction for full room creation. Tenant-room quota binding,
+        # owner-member quota count, room/link/member/cursor rows, and lifecycle
+        # events commit or roll back together. A late insert failure can never
+        # leave counters ahead of persisted room state.
+        plan_id, plan = resolve_plan(self.backend, tenant_id)
         with self.backend.transaction() as tx:
+            bind_room_with_quota_in_tx(
+                tx, tenant_id, room_id, self.backend.state_path, plan_id, plan,
+            )
+            increment_room_member_counter(tx, tenant_id, room_id, plan_id, plan)
             tx.execute(
                 "INSERT INTO cloud_rooms("
                 " room_id, tenant_id, owner_agent_id, name, cap, state, link_id, created_at, expires_at, cursor_head"
@@ -516,7 +652,10 @@ class CloudRoomService:
         scoped. An invalid link yields invalid_link (no oracle on which rooms
         exist).
         """
-        link_hash = _token_hash(link_token)
+        try:
+            link_hash = _token_hash(link_token)
+        except ValueError:
+            raise RoomError("invalid_link", "Link is not valid for this room", 403)
         link_row = tx.execute(
             "SELECT * FROM cloud_room_links WHERE room_id = ? AND token_hash = ?",
             (room_id, link_hash),
@@ -1020,76 +1159,95 @@ class CloudRoomService:
         # Verify the sender is an active member BEFORE the rate gate, so a
         # non-member cannot consume the room's per-minute message budget.
         message_kind = _validate_message_kind(message_kind)
-        with self.backend.transaction() as tx:
-            room = self._require_room(tx, tenant_id, room_id)
-            self._require_member(tx, tenant_id, room_id, sender_agent_id)
-            if room["state"] == "closed":
-                raise RoomError("room_closed", "Room is closed", 409)
+        lock_context = self._idempotency_lock if idempotency_key else nullcontext()
+        with lock_context:
+            with self.backend.transaction() as tx:
+                room = self._require_room(tx, tenant_id, room_id)
+                self._require_member(tx, tenant_id, room_id, sender_agent_id)
+                if room["state"] == "closed":
+                    raise RoomError("room_closed", "Room is closed", 409)
+                if idempotency_key:
+                    existing = tx.execute(
+                        "SELECT seq, payload_json, message_kind FROM cloud_room_event_log "
+                        "WHERE tenant_id = ? AND room_id = ? AND origin_agent = ? "
+                        "AND idempotency_key = ? AND kind = 'room.message'",
+                        (tenant_id, room_id, sender_agent_id, idempotency_key),
+                    ).fetchone()
+                    if existing is not None:
+                        _check_idempotency_conflict(
+                            existing, payload, target_spec, exclude_sender, message_kind,
+                        )
+                        return {
+                            "room_id": room_id,
+                            "seq": int(existing["seq"]),
+                            "receipts": _idempotent_receipts(
+                                tx, tenant_id, room_id, sender_agent_id, existing,
+                            ),
+                        }
 
-        # Per-minute message budget, plan-driven (PLANS is the single source of
-        # truth for the limit). Refuses with rate_limited + Retry-After.
-        RateLimiter().enforce(
-            self.backend, tenant_id, room_id, "messages",
-            plan_limits(self.backend, tenant_id).max_messages_per_minute, 60,
-        )
+            # Per-minute message budget, plan-driven (PLANS is the single source of
+            # truth for the limit). Refuses with rate_limited + Retry-After.
+            RateLimiter().enforce(
+                self.backend, tenant_id, room_id, "messages",
+                plan_limits(self.backend, tenant_id).max_messages_per_minute, 60,
+            )
 
-        # Monthly event budget, plan-driven. Resolved once so the enforcement
-        # inside the append transaction does not open a second connection.
-        plan_id, plan = resolve_plan(self.backend, tenant_id)
+            # Monthly event budget, plan-driven. Resolved once so the enforcement
+            # inside the append transaction does not open a second connection.
+            plan_id, plan = resolve_plan(self.backend, tenant_id)
 
-        with self.backend.transaction() as tx:
-            room = self._require_room(tx, tenant_id, room_id)
-            self._require_member(tx, tenant_id, room_id, sender_agent_id)
-            if room["state"] == "closed":
-                raise RoomError("room_closed", "Room is closed", 409)
-            targets = self._route_targets(tx, tenant_id, room_id, target_spec)
-            if exclude_sender and sender_agent_id in targets:
-                targets = [t for t in targets if t != sender_agent_id]
+            with self.backend.transaction() as tx:
+                room = self._require_room(tx, tenant_id, room_id)
+                self._require_member(tx, tenant_id, room_id, sender_agent_id)
+                if room["state"] == "closed":
+                    raise RoomError("room_closed", "Room is closed", 409)
+                targets = self._route_targets(tx, tenant_id, room_id, target_spec)
+                if exclude_sender and sender_agent_id in targets:
+                    targets = [t for t in targets if t != sender_agent_id]
 
-            # Idempotent replay: an event with this key already exists for this
-            # sender — return its seq and its original receipts, write nothing.
-            if idempotency_key:
-                existing = tx.execute(
-                    "SELECT seq FROM cloud_room_event_log "
-                    "WHERE tenant_id = ? AND room_id = ? AND origin_agent = ? "
-                    "AND idempotency_key = ? AND kind = 'room.message'",
-                    (tenant_id, room_id, sender_agent_id, idempotency_key),
-                ).fetchone()
-                if existing is not None:
-                    seq = int(existing["seq"])
-                    payload_json = _json({"room_id": room_id, "seq": seq,
-                                          "payload": payload, "sender": sender_agent_id})
-                    rows = tx.execute(
-                        "SELECT entry_id, recipient FROM cloud_outbox "
-                        "WHERE tenant_id = ? AND payload_json = ? ORDER BY recipient",
-                        (tenant_id, payload_json),
-                    ).fetchall()
-                    receipts = [{"agent_id": r["recipient"], "entry_id": r["entry_id"],
-                                 "status": "queued"} for r in rows]
-                    return {"room_id": room_id, "seq": seq, "receipts": receipts}
+                # Idempotent replay: an event with this key already exists for
+                # this sender — return its original result, or reject changed
+                # parameters, without writing or charging the rate window.
+                if idempotency_key:
+                    existing = tx.execute(
+                        "SELECT seq, payload_json, message_kind FROM cloud_room_event_log "
+                        "WHERE tenant_id = ? AND room_id = ? AND origin_agent = ? "
+                        "AND idempotency_key = ? AND kind = 'room.message'",
+                        (tenant_id, room_id, sender_agent_id, idempotency_key),
+                    ).fetchone()
+                    if existing is not None:
+                        _check_idempotency_conflict(
+                            existing, payload, target_spec, exclude_sender, message_kind,
+                        )
+                        seq = int(existing["seq"])
+                        receipts = _idempotent_receipts(
+                            tx, tenant_id, room_id, sender_agent_id, existing,
+                        )
+                        return {"room_id": room_id, "seq": seq, "receipts": receipts}
 
-            # Enforce + count the monthly event budget in the SAME transaction
-            # as the append, so a refused message leaves no counter trace.
-            enforce_events_per_month(tx, tenant_id, plan_id, plan)
-            seq = self._append_event(tx, tenant_id, room_id, sender_agent_id, "room.message",
-                                     {"payload": payload, "target_spec": target_spec,
-                                      "targets": targets},
-                                     message_kind=message_kind,
-                                     idempotency_key=idempotency_key)
-            # Build receipts (one per target) — durable via the cloud outbox,
-            # committed IN THE SAME transaction as the event (all-or-nothing).
-            envelope_id = _new_id("oev")
-            receipts = []
-            for target in targets:
-                entry_id = self.backend.enqueue_outbox_in_tx(
-                    tx, tenant_id, envelope_id, target,
-                    _json({"room_id": room_id, "seq": seq, "payload": payload,
-                           "sender": sender_agent_id}),
-                )
-                receipts.append({"agent_id": target, "entry_id": entry_id, "status": "queued"})
-            tx.commit()
+                # Enforce + count the monthly event budget in the SAME transaction
+                # as the append, so a refused message leaves no counter trace.
+                enforce_events_per_month(tx, tenant_id, plan_id, plan)
+                seq = self._append_event(tx, tenant_id, room_id, sender_agent_id, "room.message",
+                                         {"payload": payload, "target_spec": target_spec,
+                                          "exclude_sender": exclude_sender,
+                                          "targets": targets},
+                                         message_kind=message_kind,
+                                         idempotency_key=idempotency_key)
+                # Build receipts (one per target) — durable via the cloud outbox,
+                # committed IN THE SAME transaction as the event (all-or-nothing).
+                envelope_id = _new_id("oev")
+                receipts = []
+                for target in targets:
+                    entry_id = self.backend.enqueue_outbox_in_tx(
+                        tx, tenant_id, envelope_id, target,
+                        _json({"room_id": room_id, "seq": seq, "payload": payload,
+                               "sender": sender_agent_id}),
+                    )
+                    receipts.append({"agent_id": target, "entry_id": entry_id, "status": "queued"})
+                tx.commit()
 
-        return {"room_id": room_id, "seq": seq, "receipts": receipts}
+            return {"room_id": room_id, "seq": seq, "receipts": receipts}
 
     # ------------------------------------------------------------------
     # Groups

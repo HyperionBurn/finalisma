@@ -140,6 +140,37 @@ def increment_room_member_counter(tx, tenant_id: str, room_id: str, plan_id: str
     )
 
 
+def bind_room_with_quota_in_tx(tx, tenant_id: str, room_id: str,
+                               coordinator_db_path: str, plan_id: str,
+                               plan: PlanLimits) -> None:
+    """Tenant-room cap check + binding + counter increment on an OPEN transaction."""
+    current = tx.execute(
+        "SELECT value FROM cloud_counters WHERE tenant_id = ? AND counter = 'rooms'",
+        (tenant_id,),
+    ).fetchone()
+    current_count = int(current["value"]) if current else 0
+    if current_count >= plan.max_rooms:
+        raise QuotaError(
+            "quota_exceeded",
+            f"tenant room limit reached (max {plan.max_rooms} rooms "
+            f"on the {plan_id} plan)",
+            limit_name="max_rooms",
+            limit_value=plan.max_rooms,
+            plan_id=plan_id,
+        )
+    tx.execute(
+        "INSERT INTO cloud_tenant_rooms(tenant_id, room_id, coordinator_db_path, created_at) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(tenant_id, room_id) DO NOTHING",
+        (tenant_id, room_id, coordinator_db_path, utc_now_iso()),
+    )
+    tx.execute(
+        "INSERT INTO cloud_counters(tenant_id, counter, value, updated_at) VALUES (?, 'rooms', 1, ?) "
+        "ON CONFLICT(tenant_id, counter) DO UPDATE SET value = value + 1, "
+        "updated_at = excluded.updated_at",
+        (tenant_id, utc_now_iso()),
+    )
+
+
 def events_month_bucket() -> str:
     """Counter key for the current calendar month (UTC), e.g. ``events:2026-08``.
 
@@ -181,32 +212,9 @@ def enforce_events_per_month(tx, tenant_id: str, plan_id: str, plan: PlanLimits)
 
 
 def create_room_with_quota(backend, tenant_id: str, room_id: str, coordinator_db_path: str) -> dict:
-    """Create a room, enforcing the tenant's room-count cap atomically."""
+    """Create a room binding, enforcing the tenant's room-count cap atomically."""
     plan_id, plan = resolve_plan(backend, tenant_id)
     with backend.transaction() as tx:
-        current = tx.execute(
-            "SELECT value FROM cloud_counters WHERE tenant_id = ? AND counter = 'rooms'",
-            (tenant_id,),
-        ).fetchone()
-        current_count = int(current["value"]) if current else 0
-        if current_count >= plan.max_rooms:
-            raise QuotaError(
-                "quota_exceeded",
-                f"tenant room limit reached (max {plan.max_rooms} rooms "
-                f"on the {plan_id} plan)",
-                limit_name="max_rooms",
-                limit_value=plan.max_rooms,
-                plan_id=plan_id,
-            )
-        tx.execute(
-            "INSERT INTO cloud_tenant_rooms(tenant_id, room_id, coordinator_db_path, created_at) VALUES (?, ?, ?, ?) "
-            "ON CONFLICT(tenant_id, room_id) DO NOTHING",
-            (tenant_id, room_id, coordinator_db_path, "2026-08-05T00:00:00Z"),
-        )
-        tx.execute(
-            "INSERT INTO cloud_counters(tenant_id, counter, value, updated_at) VALUES (?, 'rooms', 1, ?) "
-            "ON CONFLICT(tenant_id, counter) DO UPDATE SET value = value + 1",
-            (tenant_id, "rooms"),
-        )
+        bind_room_with_quota_in_tx(tx, tenant_id, room_id, coordinator_db_path, plan_id, plan)
         tx.commit()
     return {"created": True, "room_id": room_id}

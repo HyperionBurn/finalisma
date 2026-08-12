@@ -119,6 +119,24 @@ class WebAppDriver:
             self._tmp.cleanup()
 
 
+def provision_verified_member(driver: WebAppDriver, tenant_id: str, email: str, password: str) -> str:
+    """Provision a web-auth fixture with the production membership contract."""
+    from weft_cloud.identity.accounts import _create_account
+    from weft_cloud.storage import utc_now_iso
+
+    account_id = _create_account(
+        driver.backend, tenant_id, email, password, email_verified=1
+    )
+    with driver.backend.transaction() as tx:
+        tx.execute(
+            "INSERT OR IGNORE INTO cloud_identity_members(tenant_id, account_id, role, joined_at) "
+            "VALUES (?, ?, 'owner', ?)",
+            (tenant_id, account_id, utc_now_iso()),
+        )
+        tx.commit()
+    return account_id
+
+
 class TestSignup(unittest.TestCase):
     def setUp(self):
         self.driver = WebAppDriver()
@@ -174,11 +192,8 @@ class TestLogin(unittest.TestCase):
         self.driver = WebAppDriver()
         self.email = f"login{time.time_ns()}@example.com"
         self.password = "login-password-ok"
-        # Pre-create a verified account directly via identity plane.
-        from weft_cloud.identity.accounts import _create_account
-
         self.driver.backend.create_tenant("tenant-x", self.email, "free")
-        _create_account(self.driver.backend, "tenant-x", self.email, self.password, email_verified=1)
+        provision_verified_member(self.driver, "tenant-x", self.email, self.password)
 
     def tearDown(self):
         self.driver.close()
@@ -305,11 +320,7 @@ class TestResetPassword(unittest.TestCase):
         self.email = f"reset{time.time_ns()}@example.com"
         self.old_password = "old-password-ok-long"
         self.driver.backend.create_tenant("tenant-r", self.email, "free")
-        from weft_cloud.identity.accounts import _create_account
-
-        _create_account(
-            self.driver.backend, "tenant-r", self.email, self.old_password, email_verified=1
-        )
+        provision_verified_member(self.driver, "tenant-r", self.email, self.old_password)
 
     def tearDown(self):
         self.driver.close()
@@ -430,11 +441,7 @@ class TestLogout(unittest.TestCase):
         self.email = f"logout{time.time_ns()}@example.com"
         self.password = "logout-password-ok"
         self.driver.backend.create_tenant("tenant-l", self.email, "free")
-        from weft_cloud.identity.accounts import _create_account
-
-        _create_account(
-            self.driver.backend, "tenant-l", self.email, self.password, email_verified=1
-        )
+        provision_verified_member(self.driver, "tenant-l", self.email, self.password)
         s, _, _ = self.driver.post("/login", {"email": self.email, "password": self.password})
         self.assertEqual(s, 303)
         self.assertIn("fss_session", self.driver.cookies)
@@ -542,9 +549,7 @@ class TestEmailMessaging(unittest.TestCase):
         try:
             email = f"resetmsg{time.time_ns()}@example.com"
             driver.backend.create_tenant("tenant-rm", email, "free")
-            from weft_cloud.identity.accounts import _create_account
-
-            _create_account(driver.backend, "tenant-rm", email, "old-password-ok", email_verified=1)
+            provision_verified_member(driver, "tenant-rm", email, "old-password-ok")
             status, _, headers = driver.post("/reset-request", {"email": email})
             self.assertEqual(status, 303)
             self.assertTrue(headers["Location"].startswith("/login?reset_sent=1"))
@@ -561,9 +566,7 @@ class TestEmailMessaging(unittest.TestCase):
         try:
             email = f"resetcfg{time.time_ns()}@example.com"
             driver.backend.create_tenant("tenant-rc", email, "free")
-            from weft_cloud.identity.accounts import _create_account
-
-            _create_account(driver.backend, "tenant-rc", email, "old-password-ok", email_verified=1)
+            provision_verified_member(driver, "tenant-rc", email, "old-password-ok")
             driver.post("/reset-request", {"email": email})
             status, body, _ = driver.get("/login?reset_sent=1")
             self.assertEqual(status, 200)
@@ -583,9 +586,7 @@ class TestEmailMessaging(unittest.TestCase):
         try:
             email = f"leakcheck{time.time_ns()}@example.com"
             driver.backend.create_tenant("tenant-lk", email, "free")
-            from weft_cloud.identity.accounts import _create_account
-
-            _create_account(driver.backend, "tenant-lk", email, "old-password-ok", email_verified=1)
+            provision_verified_member(driver, "tenant-lk", email, "old-password-ok")
             status, body, headers = driver.post("/reset-request", {"email": email})
             self.assertEqual(status, 303)
             # 303 has no body, but assert the invariant anyway.
@@ -644,11 +645,7 @@ class TestResetRequestRateLimits(unittest.TestCase):
         # A known address (registered) and a ghost address must be refused
         # with an IDENTICAL 429 so throttling cannot enumerate accounts.
         self.driver.backend.create_tenant("t-reset", "known@example.com", "free")
-        from weft_cloud.identity.accounts import _create_account
-        _create_account(
-            self.driver.backend, "t-reset", "known@example.com", "CorrectHorse!1",
-            email_verified=1,
-        )
+        provision_verified_member(self.driver, "t-reset", "known@example.com", "CorrectHorse!1")
         for _ in range(3):
             self._post("known@example.com")
         known = self._post("known@example.com")
@@ -687,11 +684,7 @@ class TestNoSecretsInHtml(unittest.TestCase):
         self.email = f"secrets{time.time_ns()}@example.com"
         self.password = "secret-password-do-not-leak"
         self.driver.backend.create_tenant("tenant-s", self.email, "free")
-        from weft_cloud.identity.accounts import _create_account
-
-        _create_account(
-            self.driver.backend, "tenant-s", self.email, self.password, email_verified=1
-        )
+        provision_verified_member(self.driver, "tenant-s", self.email, self.password)
 
     def tearDown(self):
         self.driver.close()

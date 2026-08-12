@@ -178,6 +178,11 @@ class OrgsRolesStructuralEnforcementTests(unittest.TestCase):
         members_after = orgs.list_members(admin_b_ctx)
         self.assertNotIn(new_id, {m["account_id"] for m in members_after})
 
+    def test_owner_cannot_be_removed_without_explicit_transfer(self) -> None:
+        with self.assertRaises(RoleError) as ctx_exc:
+            orgs.remove_member(self.owner_ctx, self.owner_id)
+        self.assertEqual(ctx_exc.exception.code, "forbidden")
+
     # -- 7. role change revokes the target's existing sessions (rotation) --
     def test_set_role_revokes_target_sessions(self) -> None:
         orgs.add_member(self.owner_ctx, "promotee@example.com", role="member")

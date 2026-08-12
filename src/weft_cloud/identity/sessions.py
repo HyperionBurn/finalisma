@@ -119,6 +119,15 @@ def revoke_all_for_account(backend: Any, account_id: str) -> None:
         tx.commit()
 
 
+def revoke_all_for_tenant_account_in_tx(tx: Any, tenant_id: str, account_id: str) -> None:
+    """Revoke an account's sessions for one tenant on an open transaction."""
+    tx.execute(
+        "UPDATE cloud_identity_sessions SET revoked_at = ? "
+        "WHERE tenant_id = ? AND account_id = ? AND revoked_at IS NULL",
+        (_time.time(), tenant_id, account_id),
+    )
+
+
 def revoke_all_for_tenant(backend: Any, tenant_id: str) -> None:
     """Nuclear option: revoke every session in a tenant."""
     ensure_schema(backend)

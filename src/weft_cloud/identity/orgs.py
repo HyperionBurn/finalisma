@@ -25,10 +25,14 @@ from typing import Any
 from weft_cloud.storage import utc_now_iso
 
 from . import accounts
-from .agent_keys import revoke_all_for_tenant_account_in_tx
-from .context import ROLE_RANK, SessionContext, require_db_role
+from .agent_keys import (
+    revoke_all_for_tenant_account_in_tx as revoke_all_agent_keys_for_tenant_account_in_tx,
+)
+from .context import ROLE_RANK, RoleError, SessionContext, require_db_role
 from .schema import ensure_schema
-from .sessions import revoke_all_for_account
+from .sessions import (
+    revoke_all_for_tenant_account_in_tx as revoke_all_sessions_for_tenant_account_in_tx,
+)
 
 # Stage-1 org-bootstrap provisioning password. The Wave G integration contract
 # calls ``add_member(ctx, email, role)`` with NO password parameter, then
@@ -96,20 +100,47 @@ def remove_member(ctx: SessionContext, account_id: str) -> None:
     """Remove an account from the org (admin/owner only).
 
     A removed member's sessions are revoked so their credentials no longer
-    authenticate against the org (mirrors ``set_role`` rotation).
+    authenticate against the org (mirrors ``set_role`` rotation). Owners are
+    never silently removed: transfer ownership first, and refuse while the
+    account still owns any active rooms so close/revoke authority cannot be
+    orphaned.
     """
     ctx = _require_ctx(ctx)
     ensure_schema(ctx.backend)
     ctx.require_role("admin")
     require_db_role(ctx.backend, ctx.tenant_id, ctx.account_id, "admin")
     with ctx.backend.transaction() as tx:
+        target = tx.execute(
+            "SELECT role FROM cloud_identity_members "
+            "WHERE tenant_id = ? AND account_id = ?",
+            (ctx.tenant_id, account_id),
+        ).fetchone()
+        if target is not None and target["role"] == "owner":
+            raise RoleError("forbidden")
+        key_rows = tx.execute(
+            "SELECT key_id FROM cloud_identity_agent_keys "
+            "WHERE tenant_id = ? AND account_id = ?",
+            (ctx.tenant_id, account_id),
+        ).fetchall()
+        owner_ids = [account_id, *[row["key_id"] for row in key_rows]]
+        owner_placeholders = ",".join("?" for _ in owner_ids)
+        active_room = tx.execute(
+            "SELECT 1 FROM cloud_rooms WHERE tenant_id = ? "
+            "AND owner_agent_id IN (" + owner_placeholders + ") "
+            "AND state != 'closed' LIMIT 1",
+            (ctx.tenant_id, *owner_ids),
+        ).fetchone()
+        if active_room is not None:
+            raise RoleError("forbidden")
         tx.execute(
             "DELETE FROM cloud_identity_members WHERE tenant_id = ? AND account_id = ?",
             (ctx.tenant_id, account_id),
         )
-        revoke_all_for_tenant_account_in_tx(tx, ctx.tenant_id, account_id)
+        revoke_all_agent_keys_for_tenant_account_in_tx(tx, ctx.tenant_id, account_id)
+        revoke_all_sessions_for_tenant_account_in_tx(tx, ctx.tenant_id, account_id)
+        from weft_cloud.rooms import offboard_account_memberships_in_tx
+        offboard_account_memberships_in_tx(tx, ctx.tenant_id, account_id)
         tx.commit()
-    revoke_all_for_account(ctx.backend, account_id)
 
 
 def set_role(ctx: SessionContext, account_id: str, new_role: str) -> None:
@@ -132,9 +163,8 @@ def set_role(ctx: SessionContext, account_id: str, new_role: str) -> None:
             "UPDATE cloud_identity_members SET role = ? WHERE tenant_id = ? AND account_id = ?",
             (new_role, ctx.tenant_id, account_id),
         )
+        revoke_all_sessions_for_tenant_account_in_tx(tx, ctx.tenant_id, account_id)
         tx.commit()
-    # Rotation: every session for the account is revoked; re-auth re-snapshots.
-    revoke_all_for_account(ctx.backend, account_id)
 
 
 def delete_org(ctx: SessionContext) -> None:

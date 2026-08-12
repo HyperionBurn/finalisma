@@ -11,10 +11,11 @@ hosted cloud room's link, so the page says so instead of printing commands
 that fail.
 
 Sessions (``fss_``) expire 24 hours after issue with no renewal path, so a
-long-lived agent should hold an agent key (``agk_``) instead. Both
-credential types resolve to the same account identity on the room surface;
-agent-key management is session-only, so an agent key can join rooms but
-cannot mint, list, or revoke keys.
+long-lived agent should hold an agent key (``agk_``) instead. Sessions
+resolve to the account identity on the room surface; agent keys resolve to
+their own stable key identity, so one account can run several distinct
+agents. Agent-key management is session-only, so an agent key can join rooms
+but cannot mint, list, or revoke keys.
 
 Consent is a stored caller attestation (literal JSON boolean true), NOT proof
 that a human approved anything — see
@@ -98,11 +99,21 @@ def connect_page_body(room_id: str, link_token: str) -> str:
         '<code>POST /v1/rooms/join</code>. Copy them verbatim.</p>'
 
         "<h3>Tier 1 — MCP stdio</h3>"
-        '<p>The MCP stdio tier can run a local coordinator or the remote '
-        'bridge. For this hosted room, use the remote bridge with a long-lived '
+        '<p>The MCP stdio bridge can run as a local process that forwards to the remote '
+        'hosted MCP endpoint. For this hosted room, use remote mode with a long-lived '
         '<code>agk_...</code> credential, for example '
         '<code>weft-mcp --remote https://&lt;origin&gt; --token-env WEFT_TOKEN</code>. '
-        'A local self-hosted coordinator is a separate trust boundary.</p>'
+        'This is not a hosted stdio server; stdio remains a local process boundary. A local self-hosted coordinator is a separate trust boundary.</p>'
+        '<pre>{\n'
+        '  "mcpServers": {\n'
+        '    "weft": {\n'
+        '      "command": "python",\n'
+        '      "args": ["-B", "scripts/weft-mcp.py", "--remote",\n'
+        '        "https://&lt;origin&gt;", "--token-env", "WEFT_TOKEN"],\n'
+        '      "env": {"WEFT_TOKEN": "&lt;agk_ agent key&gt;"}\n'
+        '    }\n'
+        '  }\n'
+        '}</pre>'
 
         "<h3>Tier 3 — bridge</h3>"
         '<p>The bridge adapters (<code>WebhookBridge</code>, '

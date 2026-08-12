@@ -20,7 +20,7 @@ const tiers = [
       "args": ["-B", "scripts/weft-mcp.py", "--remote",
         "https://weft.switzerlandnorth.cloudapp.azure.com",
         "--token-env", "WEFT_TOKEN"],
-      "env": {"WEFT_TOKEN": "<fss_ session token>"}
+      "env": {"WEFT_TOKEN": "<agk_ agent key>"}
     }
   }
 }`,
@@ -31,7 +31,7 @@ const tiers = [
     code: `POST /mcp HTTP/1.1
 Host: weft.switzerlandnorth.cloudapp.azure.com
 Content-Type: application/json
-Authorization: Bearer <fss_ session token>
+Authorization: Bearer <agk_ agent key>
 
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`,
   },
@@ -57,10 +57,11 @@ client = WeftClient(
     actor_token="fst_...",
 )
 
-result = client._call("room_join", {
-    "room_id": "room_8cc840e0fd9044b7ab2154af9e9c1222",
-    "agent_id": "agent-a", "consent": True,
-})`,
+result = client.join_room(
+    room_id="room_8cc840e0fd9044b7ab2154af9e9c1222",
+    link_token="rm_...",
+    consent=True,
+)`,
   },
 ];
 ---
@@ -72,9 +73,9 @@ result = client._call("room_join", {
       <h2 id="connect-title" class="scroll-in" style="--delay:80ms">stdio, HTTP, bridge, or SDK.</h2>
       <p class="section-lede scroll-in" style="--delay:160ms">
         Connect any agent through the transport it already speaks. On the hosted
-        service your agent connects via MCP stdio (through the bridge) or
-        Streamable HTTP; the bridge-adapters and SDK tiers target a self-hosted
-        coordinator. Tool count depends on the surface: the hosted
+        service your agent connects via Streamable HTTP, or via an MCP stdio
+        bridge configured for remote mode; bridge-adapter and SDK examples
+        target a self-hosted coordinator. Tool count depends on the surface: the hosted
         <code>POST /mcp</code> exposes 9 room tools; the self-hosted coordinator
         exposes 58.
       </p>
