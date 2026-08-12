@@ -28,7 +28,9 @@ surface beats a large unsafe one.
 
 Identity rules:
 
-  - Agent identity is ALWAYS the authenticated ``account_id``. Client-supplied
+  - Agent identity is ALWAYS the authenticated identity — the ``account_id``
+    for a session, a key-derived identity for an agent key — so one account
+    running several keys gets several distinct room members. Client-supplied
     ``agent_id`` / ``actor_token`` / ``team_id`` / ``tenant_id`` /
     ``owner_agent_id`` / ``sender_agent_id`` / ``caller_agent_id`` arguments
     are rejected, so one account cannot impersonate another or mint arbitrary

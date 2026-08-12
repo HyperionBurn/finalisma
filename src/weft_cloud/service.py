@@ -451,10 +451,10 @@ class WeftCloudService:
         Identity is derived from the authenticated session (``ctx``) and NEVER
         from the request body — accepting ``agent_id`` / ``sender_agent_id`` /
         ``owner_agent_id`` and friends was the live cross-tenant impersonation
-        vulnerability on this service. ``allow_self_owner`` lets the room
+        vulnerability on this service.         ``allow_self_owner`` lets the room
         create/connect endpoints accept an ``owner_agent_id`` that names the
         caller THEMSELVES (redundant, but harmless); the handler still verifies
-        it equals ``ctx.account_id``.
+        it equals ``ctx.agent_id`` (the caller's authenticated identity).
         """
         supplied = sorted(set(body) & _FORBIDDEN_IDENTITY_ARGS)
         if not supplied:
