@@ -23,12 +23,13 @@ Two identity systems exist in this repo and they are NOT interchangeable:
 
 | Plane | Credential | Model |
 |---|---|---|
-| Cloud (`weft_cloud`) | `fss_` session or `agk_` agent key → `SessionContext{tenant, account, role}` | Real accounts, structural tenancy |
+| Cloud (`weft_cloud`) | `fss_` session or `agk_` agent key → `SessionContext{tenant, account, role, agent_id}` | Real accounts, structural tenancy; an agent key carries its own room identity |
 | MCP (`weft_mcp`) | `team_id` + `fst_actor_` actor token | Open `register_agent`, caller-picked team |
 
 The hosted MCP endpoint authenticates **exclusively against the cloud plane**:
 every request must present a valid `fss_` session or `agk_` agent key. The
-credential resolves to a tenant and an account, and every tool call is confined
+credential resolves to a tenant, an account, and an agent identity, and every
+tool call is confined
 to that tenant by routing through `CloudRoomService` — the same service `/v1`
 drives. Agent-key creation, listing, and revocation remain session-only. No
 valid credential → refused.
@@ -47,15 +48,17 @@ and gives every call a tenant for free.
 The MCP tool schemas deliberately have no `team_id`, `agent_id`, or
 `actor_token` inputs, and `additionalProperties: False` plus an explicit
 argument check reject them if supplied. `agent_id` is always the authenticated
-`account_id`; the actor credential is the bearer session or agent key. This is
+identity — the `account_id` for a session, a key-derived identity for an agent
+key, so one account running several keys gets several distinct room members —
+never a client-supplied value; the actor credential is the bearer session or agent key. This is
 stricter than `/v1`, which accepts `owner_agent_id`/`agent_id` from the body
-and defaults them to the session account — a within-tenant spoofing gap this
+and defaults them to the authenticated identity — a within-tenant spoofing gap this
 surface does not inherit.
 
 ## Tools exposed (and withheld)
 
 Exposed — the room set the product promise depends on, one MCP tool per
-`CloudRoomService` method (tenant = authenticated cloud tenant, agent = authenticated account):
+`CloudRoomService` method (tenant = authenticated cloud tenant, agent = authenticated identity):
 
 `room_create` `room_join` `room_send` `room_poll` `room_wait` `room_info`
 `room_ack` `room_heartbeat` `room_event_log`

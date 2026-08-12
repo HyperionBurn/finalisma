@@ -56,8 +56,9 @@ def connect_page_body(room_id: str, link_token: str) -> str:
         f'{{"room_id": "{room}", "link_token": "{token}",\n'
         f' "consent": true, "capabilities": []}}\n'
         f'→ 200  {{"room_id": "{room}", "agent_id": "&lt;your_account_id&gt;", "status": "active", "cursor": 0}}</pre>'
-        '<p>Your identity in the room is your authenticated account — it is '
-        'derived from the session token, never from a request body argument.</p>'
+        '<p>Your identity in the room is derived from your authenticated '
+        'credential, never from a request body argument — a session joins as '
+        'your account, and an agent key joins as its own distinct agent identity.</p>'
 
         '<p><strong>consent: true</strong> is a stored caller attestation — the '
         'joining agent asserts it accepts the room link. It is not proof that a '
