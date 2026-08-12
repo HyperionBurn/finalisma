@@ -1,12 +1,14 @@
 """Vercel build hook: materialize the release bundle before static deploy.
 
 ``vercel.json`` points ``outputDirectory`` at ``artifacts/release-site`` and
-runs this script as ``buildCommand``. Raw ``site/`` is the source of truth but
-deliberately contains no public origin or founder address; this hook injects
-those two deployment-owned values through ``build-site-release.py`` so the
-deployed bundle carries the canonical/OG/JSON-LD URLs, the founder contact
+runs this script as ``buildCommand``. Raw ``site/`` is the source of truth: it
+carries the documented marketing origin (canonical/OG URLs, robots policy,
+committed sitemap.xml) but no founder address. This hook injects the
+deployment-owned origin and contact values through ``build-site-release.py`` so
+the deployed bundle carries the canonical/OG/JSON-LD URLs, the founder contact
 CTA, ``sitemap.xml``, the ``robots.txt`` Sitemap line, and
-``release-manifest.json`` that a raw ``site/`` deploy silently loses.
+``release-manifest.json``, with the canonical/OG URLs and robots Sitemap line
+rewritten to the deployment origin.
 
 Values come from the Vercel project's build environment, not from the repo:
 

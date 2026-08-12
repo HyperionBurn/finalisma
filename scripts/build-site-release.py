@@ -1,8 +1,11 @@
 """Build a deployment-ready Weft site from the truthful local source.
 
-The source bundle deliberately contains no invented public origin or founder
-address. This command accepts those two deployment-owned values and writes an
-isolated release bundle under artifacts/ by default.
+The source bundle carries the documented marketing origin (canonical/OG URLs,
+robots Sitemap line, committed sitemap.xml) but no invented placeholder domain
+or founder address. This command accepts the deployment-owned origin and
+contact values, rewrites the canonical/OG URLs and robots Sitemap line to the
+deployment origin, and writes an isolated release bundle under artifacts/ by
+default.
 """
 
 from __future__ import annotations
@@ -170,11 +173,12 @@ def build_release(*, origin: str, contact_url: str, output: Path, force: bool = 
 
     robots_path = resolved_output / "robots.txt"
     robots = robots_path.read_text(encoding="utf-8").rstrip()
-    robots_path.write_text(
-        f"{robots}\nSitemap: {normalized_origin}/sitemap.xml\n",
-        encoding="utf-8",
-        newline="\n",
-    )
+    sitemap_line = f"Sitemap: {normalized_origin}/sitemap.xml"
+    if re.search(r"(?m)^\s*Sitemap:", robots):
+        robots = re.sub(r"(?m)^\s*Sitemap:.*$", sitemap_line, robots, count=1)
+    else:
+        robots = f"{robots}\n{sitemap_line}"
+    robots_path.write_text(f"{robots}\n", encoding="utf-8", newline="\n")
 
     media_paths = [
         resolved_output / "assets" / "weft-demo.mp4",

@@ -134,10 +134,14 @@ policy.
 ## 7. Materialize the public deployment bundle
 
 Keep the source tree free of placeholder domains and founder addresses. The
-Vercel deploy runs the materializer as its build command (`scripts/vercel-build.py`
-→ `scripts/build-site-release.py`), so a push to the connected branch is already
-a materialized release. The origin defaults to the documented marketing URL
-(`WEFT_SITE_ORIGIN`), and `WEFT_CONTACT_URL` — a founder-owned HTTPS contact
+source pages carry the documented marketing origin in `rel="canonical"` and
+`og:url`, a real `robots.txt` policy, and a committed `sitemap.xml`, so even a
+raw `site/` deploy is SEO-correct. The Vercel deploy runs the materializer as
+its build command (`scripts/vercel-build.py` → `scripts/build-site-release.py`),
+so a push to the connected branch is already a materialized release. The
+materializer rewrites the baked canonical/OG URLs to the deployment origin
+(`WEFT_SITE_ORIGIN`, default `https://finalisma.vercel.app`), so a non-default
+origin stays correct too. `WEFT_CONTACT_URL` — a founder-owned HTTPS contact
 form or `mailto:` address — must be set in the Vercel project build
 environment. If it is unset the build fails loudly rather than shipping a site
 whose contact CTA was never injected.

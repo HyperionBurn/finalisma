@@ -28,12 +28,15 @@ files) — free, TLS, real domain, no server. The Vercel build command is
 (`scripts/build-site-release.py`) over the committed `site/` bundle. The deploy
 therefore serves the **materialized** release — canonical/OG/JSON-LD URLs, the
 founder contact CTA, `sitemap.xml`, the `robots.txt` Sitemap line, and
-`release-manifest.json` — not the raw `site/` directory. The materializer reads
-`WEFT_SITE_ORIGIN` (default `https://finalisma.vercel.app`) and requires
-`WEFT_CONTACT_URL` (a founder-owned HTTPS contact form or `mailto:`); if the
-contact URL is unset the build fails rather than shipping a site whose contact
-link was never injected. Both are set in the Vercel project build environment,
-not in the repository.
+`release-manifest.json`. The source `site/` pages carry the documented marketing
+origin in `rel="canonical"` and `og:url`, a real `robots.txt` policy, and a
+committed `sitemap.xml`, so even a raw `site/` deploy is SEO-correct; the
+materializer rewrites the canonical/OG URLs to the deployment origin
+(`WEFT_SITE_ORIGIN`, default `https://finalisma.vercel.app`) at build time. The
+materializer reads `WEFT_SITE_ORIGIN` and requires `WEFT_CONTACT_URL` (a
+founder-owned HTTPS contact form or `mailto:`); if the contact URL is unset the
+build fails rather than shipping a site whose contact link was never injected.
+Both are set in the Vercel project build environment, not in the repository.
 
 Vercel **cannot** host the backend: state is a SQLite file in WAL mode (one writer, persistent
 disk) and agents **poll** the room, so the service must stay warm. Vercel is ephemeral-filesystem
