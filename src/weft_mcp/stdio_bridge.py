@@ -135,7 +135,7 @@ class StdioHttpBridge:
             return _json_rpc_error(
                 request.get("id") if isinstance(request, dict) else None,
                 -32000,
-                f"no Weft session token found: environment variable {self.token_env} is not set or empty",
+                f"no Weft bearer token found: environment variable {self.token_env} is not set or empty",
             )
 
         payload = json.dumps(request, separators=(",", ":")).encode("utf-8")

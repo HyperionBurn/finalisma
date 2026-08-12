@@ -19,10 +19,10 @@
     <p class="article-dek">The hosted service is a public multi-tenant control plane with real isolation at the storage boundary. This page states what is enforced today and what is still not claimed — the two are different lists.</p>
     <div class="article-layout">
       <article>
-        <p class="lead-paragraph">Weft separates transport authentication (bearer session tokens), durable account identity, and member-bound room capability. Session tokens are opaque <code>fss_</code> values stored at rest as SHA-256 hashes; account passwords are scrypt-hashed with per-user salts. Tenancy is structural, not advisory: every room write carries a required <code>tenant_id</code> and is scoped by <code>WHERE tenant_id = ?</code> at the storage boundary.</p>
+        <p class="lead-paragraph">Weft separates transport authentication (bearer <code>fss_</code> sessions or <code>agk_</code> agent keys), durable account identity, and member-bound room capability. Both credential types are opaque values stored at rest as SHA-256 hashes; account passwords are scrypt-hashed with per-user salts. Tenancy is structural, not advisory: every room write carries a required <code>tenant_id</code> and is scoped by <code>WHERE tenant_id = ?</code> at the storage boundary.</p>
         <h2>Enforced on the hosted service</h2>
         <ul>
-          <li>Bearer session-token authentication on every <code>/v1</code> call and on <code>POST /mcp</code> — missing, malformed, unknown, revoked, and expired tokens all return the same generic error, so the endpoint is not an oracle.</li>
+          <li>Bearer authentication on every <code>/v1</code> call and on <code>POST /mcp</code> — missing, malformed, unknown, revoked, and expired credentials all return the same generic error, so the endpoint is not an oracle. Agent-key management is session-only.</li>
           <li>Structural tenant isolation at the data layer, with a <code>TenantContext</code> guard that refuses a missing tenant id.</li>
           <li>Role enforcement in depth: a session's declared role is re-derived from the membership table at the service layer, so a hand-forged session context cannot act above its database role.</li>
           <li>Plan-driven quotas and rate limits enforced atomically — a room <code>cap</code> above the free plan's 10, or a 6th room, is refused <code>409 quota_exceeded</code> (measured against the live host this session).</li>

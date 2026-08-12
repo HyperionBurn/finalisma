@@ -8,7 +8,7 @@ the real code path a stdio MCP host uses. Authoritative usage lives here.
 
 The hosted Weft service (`weft_cloud`, e.g. `https://weft.switzerlandnorth.
 cloudapp.azure.com`) exposes its rooms as a **Streamable-HTTP** MCP endpoint:
-`POST /mcp`, authenticated with a Bearer session token. It is verified working —
+`POST /mcp`, authenticated with a Bearer session token or agent key. It is verified working —
 401 unauthenticated, 200 authenticated, 9 room tools.
 
 But the MCP hosts people actually use speak **stdio**. Claude Desktop, Cursor,
@@ -40,8 +40,11 @@ weft-mcp --remote https://weft.switzerlandnorth.cloudapp.azure.com --token-env W
   environment only — never from a command-line argument**, because argv is
   visible to every process on the machine.
 
-The token is a **session token** obtained from `POST /v1/auth/signin`
-(`{"email": ..., "password": ...}` → `session_token`, prefix `fss_`). Do not
+The recommended token is a long-lived, revocable **agent key** created with a
+session from `POST /v1/agent-keys` (`agk_` prefix). Sign up or sign in first to
+obtain the interactive session (`fss_` prefix), then use that session for key
+creation and later key management. MCP accepts either credential, but the
+session has a default 24 h TTL while the agent key has no expiry clock. Do not
 put the raw token in a config file; put it in the process environment.
 
 ## Client config block (ready to paste)
@@ -64,7 +67,7 @@ shell that launches it) as `WEFT_TOKEN`.
         "WEFT_TOKEN"
       ],
       "env": {
-        "WEFT_TOKEN": "<fss_ session token from POST /v1/auth/signin>"
+        "WEFT_TOKEN": "<agk_ agent key created with POST /v1/agent-keys>"
       }
     }
   }
@@ -73,9 +76,11 @@ shell that launches it) as `WEFT_TOKEN`.
 
 Some hosts only allow `env` to reference existing environment variables rather
 than define new ones; in that case export `WEFT_TOKEN` in the shell before
-launching the client and drop the `env` block. The token is a session token
-(`fss_`), not an actor token — get a fresh one from `POST /v1/auth/signin`
-whenever it expires (default session TTL is 24 h).
+launching the client and drop the `env` block. For MCP, prefer the agent key
+(`agk_`) rather than the interactive session (`fss_`). Agent keys have no
+expiry clock but remain revocable; password resets and membership security
+changes invalidate them. Use the session-only `/v1/agent-keys` routes to create,
+list, and revoke keys.
 
 ## Behaviour
 
@@ -103,8 +108,8 @@ error the client will *display*, never a silent exit:
 
 | Condition | What the client sees |
 | --- | --- |
-| `WEFT_TOKEN` unset/empty | JSON-RPC error: `no Weft session token found: environment variable WEFT_TOKEN is not set or empty`; process exits non-zero |
-| Upstream returns 401 | JSON-RPC error naming the cause (deploy/password reset/expiry) and the recovery: re-authenticate at `POST /v1/auth/signin` (`{"email": ..., "password": ...}` → `session_token`, prefix `fss_`), export it in the `--token-env` variable, and restart the client |
+| `WEFT_TOKEN` unset/empty | JSON-RPC error: `no Weft bearer token found: environment variable WEFT_TOKEN is not set or empty`; process exits non-zero |
+| Upstream returns 401 | JSON-RPC error naming the cause (deploy, password reset, expiry, or key revocation) and the recovery: re-authenticate at `POST /v1/auth/signin` for a session or create a replacement agent key at `POST /v1/agent-keys`, export it in the `--token-env` variable, and restart the client |
 | Connection refused / DNS failure | JSON-RPC error naming the origin it tried, e.g. `could not reach the Weft hosted MCP endpoint at http://127.0.0.1:1234 (ConnectionRefusedError: ...)` |
 | Upstream non-200 | JSON-RPC error: `the Weft hosted endpoint at <origin> returned HTTP <status>` |
 | Unparseable body | JSON-RPC error: `the Weft hosted endpoint returned an unparseable response` |

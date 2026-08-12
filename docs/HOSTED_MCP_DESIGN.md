@@ -23,20 +23,21 @@ Two identity systems exist in this repo and they are NOT interchangeable:
 
 | Plane | Credential | Model |
 |---|---|---|
-| Cloud (`weft_cloud`) | `fss_` session token → `SessionContext{tenant, account, role}` | Real accounts, structural tenancy |
+| Cloud (`weft_cloud`) | `fss_` session or `agk_` agent key → `SessionContext{tenant, account, role}` | Real accounts, structural tenancy |
 | MCP (`weft_mcp`) | `team_id` + `fst_actor_` actor token | Open `register_agent`, caller-picked team |
 
 The hosted MCP endpoint authenticates **exclusively against the cloud plane**:
-every request must present a valid `fss_` session token. The token resolves to
-a tenant and an account, and every tool call is confined to that tenant by
-routing through `CloudRoomService` — the same service `/v1` drives. No valid
-credential → refused.
+every request must present a valid `fss_` session or `agk_` agent key. The
+credential resolves to a tenant and an account, and every tool call is confined
+to that tenant by routing through `CloudRoomService` — the same service `/v1`
+drives. Agent-key creation, listing, and revocation remain session-only. No
+valid credential → refused.
 
-Why session tokens and not hosted actor tokens: an actor token in the
+Why cloud credentials and not hosted actor tokens: an actor token in the
 self-hosted model is caller-minted and team-scoped, with no tenant binding.
 Binding `fst_actor_` tokens to tenants would mean inventing a new credential
 type and a new minting authority — a larger change with a new attack surface.
-Reusing the existing session token as the actor credential (the same
+Reusing the existing cloud credential as the actor credential (the same
 convention `/v1/rooms/create` and `/v1/rooms/join` already use) makes a
 member identity created over MCP indistinguishable from one created over REST,
 and gives every call a tenant for free.
@@ -46,7 +47,7 @@ and gives every call a tenant for free.
 The MCP tool schemas deliberately have no `team_id`, `agent_id`, or
 `actor_token` inputs, and `additionalProperties: False` plus an explicit
 argument check reject them if supplied. `agent_id` is always the authenticated
-`account_id`; the actor credential is always the session token. This is
+`account_id`; the actor credential is the bearer session or agent key. This is
 stricter than `/v1`, which accepts `owner_agent_id`/`agent_id` from the body
 and defaults them to the session account — a within-tenant spoofing gap this
 surface does not inherit.
@@ -180,7 +181,8 @@ location = /mcp {
 
 `location = /mcp` is an exact match, so it wins over the `location /` web-app
 block and over `location /v1/` (which is prefix-scoped). MCP hosts connect to
-`https://<origin>/mcp` and must send `Authorization: Bearer <fss_ session>`
+`https://<origin>/mcp` and must send `Authorization: Bearer <fss_ session>` or
+`Authorization: Bearer <agk_ agent key>`
 with every request. No URL is hardcoded anywhere; the service binds loopback
 and nginx owns the public origin, following the existing
 `WEFT_PUBLIC_URL` / env-driven-origin pattern.
