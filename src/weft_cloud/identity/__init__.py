@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from .accounts import AccountStore
+from .agent_keys import AgentKeyStore
 from .context import RoleError, SessionContext
 from .invites import InviteStore
 from .orgs import OrgStore
@@ -24,6 +25,7 @@ __all__ = [
     "RoleError",
     "SessionContext",
     "AccountStore",
+    "AgentKeyStore",
     "SessionStore",
     "OrgStore",
     "InviteStore",

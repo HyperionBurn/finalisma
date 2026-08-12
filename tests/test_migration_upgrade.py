@@ -37,6 +37,7 @@ from weft_mcp.core import WeftStore  # noqa: E402
 
 # This import is the RED gate: the module does not exist yet.
 from weft_cloud.migrations import (  # noqa: E402
+    MIGRATIONS,
     _CLOUD_TABLES_SQL,
     _IDENTITY_ACCOUNTS_SQL,
     _IDENTITY_INVITES_SQL,
@@ -738,7 +739,8 @@ class ProductionShapedUpgradeTests(unittest.TestCase):
             n = conn.execute(
                 "SELECT COUNT(*) AS c FROM schema_migrations"
             ).fetchone()["c"]
-            self.assertEqual(n, 11, "all eleven cloud migrations must be recorded")
+            self.assertEqual(n, len(MIGRATIONS),
+                             f"every cloud migration ({len(MIGRATIONS)}) must be recorded, got {n}")
         finally:
             conn.close()
 
@@ -758,7 +760,8 @@ class ProductionShapedUpgradeTests(unittest.TestCase):
             n = conn.execute(
                 "SELECT COUNT(*) AS c FROM schema_migrations"
             ).fetchone()["c"]
-            self.assertEqual(n, 11, "no duplicate schema_migrations rows on rerun")
+            self.assertEqual(n, len(MIGRATIONS),
+                             "no duplicate schema_migrations rows on rerun")
         finally:
             conn.close()
 
