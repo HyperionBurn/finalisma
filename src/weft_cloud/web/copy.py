@@ -7,8 +7,20 @@ handler: signup (public) -> signin -> mint an agent key (``POST
 /v1/agent-keys``, session-only) -> join with ``Authorization: Bearer`` and
 ``consent: true``. The other three tiers are the self-hosted coordinator
 plane (``weft-mcp``, bridge adapters, ``weft_sdk``); they cannot redeem a
-hosted cloud room's link, so the page says so instead of printing commands
-that fail.
+hosted cloud room's link directly, so the page says so instead of printing
+commands that fail.
+
+Tier 1 (MCP stdio) is the exception that makes the product usable: real MCP
+hosts (Claude Desktop, Codex, Cursor) launch servers as ``command`` + ``args``
+subprocesses and have no ``url`` form, so they cannot dial the hosted
+``POST /mcp`` endpoint. The stdio bridge (``scripts/weft-mcp.py --remote
+<origin> --token-env WEFT_TOKEN``) is the shim that lets those hosts reach a
+hosted room. The config block below is the one verified end to end by the
+dashboard's connector-config generator and by ``tests/test_stdio_bridge.py``.
+
+Windows note: the ``env`` block MUST include ``PYTHONUTF8=1``. Without it the
+host's UTF-8 JSON-RPC bytes are decoded as cp1252 and every non-ASCII
+character is destroyed — a shipped bug.
 
 Sessions (``fss_``) expire 24 hours after issue with no renewal path, so a
 long-lived agent should hold an agent key (``agk_``) instead. Both
@@ -93,26 +105,58 @@ def connect_page_body(room_id: str, link_token: str) -> str:
 
         "<h2>Connection tiers</h2>"
 
+        "<h3>Tier 1 — MCP stdio (recommended)</h3>"
+        '<p>Real MCP hosts — Claude Desktop, Cursor, Claude Code, Codex — '
+        'launch servers as <code>command</code> + <code>args</code> '
+        'subprocesses and have no <code>url</code> form, so they cannot dial '
+        '<code>POST /mcp</code> directly. The stdio bridge is the shim: it '
+        'speaks MCP over stdin/stdout to your host and forwards every message '
+        'to the hosted endpoint with <code>Authorization: Bearer '
+        '&lt;token&gt;</code>. Your client sees the hosted tool set as if it '
+        'were a local process.</p>'
+        '<p><strong>The token goes in an environment block, never in '
+        '<code>args</code>.</strong> argv is visible to every process on the '
+        'machine; the environment is not. The bridge reads it from the '
+        'variable named by <code>--token-env</code>. Windows hosts must also '
+        'set <code>PYTHONUTF8=1</code>: without it the client\'s UTF-8 JSON-RPC '
+        'is decoded as cp1252 and every non-ASCII character is destroyed.</p>'
+        '<pre>{\n'
+        '  "mcpServers": {\n'
+        '    "weft": {\n'
+        '      "command": "python",\n'
+        '      "args": [\n'
+        '        "-B",\n'
+        '        "&lt;absolute-path-to-repo&gt;/scripts/weft-mcp.py",\n'
+        '        "--remote",\n'
+        '        "https://&lt;origin&gt;",\n'
+        '        "--token-env",\n'
+        '        "WEFT_TOKEN"\n'
+        '      ],\n'
+        '      "env": {\n'
+        '        "WEFT_TOKEN": "&lt;agk_ agent key created in step 2&gt;",\n'
+        '        "PYTHONUTF8": "1"\n'
+        '      }\n'
+        '    }\n'
+        '  }\n'
+        '}</pre>'
+        '<p>This config embeds a live credential. Revoking that agent key '
+        'invalidates the config until it is replaced.</p>'
+
         "<h3>Tier 2 — Streamable HTTP (the call above)</h3>"
         '<p>Steps 1–3 are Tier 2: the hosted cloud HTTP surface at '
         '<code>POST /v1/rooms/join</code>. Copy them verbatim.</p>'
 
-        "<h3>Tier 1 — MCP stdio</h3>"
-        '<p>The MCP stdio tier can run a local coordinator or the remote '
-        'bridge. For this hosted room, use the remote bridge with a long-lived '
-        '<code>agk_...</code> credential, for example '
-        '<code>weft-mcp --remote https://&lt;origin&gt; --token-env WEFT_TOKEN</code>. '
-        'A local self-hosted coordinator is a separate trust boundary.</p>'
-
-        "<h3>Tier 3 — bridge</h3>"
+        "<h3>Tier 3 — bridge adapters</h3>"
         '<p>The bridge adapters (<code>WebhookBridge</code>, '
-        '<code>PollingBridge</code>) run on a self-hosted coordinator and are '
-        'not part of the hosted service; there is no <code>bridge webhook</code> '
-        'CLI. To join this hosted room use the Streamable HTTP call above.</p>'
+        '<code>PollingBridge</code>) run on a self-hosted coordinator and '
+        'cannot redeem a hosted cloud room\'s link; there is no '
+        '<code>bridge webhook</code> CLI. To join this hosted room use the '
+        'Streamable HTTP call above.</p>'
 
         "<h3>Tier 4 — SDK</h3>"
         '<p><code>weft_sdk.WeftClient</code> connects to a self-hosted '
-        'coordinator over JSON-RPC; there is no hosted-cloud SDK client and '
+        'coordinator over JSON-RPC and cannot redeem a hosted cloud room\'s '
+        'link; there is no hosted-cloud SDK client and '
         '<code>WeftClient.connect()</code> takes no arguments. To join this '
         'hosted room use the Streamable HTTP call above.</p>'
 
