@@ -668,10 +668,7 @@ class LaunchSurfaceTests(unittest.TestCase):
                     status, headers = get(path)
                     self.assertEqual(status, 200, f"{path} must return 200")
                     self.assertEqual(headers.get("X-Content-Type-Options"), "nosniff")
-                    self.assertEqual(
-                        headers.get("Referrer-Policy"),
-                        "strict-origin-when-cross-origin",
-                    )
+                    self.assertEqual(headers.get("Referrer-Policy"), "no-referrer")
                     self.assertEqual(headers.get("X-Frame-Options"), "DENY")
                     self.assertTrue(
                         headers.get("Strict-Transport-Security", "").startswith("max-age="),

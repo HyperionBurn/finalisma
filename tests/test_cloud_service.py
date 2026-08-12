@@ -502,7 +502,7 @@ class TestJoinDescriptorAndAgentCard(CloudServiceTestBase):
         status, raw, headers = _get_url(f"{self.base}/j/{self.link_token}", accept="text/html")
         self.assertEqual(status, 200)
         self.assertEqual(headers.get("X-Content-Type-Options"), "nosniff")
-        self.assertEqual(headers.get("Referrer-Policy"), "strict-origin-when-cross-origin")
+        self.assertEqual(headers.get("Referrer-Policy"), "no-referrer")
         self.assertEqual(headers.get("X-Frame-Options"), "DENY")
         self.assertTrue(
             headers.get("Strict-Transport-Security", "").startswith("max-age="),

@@ -59,16 +59,21 @@ HTML_CSP = (
 # by browsers over plain http, so an http-only self-host keeps working while
 # an https deployment gets the upgrade guarantee.
 ALWAYS_HEADERS: tuple[tuple[str, str], ...] = (
-    ("Strict-Transport-Security", "max-age=63072000; includeSubDomains"),
+    ("Strict-Transport-Security", "max-age=31536000; includeSubDomains"),
     ("X-Content-Type-Options", "nosniff"),
-    ("Referrer-Policy", "strict-origin-when-cross-origin"),
+    # no-referrer, not same-origin: a room join link is /j/rm_<token> and that
+    # token IS a bearer credential — whoever holds it can join the room. It
+    # lives in the URL. Without this header, following any external link from
+    # a page that shows the link puts the full URL, token included, into the
+    # Referer sent to a third party. That is a credential leak.
+    ("Referrer-Policy", "no-referrer"),
     ("X-Frame-Options", "DENY"),
     (
         "Permissions-Policy",
         # Deliberately NOT clipboard-write: the marketing pages copy room
         # links / briefs with navigator.clipboard.writeText, whose default
         # allowlist already grants self-origin.
-        "geolocation=(), microphone=(), camera=(), payment=(), usb=()",
+        "geolocation=(), microphone=(), camera=()",
     ),
 )
 

@@ -219,11 +219,18 @@ class TestHtmlResponseSecurityHeaders(unittest.TestCase):
         for name in REQUIRED_ALWAYS_HEADERS:
             self.assertIn(name, hdrs, f"{label}: missing {name}")
         self.assertEqual(hdrs.get("X-Content-Type-Options"), "nosniff")
-        self.assertEqual(hdrs.get("Referrer-Policy"), "strict-origin-when-cross-origin")
+        # no-referrer, not same-origin: the join token rides in the URL
+        # (/j/rm_...) and is a bearer credential, so no referrer may ever
+        # leave a page that shows it.
+        self.assertEqual(hdrs.get("Referrer-Policy"), "no-referrer")
         self.assertEqual(hdrs.get("X-Frame-Options"), "DENY")
-        self.assertTrue(
-            hdrs.get("Strict-Transport-Security", "").startswith("max-age="),
-            f"{label}: HSTS must set a max-age",
+        self.assertEqual(
+            hdrs.get("Strict-Transport-Security"),
+            "max-age=31536000; includeSubDomains",
+        )
+        self.assertEqual(
+            hdrs.get("Permissions-Policy"),
+            "geolocation=(), microphone=(), camera=()",
         )
         csp = hdrs.get("Content-Security-Policy", "")
         self.assertIn("default-src 'none'", csp)
