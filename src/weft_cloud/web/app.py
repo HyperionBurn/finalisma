@@ -50,7 +50,7 @@ from weft_cloud.identity.schema import ensure_schema as _ensure_identity_schema
 from weft_cloud.identity.tokens import hash_token as _hash_token
 from weft_cloud.quotas import QuotaError
 from weft_cloud.rate_limit import RateLimitedError, enforce_auth_rate_limit
-from weft_cloud.rooms import CloudRoomService, RoomError, _parse_json
+from weft_cloud.rooms import CloudRoomService, RoomError, _parse_json, public_origin
 from weft_cloud.storage import StorageBackend
 from weft_cloud.web.copy import connect_page_body
 from weft_cloud.web.security_headers import security_headers
@@ -64,6 +64,7 @@ _ROOM_EVENTS_RE = re.compile(r"^/room/([A-Za-z0-9_-]+)/events$")
 _ROOM_AUDIT_RE = re.compile(r"^/room/([A-Za-z0-9_-]+)/audit$")
 _ROOM_CONNECT_RE = re.compile(r"^/room/([A-Za-z0-9_-]+)/connect$")
 _ROOM_CLOSE_RE = re.compile(r"^/room/([A-Za-z0-9_-]+)/close$")
+_ROOM_REVOKE_LINK_RE = re.compile(r"^/room/([A-Za-z0-9_-]+)/revoke-link$")
 
 # Exact paths served to UNAUTHENTICATED callers. This is a fixed allowlist of
 # specific strings — deliberately never a prefix or wildcard rule — so a typo
@@ -110,8 +111,85 @@ def _format_last_used(ts: Any) -> str:
         return "unknown"
 
 
+def _format_iso(ts: Any) -> str:
+    """Human-readable UTC time from an ISO-8601 string (``...Z``) or epoch."""
+    if not ts:
+        return ""
+    text = str(ts)
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).astimezone(
+            timezone.utc
+        ).strftime("%Y-%m-%d %H:%M:%S UTC")
+    except (ValueError, TypeError, OSError, OverflowError):
+        try:
+            return datetime.fromtimestamp(float(text), tz=timezone.utc).strftime(
+                "%Y-%m-%d %H:%M:%S UTC"
+            )
+        except (ValueError, TypeError, OSError, OverflowError):
+            return text
+
+
 def _new_csrf() -> str:
     return secrets.token_urlsafe(32)
+
+
+# Minimal shared styling for the authenticated pages. The web app has no CSS
+# system (stdlib-only, string-composed HTML); this tiny block keeps the
+# dashboard readable without introducing one. CSP allows inline style.
+_DASH_CSS = (
+    '<style>'
+    'body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;'
+    'max-width:56rem;margin:0 auto;padding:1.5rem;line-height:1.45;color:#1a1a1a;}'
+    'h1{font-size:1.5rem;margin:0 0 .25rem;}h2{font-size:1.15rem;margin-top:1.5rem;}'
+    'table{border-collapse:collapse;width:100%;margin:.5rem 0 1rem;}'
+    'th,td{text-align:left;padding:.4rem .55rem;border-bottom:1px solid #e5e5e5;vertical-align:top;}'
+    'th{font-size:.78rem;text-transform:uppercase;letter-spacing:.05em;color:#666;}'
+    'pre{background:#f6f6f4;border:1px solid #e0e0dd;padding:.75rem;overflow-x:auto;font-size:.8rem;}'
+    'code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;}'
+    'label{display:block;margin:.4rem 0;}'
+    'input[type=text],input[type=number],input[type=password],input[type=email],select{'
+    'padding:.35rem;margin-left:.25rem;border:1px solid #ccc;border-radius:3px;}'
+    'button{padding:.35rem .75rem;margin:.15rem;border:1px solid #999;border-radius:3px;'
+    'background:#fff;cursor:pointer;}'
+    'button[type=submit]{background:#111;color:#fff;border-color:#111;}'
+    '.muted{color:#777;}.flash{border:1px solid #d0d0cc;background:#fafaf8;'
+    'padding:.5rem .75rem;margin:.5rem 0;}'
+    '.flash-error{border-color:#c44;background:#fdf0f0;color:#8b1a1a;}'
+    '.warn{border:1px solid #e0b400;background:#fff7d6;padding:.5rem .75rem;margin:.5rem 0;}'
+    '.revoked{color:#8b1a1a;font-weight:600;}.active-ok{color:#1a7f37;}'
+    '.bar{display:inline-block;height:.6rem;width:8rem;background:#e6e6e6;'
+    'border-radius:3px;vertical-align:middle;margin-left:.4rem;}'
+    '.bar>span{display:block;height:100%;background:#111;border-radius:3px;}'
+    '</style>'
+)
+
+# Copy-to-clipboard control (progressive enhancement). Without JS the value
+# remains selectable text; with JS the button copies. Feature-detected and
+# exception-safe so a browser without the Clipboard API still works.
+_COPY_JS = (
+    '<script>'
+    'function wfCopy(el){'
+    'var t=el.getAttribute("data-copy")||"";'
+    'function done(){el.textContent="Copied";}'
+    'if(navigator.clipboard&&navigator.clipboard.writeText){'
+    'navigator.clipboard.writeText(t).then(done,function(){done();});'
+    '}else{'
+    'var ta=document.createElement("textarea");ta.value=t;'
+    'document.body.appendChild(ta);ta.select();'
+    'try{document.execCommand("copy");}catch(e){}'
+    'document.body.removeChild(ta);done();'
+    '}'
+    '}'
+    '</script>'
+)
+
+
+def _copy_button(data_copy: str, label: str = "Copy") -> str:
+    """Button that copies ``data_copy`` to the clipboard when JS is available."""
+    return (
+        f'<button type="button" data-copy="{_esc(data_copy)}" '
+        f'onclick="wfCopy(this)">{_esc(label)}</button>'
+    )
 
 
 def _resolve_cookie_secure_flag() -> bool | None:
@@ -403,6 +481,73 @@ class WeftWebApp:
     def _list_rooms_for_account(self, ctx: SessionContext) -> list[dict]:
         return self.rooms.list_rooms_for_member(ctx.tenant_id, ctx.account_id)
 
+    def _room_member_counts(self, tenant_id: str) -> dict[str, int]:
+        """Active member count per room in a tenant (one tenant-scoped query)."""
+        counts: dict[str, int] = {}
+        with self.backend.transaction() as tx:
+            rows = tx.execute(
+                "SELECT room_id, COUNT(*) AS c FROM cloud_room_members "
+                "WHERE tenant_id = ? AND status = 'active' GROUP BY room_id",
+                (tenant_id,),
+            ).fetchall()
+            for r in rows:
+                counts[r["room_id"]] = int(r["c"])
+        return counts
+
+    def _plan_usage(self, ctx: SessionContext) -> dict:
+        """Plan id + live usage, read from the SAME quota plane the API enforces.
+
+        ``PLANS`` (via ``resolve_plan``) is the single source of truth for the
+        limits and the ``cloud_counters`` / ``cloud_room_counters`` tables are
+        the counters the quota gates increment — never a second copy.
+        """
+        from weft_cloud.quotas import events_month_bucket, resolve_plan
+
+        plan_id, plan = resolve_plan(self.backend, ctx.tenant_id)
+        with self.backend.transaction() as tx:
+            rooms_row = tx.execute(
+                "SELECT value FROM cloud_counters WHERE tenant_id = ? AND counter = 'rooms'",
+                (ctx.tenant_id,),
+            ).fetchone()
+            events_row = tx.execute(
+                "SELECT value FROM cloud_counters WHERE tenant_id = ? AND counter = ?",
+                (ctx.tenant_id, events_month_bucket()),
+            ).fetchone()
+            member_row = tx.execute(
+                "SELECT COALESCE(MAX(value), 0) AS m FROM cloud_room_counters "
+                "WHERE tenant_id = ? AND counter = 'members'",
+                (ctx.tenant_id,),
+            ).fetchone()
+        return {
+            "plan_id": plan_id,
+            "rooms_used": int(rooms_row["value"]) if rooms_row else 0,
+            "max_rooms": plan.max_rooms,
+            "events_used": int(events_row["value"]) if events_row else 0,
+            "max_events_per_month": plan.max_events_per_month,
+            "largest_room_members": int(member_row["m"]) if member_row else 0,
+            "max_members_per_room": plan.max_members_per_room,
+        }
+
+    def _plan_usage_html(self, ctx: SessionContext) -> str:
+        """Render the plan + usage strip against the real enforced limits."""
+        usage = self._plan_usage(ctx)
+
+        def _bar(used: int, limit: int) -> str:
+            pct = 0 if limit <= 0 else max(0, min(100, int(100 * used / limit)))
+            return f'<span class="bar"><span style="width:{pct}%"></span></span>'
+
+        return (
+            '<div class="flash">'
+            f'<strong>Plan: {_esc(usage["plan_id"])}</strong> — '
+            f'Rooms {usage["rooms_used"]}/{usage["max_rooms"]}'
+            f'{_bar(usage["rooms_used"], usage["max_rooms"])} · '
+            f'Members per room max {usage["max_members_per_room"]}'
+            f' (largest room: {usage["largest_room_members"]}) · '
+            f'Events this month {usage["events_used"]}/{usage["max_events_per_month"]}'
+            f'{_bar(usage["events_used"], usage["max_events_per_month"])}'
+            '</div>'
+        )
+
     def _room_belongs_to_tenant(self, room_id: str, tenant_id: str) -> bool:
         with self.backend.transaction() as tx:
             row = tx.execute(
@@ -483,8 +628,16 @@ class WeftWebApp:
                 "has_more": False,
             }
 
-    def _room_info_for_member(self, tenant_id: str, room_id: str) -> dict:
-        """Room info for an org member (doesn't require room membership)."""
+    def _room_info_for_member(self, tenant_id: str, room_id: str,
+                              agent_id: str | None = None) -> dict:
+        """Room info for an org member (doesn't require room membership).
+
+        When ``agent_id`` is the room OWNER, the result additionally carries
+        the link control surface: ``link_id`` (what revoke needs) and
+        ``link_revoked`` (whether a revocation landed). Other members never
+        see them — a non-owner who cannot revoke has no reason to know the
+        link identifier, and least exposure wins.
+        """
         with self.backend.transaction() as tx:
             room = tx.execute(
                 "SELECT * FROM cloud_rooms WHERE tenant_id = ? AND room_id = ?",
@@ -508,7 +661,7 @@ class WeftWebApp:
                     "status": m["status"],
                     "joined_at": m["joined_at"],
                 })
-            return {
+            result = {
                 "room_id": room_id,
                 "name": room["name"],
                 "state": room["state"],
@@ -516,7 +669,18 @@ class WeftWebApp:
                 "member_count": len(member_list),
                 "members": member_list,
                 "owner_agent_id": room["owner_agent_id"],
+                "created_at": room["created_at"],
             }
+            if agent_id is not None and room["owner_agent_id"] == agent_id:
+                link = tx.execute(
+                    "SELECT link_id, revoked FROM cloud_room_links "
+                    "WHERE tenant_id = ? AND room_id = ? LIMIT 1",
+                    (tenant_id, room_id),
+                ).fetchone()
+                if link is not None:
+                    result["link_id"] = link["link_id"]
+                    result["link_revoked"] = bool(link["revoked"])
+            return result
 
     def _event_log_for_member(self, tenant_id: str, room_id: str, agent_id: str) -> list[dict]:
         """Event log for an org member (doesn't require room membership).
@@ -911,33 +1075,55 @@ class WeftWebApp:
         csrf = _new_csrf()
         email = self._account_email(ctx.account_id) or ""
         rooms = self._list_rooms_for_account(ctx)
-        room_items = ""
+        counts = self._room_member_counts(ctx.tenant_id)
+
+        rows_html = ""
         for r in rooms:
-            room_items += (
-                f'<li><a href="/room/{_esc(r["room_id"])}">{_esc(r["name"] or r["room_id"])}</a>'
-                f' <span class="muted">({_esc(r["state"])})</span></li>'
+            room_id = r["room_id"]
+            member_count = counts.get(room_id, 0)
+            state = r["state"]
+            created = _format_last_used(r["created_at"])
+            rows_html += (
+                f'<tr><td><a href="/room/{_esc(room_id)}">'
+                f'{_esc(r["name"] or room_id)}</a></td>'
+                f'<td>{member_count}/{_esc(r["cap"])}</td>'
+                f'<td>{_esc(state)}</td>'
+                f'<td class="muted">{_esc(created)}</td></tr>'
             )
-        if not room_items:
-            room_items = '<li class="muted">No rooms yet.</li>'
+        if not rows_html:
+            rows_html = '<tr><td colspan="4" class="muted">No rooms yet.</td></tr>'
+
         body_html = (
             '<h1>Dashboard</h1>'
             f'<p>Logged in as {_esc(email)} ({_esc(ctx.role)})</p>'
+            f'{self._plan_usage_html(ctx)}'
             '<h2>Rooms</h2>'
-            f'<ul>{room_items}</ul>'
+            '<table><thead><tr><th>Room</th><th>Members / cap</th>'
+            '<th>State</th><th>Created</th></tr></thead>'
+            f'<tbody>{rows_html}</tbody></table>'
+            '<h2>Create a room</h2>'
             '<form method="post" action="/rooms">'
             f'{_csrf_input(csrf)}'
             f'{_label("Room name", _input("name", "text", required="required"))}'
-            f'{_label("Cap", _input("cap", "number", value="8", min="2", max="64"))}'
+            f'{_label("Cap (max members)", _input("cap", "number", value="8", min="2", max="64"))}'
             '<button type="submit">Create room</button>'
             '</form>'
-            '<p><a href="/org">Organization</a></p>'
-            '<p><a href="/agent-keys">Agent keys</a></p>'
+            '<p>After creating a room you land on its page with the shareable '
+            'join link. The link is a <strong>credential</strong>: anyone who '
+            'holds it can join the room, from any tenant.</p>'
+            '<h2>Connect a client</h2>'
+            '<p><a href="/config">Generate a connector config</a> for Claude '
+            'Desktop, Codex or Cursor — a complete, working stdio MCP config '
+            'with a fresh agent key already embedded.</p>'
+            '<h2>Account</h2>'
+            '<p><a href="/agent-keys">Agent keys</a> · '
+            '<a href="/org">Organization</a></p>'
             '<form method="post" action="/logout">'
             f'{_csrf_input(csrf)}'
             '<button type="submit">Log out</button>'
             '</form>'
         )
-        body = _page("Dashboard", body_html, csrf_token=csrf)
+        body = _page("Dashboard", body_html, csrf_token=csrf, extra_head=_DASH_CSS + _COPY_JS)
         handler.send_response(HTTPStatus.OK)
         self._set_csrf_cookie(handler, csrf)
         handler.send_header("Content-Type", "text/html; charset=utf-8")
@@ -1384,10 +1570,12 @@ class WeftWebApp:
                             _page("Not found", '<p>Room not found.</p>'))
             return
         csrf = _new_csrf()
-        # View is member+ (org member can view any room in their org).
-        # We read the room info directly without requiring room membership.
+        # View is member+ (org member can view any room in their org). The raw
+        # link token and the revoke control are shown only where the caller is
+        # entitled (owner or active member of THIS room) — never on a page a
+        # non-member can reach.
         try:
-            info = self._room_info_for_member(ctx.tenant_id, room_id)
+            info = self._room_info_for_member(ctx.tenant_id, room_id, ctx.account_id)
             events = self._event_log_for_member(ctx.tenant_id, room_id, ctx.account_id)
         except RoomError as exc:
             if exc.status == 404:
@@ -1398,39 +1586,106 @@ class WeftWebApp:
                                 _page("Forbidden",
                                       '<p>Not a member of this room.</p>'))
             return
+
+        is_owner = info["owner_agent_id"] == ctx.account_id
+        entitled = self._room_connect_entitled(ctx.tenant_id, room_id, ctx.account_id)
+
         roster_html = ""
         for m in info["members"]:
             label = m.get("email") or m["agent_id"]
-            roster_html += (
-                f'<li>{_esc(label)} ({_esc(m["status"])})</li>'
+            status_html = (
+                f'<span class="active-ok">{_esc(m["status"])}</span>'
+                if m["status"] == "active" else _esc(m["status"])
             )
+            roster_html += (
+                f'<li>{_esc(label)} — {status_html} '
+                f'<span class="muted">joined {_esc(_format_iso(m["joined_at"]))}</span></li>'
+            )
+        if not roster_html:
+            roster_html = '<li class="muted">No members yet.</li>'
+
         events_html = ""
-        for e in events:
+        for e in events[-50:]:
             events_html += (
                 f'<li><span class="seq">#{_esc(e["seq"])}</span> '
                 f'{_esc(e["kind"])} <span class="muted">from '
-                f'{_esc(e["origin_agent"])}</span></li>'
+                f'{_esc(e["origin_agent"])} at '
+                f'{_esc(_format_iso(e.get("created_at")))}</span></li>'
             )
+        if not events_html:
+            events_html = '<li class="muted">No events yet.</li>'
+
+        # Link control surface — owner and active members only.
+        link_section = ""
+        if entitled:
+            revoked = info.get("link_revoked", False)
+            if revoked:
+                link_section = (
+                    '<div class="warn"><strong>Join link revoked.</strong> This '
+                    'link no longer admits anyone. Create a new room (or, if '
+                    're-enabling is desired, contact support) — revocation is '
+                    'permanent for this link.</div>'
+                )
+            else:
+                raw_token = self._get_room_link_token(room_id) or ""
+                if raw_token:
+                    shareable = f"{public_origin()}/j/{raw_token}"
+                    link_section = (
+                        '<div class="flash">'
+                        f'<strong>Shareable join link</strong>: '
+                        f'<code>{_esc(shareable)}</code> {_copy_button(shareable)}'
+                        '<p class="warn"><strong>The link is a credential.</strong> '
+                        'Anyone holding it can join this room from any tenant. '
+                        'Share it only with the agents you intend to admit, and '
+                        'revoke it the moment it is leaked or no longer needed.</p>'
+                        '</div>'
+                    )
+                else:
+                    link_section = (
+                        '<div class="flash"><strong>Join link.</strong> The raw '
+                        'link token is held only in the session that created the '
+                        'room (it is stored as a hash, never raw). It is shown on '
+                        'this page immediately after creation, and on the '
+                        '<a href="'
+                        f'/room/{_esc(room_id)}/connect">connect</a> page.</div>'
+                    )
+            if is_owner and info.get("link_id"):
+                revoke_form = (
+                    '<form method="post" '
+                    f'action="/room/{_esc(room_id)}/revoke-link">'
+                    f'{_csrf_input(csrf)}'
+                    f'<input type="hidden" name="link_id" value="{_esc(info["link_id"])}">'
+                    '<button type="submit">Revoke join link</button>'
+                    '</form>'
+                )
+                link_section += revoke_form
+
         close_form = ""
-        if info["owner_agent_id"] == ctx.account_id:
+        if is_owner:
             close_form = (
                 f'<form method="post" action="/room/{_esc(room_id)}/close">'
                 f'{_csrf_input(csrf)}'
                 '<button type="submit">Close room</button>'
                 '</form>'
             )
+
         body_html = (
             f'<h1>{_esc(info.get("name") or room_id)}</h1>'
-            f'<p>State: {_esc(info["state"])} | Cap: {_esc(info["cap"])}</p>'
-            '<h2>Roster</h2>'
+            f'<p>State: <strong>{_esc(info["state"])}</strong> · '
+            f'Members {info["member_count"]}/{_esc(info["cap"])} · '
+            f'Created {_esc(_format_iso(info.get("created_at")))}</p>'
+            f'{link_section}'
+            '<h2>Members</h2>'
             f'<ul>{roster_html}</ul>'
-            '<h2>Event log</h2>'
+            '<h2>Recent events</h2>'
             f'<ol>{events_html}</ol>'
-            f'{close_form}'
             f'<p><a href="/room/{_esc(room_id)}/connect">Connect an agent</a></p>'
-            f'<p><a href="/rooms">Back to rooms</a></p>'
+            f'{close_form}'
+            f'<p><a href="/">Back to dashboard</a> · '
+            f'<a href="/room/{_esc(room_id)}/audit">Audit log</a></p>'
         )
-        body = _page(_esc(info.get("name") or room_id), body_html, csrf_token=csrf)
+        body = _page(_esc(info.get("name") or room_id), body_html,
+                     csrf_token=csrf, extra_head=_DASH_CSS + _COPY_JS)
         handler.send_response(HTTPStatus.OK)
         self._set_csrf_cookie(handler, csrf)
         handler.send_header("Content-Type", "text/html; charset=utf-8")
@@ -1439,6 +1694,54 @@ class WeftWebApp:
         self._send_security_headers(handler, html=True)
         handler.end_headers()
         handler.wfile.write(body)
+
+    def handle_post_room_revoke_link(self, handler: BaseHTTPRequestHandler,
+                                     room_id: str) -> None:
+        """POST /room/{room_id}/revoke-link — revoke the room's join link (owner).
+
+        Surfaces the REAL result: ``CloudRoomService.revoke_link`` raises
+        ``link_not_found`` (404) when no link actually flipped — it cannot
+        report success while revoking nothing — and ``owner_required`` (403)
+        for a non-owner. Both are rendered back to the user with their true
+        status; a failed revoke never looks successful.
+        """
+        ctx = self._require_auth(handler)
+        if ctx is None:
+            return
+        if not self._room_belongs_to_tenant(room_id, ctx.tenant_id):
+            self._send_html(handler, HTTPStatus.NOT_FOUND,
+                            _page("Not found", '<p>Room not found.</p>'))
+            return
+        form = self._read_form(handler)
+        try:
+            self._validate_csrf(handler, form)
+        except _WebError:
+            self._send_html(handler, HTTPStatus.FORBIDDEN,
+                            _page("Forbidden", '<p>CSRF validation failed.</p>'))
+            return
+        link_id = (form.get("link_id") or "").strip()
+        if not link_id:
+            self._send_html(handler, HTTPStatus.BAD_REQUEST,
+                            _page("Revoke failed",
+                                  '<p>Missing link id.</p>'))
+            return
+        try:
+            result = self.rooms.revoke_link(ctx.tenant_id, room_id,
+                                            ctx.account_id, link_id)
+        except RoomError as exc:
+            if exc.status == 404:
+                self._send_html(handler, HTTPStatus.NOT_FOUND,
+                                _page("Revoke failed",
+                                      '<p>The link could not be revoked — it '
+                                      'was not found (it may already be '
+                                      'revoked). Nothing changed.</p>'))
+            else:
+                self._send_html(handler, HTTPStatus.FORBIDDEN,
+                                _page("Revoke failed",
+                                      '<p>Only the room owner can revoke the '
+                                      'join link. Nothing was revoked.</p>'))
+            return
+        self._redirect(handler, f"/room/{room_id}")
 
     def handle_get_room_events(self, handler: BaseHTTPRequestHandler, room_id: str) -> None:
         ctx = self._require_auth(handler)
@@ -1774,6 +2077,13 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
                 room_id = close_match.group(1)
                 if method == "POST":
                     app.handle_post_room_close(self, room_id)
+                return
+
+            revoke_match = _ROOM_REVOKE_LINK_RE.match(path)
+            if revoke_match:
+                room_id = revoke_match.group(1)
+                if method == "POST":
+                    app.handle_post_room_revoke_link(self, room_id)
                 return
 
             # Static files

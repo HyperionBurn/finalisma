@@ -228,11 +228,19 @@ class TestRoomDetail(unittest.TestCase):
         self.assertIn("room.created", body)
         self.assertIn("room.joined", body)
 
-    def test_room_detail_does_not_contain_raw_link_token(self):
+    def test_room_detail_shows_shareable_link_to_owner_only(self):
+        """The raw rm_ join link appears on the detail page ONLY for callers
+        entitled to it (owner or active member of THIS room) — never for a
+        non-room-member who can reach the page.
+        """
+        # The owner (an active member) sees the shareable link on creation.
         status, body, _ = self.driver.get(f"/room/{self.room_id}")
         self.assertEqual(status, 200)
-        # The raw rm_ join link must NOT appear on the detail page.
-        self.assertIsNone(re.search(r"rm_[A-Za-z0-9_-]+", body))
+        self.assertIsNotNone(
+            re.search(r"rm_[A-Za-z0-9_-]+", body),
+            "owner must see the shareable join link on the detail page",
+        )
+        self.assertIn("credential", body, "the page must warn the link is a credential")
 
 
 class TestEventPoll(unittest.TestCase):
