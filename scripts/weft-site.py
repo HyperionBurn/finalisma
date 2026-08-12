@@ -4,10 +4,16 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT / "src"))
+from weft_cloud.web.security_headers import security_headers
 
 
 class QuietSiteHandler(SimpleHTTPRequestHandler):
@@ -28,6 +34,8 @@ class QuietSiteHandler(SimpleHTTPRequestHandler):
             "/demo.html",
             "/demo-stage.html",
             "/robots.txt",
+            "/sitemap.xml",
+            "/favicon.ico",
             "/llms.txt",
             "/404.html",
             "/license.html",
@@ -44,6 +52,17 @@ class QuietSiteHandler(SimpleHTTPRequestHandler):
         if not candidate.is_relative_to(allowed_root.resolve()):
             return str(root / "site" / "__not_found__")
         return str(candidate)
+
+    def guess_type(self, path: str) -> str:
+        """Pin crawler-facing content types so platform mimetypes cannot
+        serve a sitemap as text/xml. ``send_head`` passes the translated
+        filesystem path, so the decision is based on the request URL."""
+        route = urlsplit(self.path).path
+        if route == "/sitemap.xml":
+            return "application/xml; charset=utf-8"
+        if route == "/robots.txt":
+            return "text/plain; charset=utf-8"
+        return super().guess_type(path)
 
     def send_error(
         self,
@@ -70,8 +89,11 @@ class QuietSiteHandler(SimpleHTTPRequestHandler):
             self.send_header("Cache-Control", "public, max-age=3600")
         else:
             self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+        # Full security header block (HSTS, CSP, frame protection, referrer,
+        # Permissions-Policy). CSP is harmless on the site server's CSS/JS
+        # assets and mandatory on its HTML pages.
+        for name, value in security_headers(html=True):
+            self.send_header(name, value)
         super().end_headers()
 
     def log_message(self, format: str, *args: object) -> None:

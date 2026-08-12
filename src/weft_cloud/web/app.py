@@ -20,6 +20,7 @@ import json
 import os
 import re
 import secrets
+import ssl
 import time as _time
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -52,6 +53,7 @@ from weft_cloud.rate_limit import RateLimitedError, enforce_auth_rate_limit
 from weft_cloud.rooms import CloudRoomService, RoomError, _parse_json
 from weft_cloud.storage import StorageBackend
 from weft_cloud.web.copy import connect_page_body
+from weft_cloud.web.security_headers import security_headers
 
 SESSION_COOKIE = "fss_session"
 CSRF_COOKIE = "fss_csrf"
@@ -62,6 +64,26 @@ _ROOM_EVENTS_RE = re.compile(r"^/room/([A-Za-z0-9_-]+)/events$")
 _ROOM_AUDIT_RE = re.compile(r"^/room/([A-Za-z0-9_-]+)/audit$")
 _ROOM_CONNECT_RE = re.compile(r"^/room/([A-Za-z0-9_-]+)/connect$")
 _ROOM_CLOSE_RE = re.compile(r"^/room/([A-Za-z0-9_-]+)/close$")
+
+# Exact paths served to UNAUTHENTICATED callers. This is a fixed allowlist of
+# specific strings — deliberately never a prefix or wildcard rule — so a typo
+# or a future path can never broaden "public" to an authenticated route.
+# Crawlers and uptime monitors must reach these without a session; everything
+# else still passes through the auth gate below.
+_PUBLIC_GET_PATHS = frozenset({
+    "/terms.html",
+    "/privacy.html",
+    "/robots.txt",
+    "/sitemap.xml",
+    "/favicon.ico",
+})
+
+# Exact static files whose Content-Type must not be left to platform
+# mimetypes: a crawler-facing type has to be correct on every host OS.
+_STATIC_CONTENT_TYPE = {
+    "/robots.txt": "text/plain; charset=utf-8",
+    "/sitemap.xml": "application/xml; charset=utf-8",
+}
 
 
 class _WebError(Exception):
@@ -90,6 +112,37 @@ def _format_last_used(ts: Any) -> str:
 
 def _new_csrf() -> str:
     return secrets.token_urlsafe(32)
+
+
+def _resolve_cookie_secure_flag() -> bool | None:
+    """Operator override for the ``Secure`` cookie attribute.
+
+    Unset -> None (auto-detect from the request). ``1``/``true``/``yes``/``on``
+    forces Secure on, ``0``/``false``/``no``/``off`` forces it off. The auto
+    path is right for plain local dev (http://127.0.0.1 must not set Secure)
+    and for a TLS-terminating proxy (``X-Forwarded-Proto``); the flag exists
+    for the deployment where neither is reliable.
+    """
+    raw = os.environ.get("WEFT_WEB_SECURE_COOKIES", "").strip().lower()
+    if raw in ("1", "true", "yes", "on"):
+        return True
+    if raw in ("0", "false", "no", "off"):
+        return False
+    return None
+
+
+def _request_is_secure(handler: BaseHTTPRequestHandler) -> bool:
+    """True when the request reached us over https.
+
+    The live deployment terminates TLS in nginx and proxies plain http to this
+    app, so we trust the proxy-standard ``X-Forwarded-Proto`` header; direct
+    in-app TLS (a future option) is detected from the socket.
+    """
+    forwarded = (handler.headers.get("X-Forwarded-Proto", "") or "").lower()
+    if forwarded == "https":
+        return True
+    sock = getattr(handler, "request", None)
+    return isinstance(sock, ssl.SSLSocket)
 
 
 # ---------------------------------------------------------------------------
@@ -153,6 +206,7 @@ class WeftWebApp:
         self.invites = InviteStore(backend)
         self.rooms = CloudRoomService(backend)
         self._link_token_cache: dict[str, str] = {}
+        self.secure_cookies = _resolve_cookie_secure_flag()
         _ensure_identity_schema(backend)
         self.rooms._ensure_room_schema()
         self.handler = _build_handler(self)
@@ -160,6 +214,11 @@ class WeftWebApp:
     # ------------------------------------------------------------------
     # Session / cookie helpers
     # ------------------------------------------------------------------
+
+    def _cookie_secure(self, handler: BaseHTTPRequestHandler) -> bool:
+        if self.secure_cookies is not None:
+            return self.secure_cookies
+        return _request_is_secure(handler)
 
     def _read_cookie(self, handler: BaseHTTPRequestHandler, name: str) -> str | None:
         raw = handler.headers.get("Cookie", "")
@@ -181,21 +240,25 @@ class WeftWebApp:
             return None
 
     def _set_session_cookie(self, handler: BaseHTTPRequestHandler, raw_token: str) -> None:
+        secure = "; Secure" if self._cookie_secure(handler) else ""
         handler.send_header(
             "Set-Cookie",
-            f"{SESSION_COOKIE}={raw_token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400",
+            f"{SESSION_COOKIE}={raw_token}; Path=/; HttpOnly; SameSite=Lax; "
+            f"Max-Age=86400{secure}",
         )
 
     def _clear_session_cookie(self, handler: BaseHTTPRequestHandler) -> None:
+        secure = "; Secure" if self._cookie_secure(handler) else ""
         handler.send_header(
             "Set-Cookie",
-            f"{SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
+            f"{SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0{secure}",
         )
 
     def _set_csrf_cookie(self, handler: BaseHTTPRequestHandler, token: str) -> None:
+        secure = "; Secure" if self._cookie_secure(handler) else ""
         handler.send_header(
             "Set-Cookie",
-            f"{CSRF_COOKIE}={token}; Path=/; SameSite=Lax; Max-Age=86400",
+            f"{CSRF_COOKIE}={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400{secure}",
         )
 
     def _read_csrf_cookie(self, handler: BaseHTTPRequestHandler) -> str | None:
@@ -226,12 +289,22 @@ class WeftWebApp:
     # HTTP response helpers
     # ------------------------------------------------------------------
 
+    def _send_security_headers(self, handler: BaseHTTPRequestHandler, *,
+                               html: bool = False) -> None:
+        """Emit the shared security header block (see web/security_headers.py).
+
+        ``html=True`` also sends the Content-Security-Policy; CSP is scoped to
+        HTML responses on purpose.
+        """
+        for name, value in security_headers(html=html):
+            handler.send_header(name, value)
+
     def _redirect(self, handler: BaseHTTPRequestHandler, location: str) -> None:
         handler.send_response(HTTPStatus.SEE_OTHER)
         handler.send_header("Location", location)
         handler.send_header("Content-Length", "0")
         handler.send_header("Cache-Control", "no-store")
-        handler.send_header("X-Content-Type-Options", "nosniff")
+        self._send_security_headers(handler)
         handler.end_headers()
 
     def _send_html(self, handler: BaseHTTPRequestHandler, status: int, body: bytes) -> None:
@@ -239,7 +312,7 @@ class WeftWebApp:
         handler.send_header("Content-Type", "text/html; charset=utf-8")
         handler.send_header("Content-Length", str(len(body)))
         handler.send_header("Cache-Control", "no-store")
-        handler.send_header("X-Content-Type-Options", "nosniff")
+        self._send_security_headers(handler, html=True)
         handler.end_headers()
         handler.wfile.write(body)
 
@@ -249,7 +322,7 @@ class WeftWebApp:
         handler.send_header("Content-Type", "application/json")
         handler.send_header("Content-Length", str(len(body)))
         handler.send_header("Cache-Control", "no-store")
-        handler.send_header("X-Content-Type-Options", "nosniff")
+        self._send_security_headers(handler)
         handler.end_headers()
         handler.wfile.write(body)
 
@@ -477,6 +550,16 @@ class WeftWebApp:
     # Route handlers — public pre-auth
     # ------------------------------------------------------------------
 
+    def handle_get_health(self, handler: BaseHTTPRequestHandler) -> None:
+        """Public liveness endpoint (GET /health).
+
+        200 without auth so a load balancer / uptime monitor reports the
+        service UP while it is up — a health check behind a login redirect
+        is useless. The body is deliberately minimal and public: no version
+        numbers, build hashes, database paths, or dependency versions.
+        """
+        self._send_json(handler, HTTPStatus.OK, {"status": "ok"})
+
     def handle_get_signup(self, handler: BaseHTTPRequestHandler) -> None:
         token = _new_csrf()
         form = (
@@ -498,7 +581,7 @@ class WeftWebApp:
         handler.send_header("Content-Type", "text/html; charset=utf-8")
         handler.send_header("Content-Length", str(len(body)))
         handler.send_header("Cache-Control", "no-store")
-        handler.send_header("X-Content-Type-Options", "nosniff")
+        self._send_security_headers(handler, html=True)
         handler.end_headers()
         handler.wfile.write(body)
 
@@ -569,7 +652,7 @@ class WeftWebApp:
         handler.send_header("Content-Type", "text/html; charset=utf-8")
         handler.send_header("Content-Length", str(len(body)))
         handler.send_header("Cache-Control", "no-store")
-        handler.send_header("X-Content-Type-Options", "nosniff")
+        self._send_security_headers(handler, html=True)
         handler.end_headers()
         handler.wfile.write(body)
 
@@ -636,7 +719,7 @@ class WeftWebApp:
         self._set_session_cookie(handler, raw_token)
         handler.send_header("Content-Length", "0")
         handler.send_header("Cache-Control", "no-store")
-        handler.send_header("X-Content-Type-Options", "nosniff")
+        self._send_security_headers(handler)
         handler.end_headers()
 
     def handle_post_verify(self, handler: BaseHTTPRequestHandler) -> None:
@@ -688,7 +771,7 @@ class WeftWebApp:
         handler.send_header("Content-Type", "text/html; charset=utf-8")
         handler.send_header("Content-Length", str(len(body)))
         handler.send_header("Cache-Control", "no-store")
-        handler.send_header("X-Content-Type-Options", "nosniff")
+        self._send_security_headers(handler, html=True)
         handler.end_headers()
         handler.wfile.write(body)
 
@@ -709,7 +792,7 @@ class WeftWebApp:
         handler.send_header("Content-Type", "text/html; charset=utf-8")
         handler.send_header("Content-Length", str(len(body)))
         handler.send_header("Cache-Control", "no-store")
-        handler.send_header("X-Content-Type-Options", "nosniff")
+        self._send_security_headers(handler, html=True)
         handler.end_headers()
         handler.wfile.write(body)
 
@@ -752,7 +835,7 @@ class WeftWebApp:
         handler.send_header("Content-Type", "text/html; charset=utf-8")
         handler.send_header("Content-Length", str(len(body)))
         handler.send_header("Cache-Control", "no-store")
-        handler.send_header("X-Content-Type-Options", "nosniff")
+        self._send_security_headers(handler, html=True)
         handler.end_headers()
         handler.wfile.write(body)
 
@@ -805,7 +888,7 @@ class WeftWebApp:
         self._clear_session_cookie(handler)
         handler.send_header("Content-Length", "0")
         handler.send_header("Cache-Control", "no-store")
-        handler.send_header("X-Content-Type-Options", "nosniff")
+        self._send_security_headers(handler)
         handler.end_headers()
 
     # ------------------------------------------------------------------
@@ -851,7 +934,7 @@ class WeftWebApp:
         handler.send_header("Content-Type", "text/html; charset=utf-8")
         handler.send_header("Content-Length", str(len(body)))
         handler.send_header("Cache-Control", "no-store")
-        handler.send_header("X-Content-Type-Options", "nosniff")
+        self._send_security_headers(handler, html=True)
         handler.end_headers()
         handler.wfile.write(body)
 
@@ -915,7 +998,7 @@ class WeftWebApp:
         handler.send_header("Content-Type", "text/html; charset=utf-8")
         handler.send_header("Content-Length", str(len(body)))
         handler.send_header("Cache-Control", "no-store")
-        handler.send_header("X-Content-Type-Options", "nosniff")
+        self._send_security_headers(handler, html=True)
         handler.end_headers()
         handler.wfile.write(body)
 
@@ -983,7 +1066,7 @@ class WeftWebApp:
         handler.send_header("Content-Type", "text/html; charset=utf-8")
         handler.send_header("Content-Length", str(len(body)))
         handler.send_header("Cache-Control", "no-store")
-        handler.send_header("X-Content-Type-Options", "nosniff")
+        self._send_security_headers(handler, html=True)
         handler.end_headers()
         handler.wfile.write(body)
 
@@ -1008,7 +1091,7 @@ class WeftWebApp:
         self._set_session_cookie(handler, session_token)
         handler.send_header("Content-Length", "0")
         handler.send_header("Cache-Control", "no-store")
-        handler.send_header("X-Content-Type-Options", "nosniff")
+        self._send_security_headers(handler)
         handler.end_headers()
 
     def handle_post_org_role(self, handler: BaseHTTPRequestHandler) -> None:
@@ -1279,7 +1362,7 @@ class WeftWebApp:
         handler.send_header("Content-Type", "text/html; charset=utf-8")
         handler.send_header("Content-Length", str(len(body)))
         handler.send_header("Cache-Control", "no-store")
-        handler.send_header("X-Content-Type-Options", "nosniff")
+        self._send_security_headers(handler, html=True)
         handler.end_headers()
         handler.wfile.write(body)
 
@@ -1344,7 +1427,7 @@ class WeftWebApp:
         handler.send_header("Content-Type", "text/html; charset=utf-8")
         handler.send_header("Content-Length", str(len(body)))
         handler.send_header("Cache-Control", "no-store")
-        handler.send_header("X-Content-Type-Options", "nosniff")
+        self._send_security_headers(handler, html=True)
         handler.end_headers()
         handler.wfile.write(body)
 
@@ -1522,7 +1605,7 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
                     self.send_header("Content-Type", "text/plain")
                     self.send_header("Content-Length", "21")
                     self.send_header("Cache-Control", "no-store")
-                    self.send_header("X-Content-Type-Options", "nosniff")
+                    app._send_security_headers(self)
                     self.end_headers()
                     self.wfile.write(b"Internal server error")
                 except Exception:
@@ -1548,8 +1631,19 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
             if method == "GET" and path == "/reset-request":
                 app.handle_get_reset_request(self)
                 return
-            if method == "GET" and path in ("/terms.html", "/privacy.html") and app.static_dir:
-                self._serve_static(path)
+            if method == "GET" and path in _PUBLIC_GET_PATHS:
+                # Exact public static allowlist (terms/privacy/robots/sitemap/
+                # favicon). When no static bundle is mounted these must 404 —
+                # never redirect a crawler or icon request to the login page.
+                if app.static_dir:
+                    self._serve_static(path)
+                else:
+                    app._send_json(self, HTTPStatus.NOT_FOUND,
+                                   {"error": {"code": "not_found",
+                                              "message": "Not found"}})
+                return
+            if method == "GET" and path == "/health":
+                app.handle_get_health(self)
                 return
 
             # --- Public pre-auth routes (POST) ---
@@ -1593,7 +1687,7 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
                 app._clear_session_cookie(self)
                 self.send_header("Content-Length", "0")
                 self.send_header("Cache-Control", "no-store")
-                self.send_header("X-Content-Type-Options", "nosniff")
+                app._send_security_headers(self)
                 self.end_headers()
                 return
 
@@ -1704,14 +1798,15 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
                 return
             import mimetypes
             ctype, _ = mimetypes.guess_type(str(target))
-            ctype = ctype or "application/octet-stream"
+            ctype = _STATIC_CONTENT_TYPE.get(path) or (ctype or "application/octet-stream")
             with open(target, "rb") as f:
                 data = f.read()
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Content-Type-Options", "nosniff")
+            for name, value in security_headers(html=ctype.startswith("text/html")):
+                self.send_header(name, value)
             self.end_headers()
             self.wfile.write(data)
 

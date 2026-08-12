@@ -494,6 +494,25 @@ class TestJoinDescriptorAndAgentCard(CloudServiceTestBase):
         self.assertIn("cross-tenant", page)
         self.assertIn("not proof that a human saw and approved", page)
 
+    def test_join_descriptor_html_page_ships_security_headers(self) -> None:
+        # The /j/ human page is a browser-facing HTML response on the live
+        # service, so it must carry the full security header block like the
+        # web app's pages (HSTS, CSP, frame protection, Referrer-Policy,
+        # Permissions-Policy, nosniff).
+        status, raw, headers = _get_url(f"{self.base}/j/{self.link_token}", accept="text/html")
+        self.assertEqual(status, 200)
+        self.assertEqual(headers.get("X-Content-Type-Options"), "nosniff")
+        self.assertEqual(headers.get("Referrer-Policy"), "no-referrer")
+        self.assertEqual(headers.get("X-Frame-Options"), "DENY")
+        self.assertTrue(
+            headers.get("Strict-Transport-Security", "").startswith("max-age="),
+            "missing HSTS on /j/ HTML page",
+        )
+        csp = headers.get("Content-Security-Policy", "")
+        self.assertIn("default-src 'none'", csp)
+        self.assertIn("frame-ancestors 'none'", csp)
+        self.assertIn("Permissions-Policy", headers)
+
     def test_agent_card_is_public_and_contains_no_a2a_conformance_claim(self) -> None:
         # Unauthenticated, valid JSON, no secrets, no A2A conformance claim.
         status, raw, headers = _get_url(f"{self.base}/.well-known/agent-card.json")
