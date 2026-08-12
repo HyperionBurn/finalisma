@@ -77,6 +77,19 @@ def _token_hash(token: str) -> str:
 
 
 _MESSAGE_KIND_RE = re.compile(r"^[a-z0-9_-]{1,32}$")
+_LINK_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
+
+
+def _validate_link_id(link_id: Any) -> None:
+    """Validate a ``link_id`` is a well-formed control-plane identifier.
+
+    A malformed ``link_id`` is the caller's error (``invalid_argument``) and is
+    refused BEFORE any room/link lookup, so it can never be confused with a
+    missing link. Only the format is checked here — existence and ownership are
+    decided by the caller against ``cloud_room_links``.
+    """
+    if not isinstance(link_id, str) or not _LINK_ID_RE.match(link_id):
+        raise RoomError("invalid_argument", "link_id must be 1-128 safe identifier characters")
 
 
 def _validate_message_kind(value: Any, field: str = "message_kind") -> str | None:
@@ -658,7 +671,14 @@ class CloudRoomService:
                 "joined_at": now, "cursor": 0}
 
     def room_info(self, tenant_id: str, room_id: str, agent_id: str) -> dict:
-        """Member-only room summary with roster and presence."""
+        """Member-only room summary with roster and presence.
+
+        The ROOM OWNER additionally sees the link control surface: ``link_id``
+        (the identifier ``/v1/rooms/revoke_link`` needs) and ``link_revoked``
+        (confirmation a revocation landed). Ordinary members who cannot revoke
+        never see either. ``link_id`` is a control-plane identifier; the
+        ``link_token`` bearer credential is never exposed here.
+        """
         with self.backend.transaction() as tx:
             room = self._require_room(tx, tenant_id, room_id)
             self._require_member(tx, tenant_id, room_id, agent_id)
@@ -676,7 +696,7 @@ class CloudRoomService:
                     "last_seen": float(m["last_seen"]),
                     "joined_at": m["joined_at"],
                 })
-            return {
+            result = {
                 "room_id": room_id,
                 "name": room["name"],
                 "state": room["state"],
@@ -685,6 +705,21 @@ class CloudRoomService:
                 "members": member_list,
                 "owner_agent_id": room["owner_agent_id"],
             }
+            # Owner-only link control surface (2026-08-12 finding: link_id was
+            # unobtainable after room_create). A room has exactly one link
+            # (created with the room), so exposing it on room_info gives the
+            # owner the identifier revoke_link needs WITHOUT a new endpoint and
+            # WITHOUT leaking it to members who cannot revoke (least exposure).
+            if room["owner_agent_id"] == agent_id:
+                link = tx.execute(
+                    "SELECT link_id, revoked FROM cloud_room_links "
+                    "WHERE tenant_id = ? AND room_id = ? LIMIT 1",
+                    (tenant_id, room_id),
+                ).fetchone()
+                if link is not None:
+                    result["link_id"] = link["link_id"]
+                    result["link_revoked"] = bool(link["revoked"])
+            return result
 
     def leave_room(self, tenant_id: str, room_id: str, agent_id: str) -> dict:
         with self.backend.transaction() as tx:
@@ -744,23 +779,40 @@ class CloudRoomService:
         return {"room_id": room_id, "state": "closed"}
 
     def revoke_link(self, tenant_id: str, room_id: str, owner_agent_id: str, link_id: str) -> dict:
-        """Revoke a specific link (owner only)."""
+        """Revoke a specific link (owner only).
+
+        Error-code decision (2026-08-12 finding: revoke reported success while
+        revoking nothing). A MALFORMED link_id is the caller's error:
+        ``invalid_argument``, refused before any lookup. A WELL-FORMED but
+        unknown, already-revoked, or wrong-room/tenant link_id all collapse to
+        the SAME ``link_not_found`` 404 — byte-identical for a link that lives
+        in someone else's room/tenant and a link that never existed, so this
+        endpoint is not a link-id existence oracle (the codebase has had three
+        of those; this must not be a fourth). Success requires exactly one row
+        to flip: if zero rows changed, nothing was revoked and returning 200
+        would manufacture false confidence exactly when an owner is cutting off
+        a leaked link.
+        """
+        _validate_link_id(link_id)
         with self.backend.transaction() as tx:
             room = self._require_room(tx, tenant_id, room_id)
             self._require_member(tx, tenant_id, room_id, owner_agent_id)
             if room["owner_agent_id"] != owner_agent_id:
                 raise RoomError("owner_required", "Only the room owner can revoke links", 403)
-            result = tx.execute(
+            link = tx.execute(
+                "SELECT link_id, revoked FROM cloud_room_links "
+                "WHERE link_id = ? AND tenant_id = ? AND room_id = ?",
+                (link_id, tenant_id, room_id),
+            ).fetchone()
+            if link is None or link["revoked"]:
+                raise RoomError("link_not_found", "Link not found for this room", 404)
+            cursor = tx.execute(
                 "UPDATE cloud_room_links SET revoked = 1 "
                 "WHERE link_id = ? AND tenant_id = ? AND room_id = ? AND revoked = 0",
                 (link_id, tenant_id, room_id),
             )
-            if result.rowcount != 1:
-                # Keep unknown, cross-room, and already-revoked identifiers
-                # indistinguishable. The owner already passed room access
-                # checks, so this is a control-state error, not an existence
-                # oracle for an unrelated room or link.
-                raise RoomError("link_not_found", "Link is not valid for this room", 404)
+            if cursor.rowcount != 1:
+                raise RoomError("link_not_found", "Link not found for this room", 404)
             tx.commit()
         return {"link_id": link_id, "revoked": True}
 

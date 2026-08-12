@@ -96,6 +96,12 @@ delta: the blast radius is bounded by the cap, not by one-shot consumption.
 4. **Revocation.** `room_close` and an explicit
    `room_revoke_link` flip a `revoked` flag on the link row. A
    revoked/expired link cannot admit anyone (`link_revoked`).
+   `room_revoke_link` reports success **only** when a row actually flipped: an
+   unknown / already-revoked / wrong-room `link_id` is refused with
+   `link_not_found` (byte-identical to a link that never existed — no link-id
+   existence oracle), and a malformed one with `invalid_argument`. The room
+   owner can rediscover `link_id` (and confirm `link_revoked`) from
+   `room_info`, which exposes the link control surface to the owner only.
 5. **Attributable membership.** Every join is bound to `agent_id` + actor
    credential. A leaked link yields **attributable** members, never anonymous
    readers. The roster records who joined and when.
@@ -325,7 +331,7 @@ a room is not publicly readable). They are dispatched by `WeftDispatcher`
 | --- | --- | --- | --- | --- |
 | 1 | `room_create` | `team_id, owner_agent_id, cap` | `{room_id, link_token, shareable_link, expires_at, cap, state}` | `name?`, `ttl_seconds?` (default 86400). Owner joins automatically. `cap` ≥ 2. `shareable_link` is an absolute `{origin}/j/{link_token}` URL an agent can fetch to discover the join endpoint and protocol. |
 | 2 | `room_join` | `team_id, room_id, link_token, agent_id, consent, actor_token` | `{room_id, agent_id, status, joined_at, cursor}` | `capabilities?`. `consent` must be literal boolean `true`. Link is consumed for THIS identity only. |
-| 3 | `room_info` | `team_id, room_id, agent_id, actor_token` | `{room_id, state, cap, member_count, members:[{agent_id, status, capabilities, last_seen, joined_at}], owner_agent_id}` | Member-only. |
+| 3 | `room_info` | `team_id, room_id, agent_id, actor_token` | `{room_id, state, cap, member_count, members:[{agent_id, status, capabilities, last_seen, joined_at}], owner_agent_id}` | Member-only. The ROOM OWNER additionally sees `link_id` (the identifier `room_revoke_link` needs) and `link_revoked` (confirmation the revocation landed). Ordinary members never see them, and `link_token` is never exposed. |
 | 4 | `room_leave` | `team_id, room_id, agent_id, actor_token` | `{room_id, agent_id, status: "left"}` | Emits `room.left`. |
 | 5 | `room_close` | `team_id, room_id, owner_agent_id, actor_token` | `{room_id, state: "closed"}` | Owner only. Invalidates all links. Emits `room.closed`. |
 | 6 | `room_send` | `team_id, room_id, sender_agent_id, target_spec, payload, actor_token` | `{envelope, receipts:[{agent_id, entry_id, status}], seq}` | `exclude_sender?`. Emits `room.message`. |
@@ -334,12 +340,13 @@ a room is not publicly readable). They are dispatched by `WeftDispatcher`
 | 9 | `room_heartbeat` | `team_id, room_id, agent_id, actor_token` | `{room_id, agent_id, last_seen, status}` | Refreshes presence. |
 | 10 | `room_groups` | `team_id, room_id, agent_id, group_name, action, actor_token` | `{room_id, group_name, members}` | `action` ∈ `add`, `remove`, `list`. Wraps `roster.add_to_group` / `remove_from_group` / `list_group`. |
 | 11 | `room_receipts` | `team_id, room_id, agent_id, entry_ids, actor_token` | `{receipts:[{entry_id, status, attempts, next_attempt_at, last_error}]}` | Member-only. |
-| 12 | `room_revoke_link` | `team_id, room_id, owner_agent_id, link_id, actor_token` | `{link_id, revoked: true}` | Owner only. Flips `revoked`. |
+| 12 | `room_revoke_link` | `team_id, room_id, owner_agent_id, link_id, actor_token` | `{link_id, revoked: true}` | Owner only. Flips `revoked`. An unknown / already-revoked / wrong-room `link_id` is refused with `link_not_found` (byte-identical to a never-existing link — no oracle), a malformed one with `invalid_argument`. Success is only reported when a row actually flipped. |
 
 ### 8.1 Error codes
 
 `room_not_found`, `room_closed`, `room_full`, `invalid_link`, `link_expired`,
-`link_revoked`, `member_required`, `consent_required`, `cross_room_forbidden`,
+`link_revoked`, `link_not_found`, `member_required`, `consent_required`,
+`cross_room_forbidden`,
 `stale_fencing_token` (reused from core), `actor_auth_invalid`, `invalid_argument`,
 `team_scope_forbidden` (from `_apply_team_scope`).
 
@@ -389,6 +396,10 @@ These are the product. Each is a required security-integration test.
 | 15 | Concurrent `room_join` × (cap + 5) | exactly `cap - owner` succeed, rest `room_full` | Atomic cap enforcement. |
 | 16 | `room_leave` / `room_ack` / `room_heartbeat` / `room_groups` / `room_receipts` / `room_revoke_link` by a non-member | `room_not_found` | Non-members get the no-oracle code across every member-only tool. |
 | 17 | any member-only tool with a bad or missing token | `actor_auth_invalid` | Auth validates before room resolution — identical for a real and a fabricated room (no token-validity oracle). |
+| 18 | `room_revoke_link` with an unknown / already-revoked `link_id` | `link_not_found` | Success must mean the link was actually revoked; a control that reports 200 while revoking nothing manufactures false confidence at the moment an owner is cutting off a leaked link. |
+| 19 | `room_revoke_link` with a `link_id` belonging to another room/tenant vs a `link_id` that never existed | `link_not_found`, byte-identical | No link-id existence oracle: the two refusals MUST produce the same wire body, or this endpoint confirms which link_ids exist (the codebase has already shipped three such oracles). |
+| 20 | `room_revoke_link` with a malformed `link_id` | `invalid_argument` | The caller's error is named before any lookup. |
+| 21 | `room_info` for a non-owner member | no `link_id` / `link_revoked` keys | Least exposure: only whoever can revoke may see the control identifier. |
 
 ---
 
@@ -521,7 +532,7 @@ FILES CHANGED: docs/ROOMS_DESIGN.md
 SECURITY-MODEL DELTA: A room link is multi-use up to the cap, so a leaked link grants anyone holding it the ability to join as a new attributable member until the cap is reached, the link expires, or it is revoked — unlike the one-use roster link where a leak grants at most one join. Compensating controls: (1) per-join consent with preview-before-consent and a fresh actor credential bound to the joining agent_id, so the link alone never grants read access; (2) the cap bounds blast radius; (3) expiry checked on every join; (4) explicit revocation and room-close invalidation; (5) every member is attributable (agent_id + actor_token_hash); (6) token hygiene mirrors roster.py — only SHA-256(token) stored, raw token returned once, token-bearing URL paths rejected.
 NEW PRIMITIVES REQUIRED: none — pure composition over roster.py (create_roster/join_roster/leave_roster/heartbeat/route_targets/build_envelope_v2/groups), outbox.py (enqueue/claim_due/mark_delivered/mark_retry), and core.py (create_task/claim_task/verify_task/complete_task with leases/fencing/evidence). New tables only: room_rooms, room_members, room_links, room_event_log, room_cursors, room_groups, room_group_members (all room_-prefixed, additive, no existing table modified).
 TOOL SURFACE COUNT: 12 room_* tools (create, join, info, leave, close, send, poll, ack, heartbeat, groups, receipts, revoke_link).
-NEGATIVE CASES SPECIFIED: 15 (see §9 table).
+NEGATIVE CASES SPECIFIED: 21 (see §9 table).
 NOT DONE: implementation (this is the doc-only lane); the optional tasks.room_id column decision is deferred to the implementation lane (metadata={room_id} works with zero schema change).
 RISKS: (1) the cap-enforcement read-then-insert MUST run under BEGIN IMMEDIATE to prevent N concurrent joins overshooting — verify the implementation does not use a plain read-then-write without the writer lock; (2) room_event_log must be a NEW table, not a reuse of session_events — the orchestrator must confirm the implementation lane does not rewrite core's session tables; (3) the link token must be returned exactly once and only its SHA-256 stored — any design that persists the raw token or returns it on info/poll is a regression; (4) actor_token is required on ALL room tools — a lane that makes info or poll anonymous breaks member-only isolation; (5) the existing two-party pairing tests must stay green — the room is additive, never a replacement.
 ```
