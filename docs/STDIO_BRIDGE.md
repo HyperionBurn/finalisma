@@ -78,8 +78,9 @@ Some hosts only allow `env` to reference existing environment variables rather
 than define new ones; in that case export `WEFT_TOKEN` in the shell before
 launching the client and drop the `env` block. For MCP, prefer the agent key
 (`agk_`) rather than the interactive session (`fss_`). Agent keys have no
-expiry clock but remain revocable; password resets and membership security
-changes invalidate them. Use the session-only `/v1/agent-keys` routes to create,
+expiry clock but remain revocable; password resets or membership removal
+invalidate them, while role changes are re-derived on future requests. Use the
+session-only `/v1/agent-keys` routes to create,
 list, and revoke keys.
 
 ## Behaviour

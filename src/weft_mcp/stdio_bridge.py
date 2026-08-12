@@ -177,13 +177,16 @@ class StdioHttpBridge:
             return _json_rpc_error(
                 request.get("id") if isinstance(request, dict) else None,
                 -32000,
-                "authentication failed: the Weft session token is invalid or expired "
-                "(the hosted endpoint returned 401). The session token stops working "
+                "authentication failed: the Weft bearer token is invalid or revoked "
+                "(the hosted endpoint returned 401). An fss_ session stops working "
                 "if the service was redeployed, the account's password was reset, or "
-                "the token expired. Re-authenticate: POST /v1/auth/signin with "
-                "{\"email\": ..., \"password\": ...} returns a fresh session_token "
-                "(prefix fss_); export it in the environment variable used for this "
-                "bridge (the --token-env name) and restart this client",
+                "the session expired; an agk_ agent key can be revoked or invalidated "
+                "by a password reset or membership removal. Re-authenticate with "
+                "POST /v1/auth/signin and {\"email\": ..., \"password\": ...} for "
+                "a fresh session_token (prefix fss_), or create a replacement key "
+                "with POST /v1/agent-keys; export the new credential in the "
+                "environment variable used for this bridge (the --token-env name) "
+                "and restart this client",
             )
         if status == 202:
             return None

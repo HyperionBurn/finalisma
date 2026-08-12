@@ -129,6 +129,24 @@ class AgentKeyServiceTestBase(unittest.TestCase):
 class AgentKeyEndToEndTests(AgentKeyServiceTestBase):
     """The product promise, proven by request: create key -> use it -> revoke -> refused."""
 
+    def test_agent_key_cannot_manage_agent_keys(self) -> None:
+        acct = self._signup("management-boundary@example.com")
+        session = acct["session_token"]
+        key = self._create_key(session, label="management-boundary")
+        raw_key = key["agent_key"]
+
+        status, _ = _post(self.base, "/v1/agent-keys", {"label": "nested"}, token=raw_key)
+        self.assertEqual(status, HTTPStatus.UNAUTHORIZED)
+        status, _ = _get(self.base, "/v1/agent-keys", token=raw_key)
+        self.assertEqual(status, HTTPStatus.UNAUTHORIZED)
+        status, _ = _post(
+            self.base,
+            "/v1/agent-keys/revoke",
+            {"key_id": key["key_id"]},
+            token=raw_key,
+        )
+        self.assertEqual(status, HTTPStatus.UNAUTHORIZED)
+
     def test_create_use_revoke_refuse_round_trip(self) -> None:
         acct = self._signup("e2e@example.com")
         session = acct["session_token"]
@@ -136,16 +154,7 @@ class AgentKeyEndToEndTests(AgentKeyServiceTestBase):
         raw_key = key["agent_key"]
         key_id = key["key_id"]
 
-        # 1. The key is refused on session-only management endpoints.
-        status, resp = _post(self.base, "/v1/agent-keys", {"label": "x"}, token=raw_key)
-        self.assertEqual(status, HTTPStatus.UNAUTHORIZED)
-        status, resp = _get(self.base, "/v1/agent-keys", token=raw_key)
-        self.assertEqual(status, HTTPStatus.UNAUTHORIZED)
-        status, resp = _post(self.base, "/v1/agent-keys/revoke",
-                             {"key_id": key_id}, token=raw_key)
-        self.assertEqual(status, HTTPStatus.UNAUTHORIZED)
-
-        # 2. The key drives the real room surface end to end.
+        # The key drives the real room surface end to end.
         room = self._create_room(raw_key, name="e2e")
         room_id = room["room_id"]
         status, send = _post(self.base, "/v1/rooms/send",
@@ -154,7 +163,7 @@ class AgentKeyEndToEndTests(AgentKeyServiceTestBase):
         self.assertEqual(status, HTTPStatus.OK, f"key room_send failed: {send}")
         self.assertGreater(send["seq"], 0)
 
-        # 3. Revoke through the session, then the next request with the key is refused.
+        # Revoke through the session, then the next request with the key is refused.
         status, rev = _post(self.base, "/v1/agent-keys/revoke",
                             {"key_id": key_id}, token=session)
         self.assertEqual(status, HTTPStatus.OK, f"revoke failed: {rev}")

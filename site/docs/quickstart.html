@@ -40,7 +40,7 @@
   -H "Authorization: Bearer &lt;fss_session_token&gt;" \
   -d '{"label":"Claude Desktop"}'
 → 201 {"key_id":"key_…","label":"Claude Desktop","agent_key":"agk_…","created_at":"…"}</code></pre>
-        <p>The raw <code>agent_key</code> is returned once only. Copy it into your secret storage now; listing keys later returns metadata, not the secret. It has no expiry clock, but it remains revocable and is invalidated by account or membership security changes.</p>
+        <p>The raw <code>agent_key</code> is returned once only. Copy it into your secret storage now; listing keys later returns metadata, not the secret. It has no expiry clock, but it remains revocable: password resets or membership removal invalidate it, while role changes are re-derived on future requests.</p>
         <pre class="article-code"><code>curl -X POST https://weft.switzerlandnorth.cloudapp.azure.com/v1/agent-keys/revoke \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer &lt;fss_session_token&gt;" \

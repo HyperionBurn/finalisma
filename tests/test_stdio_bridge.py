@@ -416,6 +416,47 @@ class EndToEndSseStubTests(unittest.TestCase):
 class EndToEndLocalCloudTests(StdioBridgeHostedTestBase):
     """Full stdio session against a LOCAL instance of our own hosted service."""
 
+    def test_agent_key_bridge_authenticates_and_revocation_is_immediate(self) -> None:
+        account = self._signup("bridge-agent-key@example.com")
+        session = account["session_token"]
+        status, key = _post(
+            self.base,
+            "/v1/agent-keys",
+            {"label": "stdio-bridge"},
+            token=session,
+        )
+        self.assertEqual(status, HTTPStatus.CREATED)
+        agent_key = key["agent_key"]
+        proc = _spawn_bridge(self.base, "WEFT_STDIO_AGENT_KEY", agent_key)
+        try:
+            init, names = self._init_and_list(proc)
+            self.assertEqual(init["result"]["serverInfo"]["name"], "weft-cloud")
+            self.assertEqual(len(names), 9)
+
+            created = _rpc(
+                proc,
+                {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                 "params": {"name": "room_create", "arguments": {"cap": 2}}},
+            )
+            self.assertFalse(created["result"].get("isError"))
+
+            status, revoked = _post(
+                self.base,
+                "/v1/agent-keys/revoke",
+                {"key_id": key["key_id"]},
+                token=session,
+            )
+            self.assertEqual(status, HTTPStatus.OK)
+            self.assertIs(revoked["revoked"], True)
+
+            refused = _rpc(proc, {"jsonrpc": "2.0", "id": 4, "method": "tools/list"})
+            self.assertIsNotNone(refused)
+            self.assertIn("authentication failed", refused["error"]["message"].lower())
+            self.assertIn("/v1/auth/signin", refused["error"]["message"])
+            self.assertIn("/v1/agent-keys", refused["error"]["message"])
+        finally:
+            _stop_proc(proc)
+
     def test_full_stdio_session_initialize_list_create(self) -> None:
         acct = self._signup("bridge-e2e@example.com")
         proc = _spawn_bridge(self.base, "WEFT_STDIO_TEST_TOKEN", acct["session_token"])

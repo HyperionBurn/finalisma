@@ -13,7 +13,8 @@ Architecture (per docs/PRODUCT_ROADMAP.md §1):
     ``http.server.ThreadingHTTPServer`` + ``BaseHTTPRequestHandler``.
 
 The service is a thin JSON-RPC-over-HTTP layer. Every request authenticates
-via a Bearer session token (``fss_``) except signup/signin. Room mutations
+via a Bearer cloud credential (``fss_`` session or ``agk_`` agent key) except
+signup/signin. Room mutations
 require the actor to be an active member; room reads are member-only.
 
 One link, many agents: the room link (``/r/{room_id}#{token}``) is multi-use

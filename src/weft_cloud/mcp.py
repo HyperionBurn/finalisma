@@ -6,8 +6,9 @@ an open ``register_agent``: anyone who can reach it can register into any
 internet unchanged would let any caller open a room in any team.
 
 This module mounts the MCP protocol on the HOSTED service instead. Every
-request must present a valid CLOUD session token (``fss_``). The token is
-resolved to a ``SessionContext`` (tenant + account) by the identity plane,
+request must present a valid CLOUD bearer credential (an ``fss_`` session or
+an ``agk_`` agent key). The credential is resolved to a ``SessionContext``
+(tenant + account) by the identity plane,
 and every tool call is confined to that tenant by routing through
 ``CloudRoomService`` — the same service the ``/v1`` API and the web app
 drive. A caller that presents no valid credential is refused with the same
@@ -32,8 +33,9 @@ Identity rules:
     ``owner_agent_id`` / ``sender_agent_id`` / ``caller_agent_id`` arguments
     are rejected, so one account cannot impersonate another or mint arbitrary
     credentials.
-  - The actor credential bound to room membership is the session token itself
-    (the same convention ``/v1/rooms/create`` and ``/v1/rooms/join`` use), so
+  - The actor credential bound to room membership is the authenticated cloud
+    bearer credential itself (the same convention ``/v1/rooms/create`` and
+    ``/v1/rooms/join`` use), so
     a member identity created here is indistinguishable from one created over
     the REST surface.
   - Plan limits are enforced by ``CloudRoomService`` (the room member cap,
@@ -73,8 +75,8 @@ class HostedMCPAuthError(Exception):
     """Transport-level auth failure: HTTP 401, generic, carries no detail.
 
     Raised for a missing token, a malformed token, an unknown token, a
-    revoked session, and an expired session alike. The caller can never tell
-    which, so the endpoint is not an oracle for session validity.
+    revoked session or agent key, and an expired session alike. The caller can
+    never tell which, so the endpoint is not an oracle for credential validity.
     """
 
 
@@ -207,7 +209,7 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
 HOSTED_TOOL_NAMES = tuple(t["name"] for t in HOSTED_TOOLS)
 
 # Client-supplied identity arguments that must never reach a tool. Identity is
-# derived from the authenticated session; accepting these would let a caller
+# derived from the authenticated bearer credential; accepting these would let a caller
 # impersonate another agent or mint arbitrary actor credentials.
 _FORBIDDEN_IDENTITY_ARGS = frozenset({
     "team_id",
@@ -402,7 +404,7 @@ class HostedMCPDispatcher:
     # Room tools — 1:1 with the /v1 handlers. The tenant is resolved per
     # room via the caller's membership (so cross-tenant link members work,
     # exactly as on /v1); the agent identity is the session account; the
-    # actor credential on create/join is the session token.
+    # actor credential on create/join is the authenticated bearer credential.
     # ------------------------------------------------------------------
 
     def _tool_room_create(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:
