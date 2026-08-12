@@ -52,6 +52,7 @@ from weft_cloud.quotas import QuotaError
 from weft_cloud.rate_limit import RateLimitedError, enforce_auth_rate_limit
 from weft_cloud.rooms import CloudRoomService, RoomError, _parse_json, public_origin
 from weft_cloud.storage import StorageBackend
+from weft_cloud.web.config_gen import CLIENTS, build_config
 from weft_cloud.web.copy import connect_page_body
 from weft_cloud.web.security_headers import security_headers
 
@@ -1379,30 +1380,38 @@ class WeftWebApp:
         rows_html = ""
         for k in keys:
             key_id = k["key_id"]
-            revoke_form = ""
-            if k["revoked_at"] is None:
-                revoke_form = (
+            revoked = k["revoked_at"] is not None
+            if revoked:
+                status_html = '<span class="revoked">revoked</span>'
+                action_html = '<span class="muted">revoked</span>'
+            else:
+                status_html = '<span class="active-ok">active</span>'
+                action_html = (
                     f'<form method="post" action="/agent-keys/revoke" style="display:inline">'
                     f'{_csrf_input(csrf)}'
                     f'<input type="hidden" name="key_id" value="{_esc(key_id)}">'
-                    '<button type="submit">Revoke</button>'
+                    '<button type="submit" '
+                    'onclick="return confirm(\'Revoke this agent key? It will stop '
+                    'working immediately and cannot be un-revoked.\')">Revoke</button>'
                     '</form>'
                 )
-            else:
-                revoke_form = '<span class="muted">revoked</span>'
             rows_html += (
                 f'<tr><td>{_esc(k["label"])}</td>'
                 f'<td>{_esc(_format_last_used(k["created_at"]))}</td>'
                 f'<td>{_esc(_format_last_used(k["last_used_at"]))}</td>'
-                f'<td>{revoke_form}</td></tr>'
+                f'<td>{status_html}</td>'
+                f'<td>{action_html}</td></tr>'
             )
         if not rows_html:
-            rows_html = '<tr><td colspan="4" class="muted">No agent keys yet.</td></tr>'
+            rows_html = '<tr><td colspan="5" class="muted">No agent keys yet.</td></tr>'
         body_html = (
             '<h1>Agent keys</h1>'
             '<p>Long-lived credentials for MCP client configs. An agent key never '
             'expires and never signs in; it stays valid until you revoke it. The raw '
             'key is shown <strong>once</strong> at creation and stored only as a hash.</p>'
+            '<p class="warn"><strong>Key management is session-only.</strong> An '
+            '<code>agk_</code> key can use the room surface but can never mint, list '
+            'or revoke keys — those actions require your interactive session.</p>'
             '<h2>Create a key</h2>'
             '<form method="post" action="/agent-keys">'
             f'{_csrf_input(csrf)}'
@@ -1411,17 +1420,18 @@ class WeftWebApp:
             '</form>'
             '<h2>Your keys</h2>'
             '<table><thead><tr><th>Label</th><th>Created</th><th>Last used</th>'
-            '<th></th></tr></thead>'
+            '<th>Status</th><th></th></tr></thead>'
             f'<tbody>{rows_html}</tbody></table>'
-            '<p><a href="/">Back to dashboard</a></p>'
+            '<p><a href="/config">Generate a connector config</a> · '
+            '<a href="/">Back to dashboard</a></p>'
         )
-        body = _page("Agent keys", body_html, csrf_token=csrf)
+        body = _page("Agent keys", body_html, csrf_token=csrf, extra_head=_DASH_CSS + _COPY_JS)
         handler.send_response(HTTPStatus.OK)
         self._set_csrf_cookie(handler, csrf)
         handler.send_header("Content-Type", "text/html; charset=utf-8")
         handler.send_header("Content-Length", str(len(body)))
         handler.send_header("Cache-Control", "no-store")
-        handler.send_header("X-Content-Type-Options", "nosniff")
+        self._send_security_headers(handler, html=True)
         handler.end_headers()
         handler.wfile.write(body)
 
@@ -1444,23 +1454,21 @@ class WeftWebApp:
         # never stored, redirected through a query string, or retrievable again.
         body_html = (
             '<h1>Agent key created</h1>'
-            f'<p>Copy this key now — it is shown <strong>once</strong> and cannot '
-            'be retrieved again. If you lose it, create a new key and revoke this one.</p>'
+            '<p class="warn"><strong>You will not see this key again.</strong> '
+            'It is shown below exactly once and stored only as a hash. If you '
+            'lose it, create a new key and revoke this one.</p>'
             f'<pre><code>{_esc(raw_token)}</code></pre>'
+            f'{_copy_button(raw_token)}'
             f'<p>Put it in your MCP client config as <code>WEFT_TOKEN</code> under the '
-            f'<code>weft</code> server entry. It never expires; revoke it here when you '
+            f'<code>weft</code> server entry — or use the '
+            f'<a href="/config">connector config generator</a>, which builds the '
+            f'whole config for you. It never expires; revoke it here when you '
             'stop using it.</p>'
             f'<p><a href="/agent-keys">Manage agent keys</a> · '
             f'<a href="/">Back to dashboard</a></p>'
         )
-        body = _page("Agent key created", body_html)
-        handler.send_response(HTTPStatus.OK)
-        handler.send_header("Content-Type", "text/html; charset=utf-8")
-        handler.send_header("Content-Length", str(len(body)))
-        handler.send_header("Cache-Control", "no-store")
-        handler.send_header("X-Content-Type-Options", "nosniff")
-        handler.end_headers()
-        handler.wfile.write(body)
+        body = _page("Agent key created", body_html, extra_head=_DASH_CSS + _COPY_JS)
+        self._send_html(handler, HTTPStatus.OK, body)
 
     def handle_post_agent_keys_revoke(self, handler: BaseHTTPRequestHandler) -> None:
         ctx = self._require_auth(handler)
@@ -1477,6 +1485,132 @@ class WeftWebApp:
         if key_id:
             self.agent_keys.revoke(self.backend, ctx.tenant_id, ctx.account_id, key_id)
         self._redirect(handler, "/agent-keys")
+
+    # ------------------------------------------------------------------
+    # Connector-config generator (session-gated)
+    # ------------------------------------------------------------------
+
+    def _weft_mcp_script_path(self) -> str:
+        """Absolute path to the stdio bridge script shipped with the product.
+
+        The generated configs launch this script on the user's machine, so the
+        path is resolved from the installed package, not guessed.
+        """
+        return str(Path(__file__).resolve().parents[3] / "scripts" / "weft-mcp.py")
+
+    def handle_get_config(self, handler: BaseHTTPRequestHandler) -> None:
+        ctx = self._require_auth(handler)
+        if ctx is None:
+            return
+        csrf = _new_csrf()
+        origin = public_origin()
+        options = ""
+        for cid, meta in CLIENTS.items():
+            options += (
+                f'<option value="{_esc(cid)}">{_esc(meta["label"])}</option>'
+            )
+        body_html = (
+            '<h1>Connector config generator</h1>'
+            '<p>Generate a complete, working stdio MCP config for your client '
+            'with a <strong>freshly minted agent key already embedded</strong>. '
+            'The config launches the Weft stdio bridge (<code>weft-mcp.py '
+            '--remote … --token-env WEFT_TOKEN</code>) so your client reaches '
+            'the hosted rooms — these clients speak stdio MCP '
+            '(<code>command</code> + <code>args</code>), not an HTTP '
+            '<code>url</code>.</p>'
+            '<p>Hosted endpoint: <code>{}</code></p>'.format(_esc(origin))
+            + '<form method="post" action="/config">'
+            + _csrf_input(csrf)
+            + '<label>Client <select name="client" required="required">'
+            + options
+            + '</select></label>'
+            + '<button type="submit">Generate config</button>'
+            + '</form>'
+            + '<p class="warn"><strong>This embeds a live credential.</strong> '
+            'The generated config contains a real <code>agk_</code> agent key. '
+            'Anyone who gets the config can act as that agent, and revoking the '
+            'key invalidates the config. Treat it like a password.</p>'
+            + '<p><a href="/">Back to dashboard</a></p>'
+        )
+        body = _page("Connector config", body_html, csrf_token=csrf,
+                     extra_head=_DASH_CSS)
+        handler.send_response(HTTPStatus.OK)
+        self._set_csrf_cookie(handler, csrf)
+        handler.send_header("Content-Type", "text/html; charset=utf-8")
+        handler.send_header("Content-Length", str(len(body)))
+        handler.send_header("Cache-Control", "no-store")
+        self._send_security_headers(handler, html=True)
+        handler.end_headers()
+        handler.wfile.write(body)
+
+    def handle_post_config(self, handler: BaseHTTPRequestHandler) -> None:
+        """POST /config — mint a fresh agent key and render its config once.
+
+        The raw ``agk_`` key appears in this response EXACTLY ONCE (embedded in
+        the config), matching the agent-key contract. A new key is minted on
+        every generation; the old one stays listed on /agent-keys so it can be
+        revoked when the config is retired.
+        """
+        ctx = self._require_auth(handler)
+        if ctx is None:
+            return
+        form = self._read_form(handler)
+        try:
+            self._validate_csrf(handler, form)
+        except _WebError:
+            self._send_html(handler, HTTPStatus.FORBIDDEN,
+                            _page("Forbidden", '<p>CSRF validation failed.</p>'))
+            return
+        client = (form.get("client") or "").strip()
+        if client not in CLIENTS:
+            self._send_html(handler, HTTPStatus.BAD_REQUEST,
+                            _page("Config failed",
+                                  '<p>Unknown client. Choose Claude Desktop, '
+                                  'Cursor or Codex.</p>'))
+            return
+        label = f"connector:{client}"[:64]
+        _, raw_token = self.agent_keys.create(
+            self.backend, ctx.tenant_id, ctx.account_id, label
+        )
+        try:
+            config = build_config(
+                client,
+                agent_key=raw_token,
+                origin=public_origin(),
+                script_path=self._weft_mcp_script_path(),
+            )
+        except ValueError as exc:
+            self._send_html(handler, HTTPStatus.BAD_REQUEST,
+                            _page("Config failed", f"<p>{_esc(str(exc))}</p>"))
+            return
+        meta = CLIENTS[client]
+        body_html = (
+            '<h1>Connector config — {}</h1>'.format(_esc(meta["label"]))
+            + '<p class="warn"><strong>This config embeds a live credential.</strong> '
+            'The <code>WEFT_TOKEN</code> value is a real, freshly minted '
+            '<code>agk_</code> agent key. Anyone who gets this file can act as '
+            'that agent, and <strong>revoking the key invalidates the '
+            'config</strong>. It is shown here exactly once.</p>'
+            + '<h2>Install</h2>'
+            + f'<p>Save this as <code>{_esc(config["file"])}</code> and restart '
+            'your client. The token is in the <code>env</code> block — never in '
+            '<code>args</code> (argv is visible to every process on the '
+            'machine). The <code>PYTHONUTF8=1</code> entry is required on '
+            'Windows: without it the client&#39;s UTF-8 JSON-RPC is decoded as '
+            'cp1252 and every non-ASCII character is destroyed.</p>'
+            + '<h2>Config</h2>'
+            + f'<pre><code>{_esc(config["config_text"])}</code></pre>'
+            + _copy_button(config["config_text"], "Copy config")
+            + f'<p>Bridge: <code>{_esc(config["origin"])}/mcp</code>. The room '
+            'tools (<code>room_create</code>, <code>room_join</code>, '
+            '<code>room_send</code>, <code>room_poll</code>, '
+            '<code>room_wait</code>, …) appear in your client once connected.</p>'
+            + '<p><a href="/agent-keys">Manage agent keys</a> · '
+            '<a href="/config">Generate another</a> · '
+            '<a href="/">Back to dashboard</a></p>'
+        )
+        body = _page("Connector config", body_html, extra_head=_DASH_CSS + _COPY_JS)
+        self._send_html(handler, HTTPStatus.OK, body)
 
     # ------------------------------------------------------------------
     # Room routes
@@ -2035,6 +2169,12 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
                 return
             if method == "POST" and path == "/agent-keys/revoke":
                 app.handle_post_agent_keys_revoke(self)
+                return
+            if method == "GET" and path == "/config":
+                app.handle_get_config(self)
+                return
+            if method == "POST" and path == "/config":
+                app.handle_post_config(self)
                 return
             if method == "GET" and path == "/rooms":
                 app.handle_get_rooms(self)
