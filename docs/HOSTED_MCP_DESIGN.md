@@ -55,7 +55,7 @@ surface does not inherit.
 ## Tools exposed (and withheld)
 
 Exposed — the room set the product promise depends on, one MCP tool per
-`CloudRoomService` method (tenant = session tenant, agent = session account):
+`CloudRoomService` method (tenant = authenticated cloud tenant, agent = authenticated account):
 
 `room_create` `room_join` `room_send` `room_poll` `room_wait` `room_info`
 `room_ack` `room_heartbeat` `room_event_log`
@@ -71,7 +71,7 @@ on. The tool set is pinned by a test
 ## Tenant confinement and the no-oracle property
 
 Every tool resolves the effective tenant the same way the `/v1` handlers do.
-`room_create` and `room_join` run in the caller's session tenant; the
+`room_create` and `room_join` run in the caller's authenticated cloud tenant; the
 member-gated tools (`room_info`, `room_poll`, `room_ack`, `room_heartbeat`,
 `room_send`, `room_event_log`) resolve the tenant via the caller's membership
 row (`CloudRoomService._resolve_room_tenant`, exactly as
@@ -95,7 +95,7 @@ member of. Consequences:
   joiner operates, and a third tenant with no link stays `room_not_found`).
 - Auth failures are byte-identical whether the token is missing, malformed,
   unknown, or revoked (`test_unauthenticated_calls_refused_identically`) — the
-  endpoint is not an oracle for session validity either.
+  endpoint is not an oracle for credential validity either.
 
 Within a caller's own tenant, a non-member gets `member_required` — the same
 semantics `/v1` already has, and room_ids are 128-bit random secrets, so this
@@ -166,7 +166,7 @@ never become a way around confidentiality.
 
 The endpoint lives **inside the existing `weft-cloud` process** (port 18788).
 No new systemd unit and no new required env vars — auth is the existing cloud
-session. Only nginx needs a route:
+credential (`fss_` session or `agk_` agent key). Only nginx needs a route:
 
 ```nginx
 # /etc/nginx/conf.d/weft.conf (fragment — add before the `location /` web-app block)
@@ -193,8 +193,8 @@ Config is unchanged: `WEFT_HOST=127.0.0.1`, `WEFT_PORT=18788`,
 
 ## Scope decisions made deliberately
 
-1. **Session-token-only auth.** No new actor-token type; see the security
-   decision above.
+1. **Cloud-credential-only auth.** No new actor-token type; both `fss_`
+   sessions and `agk_` agent keys use the existing cloud identity funnel.
 2. **Room tools only.** The remaining ~50 self-hosted tools are withheld until
    each has a tenant-confined reimplementation; a negative claim is recorded in
    the report rather than shipped as unsafe surface.
