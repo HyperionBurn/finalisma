@@ -21,6 +21,7 @@ import os
 import re
 import secrets
 import time as _time
+from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
@@ -29,6 +30,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from weft_cloud.identity import (
     AccountStore,
+    AgentKeyStore,
     AuthError,
     InviteStore,
     OrgStore,
@@ -72,6 +74,18 @@ class _WebError(Exception):
 def _esc(value: Any) -> str:
     """HTML-escaping helper. Never render unescaped user-controlled data."""
     return html.escape(str(value) if value is not None else "")
+
+
+def _format_last_used(ts: Any) -> str:
+    """Human-readable last-used timestamp; ``never`` when the key was unused."""
+    if not ts:
+        return "never"
+    try:
+        return datetime.fromtimestamp(float(ts), tz=timezone.utc).strftime(
+            "%Y-%m-%d %H:%M:%S UTC"
+        )
+    except (ValueError, OSError, OverflowError, TypeError):
+        return "unknown"
 
 
 def _new_csrf() -> str:
@@ -134,6 +148,7 @@ class WeftWebApp:
         self.smtp_configured = bool(smtp_configured)
         self.accounts = AccountStore(backend)
         self.sessions = SessionStore(backend)
+        self.agent_keys = AgentKeyStore(backend)
         self.orgs = OrgStore(backend)
         self.invites = InviteStore(backend)
         self.rooms = CloudRoomService(backend)
@@ -824,6 +839,7 @@ class WeftWebApp:
             '<button type="submit">Create room</button>'
             '</form>'
             '<p><a href="/org">Organization</a></p>'
+            '<p><a href="/agent-keys">Agent keys</a></p>'
             '<form method="post" action="/logout">'
             f'{_csrf_input(csrf)}'
             '<button type="submit">Log out</button>'
@@ -1070,6 +1086,119 @@ class WeftWebApp:
                                       '<p>Owner cannot leave while other members exist.</p>'))
                 return
         self._redirect(handler, "/org")
+
+    # ------------------------------------------------------------------
+    # Agent-key routes — session-cookie-gated (the interactive identity plane;
+    # a leaked agk_ bearer credential must never manage keys).
+    # ------------------------------------------------------------------
+
+    def handle_get_agent_keys(self, handler: BaseHTTPRequestHandler) -> None:
+        ctx = self._require_auth(handler)
+        if ctx is None:
+            return
+        csrf = _new_csrf()
+        keys = self.agent_keys.list_for_account(self.backend, ctx.tenant_id, ctx.account_id)
+        rows_html = ""
+        for k in keys:
+            key_id = k["key_id"]
+            revoke_form = ""
+            if k["revoked_at"] is None:
+                revoke_form = (
+                    f'<form method="post" action="/agent-keys/revoke" style="display:inline">'
+                    f'{_csrf_input(csrf)}'
+                    f'<input type="hidden" name="key_id" value="{_esc(key_id)}">'
+                    '<button type="submit">Revoke</button>'
+                    '</form>'
+                )
+            else:
+                revoke_form = '<span class="muted">revoked</span>'
+            rows_html += (
+                f'<tr><td>{_esc(k["label"])}</td>'
+                f'<td>{_esc(_format_last_used(k["created_at"]))}</td>'
+                f'<td>{_esc(_format_last_used(k["last_used_at"]))}</td>'
+                f'<td>{revoke_form}</td></tr>'
+            )
+        if not rows_html:
+            rows_html = '<tr><td colspan="4" class="muted">No agent keys yet.</td></tr>'
+        body_html = (
+            '<h1>Agent keys</h1>'
+            '<p>Long-lived credentials for MCP client configs. An agent key never '
+            'expires and never signs in; it stays valid until you revoke it. The raw '
+            'key is shown <strong>once</strong> at creation and stored only as a hash.</p>'
+            '<h2>Create a key</h2>'
+            '<form method="post" action="/agent-keys">'
+            f'{_csrf_input(csrf)}'
+            f'{_label("Label", _input("label", "text", required="required", placeholder="e.g. Claude Desktop"))}'
+            '<button type="submit">Create key</button>'
+            '</form>'
+            '<h2>Your keys</h2>'
+            '<table><thead><tr><th>Label</th><th>Created</th><th>Last used</th>'
+            '<th></th></tr></thead>'
+            f'<tbody>{rows_html}</tbody></table>'
+            '<p><a href="/">Back to dashboard</a></p>'
+        )
+        body = _page("Agent keys", body_html, csrf_token=csrf)
+        handler.send_response(HTTPStatus.OK)
+        self._set_csrf_cookie(handler, csrf)
+        handler.send_header("Content-Type", "text/html; charset=utf-8")
+        handler.send_header("Content-Length", str(len(body)))
+        handler.send_header("Cache-Control", "no-store")
+        handler.send_header("X-Content-Type-Options", "nosniff")
+        handler.end_headers()
+        handler.wfile.write(body)
+
+    def handle_post_agent_keys(self, handler: BaseHTTPRequestHandler) -> None:
+        ctx = self._require_auth(handler)
+        if ctx is None:
+            return
+        form = self._read_form(handler)
+        try:
+            self._validate_csrf(handler, form)
+        except _WebError:
+            self._send_html(handler, HTTPStatus.FORBIDDEN,
+                            _page("Forbidden", '<p>CSRF validation failed.</p>'))
+            return
+        label = (form.get("label") or "").strip()[:64] or "default"
+        key_id, raw_token = self.agent_keys.create(
+            self.backend, ctx.tenant_id, ctx.account_id, label
+        )
+        # The raw token is rendered EXACTLY ONCE, in this response body. It is
+        # never stored, redirected through a query string, or retrievable again.
+        body_html = (
+            '<h1>Agent key created</h1>'
+            f'<p>Copy this key now — it is shown <strong>once</strong> and cannot '
+            'be retrieved again. If you lose it, create a new key and revoke this one.</p>'
+            f'<pre><code>{_esc(raw_token)}</code></pre>'
+            f'<p>Put it in your MCP client config as <code>WEFT_TOKEN</code> under the '
+            f'<code>weft</code> server entry. It never expires; revoke it here when you '
+            'stop using it.</p>'
+            f'<p><a href="/agent-keys">Manage agent keys</a> · '
+            f'<a href="/">Back to dashboard</a></p>'
+        )
+        body = _page("Agent key created", body_html)
+        handler.send_response(HTTPStatus.OK)
+        handler.send_header("Content-Type", "text/html; charset=utf-8")
+        handler.send_header("Content-Length", str(len(body)))
+        handler.send_header("Cache-Control", "no-store")
+        handler.send_header("X-Content-Type-Options", "nosniff")
+        handler.end_headers()
+        handler.wfile.write(body)
+
+    def handle_post_agent_keys_revoke(self, handler: BaseHTTPRequestHandler) -> None:
+        ctx = self._require_auth(handler)
+        if ctx is None:
+            return
+        form = self._read_form(handler)
+        try:
+            self._validate_csrf(handler, form)
+        except _WebError:
+            self._send_html(handler, HTTPStatus.FORBIDDEN,
+                            _page("Forbidden", '<p>CSRF validation failed.</p>'))
+            return
+        key_id = (form.get("key_id") or "").strip()
+        if key_id:
+            self.agent_keys.revoke(self.backend, ctx.tenant_id, ctx.account_id, key_id)
+        self._redirect(handler, "/agent-keys")
 
     # ------------------------------------------------------------------
     # Room routes
@@ -1489,6 +1618,15 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
                 return
             if method == "POST" and path == "/org/leave":
                 app.handle_post_org_leave(self)
+                return
+            if method == "GET" and path == "/agent-keys":
+                app.handle_get_agent_keys(self)
+                return
+            if method == "POST" and path == "/agent-keys":
+                app.handle_post_agent_keys(self)
+                return
+            if method == "POST" and path == "/agent-keys/revoke":
+                app.handle_post_agent_keys_revoke(self)
                 return
             if method == "GET" and path == "/rooms":
                 app.handle_get_rooms(self)
