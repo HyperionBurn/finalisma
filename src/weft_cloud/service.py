@@ -35,6 +35,7 @@ from urllib.parse import urlsplit
 
 from weft_cloud.identity import (
     AccountStore,
+    AgentKeyStore,
     AuthError,
     InviteStore,
     OrgStore,
@@ -136,6 +137,7 @@ class WeftCloudService:
         self.auth_rate_limits = auth_rate_limits
         self.accounts = AccountStore(backend)
         self.sessions = SessionStore(backend)
+        self.agent_keys = AgentKeyStore(backend)
         self.orgs = OrgStore(backend)
         self.invites = InviteStore(backend)
         self.rooms = CloudRoomService(backend)
@@ -147,7 +149,43 @@ class WeftCloudService:
     # Auth helpers
     # ------------------------------------------------------------------
 
+    def resolve_identity(self, token: str | None) -> SessionContext:
+        """One authentication funnel, two credential types.
+
+        A bearer token resolves to the SAME ``SessionContext`` whether it is an
+        ``fss_`` session or an ``agk_`` agent key; from here every handler flows
+        through the identical authorization, tenant-confinement, rate-limit,
+        and quota checks. Any bad token raises ``AuthError("invalid_session")``
+        regardless of its type or shape, so the funnel leaks nothing about
+        which credential type exists, which key is registered, or which was
+        revoked.
+        """
+        if not isinstance(token, str) or not token:
+            raise AuthError("invalid_session")
+        try:
+            return self.sessions.validate(self.backend, token)
+        except AuthError:
+            return self.agent_keys.validate(self.backend, token)
+
     def _authenticate(self, handler: BaseHTTPRequestHandler) -> SessionContext:
+        token = _bearer_token(handler)
+        if not token:
+            raise _ServiceError("unauthorized", "Authorization Bearer token required",
+                                HTTPStatus.UNAUTHORIZED)
+        try:
+            return self.resolve_identity(token)
+        except AuthError as exc:
+            raise _ServiceError(exc.code, "Invalid session", HTTPStatus.UNAUTHORIZED)
+
+    def _authenticate_session(self, handler: BaseHTTPRequestHandler) -> SessionContext:
+        """Session-only auth for key MANAGEMENT endpoints.
+
+        Agent-key create/list/revoke are interactive identity operations: a
+        leaked agent key must not be able to mint more keys or revoke the
+        owner's credentials (lockout). Only a live interactive session may
+        manage keys, so an agent key presented here is refused exactly like any
+        other invalid session.
+        """
         token = _bearer_token(handler)
         if not token:
             raise _ServiceError("unauthorized", "Authorization Bearer token required",
@@ -156,6 +194,52 @@ class WeftCloudService:
             return self.sessions.validate(self.backend, token)
         except AuthError as exc:
             raise _ServiceError(exc.code, "Invalid session", HTTPStatus.UNAUTHORIZED)
+
+    # ------------------------------------------------------------------
+    # Agent-key endpoints — SESSION-ONLY management, long-lived credentials
+    # ------------------------------------------------------------------
+
+    def handle_create_agent_key(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
+        ctx = self._authenticate_session(handler)
+        body = _read_body(handler)
+        label = body.get("label", "default")
+        if not isinstance(label, str):
+            raise _ServiceError("invalid_argument", "label must be a string")
+        label = label.strip()[:64] or "default"
+        key_id, raw_token = self.agent_keys.create(
+            self.backend, ctx.tenant_id, ctx.account_id, label
+        )
+        from weft_cloud.storage import utc_now_iso as _utc
+        self.backend.append_audit(
+            ctx.tenant_id, "agent_key.create", ctx.account_id, key_id,
+            json.dumps({"label": label}),
+        )
+        # The raw token is returned EXACTLY ONCE here. It is never retrievable
+        # afterwards; the DB holds only its SHA-256 digest.
+        return _json_response(HTTPStatus.CREATED, {
+            "key_id": key_id,
+            "label": label,
+            "agent_key": raw_token,
+            "created_at": _utc(),
+        })
+
+    def handle_list_agent_keys(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
+        ctx = self._authenticate_session(handler)
+        keys = self.agent_keys.list_for_account(self.backend, ctx.tenant_id, ctx.account_id)
+        return _json_response(HTTPStatus.OK, {"keys": keys})
+
+    def handle_revoke_agent_key(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
+        ctx = self._authenticate_session(handler)
+        body = _read_body(handler)
+        key_id = body.get("key_id")
+        if not isinstance(key_id, str) or not key_id:
+            raise _ServiceError("invalid_argument", "key_id is required")
+        self.agent_keys.revoke(self.backend, ctx.tenant_id, ctx.account_id, key_id)
+        self.backend.append_audit(
+            ctx.tenant_id, "agent_key.revoke", ctx.account_id, key_id, "{}",
+        )
+        return _json_response(HTTPStatus.OK, {"revoked": True})
+
 
     # ------------------------------------------------------------------
     # Identity endpoints
@@ -985,6 +1069,9 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
         if path in {"/v1/org/members"}:
             self._handle("GET", self.service.handle_list_members)
             return
+        if path in {"/v1/agent-keys"}:
+            self._handle("GET", self.service.handle_list_agent_keys)
+            return
         self._send_json(HTTPStatus.NOT_FOUND, {"error": {"code": "not_found", "message": "Not found"}})
 
     def do_POST(self) -> None:  # noqa: N802
@@ -1011,6 +1098,8 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
             "/v1/rooms/groups": self.service.handle_groups,
             "/v1/org/invite": self.service.handle_invite,
             "/v1/org/accept_invite": self.service.handle_accept_invite,
+            "/v1/agent-keys": self.service.handle_create_agent_key,
+            "/v1/agent-keys/revoke": self.service.handle_revoke_agent_key,
         }
         handler_fn = routes.get(path)
         if handler_fn is None:

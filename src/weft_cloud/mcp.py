@@ -241,13 +241,16 @@ class HostedMCPDispatcher:
     def authenticate(self, token: str | None) -> SessionContext:
         """Resolve a bearer token to a SessionContext; raise auth error otherwise.
 
-        Missing, malformed, unknown, revoked, and expired tokens all raise the
-        same ``HostedMCPAuthError`` with no detail attached.
+        Uses the service's single auth funnel: an ``fss_`` session or an
+        ``agk_`` agent key both resolve to the SAME SessionContext and then
+        flow through identical tenant/role checks. Missing, malformed, unknown,
+        revoked, and expired tokens all raise the same ``HostedMCPAuthError``
+        with no detail attached.
         """
         if not isinstance(token, str) or not token:
             raise HostedMCPAuthError()
         try:
-            return self.sessions.validate(self.backend, token)
+            return self.service.resolve_identity(token)
         except AuthError:
             raise HostedMCPAuthError() from None
 
