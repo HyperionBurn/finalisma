@@ -278,6 +278,15 @@ class AgentKeyQuotaAndRateLimitTests(AgentKeyServiceTestBase):
         room = self._create_room(session, cap=10)
         room_id = room["room_id"]
 
+        # The key is a DISTINCT identity (one key = one agent), so it must
+        # redeem the link to become a member of the session-owned room before
+        # it can send — exactly as any second agent would.
+        status, joined = _post(self.base, "/v1/rooms/join",
+                               {"room_id": room_id, "link_token": room["link_token"],
+                                "consent": True}, token=key)
+        self.assertEqual(status, HTTPStatus.OK, f"key join failed: {joined}")
+        self.assertEqual(joined["status"], "active")
+
         # The free plan budget is 60 messages/minute per room. Draw 40 with the
         # session and 20 with the key — the funnel must treat them as ONE
         # budget, so the 61st is refused whichever credential presents it.

@@ -127,8 +127,10 @@ of the hosted service on a temp SQLite-WAL DB:
 - missing token → JSON-RPC error naming the env var + non-zero exit;
 - upstream 401 → renderable JSON-RPC error, no hang;
 - connection refused → error names the origin;
-- **two separate bridge processes, each with its own account and token, join the
-  same room via the same link and exchange a message** — the product's entire
+- **two separate bridge processes with distinct identities join the
+  same room via the same link and exchange a message** (two accounts — or,
+  with the one-key-one-identity model, two agent keys from a single
+  account) — the product's entire
   promise exercised through the exact code path a real client uses;
 - parser test proving `--remote` is additive and local defaults are untouched.
 

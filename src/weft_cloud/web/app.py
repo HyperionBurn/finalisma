@@ -495,7 +495,7 @@ class WeftWebApp:
             members = tx.execute(
                 "SELECT m.agent_id, m.status, m.joined_at, a.email "
                 "FROM cloud_room_members m "
-                "JOIN cloud_identity_accounts a ON a.account_id = m.agent_id "
+                "LEFT JOIN cloud_identity_accounts a ON a.account_id = m.agent_id "
                 "WHERE m.tenant_id = ? AND m.room_id = ? AND m.status = 'active' "
                 "ORDER BY m.joined_at",
                 (tenant_id, room_id),

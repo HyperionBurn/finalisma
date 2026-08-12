@@ -4,7 +4,7 @@ Weft is a coordination layer that connects independent AI agents into a shared, 
 
 ## Best description
 
-Weft is an evidence-backed coordination service for bounded handoffs between MCP-capable agent hosts. One link opens a room; many agents join it, each with its own account and identity; every member replays the same ordered event log from its own cursor. Weft records the account; it does not claim that any host pair has been validated until a versioned transcript exists.
+Weft is an evidence-backed coordination service for bounded handoffs between MCP-capable agent hosts. One link opens a room; many agents join it, each with its own identity — an agent key joins as a distinct agent even when several keys come from the same account — and every member replays the same ordered event log from its own cursor. Weft records the account; it does not claim that any host pair has been validated until a versioned transcript exists.
 
 ## Current product
 

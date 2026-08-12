@@ -33,14 +33,31 @@ class RoleError(Exception):
 class SessionContext:
     """One per authenticated request — the only way handlers reach identity.
 
-    Constructed by ``sessions.validate`` from the DB session row. The role is
-    a property of the authenticated session, never an accepted argument.
+    Constructed by ``sessions.validate`` (and ``agent_keys.validate``) from
+    the DB credential row. The role is a property of the authenticated
+    credential, never an accepted argument.
     """
 
     tenant_id: str
     account_id: str
     role: str
     backend: Any  # StorageBackend
+    #: Key-derived room identity. ``None`` means the caller authenticated as a
+    #: session, whose room identity is the account (unchanged behaviour). An
+    #: agent key sets this to the key's own identity so one account can run
+    #: several DISTINCT agents. Frozen-private so no caller can fabricate one.
+    _agent_id: str | None = None
+
+    @property
+    def agent_id(self) -> str:
+        """The room-facing identity for this authenticated request.
+
+        Sessions resolve to the account (never altered). Agent keys resolve to
+        their own key-derived identity — derived server-side from the
+        authenticated key row, never from client input — so several keys from
+        one account are distinct room members, each addressable on its own.
+        """
+        return self._agent_id if self._agent_id is not None else self.account_id
 
     def require_role(self, required: str) -> None:
         """Layer-1 guard: refuse if the session's role is below ``required``."""

@@ -107,11 +107,21 @@ def validate(backend: Any, raw_token: str) -> SessionContext:
             (now, row["key_id"]),
         )
         tx.commit()
+    # Identity shape: the key's OWN row id is the agent identity. The key row
+    # is the server-side source of truth for "which agent is this?", so the
+    # identity is derived HERE from the authenticated key row and is never
+    # client input. ``key_id`` (``key_<uuid>``) is stable for the life of the
+    # key, unique per key (hence within a tenant), and its ``key_`` prefix is a
+    # namespace disjoint from account ids (``acct_``), so a key identity can
+    # never collide with a session-derived identity. It is display-safe: a
+    # random uuid with no relation to the raw token or its SHA-256, the two
+    # values this module guarantees never to leak.
     return SessionContext(
         tenant_id=row["tenant_id"],
         account_id=row["account_id"],
         role=member["role"],
         backend=backend,
+        _agent_id=row["key_id"],
     )
 
 
