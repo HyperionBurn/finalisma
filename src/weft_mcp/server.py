@@ -1592,6 +1592,24 @@ def handle_json_rpc(dispatcher: WeftDispatcher, request: dict[str, Any]) -> dict
 def run_stdio(dispatcher: WeftDispatcher, input_stream: Any = None, output_stream: Any = None) -> None:
     input_stream = input_stream or sys.stdin
     output_stream = output_stream or sys.stdout
+    # The MCP spec requires JSON-RPC over UTF-8 in BOTH directions. On Windows
+    # Python defaults stdin/stdout to the ANSI codepage (cp1252), which corrupts
+    # every non-ASCII character exchanged with a client. Reconfigure both
+    # streams to UTF-8. errors="strict" for input: a frame that is not valid
+    # UTF-8 is a JSON-RPC protocol violation and must fail loudly, not be
+    # silently replaced with U+FFFD.
+    try:
+        input_stream.reconfigure(encoding="utf-8", errors="strict")
+    except (AttributeError, ValueError, OSError):
+        # An injected stream that does not support reconfigure (e.g. StringIO)
+        # is left untouched; it has no codepage to corrupt.
+        pass
+    try:
+        output_stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError, OSError):
+        # An injected stream that does not support reconfigure (e.g. StringIO)
+        # is left untouched; it has no codepage to corrupt.
+        pass
     for raw_line in input_stream:
         if len(raw_line.encode("utf-8", errors="ignore")) > MAX_JSON_RPC_BYTES:
             response = _json_rpc_error(None, -32600, "JSON-RPC message exceeds the size limit")

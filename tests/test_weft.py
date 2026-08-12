@@ -347,6 +347,40 @@ class MCPProtocolTests(unittest.TestCase):
         run_stdio(self.dispatcher, request_stream, output_stream)
         self.assertEqual(json.loads(output_stream.getvalue())["result"], {})
 
+    def test_stdio_utf8_bytes_survive_full_round_trip(self) -> None:
+        """Non-ASCII codepoints must survive a full stdio round trip.
+
+        On Windows sys.stdin defaults to cp1252 while MCP hosts write UTF-8
+        bytes, corrupting every non-ASCII character. Drive the transport with
+        cp1252 TextIOWrappers over BytesIO so this FAILS on the old code even
+        on a UTF-8-locale machine: the bytes in are the UTF-8 a real client
+        sends, the response bytes must decode as UTF-8 with exact codepoints.
+        """
+        store = WeftStore(Path(self.temp.name) / "utf8-stdio.db", Path(self.temp.name))
+        try:
+            dispatcher = WeftDispatcher(store)
+            dispatcher.call_tool("register_agent", {"team_id": "utf8team", "agent_id": "utf8-agent"})
+            title = "caf\u00e9 \u2014 \U0001f600"
+            request = {"jsonrpc": "2.0", "id": 9, "method": "tools/call",
+                       "params": {"name": "create_task",
+                                  "arguments": {"team_id": "utf8team",
+                                                "created_by": "utf8-agent",
+                                                "title": title}}}
+            line = json.dumps(request, ensure_ascii=False,
+                              separators=(",", ":")).encode("utf-8") + b"\n"
+            raw_in = io.BytesIO(line)
+            raw_out = io.BytesIO()
+            inp = io.TextIOWrapper(raw_in, encoding="cp1252")
+            outp = io.TextIOWrapper(raw_out, encoding="cp1252")
+            run_stdio(dispatcher, inp, outp)
+            payload = json.loads(raw_out.getvalue().decode("utf-8"))
+            echoed = payload["result"]["structuredContent"]["task"]["title"]
+            self.assertEqual(echoed, "caf\u00e9 \u2014 \U0001f600")
+            for expected in ("\u00e9", "\u2014", "\U0001f600"):
+                self.assertIn(expected, echoed)
+        finally:
+            store.close()
+
     def test_streamable_http_post_and_origin_guard(self) -> None:
         handler = type("TestWeftHTTPHandler", (_MCPRequestHandler,), {})
         handler.dispatcher = self.dispatcher
