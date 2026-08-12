@@ -479,6 +479,42 @@ class TestJoinDescriptorAndAgentCard(CloudServiceTestBase):
         self.assertIn(self.link_token, page)
         self.assertIn(self.room_id, page)
 
+    def test_join_descriptor_html_page_teaches_agent_key_flow(self) -> None:
+        # The /j/ page is where a human hands a credential to an agent. It must
+        # teach the long-lived revocable agent-key flow and warn that the fss_
+        # session dies after 24 hours with no renewal, or every connector built
+        # from this page silently starts returning 401s a day later (regression
+        # for the silent-expiry bug).
+        status, raw, _ = _get_url(f"{self.base}/j/{self.link_token}", accept="text/html")
+        self.assertEqual(status, 200)
+        page = raw.decode("utf-8", errors="replace")
+        self.assertIn("POST /v1/agent-keys", page)
+        self.assertIn("agk_", page)
+        self.assertIn("exactly once", page)
+        self.assertIn("24 hours", page)
+        self.assertIn("session-only", page)
+        self.assertIn("cannot mint, list, or revoke", page)
+
+    def test_join_descriptor_html_page_keeps_tier_disclaimers(self) -> None:
+        # The honest disclaimers are the part a future edit could quietly drop.
+        # Tiers 1, 3 and 4 cannot redeem a hosted cloud room link; only the
+        # Streamable HTTP call can, and consent is an attestation, not proof of
+        # a human-approved screen.
+        status, raw, _ = _get_url(f"{self.base}/j/{self.link_token}", accept="text/html")
+        self.assertEqual(status, 200)
+        page = raw.decode("utf-8", errors="replace")
+        self.assertIn("cannot redeem a hosted cloud room's link", page)
+        self.assertIn("no <code>bridge webhook</code> CLI", page)
+        self.assertIn("WeftClient.connect()", page)
+        self.assertIn("not proof that a human saw and approved", page)
+        self.assertIn("never from a request body argument", page)
+        self.assertIn("cross-tenant", page)
+        self.assertIn("link IS the authorization", page)
+        self.assertGreaterEqual(
+            page.count("To join this hosted room use the Streamable HTTP call above"),
+            3,
+        )
+
     def test_join_descriptor_html_documents_a_working_join(self) -> None:
         # The /j/ human page reuses the connect-page copy, so it must also
         # document the auth header, consent, and the join endpoint — the
