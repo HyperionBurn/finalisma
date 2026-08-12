@@ -282,6 +282,101 @@ class TestHtmlResponseSecurityHeaders(unittest.TestCase):
         self.assertIn("Referrer-Policy", hdrs)
 
 
+class TestPublicPathAllowlist(unittest.TestCase):
+    """Crawler / uptime paths must be served publicly, never login-redirected.
+
+    The auth gate used to be an over-broad catch-all that redirected every
+    unmatched path to /login, so /robots.txt, /sitemap.xml, /favicon.ico and
+    /health were useless to crawlers and monitors. The fix is an EXPLICIT
+    allowlist of specific public paths — never a prefix or wildcard rule.
+    These tests pin the allowlist AND that genuinely protected routes still
+    redirect unauthenticated callers.
+    """
+
+    def setUp(self):
+        self.d = WebAppDriver()
+
+    def tearDown(self):
+        self.d.close()
+
+    def test_health_returns_200_without_auth(self):
+        status, body, hdrs = self.d.get("/health")
+        self.assertEqual(status, 200)
+        self.assertEqual(hdrs.get("Content-Type"), "application/json")
+
+    def test_health_body_leaks_no_internal_details(self):
+        # Public endpoint: body is exactly the liveness marker. No version
+        # numbers, build hashes, database paths, or dependency versions.
+        status, body, _ = self.d.get("/health")
+        self.assertEqual(status, 200)
+        self.assertEqual(body, '{"status":"ok"}')
+        for leaked in ("version", "build", "hash", ".sqlite", "commit"):
+            self.assertNotIn(leaked, body.lower())
+
+    def test_robots_txt_served_publicly_as_text_plain(self):
+        status, body, hdrs = self.d.get("/robots.txt")
+        self.assertEqual(status, 200)
+        self.assertTrue(
+            hdrs.get("Content-Type", "").startswith("text/plain"),
+            f"robots.txt must be text/plain, got {hdrs.get('Content-Type')!r}",
+        )
+        self.assertIn("User-agent", body)
+
+    def test_sitemap_xml_served_publicly_as_application_xml(self):
+        status, body, hdrs = self.d.get("/sitemap.xml")
+        self.assertEqual(status, 200)
+        self.assertTrue(
+            hdrs.get("Content-Type", "").startswith("application/xml"),
+            f"sitemap.xml must be application/xml, got {hdrs.get('Content-Type')!r}",
+        )
+        self.assertIn("<urlset", body)
+        self.assertIn("sitemap", body)
+
+    def test_favicon_ico_never_redirects_to_login(self):
+        # No favicon.ico ships in the bundle, so the correct answer is 404 —
+        # but it must be a real 404, NEVER a redirect to /login.
+        status, _, hdrs = self.d.get("/favicon.ico")
+        self.assertEqual(status, 404)
+        self.assertNotIn("Location", hdrs)
+
+    def test_public_paths_carry_the_security_header_block(self):
+        # A public response must not be an unsecured hole: the always-on
+        # header block applies to every public path too.
+        for path in ("/health", "/robots.txt", "/sitemap.xml"):
+            with self.subTest(path=path):
+                status, _, hdrs = self.d.get(path)
+                self.assertEqual(status, 200)
+                for name in REQUIRED_ALWAYS_HEADERS:
+                    self.assertIn(name, hdrs, f"{path}: missing {name}")
+                self.assertEqual(hdrs.get("X-Content-Type-Options"), "nosniff")
+                self.assertEqual(hdrs.get("Referrer-Policy"), "no-referrer")
+                self.assertEqual(hdrs.get("X-Frame-Options"), "DENY")
+
+    def test_rooms_list_still_redirects_unauthenticated(self):
+        # /rooms is a genuinely protected route (the authenticated rooms
+        # list). The allowlist must NOT have broadened it to public.
+        status, _, hdrs = self.d.get("/rooms")
+        self.assertEqual(status, 303)
+        self.assertTrue(hdrs.get("Location", "").startswith("/login"))
+
+    def test_room_route_still_redirects_unauthenticated(self):
+        status, _, hdrs = self.d.get("/room/room_00000000000000000000000000000000")
+        self.assertEqual(status, 303)
+        self.assertTrue(hdrs.get("Location", "").startswith("/login"))
+
+    def test_org_page_still_redirects_unauthenticated(self):
+        status, _, hdrs = self.d.get("/org")
+        self.assertEqual(status, 303)
+        self.assertTrue(hdrs.get("Location", "").startswith("/login"))
+
+    def test_allowlist_is_exact_not_a_prefix(self):
+        # A look-alike path must NOT be treated as public — proof the
+        # allowlist is exact strings, not a prefix or suffix rule.
+        status, _, hdrs = self.d.get("/robots.txt.bak")
+        self.assertEqual(status, 303)
+        self.assertTrue(hdrs.get("Location", "").startswith("/login"))
+
+
 class TestLoginStillWorks(unittest.TestCase):
     """End-to-end login must survive the cookie/header change on both channels."""
 

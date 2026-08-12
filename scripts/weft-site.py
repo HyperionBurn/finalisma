@@ -34,6 +34,8 @@ class QuietSiteHandler(SimpleHTTPRequestHandler):
             "/demo.html",
             "/demo-stage.html",
             "/robots.txt",
+            "/sitemap.xml",
+            "/favicon.ico",
             "/llms.txt",
             "/404.html",
             "/license.html",
@@ -50,6 +52,17 @@ class QuietSiteHandler(SimpleHTTPRequestHandler):
         if not candidate.is_relative_to(allowed_root.resolve()):
             return str(root / "site" / "__not_found__")
         return str(candidate)
+
+    def guess_type(self, path: str) -> str:
+        """Pin crawler-facing content types so platform mimetypes cannot
+        serve a sitemap as text/xml. ``send_head`` passes the translated
+        filesystem path, so the decision is based on the request URL."""
+        route = urlsplit(self.path).path
+        if route == "/sitemap.xml":
+            return "application/xml; charset=utf-8"
+        if route == "/robots.txt":
+            return "text/plain; charset=utf-8"
+        return super().guess_type(path)
 
     def send_error(
         self,

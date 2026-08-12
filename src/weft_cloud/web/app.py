@@ -62,6 +62,26 @@ _ROOM_AUDIT_RE = re.compile(r"^/room/([A-Za-z0-9_-]+)/audit$")
 _ROOM_CONNECT_RE = re.compile(r"^/room/([A-Za-z0-9_-]+)/connect$")
 _ROOM_CLOSE_RE = re.compile(r"^/room/([A-Za-z0-9_-]+)/close$")
 
+# Exact paths served to UNAUTHENTICATED callers. This is a fixed allowlist of
+# specific strings — deliberately never a prefix or wildcard rule — so a typo
+# or a future path can never broaden "public" to an authenticated route.
+# Crawlers and uptime monitors must reach these without a session; everything
+# else still passes through the auth gate below.
+_PUBLIC_GET_PATHS = frozenset({
+    "/terms.html",
+    "/privacy.html",
+    "/robots.txt",
+    "/sitemap.xml",
+    "/favicon.ico",
+})
+
+# Exact static files whose Content-Type must not be left to platform
+# mimetypes: a crawler-facing type has to be correct on every host OS.
+_STATIC_CONTENT_TYPE = {
+    "/robots.txt": "text/plain; charset=utf-8",
+    "/sitemap.xml": "application/xml; charset=utf-8",
+}
+
 
 class _WebError(Exception):
     def __init__(self, status: int, message: str = ""):
@@ -511,6 +531,16 @@ class WeftWebApp:
     # ------------------------------------------------------------------
     # Route handlers — public pre-auth
     # ------------------------------------------------------------------
+
+    def handle_get_health(self, handler: BaseHTTPRequestHandler) -> None:
+        """Public liveness endpoint (GET /health).
+
+        200 without auth so a load balancer / uptime monitor reports the
+        service UP while it is up — a health check behind a login redirect
+        is useless. The body is deliberately minimal and public: no version
+        numbers, build hashes, database paths, or dependency versions.
+        """
+        self._send_json(handler, HTTPStatus.OK, {"status": "ok"})
 
     def handle_get_signup(self, handler: BaseHTTPRequestHandler) -> None:
         token = _new_csrf()
@@ -1427,8 +1457,19 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
             if method == "GET" and path == "/reset-request":
                 app.handle_get_reset_request(self)
                 return
-            if method == "GET" and path in ("/terms.html", "/privacy.html") and app.static_dir:
-                self._serve_static(path)
+            if method == "GET" and path in _PUBLIC_GET_PATHS:
+                # Exact public static allowlist (terms/privacy/robots/sitemap/
+                # favicon). When no static bundle is mounted these must 404 —
+                # never redirect a crawler or icon request to the login page.
+                if app.static_dir:
+                    self._serve_static(path)
+                else:
+                    app._send_json(self, HTTPStatus.NOT_FOUND,
+                                   {"error": {"code": "not_found",
+                                              "message": "Not found"}})
+                return
+            if method == "GET" and path == "/health":
+                app.handle_get_health(self)
                 return
 
             # --- Public pre-auth routes (POST) ---
@@ -1574,7 +1615,7 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
                 return
             import mimetypes
             ctype, _ = mimetypes.guess_type(str(target))
-            ctype = ctype or "application/octet-stream"
+            ctype = _STATIC_CONTENT_TYPE.get(path) or (ctype or "application/octet-stream")
             with open(target, "rb") as f:
                 data = f.read()
             self.send_response(HTTPStatus.OK)
