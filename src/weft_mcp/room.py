@@ -504,14 +504,37 @@ class RoomStore:
 
     def revoke_link(self, team_id: str, room_id: str, owner_agent_id: str, link_id: str,
                     actor_token: str) -> dict[str, Any]:
+        # Error-code decision (2026-08-12 finding: revoke reported success while
+        # revoking nothing). A MALFORMED link_id is the caller's error: refuse it
+        # with invalid_argument BEFORE any room/link lookup. A WELL-FORMED but
+        # unknown, already-revoked, or wrong-room link_id all collapse to the
+        # SAME link_not_found response — byte-identical for a link that lives in
+        # someone else's room and a link that never existed, so this endpoint is
+        # not a link-id existence oracle (the codebase has had three of those;
+        # this must not be a fourth). Success requires that exactly one row
+        # flipped: if zero rows changed, nothing was revoked and returning 200
+        # would manufacture false confidence exactly when an owner is cutting
+        # off a leaked link.
+        try:
+            _validate_id(link_id, "link_id")
+        except ValueError as exc:
+            raise RoomError("invalid_argument", str(exc)) from exc
         with self._transaction() as conn:
             room = self._require_authenticated_member(conn, team_id, room_id, owner_agent_id, actor_token)
             if room["owner_agent_id"] != owner_agent_id:
                 raise RoomError("owner_required", "Only the room owner can revoke links")
-            conn.execute(
-                "UPDATE room_links SET revoked = 1 WHERE link_id = ? AND room_id = ?",
+            link = conn.execute(
+                "SELECT link_id, revoked FROM room_links WHERE link_id = ? AND room_id = ?",
+                (link_id, room_id),
+            ).fetchone()
+            if link is None or link["revoked"]:
+                raise RoomError("link_not_found", "Link not found for this room")
+            cursor = conn.execute(
+                "UPDATE room_links SET revoked = 1 WHERE link_id = ? AND room_id = ? AND revoked = 0",
                 (link_id, room_id),
             )
+            if cursor.rowcount != 1:
+                raise RoomError("link_not_found", "Link not found for this room")
             return {"link_id": link_id, "revoked": True}
 
     # ------------------------------------------------------------------
@@ -535,7 +558,7 @@ class RoomStore:
                     "last_seen": float(m["last_seen"]),
                     "joined_at": m["joined_at"],
                 })
-            return {
+            result = {
                 "room_id": room_id,
                 "state": room["state"],
                 "cap": room["cap"],
@@ -543,6 +566,23 @@ class RoomStore:
                 "members": member_list,
                 "owner_agent_id": room["owner_agent_id"],
             }
+            # Owner-only link control surface (2026-08-12 finding: link_id was
+            # unobtainable after room_create). A room has exactly one link
+            # (created with the room), so exposing it on room_info gives the
+            # owner the identifier room_revoke_link needs WITHOUT a new endpoint
+            # and WITHOUT leaking it to members who cannot revoke. link_id is a
+            # control-plane identifier; link_token — the bearer credential — is
+            # never exposed here. link_revoked lets the owner confirm a
+            # revocation actually landed.
+            if room["owner_agent_id"] == agent_id:
+                link = conn.execute(
+                    "SELECT link_id, revoked FROM room_links WHERE room_id = ? LIMIT 1",
+                    (room_id,),
+                ).fetchone()
+                if link is not None:
+                    result["link_id"] = link["link_id"]
+                    result["link_revoked"] = bool(link["revoked"])
+            return result
 
     def heartbeat(self, team_id: str, room_id: str, agent_id: str, actor_token: str) -> dict[str, Any]:
         with self._transaction() as conn:
