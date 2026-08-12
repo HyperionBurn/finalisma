@@ -195,10 +195,14 @@ def request_password_reset(backend: Any, tenant_id: str, email: str) -> None:
 
 
 def reset_password(backend: Any, reset_token: str, new_password: str) -> None:
-    """Single-use password reset (30-min expiry). Revokes ALL of the account's sessions.
+    """Single-use password reset (30-min expiry). Revokes ALL of the account's
+    sessions AND agent API keys.
 
-    The password change and the session revocation are in the SAME transaction,
-    so a crash cannot leave live sessions behind an old password.
+    The password change and the credential revocations are in the SAME
+    transaction, so a crash cannot leave live credentials behind an old
+    password. Agent keys are long-lived config-file credentials; a reset that
+    left them alive would hand the new password holder a working key minted
+    under the old one.
     """
     ensure_schema(backend)
     token_hash = hash_token(reset_token)
@@ -222,6 +226,10 @@ def reset_password(backend: Any, reset_token: str, new_password: str) -> None:
             raise AuthError("invalid_token")
         tx.execute(
             "UPDATE cloud_identity_sessions SET revoked_at = ? WHERE account_id = ? AND revoked_at IS NULL",
+            (now, row["account_id"]),
+        )
+        tx.execute(
+            "UPDATE cloud_identity_agent_keys SET revoked_at = ? WHERE account_id = ? AND revoked_at IS NULL",
             (now, row["account_id"]),
         )
         tx.commit()

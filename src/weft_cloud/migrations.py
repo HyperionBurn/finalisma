@@ -201,6 +201,25 @@ CREATE INDEX IF NOT EXISTS idx_identity_members_account
     ON cloud_identity_members(account_id);
 """
 
+_IDENTITY_AGENT_KEYS_SQL = """
+CREATE TABLE IF NOT EXISTS cloud_identity_agent_keys (
+    key_id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    account_id TEXT NOT NULL,
+    label TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    revoked_at REAL,
+    last_used_at REAL,
+    FOREIGN KEY(tenant_id) REFERENCES cloud_tenants(tenant_id),
+    FOREIGN KEY(account_id) REFERENCES cloud_identity_accounts(account_id)
+);
+CREATE INDEX IF NOT EXISTS idx_identity_agent_keys_account
+    ON cloud_identity_agent_keys(account_id, revoked_at);
+CREATE INDEX IF NOT EXISTS idx_identity_agent_keys_token
+    ON cloud_identity_agent_keys(token_hash);
+"""
+
 _IDENTITY_INVITES_SQL = """
 CREATE TABLE IF NOT EXISTS cloud_identity_invites (
     invite_id TEXT PRIMARY KEY,
@@ -588,6 +607,11 @@ MIGRATIONS: list[Migration] = [
         "cloud_011_cloud_outbox_lifecycle",
         "hosted delivery outbox completion lifecycle (lease/retry/delivered/dead)",
         statements=_CLOUD_OUTBOX_LIFECYCLE_STATEMENTS,
+    ),
+    Migration(
+        "cloud_012_identity_agent_keys",
+        "agent API keys — long-lived, revocable config-file credentials (SHA-256 at rest)",
+        _IDENTITY_AGENT_KEYS_SQL,
     ),
 ]
 
