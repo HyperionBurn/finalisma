@@ -25,6 +25,7 @@ from typing import Any
 from weft_cloud.storage import utc_now_iso
 
 from . import accounts
+from .agent_keys import revoke_all_for_tenant_account_in_tx
 from .context import ROLE_RANK, SessionContext, require_db_role
 from .schema import ensure_schema
 from .sessions import revoke_all_for_account
@@ -106,6 +107,7 @@ def remove_member(ctx: SessionContext, account_id: str) -> None:
             "DELETE FROM cloud_identity_members WHERE tenant_id = ? AND account_id = ?",
             (ctx.tenant_id, account_id),
         )
+        revoke_all_for_tenant_account_in_tx(tx, ctx.tenant_id, account_id)
         tx.commit()
     revoke_all_for_account(ctx.backend, account_id)
 

@@ -69,6 +69,7 @@ _ERROR_MAP = {
     "message_not_found": NotFoundError,
     "agent_not_registered": NotFoundError,
     "room_not_found": NotFoundError,
+    "link_not_found": NotFoundError,
     "quality_gate_required": EvidenceError,
     "quality_gate_failed": EvidenceError,
     "pairing_expired": ConflictError,

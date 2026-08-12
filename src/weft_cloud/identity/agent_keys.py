@@ -167,6 +167,25 @@ def revoke_all_for_account(backend: Any, account_id: str) -> None:
         tx.commit()
 
 
+def revoke_all_for_tenant_account_in_tx(
+    tx: Any, tenant_id: str, account_id: str, now: float | None = None
+) -> None:
+    """Revoke this account's keys in one tenant using a caller-owned transaction.
+
+    Membership removal uses this helper before its transaction commits, so a
+    removed member's long-lived credential cannot survive a crash between the
+    membership delete and the credential revocation. The tenant predicate is
+    deliberate: the same account may hold valid keys in another tenant.
+    """
+    if now is None:
+        now = _time.time()
+    tx.execute(
+        "UPDATE cloud_identity_agent_keys SET revoked_at = ? "
+        "WHERE tenant_id = ? AND account_id = ? AND revoked_at IS NULL",
+        (now, tenant_id, account_id),
+    )
+
+
 def revoke_all_for_tenant(backend: Any, tenant_id: str) -> None:
     """Nuclear option: revoke every agent key in a tenant."""
     ensure_schema(backend)

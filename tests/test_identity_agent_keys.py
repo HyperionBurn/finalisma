@@ -33,7 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from weft_cloud.storage import StorageBackend, SqliteWalBackend
 
 # The agent-keys module does not exist yet — this import is the RED gate.
-from weft_cloud.identity import accounts, agent_keys
+from weft_cloud.identity import accounts, agent_keys, orgs, sessions
 from weft_cloud.identity.context import SessionContext, RoleError
 from weft_cloud.identity.schema import ensure_schema
 from weft_cloud.identity.tokens import AuthError
@@ -170,6 +170,58 @@ class AgentKeyContractTests(unittest.TestCase):
             tx.commit()
         with self.assertRaises(AuthError):
             agent_keys.validate(self.backend, raw_token)
+
+    def test_org_removal_permanently_revokes_keys_and_preserves_other_tenant(self) -> None:
+        """Admin removal kills old keys even if membership is later restored."""
+        member_id = accounts._create_account(
+            self.backend, self.tenant_id, "removed-key@example.com",
+            "correct horse battery staple", email_verified=1,
+        )
+        tenant_b = "tenant_other_for_remove"
+        self.backend.create_tenant(tenant_b, "Other Org")
+        with self.backend.transaction() as tx:
+            tx.execute(
+                "INSERT INTO cloud_identity_members(tenant_id, account_id, role, joined_at) "
+                "VALUES (?, ?, 'member', ?)",
+                (self.tenant_id, member_id, "now"),
+            )
+            tx.execute(
+                "INSERT INTO cloud_identity_members(tenant_id, account_id, role, joined_at) "
+                "VALUES (?, ?, 'member', ?)",
+                (tenant_b, member_id, "now"),
+            )
+            tx.commit()
+
+        owner_session, owner_raw = sessions.create(
+            self.backend, self.tenant_id, self.account_id, role="owner"
+        )
+        self.assertIsNotNone(owner_session)
+        owner_ctx = sessions.validate(self.backend, owner_raw)
+        _key_a, raw_a = agent_keys.create(
+            self.backend, self.tenant_id, member_id, "tenant-a"
+        )
+        _key_b, raw_b = agent_keys.create(self.backend, tenant_b, member_id, "tenant-b")
+        self.assertEqual(agent_keys.validate(self.backend, raw_a).tenant_id, self.tenant_id)
+        self.assertEqual(agent_keys.validate(self.backend, raw_b).tenant_id, tenant_b)
+
+        orgs.remove_member(owner_ctx, member_id)
+        with self.assertRaises(AuthError) as removed:
+            agent_keys.validate(self.backend, raw_a)
+        self.assertEqual(removed.exception.args[0], "invalid_session")
+        self.assertEqual(agent_keys.validate(self.backend, raw_b).tenant_id, tenant_b)
+
+        # Re-adding the account must not resurrect the old tenant-A key.
+        with self.backend.transaction() as tx:
+            tx.execute(
+                "INSERT INTO cloud_identity_members(tenant_id, account_id, role, joined_at) "
+                "VALUES (?, ?, 'member', ?)",
+                (self.tenant_id, member_id, "later"),
+            )
+            tx.commit()
+        with self.assertRaises(AuthError) as readded:
+            agent_keys.validate(self.backend, raw_a)
+        self.assertEqual(readded.exception.args[0], "invalid_session")
+        self.assertEqual(agent_keys.validate(self.backend, raw_b).tenant_id, tenant_b)
 
     # --- 8. list shows metadata, never the secret or its hash ---
     def test_list_returns_metadata_never_secret(self) -> None:

@@ -750,10 +750,17 @@ class CloudRoomService:
             self._require_member(tx, tenant_id, room_id, owner_agent_id)
             if room["owner_agent_id"] != owner_agent_id:
                 raise RoomError("owner_required", "Only the room owner can revoke links", 403)
-            tx.execute(
-                "UPDATE cloud_room_links SET revoked = 1 WHERE link_id = ? AND tenant_id = ? AND room_id = ?",
+            result = tx.execute(
+                "UPDATE cloud_room_links SET revoked = 1 "
+                "WHERE link_id = ? AND tenant_id = ? AND room_id = ? AND revoked = 0",
                 (link_id, tenant_id, room_id),
             )
+            if result.rowcount != 1:
+                # Keep unknown, cross-room, and already-revoked identifiers
+                # indistinguishable. The owner already passed room access
+                # checks, so this is a control-state error, not an existence
+                # oracle for an unrelated room or link.
+                raise RoomError("link_not_found", "Link is not valid for this room", 404)
             tx.commit()
         return {"link_id": link_id, "revoked": True}
 

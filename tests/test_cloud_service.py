@@ -375,6 +375,54 @@ class TestRoomLifecycle(CloudServiceTestBase):
         self.assertEqual(status, 410)
         self.assertEqual(body["error"]["code"], "link_revoked")
 
+    def test_revoke_link_rejects_unknown_cross_room_and_repeated_ids(self) -> None:
+        owner = self._signup("revoke-errors-owner@example.com", "CorrectHorse!1")
+        other_owner = self._signup("revoke-errors-other@example.com", "CorrectHorse!1")
+        room = self._create_room(owner["session_token"], cap=4)
+        other_room = self._create_room(other_owner["session_token"], cap=4)
+
+        # An owner must not receive a false success for a fabricated id or a
+        # real link belonging to another room. Both cases use one generic
+        # response so the control endpoint does not become a link oracle.
+        status, unknown = _post(self.base, "/v1/rooms/revoke_link", {
+            "room_id": room["room_id"],
+            "link_id": "link_unknown_for_revoke_test",
+        }, owner["session_token"])
+        self.assertEqual(status, 404)
+        self.assertEqual(unknown["error"]["code"], "link_not_found")
+
+        status, cross_room = _post(self.base, "/v1/rooms/revoke_link", {
+            "room_id": room["room_id"],
+            "link_id": other_room["link_id"],
+        }, owner["session_token"])
+        self.assertEqual(status, 404)
+        self.assertEqual(cross_room, unknown)
+
+        # The cross-room attempt did not touch the actual link.
+        joiner = self._signup("revoke-errors-joiner@example.com", "AgentPass!1")
+        status, body = _post(self.base, "/v1/rooms/join", {
+            "room_id": room["room_id"],
+            "link_token": room["link_token"],
+            "consent": True,
+        }, joiner["session_token"])
+        self.assertEqual(status, 200, body)
+
+        status, body = _post(self.base, "/v1/rooms/revoke_link", {
+            "room_id": room["room_id"],
+            "link_id": room["link_id"],
+        }, owner["session_token"])
+        self.assertEqual(status, 200, body)
+        self.assertTrue(body["revoked"])
+
+        # Repeating the control action is not a second success: it is the
+        # same generic invalid-link response as the unknown/cross-room cases.
+        status, repeated = _post(self.base, "/v1/rooms/revoke_link", {
+            "room_id": room["room_id"],
+            "link_id": room["link_id"],
+        }, owner["session_token"])
+        self.assertEqual(status, 404)
+        self.assertEqual(repeated, unknown)
+
 
 class TestJoinDescriptorAndAgentCard(CloudServiceTestBase):
     """Self-describing links: /j/<token> descriptor + well-known agent card.
