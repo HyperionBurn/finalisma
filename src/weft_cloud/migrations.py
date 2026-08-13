@@ -220,6 +220,26 @@ CREATE INDEX IF NOT EXISTS idx_identity_agent_keys_token
     ON cloud_identity_agent_keys(token_hash);
 """
 
+_ROOM_RECEIPTS_SQL = """
+CREATE TABLE IF NOT EXISTS cloud_room_receipts (
+    tenant_id TEXT NOT NULL,
+    room_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    recipient_agent_id TEXT NOT NULL,
+    sender_agent_id TEXT NOT NULL,
+    entry_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'queued'
+        CHECK(status IN ('queued','read')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, room_id, seq, recipient_agent_id)
+);
+CREATE INDEX IF NOT EXISTS idx_room_receipts_recipient
+    ON cloud_room_receipts(tenant_id, room_id, recipient_agent_id, status);
+CREATE INDEX IF NOT EXISTS idx_room_receipts_sender
+    ON cloud_room_receipts(tenant_id, room_id, sender_agent_id, seq);
+"""
+
 _IDENTITY_INVITES_SQL = """
 CREATE TABLE IF NOT EXISTS cloud_identity_invites (
     invite_id TEXT PRIMARY KEY,
@@ -612,6 +632,13 @@ MIGRATIONS: list[Migration] = [
         "cloud_012_identity_agent_keys",
         "agent API keys — long-lived, revocable config-file credentials (SHA-256 at rest)",
         _IDENTITY_AGENT_KEYS_SQL,
+    ),
+    Migration(
+        "cloud_013_room_receipts",
+        "per-recipient room message receipts with queued->read lifecycle "
+        "(the send response's receipt status is no longer a hardcoded literal; "
+        "a recipient's ack past an event's seq marks its receipt read)",
+        _ROOM_RECEIPTS_SQL,
     ),
 ]
 

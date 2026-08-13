@@ -1366,12 +1366,30 @@ class CloudRoomService:
                 "last_ack_seq = MAX(last_ack_seq, excluded.last_ack_seq), updated_at = excluded.updated_at",
                 (tenant_id, room_id, agent_id, int(seq), now),
             )
+            # Read-receipt lifecycle: acking past an event's seq means the
+            # recipient has processed it — its receipt transitions queued ->
+            # read. Scoped to THIS member's receipts only; other recipients'
+            # rows are never touched.
+            tx.execute(
+                "UPDATE cloud_room_receipts SET status = 'read', updated_at = ? "
+                "WHERE tenant_id = ? AND room_id = ? AND recipient_agent_id = ? "
+                "AND seq <= ? AND status = 'queued'",
+                (now, tenant_id, room_id, agent_id, int(seq)),
+            )
+            read_row = tx.execute(
+                "SELECT COUNT(*) AS c FROM cloud_room_receipts "
+                "WHERE tenant_id = ? AND room_id = ? AND recipient_agent_id = ? "
+                "AND seq <= ? AND status = 'read'",
+                (tenant_id, room_id, agent_id, int(seq)),
+            ).fetchone()
             row = tx.execute(
                 "SELECT last_ack_seq FROM cloud_room_cursors WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
                 (tenant_id, room_id, agent_id),
             ).fetchone()
             tx.commit()
-        return {"room_id": room_id, "agent_id": agent_id, "last_ack_seq": int(row["last_ack_seq"])}
+        return {"room_id": room_id, "agent_id": agent_id,
+                "last_ack_seq": int(row["last_ack_seq"]),
+                "receipts_read": int(read_row["c"])}
 
     def heartbeat(self, tenant_id: str, room_id: str, agent_id: str) -> dict:
         with self.backend.transaction() as tx:
@@ -1505,13 +1523,26 @@ class CloudRoomService:
                                          idempotency_key=idempotency_key)
                 # Build receipts (one per target) — durable via the cloud outbox,
                 # committed IN THE SAME transaction as the event (all-or-nothing).
+                # Each receipt is ALSO persisted as a cloud_room_receipts row so
+                # its lifecycle (queued -> read on the recipient's ack past this
+                # seq) survives restarts — the send response's status is no
+                # longer a hardcoded literal.
                 envelope_id = _new_id("oev")
                 receipts = []
+                now = utc_now_iso()
                 for target in targets:
                     entry_id = self.backend.enqueue_outbox_in_tx(
                         tx, tenant_id, envelope_id, target,
                         _json({"room_id": room_id, "seq": seq, "payload": payload,
                                "sender": sender_agent_id}),
+                    )
+                    tx.execute(
+                        "INSERT OR IGNORE INTO cloud_room_receipts("
+                        " tenant_id, room_id, seq, recipient_agent_id, sender_agent_id,"
+                        " entry_id, status, created_at, updated_at"
+                        ") VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?)",
+                        (tenant_id, room_id, seq, target, sender_agent_id,
+                         entry_id, now, now),
                     )
                     receipts.append({"agent_id": target, "entry_id": entry_id, "status": "queued"})
                 tx.commit()
