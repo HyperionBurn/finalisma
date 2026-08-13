@@ -38,7 +38,7 @@ class HostedMCPAgentKeyTests(HostedMCPTestBase):
 
         status, listing = _mcp(self.base, "tools/list", None, token=agent_key)
         self.assertEqual(status, HTTPStatus.OK)
-        self.assertEqual(len(listing["result"]["tools"]), 9)
+        self.assertEqual(len(listing["result"]["tools"]), 10)
 
         status, created = _mcp(
             self.base,
