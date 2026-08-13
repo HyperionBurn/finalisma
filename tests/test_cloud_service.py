@@ -546,9 +546,11 @@ class TestJoinDescriptorAndAgentCard(CloudServiceTestBase):
 
     def test_join_descriptor_html_page_keeps_tier_disclaimers(self) -> None:
         # The honest disclaimers are the part a future edit could quietly drop.
-        # Tiers 1, 3 and 4 cannot redeem a hosted cloud room link; only the
-        # Streamable HTTP call can, and consent is an attestation, not proof of
-        # a human-approved screen.
+        # Tier 1 (MCP stdio) reaches a hosted room through the remote bridge —
+        # the only stdio path that works — while Tiers 3 and 4 run on a
+        # self-hosted coordinator and cannot redeem a hosted cloud room link;
+        # both point at the Streamable HTTP call. Consent is an attestation,
+        # not proof of a human-approved screen.
         status, raw, _ = _get_url(f"{self.base}/j/{self.link_token}", accept="text/html")
         self.assertEqual(status, 200)
         page = raw.decode("utf-8", errors="replace")
@@ -560,6 +562,12 @@ class TestJoinDescriptorAndAgentCard(CloudServiceTestBase):
         self.assertIn("never from a request body argument", page)
         self.assertIn("cross-tenant", page)
         self.assertIn("link IS the authorization", page)
+        # Tier 1 must teach the stdio bridge (command + args + env, token in
+        # env never in argv, PYTHONUTF8=1) — it is the path real hosts use.
+        self.assertIn("mcpServers", page)
+        self.assertIn("PYTHONUTF8", page)
+        self.assertIn("--token-env", page)
+        self.assertIn("never in <code>args</code>", page)
         self.assertGreaterEqual(
             page.count("To join this hosted room use the Streamable HTTP call above"),
             2,
