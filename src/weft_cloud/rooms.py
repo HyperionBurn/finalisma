@@ -317,10 +317,24 @@ def release_agent_key_seats_in_tx(tx: Any, tenant_id: str, key_id: str) -> int:
     that rejoin restores — and a revoked key can never rejoin, so the freed
     seat is exactly the one a new identity should be able to take.
 
-    Scoped by ``(tenant_id, key_id)``: only this key's seats move, and only
-    inside this tenant. The per-room member counter is decremented (clamped at
-    zero) exactly as ``leave_room`` does, so the plan-level member quota stays
-    in step with the ACTIVE membership set.
+    Scoped by ``key_id`` ALONE — NOT by ``(tenant_id, key_id)``. A ``key_id``
+    is a globally unique random identifier (``key_`` + hex), and a key member's
+    ``agent_id`` IS that ``key_id``, so matching on the identity alone touches
+    exactly this key's memberships and nothing else (account members use the
+    disjoint ``acct_`` prefix). The membership rows live under the tenant of
+    the ROOM the key joined, which may differ from ``tenant_id`` (the key's
+    OWNING tenant): a cross-tenant join stores the row under the room's tenant
+    by design — the link IS the authorization. Releasing seats across that
+    boundary is correct ONLY here because the caller has just permanently
+    destroyed this identity (see ``agent_keys.revoke``: the release runs only
+    after the revoke UPDATE actually matched ``(key_id, tenant_id, account_id)``),
+    so any seat this key held anywhere is legitimately freed. Downstream writes
+    (membership status, member counter, event log) are keyed on each row's own
+    ``tenant_id`` — the room's tenant — never on ``tenant_id``.
+
+    The per-room member counter is decremented (clamped at zero) exactly as
+    ``leave_room`` does, so the plan-level member quota stays in step with the
+    ACTIVE membership set.
     """
     # The room plane may not be initialized on a bare identity backend
     # (revoke is a valid identity operation with no rooms). A missing table
@@ -331,23 +345,24 @@ def release_agent_key_seats_in_tx(tx: Any, tenant_id: str, key_id: str) -> int:
     if exists is None:
         return 0
     rows = tx.execute(
-        "SELECT room_id FROM cloud_room_members "
-        "WHERE tenant_id = ? AND agent_id = ? AND status = 'active'",
-        (tenant_id, key_id),
+        "SELECT tenant_id, room_id FROM cloud_room_members "
+        "WHERE agent_id = ? AND status = 'active'",
+        (key_id,),
     ).fetchall()
     for row in rows:
+        room_tenant_id = row["tenant_id"]
         tx.execute(
             "UPDATE cloud_room_members SET status = 'left' "
             "WHERE tenant_id = ? AND room_id = ? AND agent_id = ? AND status = 'active'",
-            (tenant_id, row["room_id"], key_id),
+            (room_tenant_id, row["room_id"], key_id),
         )
         tx.execute(
             "UPDATE cloud_room_counters SET value = MAX(0, value - 1), updated_at = ? "
             "WHERE tenant_id = ? AND room_id = ? AND counter = 'members'",
-            (utc_now_iso(), tenant_id, row["room_id"]),
+            (utc_now_iso(), room_tenant_id, row["room_id"]),
         )
         _append_event_tx(
-            tx, tenant_id, row["room_id"], key_id, "room.left",
+            tx, room_tenant_id, row["room_id"], key_id, "room.left",
             {"agent_id": key_id, "reason": "agent_key_revoked"},
         )
     return len(rows)
