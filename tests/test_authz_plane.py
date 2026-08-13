@@ -336,8 +336,7 @@ class TestListRoomsScopedToCaller(AuthzPlaneTestBase):
 
 
 class TestEventLogRedactsLikePoll(AuthzPlaneTestBase):
-    """HOLE 4 — event_log redacts a unicast body for a non-addressee exactly
-    as poll does."""
+    """Event-log and poll preserve sender audit while redacting outsiders."""
 
     def setUp(self) -> None:
         super().setUp()
@@ -349,6 +348,9 @@ class TestEventLogRedactsLikePoll(AuthzPlaneTestBase):
         self.carol_token = carol["session_token"]
         self.carol_id = carol["account_id"]
         self._join_room(self.carol_token, self.room["room_id"], self.room["link_token"])
+        outsider = self._signup("evt-outsider@example.com", "OutsiderPass!1")
+        self.outsider_token = outsider["session_token"]
+        self._join_room(self.outsider_token, self.room["room_id"], self.room["link_token"])
 
         # Alice sends a unicast to carol's account.
         status, body = _post(self.base, "/v1/rooms/send", {
@@ -374,18 +376,17 @@ class TestEventLogRedactsLikePoll(AuthzPlaneTestBase):
         self.assertEqual(log_addressee["events"][-1]["payload"]["payload"]["text"],
                          "TOP-SECRET-UNICAST")
 
-        # A NON-addressee sees the redacted envelope in BOTH surfaces, and the
-        # secret never appears in the serialized response.
+        # The originator can audit its own send in BOTH surfaces.
         _, poll_outsider = _post(self.base, "/v1/rooms/poll", {
             "room_id": self.room["room_id"], "after_seq": 0,
-        }, self.alice_token)
+        }, self.outsider_token)
         poll_msg = self._message_events(poll_outsider)[-1]
         self.assertEqual(poll_msg["payload"],
                          {"redacted": True, "reason": "not_the_addressee"})
 
         _, log_outsider = _post(self.base, "/v1/rooms/event_log", {
             "room_id": self.room["room_id"],
-        }, self.alice_token)
+        }, self.outsider_token)
         log_msg = self._message_events(log_outsider)[-1]
         self.assertEqual(log_msg["payload"],
                          {"redacted": True, "reason": "not_the_addressee"})
@@ -394,6 +395,17 @@ class TestEventLogRedactsLikePoll(AuthzPlaneTestBase):
         self.assertNotIn("TOP-SECRET-UNICAST", json.dumps(log_outsider))
         self.assertNotIn("payload_json", json.dumps(log_outsider),
                          "event_log must never return the raw payload_json column")
+
+        _, poll_sender = _post(self.base, "/v1/rooms/poll", {
+            "room_id": self.room["room_id"], "after_seq": 0,
+        }, self.alice_token)
+        self.assertEqual(self._message_events(poll_sender)[-1]["payload"]["payload"]["text"],
+                         "TOP-SECRET-UNICAST")
+        _, log_sender = _post(self.base, "/v1/rooms/event_log", {
+            "room_id": self.room["room_id"],
+        }, self.alice_token)
+        self.assertEqual(self._message_events(log_sender)[-1]["payload"]["payload"]["text"],
+                         "TOP-SECRET-UNICAST")
 
 
 if __name__ == "__main__":

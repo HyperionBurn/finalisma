@@ -286,6 +286,18 @@ class TestEventPoll(unittest.TestCase):
         self.assertEqual(data["events"], [])
         self.assertEqual(data["next_seq"], cursor_head)
 
+    def test_lifecycle_events_are_not_treated_as_private_messages(self):
+        status, body, _ = self.driver.get(f"/room/{self.room_id}/events?after_seq=0")
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        lifecycle = [e for e in data["events"] if e["kind"] in {"room.created", "room.joined"}]
+        self.assertTrue(lifecycle)
+        self.assertTrue(all(e["payload"] for e in lifecycle))
+        self.assertNotIn(
+            {"redacted": True, "reason": "not_the_addressee"},
+            [e["payload"] for e in lifecycle],
+        )
+
 
 class TestAuditLog(unittest.TestCase):
     """§3.3 + §6.5: GET /room/{room_id}/audit renders the audit log."""

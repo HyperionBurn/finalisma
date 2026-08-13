@@ -13,11 +13,19 @@ functions:
 
 On the Windows development host, the reference file records a seven-trial
 weighted median of **72.221 ms** (weighted p95 81.899 ms). The latest complete
-gate run measured **90.158 ms** (weighted p95 104.705 ms) and therefore
-**failed**: weighted median improvement was -24.84%, and scenario p95 changed
-by +30.83% (`routing_fanout`), +42.65% (`session_relay`), and +8.92%
-(`authenticated_core`). The quality sub-gates did pass: **883 tests**, protocol
-smoke, and credential-output checks.
+gate run on 2026-08-13 measured **137.404 ms** (weighted p95 **155.381 ms**)
+and therefore **failed**: weighted median improvement was -90.25%, and scenario
+p95 changed by +82.59% (`routing_fanout`), +98.81% (`session_relay`), and
++81.84% (`authenticated_core`). The quality sub-gates did pass: **894 tests**,
+protocol smoke, and credential-output checks. A long-running OpenCode process
+was consuming substantial CPU and memory during this capture. That is a
+diagnostic confounder, not proof that host load caused the entire regression;
+the gate remains red until a controlled idle-host rerun explains or clears it.
+
+The preceding complete run measured **90.158 ms** (weighted p95 104.705 ms),
+also failed the weighted-median and scenario-p95 guards, and passed 894 tests,
+protocol smoke, and credential-output checks. It remains historical evidence,
+not the current result.
 
 The reference metadata now uses the explicit `benchmark-critical-ast-v1`
 digest scope. Its prior whole-file hash (`bed1…`) is retained as
@@ -27,9 +35,10 @@ quality-runner timeout/comment changes. This repairs provenance without
 changing any timing sample; the complete rerun above verified the repaired
 contract.
 
-The preceding complete run measured 71.349 ms / 79.400 ms p95, but failed a
+An earlier complete run measured 71.349 ms / 79.400 ms p95, but failed a
 single session-relay p95 guard (+20.15%) and initially exposed a stale published
-test count; the count is now synchronized at 883. Three isolated seven-trial
+test count. The historical benchmark-run count is 894; the current repository
+suite is 900 tests after subsequent security and lifecycle coverage. Three isolated seven-trial
 captures on the same host produced weighted medians of 73.981 ms, 87.975 ms,
 and 101.820 ms while the machine was under its normal background workload.
 That spread is evidence of measurement variance, not a stable optimization or
@@ -54,11 +63,10 @@ about current performance must use the re-baselined measurement above.
 
 This is a same-machine baseline comparison, not a universal latency promise.
 Filesystem, antivirus, CPU, Python, and SQLite differences can materially
-change absolute timings. The absolute 2026-08-10 figures were captured while
-the host was under concurrent load (opencode/claude sessions active); the gate
-compares like-for-like against a baseline captured minutes earlier, so a
-loaded host does not cause a false regression, but the absolute numbers are
-higher than an idle-host run would show.
+change absolute timings. The 2026-08-13 capture ran while an OpenCode process
+was active and is therefore useful as a red gate result but insufficient to
+attribute the regression to product code or host load alone. Re-run on an idle,
+documented host before treating the timing as a stable release characteristic.
 
 ## Run the locked gate
 

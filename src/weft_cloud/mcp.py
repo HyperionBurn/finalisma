@@ -154,7 +154,7 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "room_send",
-        "description": "Address one member, a named group, or the whole room with a payload, returning durable per-recipient delivery receipts. Pass the same idempotency_key when retrying a send that may have succeeded but lost its response — the retry returns the original event's seq and receipts instead of duplicating.",
+        "description": "Address one member, a named group, or the whole room with a payload, returning durable per-recipient receipts. Each receipt separates delivery status from recipient read_status; the sender may audit its own targeted message while other non-addressees receive a redacted envelope. Pass the same idempotency_key when retrying a send that may have succeeded but lost its response — the retry returns the original event's seq and receipts instead of duplicating.",
         "inputSchema": _object_schema({
             "room_id": _STRING,
             "target_spec": _JSON_VALUE,
@@ -197,7 +197,7 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "room_ack",
-        "description": "Advance your cursor to seq (monotonic MAX). Events below the cursor are never re-delivered.",
+        "description": "Advance your cursor to seq (monotonic MAX). Events below the cursor are never re-delivered; durable receipt rows addressed to you are marked read through seq.",
         "inputSchema": _object_schema({
             "room_id": _STRING,
             "seq": _INTEGER,

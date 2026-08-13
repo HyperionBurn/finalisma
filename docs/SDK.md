@@ -249,7 +249,7 @@ that is what makes the reconnect in step 6 resume from the correct cursor.
 | `room_poll(room_id, after_seq, limit)` | `room_poll` | Ordered events after the cursor (default `last_ack_seq`); never deletes events. |
 | `room_ack(room_id, seq)` | `room_ack` | Advance the per-member cursor monotonically. |
 | `room_heartbeat(room_id)` | `room_heartbeat` | Refresh presence (`active` vs `stale`). |
-| `room_receipts(room_id, entry_ids)` | `room_receipts` | Delivery status for previously sent envelopes. |
+| `room_receipts(room_id, entry_ids)` | `room_receipts` | Delivery `status` plus durable recipient `read_status` for previously sent envelopes. |
 | `leave_room(room_id)` | `room_leave` | Emit `room.left` and mark the member `left`. |
 | `close_room(room_id)` | `room_close` | Owner only; emits `room.closed`, invalidates all links. |
 | `revoke_link(room_id, link_id)` | `room_revoke_link` | Owner only; revoke one link without closing the room. An unknown / already-revoked / wrong-room `link_id` raises `NotFoundError` (`link_not_found`); a malformed one raises `invalid_argument`. The owner can rediscover `link_id` from `room_info` (owner-only view, together with `link_revoked`); `link_token` is never exposed there. |

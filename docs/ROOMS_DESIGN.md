@@ -291,11 +291,16 @@ Each recipient's `outbox_entries` row carries a `status`:
 | `delivered` | acked by the recipient host |
 | `dead` | exceeded `max_attempts`; moved to `outbox_dlq` |
 
-`room_send` returns, for each target, the `entry_id` and its initial
-status. A sender queries receipt status with `room_receipts`
-(`entry_id` → `{status, attempts, next_attempt_at, last_error}`). Delivery is
-driven by the existing `claim_due` / `mark_delivered` / `mark_retry` loop
-(outbox.py:224-330); the room does not add a delivery loop.
+`room_send` returns, for each target, the `entry_id`, its initial delivery
+`status`, and `read_status: "queued"`. `status` is the outbox delivery
+lifecycle; `read_status` is the separate durable recipient-consumption
+lifecycle and becomes `"read"` when that recipient acknowledges the sequence.
+A sender queries both states with `room_receipts`
+(`entry_id` → `{status, read_status, attempts, next_attempt_at, last_error}`).
+The sender may replay its own targeted message for audit, while every other
+non-addressee receives only the redacted envelope. Delivery is driven by the
+existing `claim_due` / `mark_delivered` / `mark_retry` loop (outbox.py:224-330);
+the room does not add a delivery loop.
 
 ### 6.2 Sender exclusion
 
@@ -341,12 +346,12 @@ a room is not publicly readable). They are dispatched by `WeftDispatcher`
 | 3 | `room_info` | `team_id, room_id, agent_id, actor_token` | `{room_id, state, cap, member_count, members:[{agent_id, status, capabilities, last_seen, joined_at}], owner_agent_id}` | Member-only. The ROOM OWNER additionally sees `link_id` (the identifier `room_revoke_link` needs) and `link_revoked` (confirmation the revocation landed). Ordinary members never see them, and `link_token` is never exposed. |
 | 4 | `room_leave` | `team_id, room_id, agent_id, actor_token` | `{room_id, agent_id, status: "left"}` | Emits `room.left`. |
 | 5 | `room_close` | `team_id, room_id, owner_agent_id, actor_token` | `{room_id, state: "closed"}` | Owner only. Invalidates all links. Emits `room.closed`. |
-| 6 | `room_send` | `team_id, room_id, sender_agent_id, target_spec, payload, actor_token` | `{envelope, receipts:[{agent_id, entry_id, status}], seq}` | `exclude_sender?`. Emits `room.message`. |
+| 6 | `room_send` | `team_id, room_id, sender_agent_id, target_spec, payload, actor_token` | `{envelope, receipts:[{agent_id, entry_id, status, read_status}], seq}` | `exclude_sender?`. Emits `room.message`; the sender can audit its own targeted event, other non-addressees see a redacted envelope. |
 | 7 | `room_poll` | `team_id, room_id, agent_id, actor_token` | `{events, next_seq, cursor_head, last_ack_seq, has_more, state}` | `after_seq?` (default `last_ack_seq`), `limit?` (default 100, max 200). |
-| 8 | `room_ack` | `team_id, room_id, agent_id, seq, actor_token` | `{room_id, agent_id, last_ack_seq}` | Monotonic. |
+| 8 | `room_ack` | `team_id, room_id, agent_id, seq, actor_token` | `{room_id, agent_id, last_ack_seq, receipts_read}` | Monotonic; marks this recipient's durable receipt rows read through `seq`. |
 | 9 | `room_heartbeat` | `team_id, room_id, agent_id, actor_token` | `{room_id, agent_id, last_seen, status}` | Refreshes presence. |
 | 10 | `room_groups` | `team_id, room_id, agent_id, group_name, action, actor_token` | `{room_id, group_name, members}` | `action` ∈ `add`, `remove`, `list`. Wraps `roster.add_to_group` / `remove_from_group` / `list_group`. |
-| 11 | `room_receipts` | `team_id, room_id, agent_id, entry_ids, actor_token` | `{receipts:[{entry_id, status, attempts, next_attempt_at, last_error}]}` | Member-only. |
+| 11 | `room_receipts` | `team_id, room_id, agent_id, entry_ids, actor_token` | `{receipts:[{entry_id, status, read_status, attempts, next_attempt_at, last_error}]}` | Member-only. `status` is delivery; `read_status` is recipient acknowledgement. |
 | 12 | `room_revoke_link` | `team_id, room_id, owner_agent_id, link_id, actor_token` | `{link_id, revoked: true}` | Owner only. Flips `revoked`. An unknown / already-revoked / wrong-room `link_id` is refused with `link_not_found` (byte-identical to a never-existing link — no oracle), a malformed one with `invalid_argument`. Success is only reported when a row actually flipped. |
 
 ### 8.1 Error codes

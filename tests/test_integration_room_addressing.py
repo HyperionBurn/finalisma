@@ -179,6 +179,7 @@ class RoomAddressingIntegrationTests(unittest.TestCase):
         self.assertEqual(len(receipts), 1)
         self.assertEqual(receipts[0]["agent_id"], AGENT_A2)
         self.assertIn(receipts[0]["status"], ("queued", "in_flight"))
+        self.assertEqual(receipts[0]["read_status"], "queued")
         self.assertIn("entry_id", receipts[0])
 
         # seq present.
@@ -317,6 +318,8 @@ class RoomAddressingIntegrationTests(unittest.TestCase):
         for r in queried:
             self.assertIn("entry_id", r)
             self.assertIn("status", r)
+            self.assertIn("read_status", r)
+            self.assertIn(r["read_status"], ("queued", "read", "unknown"))
             self.assertIn("attempts", r)
             self.assertIn("next_attempt_at", r)
             self.assertIn("last_error", r)

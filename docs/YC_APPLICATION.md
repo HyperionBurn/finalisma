@@ -29,15 +29,16 @@ conversation or sharing provider credentials.
 - One-use pairing links with preview-before-consent.
 - Member-bound session credentials and replayable ordered events.
 - Scoped tasks, leases, fencing tokens, artifact hashes, and evidence gates.
-- 894 passing standard-library tests, including concurrency, restart, HTTP,
+- 900 passing standard-library tests, including concurrency, restart, HTTP,
   tenancy isolation, roster routing, durable outbox, bridge adapters, SDK
   flows, room lifecycle, cloud storage, cross-team boundary cases, identity,
   and the stdio-to-hosted bridge (docs/STDIO_BRIDGE.md).
 - A locked same-machine coordinator benchmark with a reference weighted median
-  of ~72.2 ms. The latest full gate run is explicitly not green: 90.158 ms
-  weighted median / 104.705 ms p95, with 883 tests, smoke, and credential
-  checks passing in that benchmark run, but the weighted-median and scenario-p95 regression guards
-  failing. This is engineering evidence, not a universal latency claim.
+  of ~72.2 ms. The latest full gate run is explicitly not green: 137.404 ms
+  weighted median / 155.381 ms p95, with 894 tests, smoke, and credential
+  checks passing, but the weighted-median and scenario-p95 regression guards
+  failing. An OpenCode process was active during the capture, so this is an
+  unresolved release blocker and not a stable latency claim.
 - A static marketing site (Astro-built) and a dependency-free coordinator. The coordinator is Python stdlib-only, SQLite, no CDN. An interactive product simulation, quickstart, and
   reproducible 42-second MP4/WebM demo generated from a real local coordinator run.
 

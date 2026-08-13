@@ -198,5 +198,5 @@ python -B -m unittest discover -s tests
 python -B scripts/weft-smoke.py          # expect evidence_passed: true
 node --check site/app.js
 node scripts/capture-site-qa.cjs              # expect consoleErrors: [] and all booleans true
-python scripts/weft_performance_gate.py  # locked baseline; 59.314ms weighted median
+python -B scripts/weft_performance_gate.py --baseline .omx/goals/performance/single-node-coordinator-envelope/baseline.json  # current reference: 72.221ms; must be rerun under documented host conditions
 ```

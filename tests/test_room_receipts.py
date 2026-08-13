@@ -137,6 +137,7 @@ class RoomReceiptLifecycleTests(unittest.TestCase):
                          sorted((first["account_id"], second["account_id"])))
         self.assertTrue(all(r["read_status"] == "queued" for r in rows))
         self.assertTrue(all(r["sender_agent_id"] == owner["account_id"] for r in rows))
+        self.assertTrue(all(r["read_status"] == "queued" for r in sent["receipts"]))
 
     def test_ack_marks_only_callers_receipts_read(self) -> None:
         owner, first, second, room = self._room("scoped")

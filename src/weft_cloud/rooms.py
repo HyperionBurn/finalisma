@@ -626,18 +626,19 @@ class CloudRoomService:
         )
 
     @staticmethod
-    def _filter_payload_for_agent(payload: dict, agent_id: str) -> dict:
+    def _filter_payload_for_agent(payload: dict, agent_id: str,
+                                  origin_agent: str | None = None) -> dict:
         """Redact message payloads not addressed to ``agent_id``.
 
         Callers use this only for ``room.message`` events. Only agents listed
-        in ``targets`` (or
-        everyone for broadcast ``target_spec == "*"``) may see the payload.
-        Non-addressees receive a redacted envelope so the ordered event
-        sequence stays visible without leaking the body.
+        in ``targets`` (or the originator, or everyone for broadcast
+        ``target_spec == "*"``) may see the payload. Non-addressees receive a
+        redacted envelope so the ordered event sequence stays visible without
+        leaking the body.
         """
         if not isinstance(payload, dict):
             return payload
-        if payload.get("target_spec") == "*":
+        if payload.get("target_spec") == "*" or origin_agent == agent_id:
             return payload
         targets = payload.get("targets")
         if isinstance(targets, list) and agent_id in targets:
@@ -1259,7 +1260,7 @@ class CloudRoomService:
             for r in rows:
                 raw_payload = _parse_json(r["payload_json"], {})
                 visible_payload = (
-                    self._filter_payload_for_agent(raw_payload, agent_id)
+                    self._filter_payload_for_agent(raw_payload, agent_id, r["origin_agent"])
                     if r["kind"] == "room.message"
                     else raw_payload
                 )
@@ -1552,7 +1553,12 @@ class CloudRoomService:
                         (tenant_id, room_id, seq, target, sender_agent_id,
                          entry_id, now, now),
                     )
-                    receipts.append({"agent_id": target, "entry_id": entry_id, "status": "queued"})
+                    receipts.append({
+                        "agent_id": target,
+                        "entry_id": entry_id,
+                        "status": "queued",
+                        "read_status": "queued",
+                    })
                 tx.commit()
 
             return {"room_id": room_id, "seq": seq, "receipts": receipts}
@@ -1623,7 +1629,7 @@ class CloudRoomService:
         for r in rows:
             raw_payload = _parse_json(r["payload_json"], {})
             visible_payload = (
-                self._filter_payload_for_agent(raw_payload, agent_id)
+                self._filter_payload_for_agent(raw_payload, agent_id, r["origin_agent"])
                 if r["kind"] == "room.message"
                 else raw_payload
             )

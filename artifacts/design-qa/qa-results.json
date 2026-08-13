@@ -1,5 +1,5 @@
 {
-  "siteUrl": "http://127.0.0.1:49620/",
+  "siteUrl": "http://127.0.0.1:57278/",
   "viewport": {
     "desktop": "1440x900",
     "mobile": [
@@ -139,16 +139,15 @@
     }
   },
   "canvas": {
-    "frameTimeMedianMs": 21.399999998509884,
-    "frameTimeP95Ms": 26.5,
+    "frameTimeMedianMs": 22.699999999254487,
+    "frameTimeP95Ms": 36.500000000000455,
     "canvasAnimated": true
   },
   "performanceChecks": {
     "cls": 0.0016950241528420782,
-    "lcp": 1892,
+    "lcp": 1508,
     "longTasks": [
-      61,
-      132
+      135
     ],
     "resourceCount": 11,
     "transferBytes": 1370657,
@@ -158,7 +157,7 @@
     "axeResults": [
       {
         "label": "home",
-        "url": "http://127.0.0.1:49620/",
+        "url": "http://127.0.0.1:57278/",
         "violations": [],
         "violationCount": 0,
         "passes": 28,
@@ -166,7 +165,7 @@
       },
       {
         "label": "blog",
-        "url": "http://127.0.0.1:49620/blog/index.html",
+        "url": "http://127.0.0.1:57278/blog/index.html",
         "violations": [],
         "violationCount": 0,
         "passes": 9,
@@ -174,7 +173,7 @@
       },
       {
         "label": "article",
-        "url": "http://127.0.0.1:49620/blog/secure-agent-handoffs.html",
+        "url": "http://127.0.0.1:57278/blog/secure-agent-handoffs.html",
         "violations": [],
         "violationCount": 0,
         "passes": 11,
@@ -182,7 +181,7 @@
       },
       {
         "label": "docs",
-        "url": "http://127.0.0.1:49620/docs/index.html",
+        "url": "http://127.0.0.1:57278/docs/index.html",
         "violations": [],
         "violationCount": 0,
         "passes": 9,
@@ -190,7 +189,7 @@
       },
       {
         "label": "demo",
-        "url": "http://127.0.0.1:49620/demo.html",
+        "url": "http://127.0.0.1:57278/demo.html",
         "violations": [],
         "violationCount": 0,
         "passes": 17,
@@ -198,7 +197,7 @@
       },
       {
         "label": "404",
-        "url": "http://127.0.0.1:49620/404.html",
+        "url": "http://127.0.0.1:57278/404.html",
         "violations": [],
         "violationCount": 0,
         "passes": 17,
@@ -208,7 +207,7 @@
     "lighthouseResults": [
       {
         "name": "home",
-        "url": "http://127.0.0.1:49620/",
+        "url": "http://127.0.0.1:57278/",
         "checks": {
           "focusableCount": 35,
           "labelledControls": 4,
@@ -234,7 +233,7 @@
       },
       {
         "name": "blog",
-        "url": "http://127.0.0.1:49620/blog/index.html",
+        "url": "http://127.0.0.1:57278/blog/index.html",
         "checks": {
           "focusableCount": 7,
           "labelledControls": 0,
@@ -260,7 +259,7 @@
       },
       {
         "name": "article",
-        "url": "http://127.0.0.1:49620/blog/secure-agent-handoffs.html",
+        "url": "http://127.0.0.1:57278/blog/secure-agent-handoffs.html",
         "checks": {
           "focusableCount": 6,
           "labelledControls": 0,
@@ -286,7 +285,7 @@
       },
       {
         "name": "docs",
-        "url": "http://127.0.0.1:49620/docs/index.html",
+        "url": "http://127.0.0.1:57278/docs/index.html",
         "checks": {
           "focusableCount": 9,
           "labelledControls": 0,
@@ -312,7 +311,7 @@
       },
       {
         "name": "demo",
-        "url": "http://127.0.0.1:49620/demo.html",
+        "url": "http://127.0.0.1:57278/demo.html",
         "checks": {
           "focusableCount": 8,
           "labelledControls": 0,
@@ -338,7 +337,7 @@
       },
       {
         "name": "404",
-        "url": "http://127.0.0.1:49620/404.html",
+        "url": "http://127.0.0.1:57278/404.html",
         "checks": {
           "focusableCount": 2,
           "labelledControls": 0,

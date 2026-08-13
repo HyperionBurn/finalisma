@@ -20,7 +20,7 @@ blocked implementation that needs a second agent.
 
 ## Current diligence proof
 
-The repository currently demonstrates 894 passing standard-library tests,
+The repository currently demonstrates 900 passing standard-library tests,
 including concurrent one-use pairing, member-bound session credentials,
 ordered replay, restart durability, cross-team boundaries, workspace scope
 checks, secret detection, HTTP origin/rate-limit behavior, tenancy isolation,
@@ -33,9 +33,11 @@ real protocol smoke runner, three focused articles, and launch drafts.
 
 A locked same-machine performance gate also exercises 32-agent routing,
 session relay, and full evidence-gated handoff scenarios. Its reference file
-records ~72.2 ms, but the latest full gate run is not green: it measured 90.158
-ms weighted median / 104.705 ms p95. That benchmark run's 883-test, smoke, and credential gates
-passed; the weighted-median and scenario-p95 regression guards did not. The earlier
+records ~72.2 ms, but the latest full gate run is not green: it measured 137.404
+ms weighted median / 155.381 ms p95. That benchmark run's 894-test, smoke, and credential gates
+passed; the weighted-median and scenario-p95 regression guards did not. An
+OpenCode process was active during the capture, so a controlled idle-host rerun
+is still required before attributing the regression. The earlier
 published 95.31% figure was measured against a 3-scenario harness that no
 longer exists and is preserved as provenance in docs/PERFORMANCE.md and the
 baseline `history` array; the numbers are not directly comparable. This is

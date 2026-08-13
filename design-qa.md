@@ -94,7 +94,7 @@ Desktop density is 1440 x 900 at deviceScaleFactor 1. Mobile coverage is 390 x 8
 
 The local timings are regression signals, not public field-performance claims.
 
-The locked matching-runtime coordinator evaluator also passes: 1,265.771ms baseline to 59.314ms current weighted median (95.31% improvement), all three semantic digests unchanged, 65 tests and protocol smoke green, and no raw credential in output. This is a same-machine SQLite hot-path result, not a model-speed or network claim.
+The locked matching-runtime coordinator evaluator's historical result was 1,265.771ms baseline to 59.314ms weighted median (95.31% improvement), with all three semantic digests unchanged, 65 tests and protocol smoke green, and no raw credential in output. The current reference artifact is 72.221ms; the latest complete local gate measured 137.404ms weighted median / 155.381ms p95 and failed its timing guards while the quality sub-gates passed. A controlled idle-host rerun remains required before attributing that regression to code. These are same-machine SQLite hot-path results, not model-speed or network claims.
 
 A separate native MiMo v2.5 production-web review returned PASS with no P0 or P1 local defect. Its domain-independent share findings (`og:site_name` and explicit `twitter:image`) were implemented and test-locked. Absolute social/canonical URLs, `og:url`, and a standards-valid sitemap remain correctly deferred until a real deployment origin exists.
 

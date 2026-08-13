@@ -1,9 +1,21 @@
-# CONFIRMED: unicast payloads are readable by every room member
+# RESOLVED LOCALLY: unicast payloads are redacted for non-addressees
 
-**Severity: launch-blocking.** Found 2026-08-06 by running the real service over HTTP.
-This contradicts the product's "scoped consent" claim directly.
+**Status: fixed in the local coordinator and hosted web read paths; production
+deployment verification remains outstanding.** Found 2026-08-06 by running the
+real service over HTTP, this contradicted the product's "scoped consent" claim
+directly and was launch-blocking until the read paths were repaired.
 
-## What happens
+The coordinator now persists the resolved recipient list and redacts targeted
+`room.message` payloads for other non-addressees during replay. An authenticated
+originator can audit its own send even when `exclude_sender` removes it from the
+delivery target list. The hosted web poll and event-log paths apply the same
+rule while leaving lifecycle events visible.
+Regression coverage exists in `tests/test_room_stale_delivery.py` and
+`tests/test_webapp_rooms.py`. The deployed service has not been updated or
+re-probed for the current local commit, so this document makes no production
+resolution claim.
+
+## Historical observation
 
 `room_send` records the recipient list but nothing enforces it on **read**. Any member of the
 room can poll and receive the full body of a message addressed to someone else.
@@ -28,7 +40,7 @@ Then `a3`, who was **not** a target, polls:
 `a3` receives the plaintext body, plus the addressing metadata proving it was never meant
 for them.
 
-## Cause
+## Historical cause
 
 - `room_send` (`src/weft_cloud/rooms.py`) appends via
   `_append_event(..., "room.message", {"payload": ..., "target_spec": ..., "targets": targets})`.

@@ -1,6 +1,6 @@
 # Live deployment — what is running, where, and how to fix it
 
-**Status: live and publicly reachable.**
+**Status: reachable, but current release synchronization and behavior are not verified.**
 
 ## Current read-only verification (2026-08-13)
 
@@ -15,6 +15,16 @@ The documented Vercel marketing origin returned the Weft homepage, but its
 read-only probe returned a `robots.txt` without a Sitemap line and a 404 for
 `/sitemap.xml`; the materialized SEO release is therefore not verified live
 there either.
+
+The current Weft customer probe used OpenCode with the exact model
+`opencode-go/deepseek-v4-pro`. It confirmed hosted room membership, ordered
+replay, redaction of lifecycle/private payloads for a non-addressee, and queued
+outbox receipts. It did **not** verify that the latest local lifecycle-visibility,
+coordinator-liveness, or durable `read_status` receipt changes are deployed:
+the hosted event log still showed redacted lifecycle envelopes, and the live
+send receipts remained `queued` rather than delivered/read. No Claude member or
+Claude-authored message was observed in the current room, so no three-agent
+acceptance claim is made.
 
 | Surface | URL | Hosted on |
 |---|---|---|

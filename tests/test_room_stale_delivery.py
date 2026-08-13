@@ -490,6 +490,83 @@ class CoordinatorRoomStaleDeliveryTests(unittest.TestCase):
         self.assertEqual(msgs[-1]["payload"]["payload"]["text"],
                          "coordinator-stale-unicast")
 
+    def test_coordinator_unicast_is_redacted_for_non_addressee(self) -> None:
+        sent = self._send("OWNER", "A2", {"text": "coordinator-private"})
+        a2_events = [e for e in self._poll("A2")["events"] if e["seq"] == sent["seq"]]
+        a3_events = [e for e in self._poll("A3")["events"] if e["seq"] == sent["seq"]]
+        self.assertEqual(a2_events[0]["payload"]["payload"]["text"], "coordinator-private")
+        self.assertEqual(
+            a3_events[0]["payload"],
+            {"redacted": True, "reason": "not_the_addressee"},
+            "coordinator room_poll must not expose a private unicast to another member",
+        )
+
+    def test_coordinator_sender_can_audit_unicast_and_receipt_read_status(self) -> None:
+        sent = self._send("OWNER", "A2", {"text": "coordinator-audit"})
+        self.assertEqual(sent["receipts"][0]["read_status"], "queued")
+        owner_events = [e for e in self._poll("OWNER")["events"] if e["seq"] == sent["seq"]]
+        self.assertEqual(owner_events[0]["payload"]["payload"]["text"], "coordinator-audit")
+
+        entry_id = sent["receipts"][0]["entry_id"]
+        before = self.dispatcher.call_tool("room_receipts", {
+            "team_id": self.team,
+            "room_id": self.room_id,
+            "agent_id": "OWNER",
+            "entry_ids": [entry_id],
+            "actor_token": self.tokens["OWNER"],
+        })
+        self.assertEqual(before["receipts"][0]["read_status"], "queued")
+
+        self._poll("A2")
+        acked = self.dispatcher.call_tool("room_ack", {
+            "team_id": self.team,
+            "room_id": self.room_id,
+            "agent_id": "A2",
+            "seq": sent["seq"],
+            "actor_token": self.tokens["A2"],
+        })
+        self.assertEqual(acked["receipts_read"], 1)
+        after = self.dispatcher.call_tool("room_receipts", {
+            "team_id": self.team,
+            "room_id": self.room_id,
+            "agent_id": "OWNER",
+            "entry_ids": [entry_id],
+            "actor_token": self.tokens["OWNER"],
+        })
+        self.assertEqual(after["receipts"][0]["read_status"], "read")
+
+    def test_coordinator_broadcast_remains_visible_to_all_members(self) -> None:
+        sent = self._send("OWNER", "*", {"text": "coordinator-public"})
+        for agent_id in ("A2", "A3"):
+            events = [e for e in self._poll(agent_id)["events"] if e["seq"] == sent["seq"]]
+            self.assertEqual(events[0]["payload"]["payload"]["text"], "coordinator-public")
+
+    def test_legacy_targeted_event_fails_closed(self) -> None:
+        # Simulate a pre-redaction event written by an older coordinator. The
+        # recipient list is absent, so replay must not leak its body to anyone.
+        with self.store._transaction() as conn:
+            seq = int(conn.execute(
+                "SELECT cursor_head FROM room_rooms WHERE room_id = ?",
+                (self.room_id,),
+            ).fetchone()[0]) + 1
+            conn.execute(
+                "INSERT INTO room_event_log(event_id, room_id, seq, origin_agent, kind, "
+                "message_kind, payload_json, idempotency_key, trace_id, created_at) "
+                "VALUES (?, ?, ?, ?, 'room.message', NULL, ?, ?, NULL, ?)",
+                (
+                    f"legacy-{seq}", self.room_id, seq, "OWNER",
+                    json.dumps({"payload": {"text": "legacy-secret"}, "target_spec": "A2"}),
+                    f"legacy-idem-{seq}", "2026-08-13T00:00:00Z",
+                ),
+            )
+            conn.execute(
+                "UPDATE room_rooms SET cursor_head = ? WHERE room_id = ?",
+                (seq, self.room_id),
+            )
+        for agent_id in ("A2", "A3"):
+            events = [e for e in self._poll(agent_id)["events"] if e["seq"] == seq]
+            self.assertEqual(events[0]["payload"], {"redacted": True, "reason": "not_the_addressee"})
+
     def test_unknown_unicast_target_refused(self) -> None:
         from weft_mcp.core import WeftError
         with self.assertRaises(WeftError) as ctx:

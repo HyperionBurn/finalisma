@@ -177,6 +177,63 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+def _enqueue_on_connection(
+    conn: sqlite3.Connection,
+    envelope: dict[str, Any],
+    recipients: list[str],
+    *,
+    roster_or_team_id: str = "",
+) -> list[str]:
+    """Insert per-recipient entries using the caller's open transaction."""
+    envelope_id = envelope["envelope_id"]
+    payload_json = json.dumps(envelope, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    now = _now()
+    now_iso = _now_iso()
+    entry_ids: list[str] = []
+    for recipient in recipients:
+        existing = conn.execute(
+            """
+            SELECT entry_id FROM outbox_entries
+            WHERE envelope_id = ? AND roster_or_team_id = ? AND recipient = ?
+            """,
+            (envelope_id, roster_or_team_id, recipient),
+        ).fetchone()
+        if existing is not None:
+            entry_ids.append(existing["entry_id"])
+            continue
+        entry_id = _new_id()
+        conn.execute(
+            """
+            INSERT INTO outbox_entries(
+                entry_id, envelope_id, roster_or_team_id, recipient,
+                payload_json, status, attempts, next_attempt_at,
+                last_error, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, 'queued', 0, ?, NULL, ?, ?)
+            """,
+            (entry_id, envelope_id, roster_or_team_id, recipient,
+             payload_json, now, now_iso, now_iso),
+        )
+        entry_ids.append(entry_id)
+    return entry_ids
+
+
+def enqueue_in_transaction(
+    conn: sqlite3.Connection,
+    envelope: dict[str, Any],
+    recipients: list[str],
+    *,
+    roster_or_team_id: str = "",
+) -> list[str]:
+    """Fan out entries inside the caller's transaction.
+
+    Room sends use this to commit their event log row, outbox entries, and
+    per-recipient receipt rows atomically. The caller owns transaction scope.
+    """
+    return _enqueue_on_connection(
+        conn, envelope, recipients, roster_or_team_id=roster_or_team_id,
+    )
+
+
 def enqueue(
     envelope: dict[str, Any],
     recipients: list[str],
@@ -188,37 +245,10 @@ def enqueue(
     Per-recipient idempotency key: ``(envelope_id, roster_or_team_id, recipient)``.
     Re-enqueueing the same triple returns the existing entry ids.
     """
-    envelope_id = envelope["envelope_id"]
-    payload_json = json.dumps(envelope, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    now = _now()
-    now_iso = _now_iso()
-    entry_ids: list[str] = []
     with _txn() as conn:
-        for recipient in recipients:
-            # Look up existing entry by idempotency key.
-            existing = conn.execute(
-                """
-                SELECT entry_id FROM outbox_entries
-                WHERE envelope_id = ? AND roster_or_team_id = ? AND recipient = ?
-                """,
-                (envelope_id, roster_or_team_id, recipient),
-            ).fetchone()
-            if existing is not None:
-                entry_ids.append(existing["entry_id"])
-                continue
-            entry_id = _new_id()
-            conn.execute(
-                """
-                INSERT INTO outbox_entries(
-                    entry_id, envelope_id, roster_or_team_id, recipient,
-                    payload_json, status, attempts, next_attempt_at,
-                    last_error, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, 'queued', 0, ?, NULL, ?, ?)
-                """,
-                (entry_id, envelope_id, roster_or_team_id, recipient, payload_json, now, now_iso, now_iso),
-            )
-            entry_ids.append(entry_id)
-    return entry_ids
+        return _enqueue_on_connection(
+            conn, envelope, recipients, roster_or_team_id=roster_or_team_id,
+        )
 
 
 def claim_due(limit: int, now: float | None = None) -> list[dict[str, Any]]:

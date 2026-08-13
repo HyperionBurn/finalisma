@@ -298,10 +298,12 @@ The single-node runtime uses bounded, thread-safe idle SQLite connection pools
 to avoid reopening the database for every handoff operation. Long-lived library
 callers should use `with WeftStore(...) as store:` or call `store.close()`
 during shutdown. The performance reference file records a ~72.2ms weighted
-median, but the latest full gate run is not green: it measured 90.158ms weighted
-median / 104.705ms p95 and rejected the weighted-median and scenario-p95 guards.
-That benchmark run passed all 883 tests, protocol smoke, and credential redaction;
-the current suite has since grown to 884 with lifecycle-visibility regression coverage.
+median, but the latest full gate run is not green: it measured 137.404ms weighted
+median / 155.381ms p95 and rejected the weighted-median and scenario-p95 guards.
+That run passed all 894 tests, protocol smoke, and credential redaction, but it
+was executed while an OpenCode process was consuming substantial host resources;
+the timing regression is therefore an unresolved release blocker, not a stable
+product-latency claim. The baseline was not rewritten to make the gate pass.
 Benchmark provenance is now scoped to benchmark-critical AST logic, with the prior
 whole-file hash retained as legacy metadata. Do not treat this as a universal
 latency claim; see

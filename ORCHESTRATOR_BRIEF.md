@@ -199,9 +199,12 @@ For each of A1–A8, in this order, one lane at a time:
    exercises it through the real MCP surface, not the module API. A module with only unit tests
    is not integrated.
 5. **Check the invariants.** Run `python -B scripts/weft-smoke.py` and require
-   `evidence_passed: true`. Run `scripts/weft_performance_gate.py` — the 59.314ms weighted
-   median is a locked, published claim. `tenancy` and `roster` add per-call work on hot paths and
-   are the most likely regressors. If it regresses, that is a blocker, not a footnote.
+   `evidence_passed: true`. Run
+   `python -B scripts/weft_performance_gate.py --baseline .omx/goals/performance/single-node-coordinator-envelope/baseline.json`.
+   The current reference artifact is 72.221ms; the earlier 59.314ms weighted median is
+   historical evidence, not the current target. `tenancy` and `roster` add per-call work
+   on hot paths and are the most likely regressors. If the gate regresses, that is a
+   blocker, not a footnote.
 6. **Commit** with scoped paths and a message naming the lane.
 
 **Specific things to check per lane:**
@@ -270,9 +273,10 @@ isolation, token handling in the SDK, and whether any new path logs a secret. Re
 findings ranked by severity.
 
 **B8 — PERF-GATE-DEFENCE** (owns `scripts/weft_performance_gate.py`, `docs/PERFORMANCE.md`)
-Re-run the locked gate after integration. The 95.31% improvement is published in the YC
-application. Extend the benchmark to cover the new roster/routing and tenancy paths so the
-published number keeps meaning something.
+Re-run the locked gate after integration. The 95.31% improvement is a historical result
+preserved in the YC application and baseline history; current claims must use the
+re-baselined artifact and the latest controlled-host run. Extend the benchmark to cover
+the new roster/routing and tenancy paths so any published number keeps meaning something.
 
 ---
 

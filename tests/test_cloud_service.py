@@ -742,6 +742,34 @@ class TestOrderedDelivery(CloudServiceTestBase):
         targets = [r["agent_id"] for r in body["receipts"]]
         self.assertEqual(targets, [self.agent_ids[3]])
 
+    def test_unicast_sender_can_read_back_but_other_member_is_redacted(self) -> None:
+        secret = "sender-audit-only"
+        status, sent = _post(self.base, "/v1/rooms/send", {
+            "room_id": self.room_id,
+            "target_spec": self.agent_ids[3],
+            "payload": {"text": secret},
+        }, self.agent_tokens[2])
+        self.assertEqual(status, 200)
+        self.assertEqual(sent["receipts"][0]["read_status"], "queued")
+
+        status, sender_poll = _post(self.base, "/v1/rooms/poll", {
+            "room_id": self.room_id, "after_seq": 0,
+        }, self.agent_tokens[2])
+        self.assertEqual(status, 200)
+        sender_events = [e for e in sender_poll["events"] if e["seq"] == sent["seq"]]
+        self.assertEqual(sender_events[0]["payload"]["payload"]["text"], secret)
+
+        status, outsider_poll = _post(self.base, "/v1/rooms/poll", {
+            "room_id": self.room_id, "after_seq": 0,
+        }, self.agent_tokens[0])
+        self.assertEqual(status, 200)
+        outsider_events = [e for e in outsider_poll["events"] if e["seq"] == sent["seq"]]
+        self.assertEqual(
+            outsider_events[0]["payload"],
+            {"redacted": True, "reason": "not_the_addressee"},
+        )
+        self.assertNotIn(secret, json.dumps(outsider_poll))
+
     def test_non_member_send_refused(self) -> None:
         stranger = self._signup("delivery-stranger@example.com", "StrangerPass!1")
         status, body = _post(self.base, "/v1/rooms/send", {

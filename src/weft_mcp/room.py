@@ -215,6 +215,25 @@ CREATE TABLE IF NOT EXISTS room_group_members (
     agent_id TEXT NOT NULL,
     PRIMARY KEY (room_id, group_name, agent_id)
 );
+
+-- Durable per-recipient consumption state. Delivery state remains in the
+-- shared outbox; this table records the recipient's acknowledgement.
+CREATE TABLE IF NOT EXISTS room_receipts (
+    room_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    recipient_agent_id TEXT NOT NULL,
+    sender_agent_id TEXT NOT NULL,
+    entry_id TEXT NOT NULL,
+    read_status TEXT NOT NULL DEFAULT 'queued'
+        CHECK(read_status IN ('queued','read')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (room_id, seq, recipient_agent_id)
+);
+CREATE INDEX IF NOT EXISTS idx_room_receipts_recipient
+    ON room_receipts(room_id, recipient_agent_id, read_status, seq);
+CREATE INDEX IF NOT EXISTS idx_room_receipts_entry
+    ON room_receipts(room_id, entry_id);
 """
 
 
@@ -352,6 +371,27 @@ class RoomStore:
             (seq, room_id),
         )
         return seq
+
+    @staticmethod
+    def _filter_payload_for_agent(payload: Any, agent_id: str,
+                                  origin_agent: str | None = None) -> Any:
+        """Redact coordinator room messages from non-addressees.
+
+        ``room.message`` events persist the resolved recipient list at send
+        time.  Reconstructing recipients during replay would be unsafe because
+        membership and group membership may have changed since the send. The
+        originator may audit its own message; a legacy targeted event without
+        a recipient list fails closed for every other viewer; broadcasts remain
+        readable to every room member.
+        """
+        if not isinstance(payload, dict):
+            return payload
+        if payload.get("target_spec") == "*" or origin_agent == agent_id:
+            return payload
+        targets = payload.get("targets")
+        if isinstance(targets, list) and agent_id in targets:
+            return payload
+        return {"redacted": True, "reason": "not_the_addressee"}
 
     def _require_room(self, conn: sqlite3.Connection, room_id: str) -> sqlite3.Row:
         row = conn.execute("SELECT * FROM room_rooms WHERE room_id = ?", (room_id,)).fetchone()
@@ -691,13 +731,19 @@ class RoomStore:
             events = []
             next_seq = after_seq
             for r in rows:
+                raw_payload = _parse_json(r["payload_json"], {})
+                visible_payload = (
+                    self._filter_payload_for_agent(raw_payload, agent_id, r["origin_agent"])
+                    if r["kind"] == "room.message"
+                    else raw_payload
+                )
                 events.append({
                     "event_id": r["event_id"],
                     "seq": r["seq"],
                     "origin_agent": r["origin_agent"],
                     "kind": r["kind"],
                     "message_kind": r["message_kind"],
-                    "payload": _parse_json(r["payload_json"], {}),
+                    "payload": visible_payload,
                     "created_at": r["created_at"],
                 })
                 next_seq = r["seq"] + 1
@@ -729,11 +775,28 @@ class RoomStore:
                 "last_ack_seq = MAX(last_ack_seq, excluded.last_ack_seq), updated_at = excluded.updated_at",
                 (room_id, agent_id, int(seq), now),
             )
+            conn.execute(
+                "UPDATE room_receipts SET read_status = 'read', updated_at = ? "
+                "WHERE room_id = ? AND recipient_agent_id = ? AND seq <= ? "
+                "AND read_status = 'queued'",
+                (now, room_id, agent_id, int(seq)),
+            )
+            read_row = conn.execute(
+                "SELECT COUNT(*) AS c FROM room_receipts "
+                "WHERE room_id = ? AND recipient_agent_id = ? AND seq <= ? "
+                "AND read_status = 'read'",
+                (room_id, agent_id, int(seq)),
+            ).fetchone()
             row = conn.execute(
                 "SELECT last_ack_seq FROM room_cursors WHERE room_id = ? AND agent_id = ?",
                 (room_id, agent_id),
             ).fetchone()
-            return {"room_id": room_id, "agent_id": agent_id, "last_ack_seq": int(row["last_ack_seq"])}
+            return {
+                "room_id": room_id,
+                "agent_id": agent_id,
+                "last_ack_seq": int(row["last_ack_seq"]),
+                "receipts_read": int(read_row["c"]),
+            }
 
     # ------------------------------------------------------------------
     # Addressing — compose roster route_targets + envelope_v2 + outbox
@@ -754,23 +817,51 @@ class RoomStore:
             self._reject_unroutable_specs(conn, room_id, target_spec, targets)
             if exclude_sender and sender_agent_id in targets:
                 targets = [t for t in targets if t != sender_agent_id]
+            envelope = _roster.build_envelope_v2(sender_agent_id, targets, "room.message",
+                                                 payload, capabilities=None)
+            envelope["envelope_id"] = _new_id("oev")
+            per_target_keys = {}
+            for target in envelope.get("per_target", []):
+                recipient = target["recipient"]["agent_id"]
+                per_target_keys[recipient] = target["idempotency_key"]
+            envelope["per_target_idempotency_keys"] = per_target_keys
             seq = self._append_event(conn, room_id, sender_agent_id, "room.message",
-                                     {"payload": payload, "target_spec": target_spec},
+                                     {"payload": payload, "target_spec": target_spec,
+                                      "targets": targets},
                                      message_kind=message_kind)
-        envelope = _roster.build_envelope_v2(sender_agent_id, targets, "room.message",
-                                             payload, capabilities=None)
-        envelope["envelope_id"] = _new_id("oev")
-        # Attach per-target idempotency keys for the receipts surface.
-        per_target_keys = {}
-        for t in envelope.get("per_target", []):
-            recipient = t["recipient"]["agent_id"]
-            per_target_keys[recipient] = t["idempotency_key"]
-        envelope["per_target_idempotency_keys"] = per_target_keys
-        entry_ids = _outbox.enqueue(envelope, targets, roster_or_team_id=room_id)
-        receipts = []
-        for agent_id, entry_id in zip(targets, entry_ids):
-            receipts.append({"agent_id": agent_id, "entry_id": entry_id, "status": "queued"})
-        return {"room_id": room_id, "envelope": envelope, "receipts": receipts, "seq": seq}
+            entry_ids = _outbox.enqueue_in_transaction(
+                conn, envelope, targets, roster_or_team_id=room_id,
+            )
+            now = _utc_now()
+            receipt_statuses: dict[str, str] = {}
+            for recipient, entry_id in zip(targets, entry_ids):
+                cursor = conn.execute(
+                    "SELECT last_ack_seq FROM room_cursors "
+                    "WHERE room_id = ? AND agent_id = ?",
+                    (room_id, recipient),
+                ).fetchone()
+                read_status = (
+                    "read" if cursor is not None and int(cursor["last_ack_seq"]) >= seq
+                    else "queued"
+                )
+                conn.execute(
+                    "INSERT OR IGNORE INTO room_receipts("
+                    "room_id, seq, recipient_agent_id, sender_agent_id, entry_id, "
+                    "read_status, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (room_id, seq, recipient, sender_agent_id, entry_id,
+                     read_status, now, now),
+                )
+                receipt_statuses[entry_id] = read_status
+            receipts = []
+            for recipient, entry_id in zip(targets, entry_ids):
+                receipts.append({
+                    "agent_id": recipient,
+                    "entry_id": entry_id,
+                    "status": "queued",
+                    "read_status": receipt_statuses.get(entry_id, "queued"),
+                })
+            return {"room_id": room_id, "envelope": envelope, "receipts": receipts, "seq": seq}
 
     def _route_targets(self, conn: sqlite3.Connection, room_id: str, target_spec: Any) -> list[str]:
         """Expand a target spec over the room's OWN member set.
@@ -852,16 +943,29 @@ class RoomStore:
         import weft_mcp.outbox as _outbox
         with self._transaction() as conn:
             self._require_authenticated_member(conn, team_id, room_id, agent_id, actor_token)
+            receipt_rows = conn.execute(
+                "SELECT entry_id, read_status FROM room_receipts "
+                "WHERE room_id = ? AND entry_id IN (" + ",".join("?" for _ in entry_ids) + ")",
+                (room_id, *entry_ids),
+            ).fetchall() if entry_ids else []
+        read_status_by_entry = {row["entry_id"]: row["read_status"] for row in receipt_rows}
         result = []
         for eid in entry_ids:
             entry = _outbox.get_entry(eid)
             if entry is None:
-                result.append({"entry_id": eid, "status": "not_found", "attempts": 0,
-                               "next_attempt_at": None, "last_error": None})
+                result.append({
+                    "entry_id": eid,
+                    "status": "not_found",
+                    "read_status": read_status_by_entry.get(eid, "unknown"),
+                    "attempts": 0,
+                    "next_attempt_at": None,
+                    "last_error": None,
+                })
             else:
                 result.append({
                     "entry_id": entry.get("entry_id"),
                     "status": entry.get("status"),
+                    "read_status": read_status_by_entry.get(eid, "unknown"),
                     "attempts": entry.get("attempts", 0),
                     "next_attempt_at": entry.get("next_attempt_at"),
                     "last_error": entry.get("last_error"),

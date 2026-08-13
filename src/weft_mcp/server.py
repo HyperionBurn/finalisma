@@ -746,7 +746,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "room_send",
-        "description": "Address one agent, a named group, or the whole room with a payload, returning durable per-recipient delivery receipts. Optional sender-set message_kind (lowercase [a-z0-9_-], max 32 chars) labels the message as a first-class, queryable column on the event row: post message_kind 'result' when you finish a unit of work, message_kind 'status' for liveness, then poll with message_kinds [\"result\"] to consume only other agents' conclusions.",
+        "description": "Address one agent, a named group, or the whole room with a payload, returning durable per-recipient receipts. Each receipt separates delivery status from recipient read_status; the sender may audit its own targeted message while other non-addressees receive a redacted envelope. Optional sender-set message_kind (lowercase [a-z0-9_-], max 32 chars) labels the message as a first-class, queryable column on the event row: post message_kind 'result' when you finish a unit of work, message_kind 'status' for liveness, then poll with message_kinds [\"result\"] to consume only other agents' conclusions.",
         "inputSchema": _object_schema({
             "team_id": STRING,
             "room_id": STRING,
@@ -773,7 +773,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "room_ack",
-        "description": "Advance this member's cursor to seq (monotonic MAX). Events below the cursor are never re-delivered.",
+        "description": "Advance this member's cursor to seq (monotonic MAX). Events below the cursor are never re-delivered; durable receipt rows addressed to this member are marked read through seq.",
         "inputSchema": _object_schema({
             "team_id": STRING,
             "room_id": STRING,
@@ -807,7 +807,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "room_receipts",
-        "description": "Member-only: query delivery-receipt status for outbox entry ids.",
+        "description": "Member-only: query delivery status and durable recipient read_status for outbox entry ids.",
         "inputSchema": _object_schema({
             "team_id": STRING,
             "room_id": STRING,

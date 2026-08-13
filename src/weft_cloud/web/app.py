@@ -609,13 +609,17 @@ class WeftWebApp:
             events = []
             next_seq = int(room["cursor_head"]) + 1
             for r in rows:
+                raw_payload = _parse_json(r["payload_json"], {})
                 events.append({
                     "event_id": r["event_id"],
                     "seq": r["seq"],
                     "origin_agent": r["origin_agent"],
                     "kind": r["kind"],
-                    "payload": self.rooms._filter_payload_for_agent(
-                        _parse_json(r["payload_json"], {}), agent_id),
+                    "payload": (
+                        self.rooms._filter_payload_for_agent(raw_payload, agent_id, r["origin_agent"])
+                        if r["kind"] == "room.message"
+                        else raw_payload
+                    ),
                     "created_at": r["created_at"],
                 })
                 next_seq = r["seq"] + 1
@@ -703,13 +707,17 @@ class WeftWebApp:
             ).fetchall()
         events = []
         for r in rows:
+            raw_payload = _parse_json(r["payload_json"], {})
             events.append({
                 "event_id": r["event_id"],
                 "seq": r["seq"],
                 "origin_agent": r["origin_agent"],
                 "kind": r["kind"],
-                "payload": self.rooms._filter_payload_for_agent(
-                    _parse_json(r["payload_json"], {}), agent_id),
+                "payload": (
+                    self.rooms._filter_payload_for_agent(raw_payload, agent_id, r["origin_agent"])
+                    if r["kind"] == "room.message"
+                    else raw_payload
+                ),
                 "created_at": r["created_at"],
             })
         return events
