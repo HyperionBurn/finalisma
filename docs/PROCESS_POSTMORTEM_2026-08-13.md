@@ -1,139 +1,211 @@
 # Process postmortem — 2026-08-13
 
-**Authors:** Claude (orchestrator) and OpenCode / DeepSeek V4 Pro (independent client), written
-jointly in Weft room `room_1addeb911d634f0090e21b7db52dd540` while the work was in flight.
+Date: 2026-08-13. Scope: the hardening sprint on the Weft build room
+(`room_1addeb911d634f0090e21b7db52dd540`). Participants: OpenCode
+(deepseek-v4-pro, independent client) and Claude (orchestrator).
 
-## The finding
+The product is a message router: rooms, members, an ordered log, delivery
+receipts. The happy path worked in minutes in round 1. Everything that made
+the day hard was process, not product. Each failure below is evidenced, and
+each maps to one rule. The rules are cheap to follow; the failures were not
+cheap to recover from.
 
-The product is simple. Our process was not, and the process broke the product more than the
-product's own bugs did.
-
-At its core Weft is an append-only log, a member list, and a cursor per member. Join appends a
-member, send appends an event, read returns events after your cursor. Today's implementation is
-~19,000 lines of source and ~28,000 lines of tests, with `tenant_id` threaded by hand through 49
-query sites in one file.
-
-Of the production-breaking defects that reached or nearly reached users today, **more were caused
-by how we worked than by anyone's code being wrong**. Two lanes each writing a correct fix, then a
-careless reconciliation, produced a build where the product's core loop returned `internal_error`.
-That is a process defect wearing a bug's clothing.
-
-## Failures and rules
-
-Numbering F1–F13. F1–F9 were drafted by OpenCode, F10–F13 added by Claude; both signed off.
+## Failures and the rules that prevent them
 
 ### F1 — Lane work hidden by a branch-pointer reset
-Claude declared the liveness lane "dead" from `rev-list --count` returning 0 and a clean tree. The
-commits existed; the branch pointer had been reset, hiding them. OpenCode recovered them by checking
-the disk.
-**R1:** Never reset a branch a lane may hold. Lane liveness is measured in *commits*, not files.
-Check reflog and dangling objects before declaring a lane dead.
+
+`feature/liveness` had four completed commits (test, fix, docs) but the branch
+pointer had been reset to its merge-base. The orchestrator checked `rev-list
+--count base..HEAD == 0` plus a clean tree and declared the lane dead. The work
+was recovered, but only because the independent party went looking for
+dangling commits instead of accepting the verdict.
+
+**R1 — Never reset a branch while a lane may hold it. Lane liveness is
+commits, not files.** Before declaring a lane dead or resetting a pointer,
+check `git reflog` and unreachable commits for the lane's window. If commits
+exist that the base does not contain, the lane wrote them — recover first,
+judge second.
 
 ### F2 — Lanes that write zero code
-One lane spent 32KB of log reading files and produced nothing, unnoticed for 30 minutes.
-**R2:** A lane with no commit after N minutes is investigated, not assumed working.
 
-### F3 — Careless cross-lane merge broke `room_wait`
-Two lanes each changed `wait()` correctly. The SSE lane added a `_pulse` keepalive parameter to
-*both* the caller (`mcp.py`) and the callee (`rooms.py`). The liveness lane rewrote `rooms.py`.
-Claude resolved the conflict with `git checkout --theirs` on `rooms.py` alone, silently dropping
-`_pulse` while keeping the caller that passes it. Result: `TypeError` → `room_wait` returned
-`internal_error`, a blocked wait fell through in 0.006s instead of holding, and all ten
-`HostedMCPRoomWaitTests` failed.
-**R3:** After ANY conflict resolution, run the full suite and grep every caller of every changed
-signature. Never take one side of a file silently.
+The liveness worktree was created (checkout timestamp) and then produced
+nothing. A lane whose session died looks identical to a lane that never
+started.
 
-### F4 — Tests passed, production failed (cross-tenant scoping)
-The seat-release fix scoped its query by the *key's* tenant, but a cross-tenant join stores the
-membership row under the *room's* tenant. Same-tenant tests passed; production did nothing. It was
-deployed and announced as live before anyone checked.
-**R4:** Every fix ships with a short live repro. Tests must include cross-tenant and cross-status
-variants, because those are where our scoping assumptions break.
+**R2 — Lane deadline.** Every lane gets a deadline (default: 20 minutes from
+dispatch). No commit inside the deadline means the orchestrator investigates
+instead of assuming progress: check the worktree, the reflog, and whether the
+lane agent's session is alive.
 
-### F5 — A fix that would have reverted a P0
-The liveness lane re-added `age <= constant` filtering to `_route_targets`, which would have
-silently reintroduced permanent unicast loss. OpenCode caught it during merge and kept the
-membership-keyed routing.
-**R5:** Every lane brief lists the invariants that must survive, each with a regression test. The
-pulse-fix brief did this correctly — formalise it.
+### F3 — A careless cross-lane merge broke `room_wait`
+
+The integration merge resolved a conflict by taking one side of `rooms.py`
+whose *caller* had been changed by a different lane (the SSE keepalive
+`_pulse`). Result: 10 failures in `HostedMCPRoomWaitTests`; the product's core
+loop returned `internal_error` in 0.006s instead of blocking.
+
+**R3 — Merge gate.** After ANY conflict resolution: run the full suite, and
+grep for callers of every changed function signature. Never take one side of a
+conflict silently — the act of choosing must be visible in the commit message.
+(The deploy gate did catch this; the rule moves the catch to merge time.)
+
+### F4 — Cross-tenant scoping: tests passed, production failed
+
+The seat-release fix scoped its UPDATE by the key's tenant while the
+membership row is stored under the room's tenant. Unit tests passed because
+they were same-tenant only; production hammering failed.
+
+**R4 — Every fix ships a live repro.** Each lane that changes production
+behavior must include a 5-line reproduction the independent party can run
+against production after deploy. Test suites must include cross-tenant and
+cross-status variants, not just the happy same-scope case.
+
+### F5 — A lane fix that would have reverted the P0
+
+The liveness lane re-added age-based filtering to `_route_targets` — the exact
+mechanism that caused the staleloss P0 — and its docstring called it a virtue.
+Only the independent review caught it before it reached production.
+
+**R5 — Invariant list in every lane brief.** When a lane changes shared
+behavior, the brief must list the invariants that must survive (e.g.
+"deliverability is keyed on membership, never on liveness"), and each
+invariant must have a regression test. The pulse lane did this correctly;
+this rule makes it mandatory.
 
 ### F6 — Bundled commits and mis-attribution
-Commit `bb60b39` bundled two unrelated changes and credited both to OpenCode. Only one was theirs.
-OpenCode asked for the record to be corrected; it was, in `0b68e4a`.
-**R6:** One logical change per commit. A `Co-authored-by` trailer names who wrote the code, not who
-was in the room.
 
-### F7 — Deploy claims going stale
-Claude announced "not deploying until X is green", deployed minutes later, and did not update the
-room. OpenCode measured the new behaviour in production and reported a contradiction. It was right;
-the claim was stale.
-**R7:** Promote → verify → *then* announce. No unverified claims from either party.
+One commit bundled two unrelated changes and credited a co-author who wrote
+only one of them. A room participant was credited for work they never touched.
 
-### F8 — Silence read as stoppage
-Claude went dark for 20+ minutes twice while merging. From the room it was indistinguishable from
-having stopped.
-**R8:** A checkpoint message every 10 minutes while a lane is in flight, even if it is one line.
-Heartbeat while coding — going deep in a lane is exactly when you go stale.
+**R6 — One logical change per commit; authorship is who wrote it.** No
+bundling. Co-author trailers name the author of the code, not whoever was in
+the room.
 
-### F9 — Full-suite runs burned on a 0.5-second test
-Two ~8-minute suite runs failed solely on the published-test-count assertion.
-**R9:** Run the count-sync check first whenever test files changed.
+### F7 — Deploy claims went stale
 
-### F10 — The test-count guard is itself a bug generator
-Every lane that adds a test must bump the same published number in `docs/YC_APPLICATION.md` and
-`docs/YC_READINESS.md`. With seven concurrent lanes, a conflict on those two files was **guaranteed
-by construction** — it hit every merge attempted today. We built a global mutable counter and handed
-it to seven concurrent writers.
-**R10:** Derive the count, do not publish it — or assert `>= N`. The guard's real job is catching
-*deleted* tests, and `>= N` does that without serialising every lane behind one integer.
+The orchestrator announced "not deploying until the gate passes" minutes
+before a deploy landed; the independent party observed the new behavior on
+production (receipts for a 6-hour-idle member) and had to reconcile the
+contradiction. Earlier in the day the same party announced an action
+(removing a witness) it had not performed.
 
-### F11 — Success inferred from output instead of exit codes
-Three separate times. A wrapper printed "merged cleanly" for four merges that had all **aborted**,
-because `git merge` was piped through `tail` and `$?` was lost. It was caught only because HEAD had
-not moved. Same class as the deploy that reported success while serving 8-hour-old code.
-**R11:** Never parse output for a verdict when an exit code exists. For any state change, assert the
-*state* moved — HEAD, PID, row count — not that the command looked happy.
+**R7 — Deploy ledger: promote, verify, then announce.** Every promotion gets
+a room message with the commit hash and the verification result (PID change,
+health check, route check). No deployment claim before verification; no
+verification claim not actually performed. Corrections are posted as
+corrections, loudly.
+
+### F8 — Silence cadence read as stoppage
+
+Twice the owner saw both agents silent for long stretches while lanes were
+in flight and concluded the work had stopped. It had not — but silence is
+indistinguishable from stoppage to everyone outside the lane.
+
+**R8 — Checkpoint cadence.** One visible room message every 10 minutes while
+a lane is in flight, even if it is one line. Heartbeat while coding (post
+liveness fix, any authenticated call refreshes presence, but the checkpoint
+is for humans, not for the DB).
+
+### F9 — Two full-suite runs wasted on a 0.5-second guard
+
+Twice the 7.5-minute full suite failed solely because the published test
+count lagged the live count. The count-sync guard itself runs in 0.5s.
+
+**R9 — Run the count-sync test first.** When test files were added or
+removed, run `tests.test_site.TestCountSyncTests` before the full suite and
+fix the published numbers up front.
+
+### F10 — The test-count guard is itself a bug generator (highest frequency)
+
+Every lane that adds a test must bump the same published number in
+`docs/YC_APPLICATION.md` and `docs/YC_READINESS.md`. With seven lanes in
+flight, a merge conflict on those two files was guaranteed by construction —
+it hit every merge attempted that day.
+
+**R10 — Derive the count, do not publish it.** One generated line, or relax
+the assertion to `>= N`. The guard's real job is catching *deleted* tests;
+`>= N` does that without serialising every lane behind one shared integer.
+(Orchestrator addition, signed off.)
+
+### F11 — Success inferred from output instead of exit codes (three times)
+
+A merge wrapper piped `git merge` through `tail`, printed "merged cleanly"
+for four merges that had all aborted, and lost `$?`. Caught only because HEAD
+had not moved. Same class as the deploy that reported success while serving
+8-hour-old code.
+
+**R11 — Never parse output for a verdict when an exit code exists.** For any
+state change, assert the STATE moved (HEAD, PID, row count), not that the
+command looked happy.
 
 ### F12 — Lanes wrote into the integration worktree despite `--dir`
-A dirty integration tree blocked merges at least four times and cost more wall-clock than any single
-bug. `--dir` does not confine a lane; absolute paths in the brief text override it.
-**R12:** The orchestrator owns integration and no lane may hold it. Lanes always get their own
-worktree. The merge step verifies the tree is clean before attempting.
 
-### F13 — Deploying, then verifying
-Survivable twice, not the third time: the seat fix shipped, did nothing, and was announced as live.
-**R13:** The fix's *own* live repro runs post-deploy, not a generic health check. A green suite plus
-a changed PID says nothing about whether the bug is actually gone.
+A dirty integration tree blocked merges at least four times and cost more
+wall-clock than any single bug.
 
-## Tooling over discipline
+**R12 — The orchestrator owns integration; no lane may hold it.** Lanes get
+their own worktree, always. The merge step verifies the tree is clean BEFORE
+attempting.
 
-F1–F9 were drafted as rules. Claude's objection, recorded because it is the load-bearing conclusion:
+### F13 — Deployed, then verified
 
-> Today proved my discipline is unreliable under pressure — I broke my own stated rules within an
-> hour of writing them, twice. Anything that CAN be mechanical must be. Rules that depend on
-> remembering at 3am are the same category of defect as expecting agents to heartbeat manually,
-> which is literally the P0 we fixed today.
+Twice survivable, once not: the seat fix went out and did nothing (wrong
+tenant scoping) and was announced as live. A green suite plus a changed PID
+says nothing about whether the bug is actually gone.
 
-Mechanise, in priority order:
+**R13 — The fix's OWN live repro must run post-deploy.** Not a generic health
+check. A lane's R4 repro script is the post-deploy acceptance test. "Deployed"
+means that repro returned its expected result on production.
 
-1. The gate refuses a dirty tree (R12) and refuses a merge whose HEAD did not move (R11).
-2. The gate runs fast assertions first (R9) and verifies the **artifact**, not the working tree —
-   `git archive HEAD` into a temp dir, run there.
-3. The deploy script restarts services and proves it by comparing MainPID before/after (R13), then
-   writes the ledger itself (R7).
-4. `>= N` replaces the exact published count (R10).
-5. CI runs the suite on every change so verification is not one person running nine minutes by hand.
+## The meta-rule: encode it or expect it to fail
 
-## What we keep
+F1–F13 were written as rules, i.e. discipline. The orchestrator broke its own
+stated rules within an hour of writing them, twice, under pressure. Rules
+that depend on being remembered at 3am are the same category of defect as
+expecting agents to heartbeat manually — the P0 this sprint fixed. Anything
+mechanical must be a GATE, not a habit:
 
-These worked and should not be traded away for speed:
+- the merge step must REFUSE a dirty tree (R12),
+- refuse a merge whose HEAD did not move (R11),
+- run count-sync before the suite (R9),
+- derive or relax the published count (R10),
+- and the deploy ledger must write itself (R7).
 
-- **Independent second-party verification.** OpenCode caught the reverted P0, the hidden lane
-  commits, and the mis-attribution. None of those would have been found by the author.
-- **Hammering production.** Every real defect today was found by *using* the product, not reading
-  it: the UTF-8 corruption from a real em dash, the 24-hour expiry from a real connector dying, the
-  message loss from a real idle member.
-- **The deploy gate.** It caught three bad builds: one serving 8-hour-old code, one where the fix
-  did nothing, and one where the core loop was broken.
-- **"Could an agent fix its own call from this response alone?"** — OpenCode's bar. It is what
-  surfaced the permanent unicast loss.
+Discipline is the last line, not the first one. Tooling first, habit second,
+and the room transcript is the audit trail when both fail.
+
+## Orchestrator's own failure list (self-reported, quoted in substance)
+
+1. Resolved merge conflicts with `git checkout --theirs` without reading the
+   diff — caused the `_pulse` break and the capabilities regression.
+2. Inferred success from output instead of exit codes, three times.
+3. Trusted lane status over the disk (declared a live lane dead).
+4. Bundled unrelated changes into one commit (made the mis-attribution possible).
+5. Deployed without verifying the exact artifact; shipped a seat fix that did
+   nothing.
+6. Dispatched lanes faster than they could be merged — seven at once — and
+   every lane bumped the same published test count, guaranteeing conflicts.
+7. Lanes wrote into the integration worktree despite `--dir`, dirtying it.
+
+## What worked — keep doing it
+
+- **Independent second-party verification.** Caught F5, the single most
+  valuable catch of the session, and graded production behavior the
+  orchestrator could not (receipts for a 6-hour-idle member).
+- **Production hammering.** Caught F4 and F7. Unit tests cannot see
+  cross-tenant reality or stale deploys; production can.
+- **The deploy gate.** Refused three bad builds in one day. Never remove it.
+- **The "could an agent fix its own call from this error alone?" bar.**
+  Surfaced the staleloss P0 and the silent-success family. Keep asking it.
+
+## Standing decisions from this sprint
+
+- Receipt lifecycle (`cloud_013`) shipped in the second deploy (`f57a792`,
+  894 tests, 13 migrations applied, live proof 5/5: receipt created on send,
+  ack transitions queued->read, unknown target 422). The migration is purely
+  additive (CREATE TABLE IF NOT EXISTS) — the deferral was overcautious.
+- Coordinator-plane liveness parity rides with the next deploy.
+- The product claim "agents communicate perfectly" is now backed by deployed
+  guarantees: membership-keyed deliverability, presence refreshed by any
+  authenticated call, SSE keepalive restored on `room_wait`, and a durable
+  receipt lifecycle.
