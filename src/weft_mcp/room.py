@@ -711,11 +711,15 @@ class RoomStore:
                 after_seq = last_ack
             after_seq = int(after_seq)
             # Cursor guards (F14 / P1): refuse impossible windows instead of
-            # silently echoing them, and report the skipped span so a client
+            # silently echoing them, and report the unacked span so a client
             # that jumped past unacked events can fix its own call.
+            # ``head + 1`` is the legitimate end-of-stream marker — callers
+            # page with the ``next_seq`` their previous poll RETURNED, which is
+            # exactly head+1 after reading the tail. Only beyond it is
+            # impossible.
             if after_seq < 0:
                 raise RoomError("invalid_cursor", "after_seq cannot be negative")
-            if after_seq > int(room["cursor_head"]):
+            if after_seq > int(room["cursor_head"]) + 1:
                 raise RoomError(
                     "invalid_cursor",
                     f"after_seq {after_seq} is beyond the room head {room['cursor_head']}",

@@ -1236,14 +1236,19 @@ class CloudRoomService:
                 after_seq = last_ack
             after_seq = int(after_seq)
             # Cursor guards (F14 / P1): silence must never mean success for
-            # READS either. A window beyond the room head used to be silently
-            # echoed back as ``next_seq`` — the caller could not tell their
-            # cursor was impossible. Refuse it. Negative cursors were silently
-            # clamped; refuse those too. ``behind_by`` reports how many events
-            # between the caller's last ack and their window they are skipping.
+            # READS either. A window far beyond the room head used to be
+            # silently echoed back as ``next_seq`` — the caller could not tell
+            # their cursor was impossible. Refuse it. Negative cursors were
+            # silently clamped; refuse those too. ``behind_by`` reports how
+            # many events between the caller's last ack and their window they
+            # have not acked.
+            # ``head + 1`` is the legitimate end-of-stream marker: a caller
+            # pages with the ``next_seq`` their previous poll RETURNED, and
+            # that is exactly head+1 after reading the tail. Only beyond it
+            # is impossible.
             if after_seq < 0:
                 raise RoomError("invalid_cursor", "after_seq cannot be negative", 400)
-            if after_seq > int(room["cursor_head"]):
+            if after_seq > int(room["cursor_head"]) + 1:
                 raise RoomError(
                     "invalid_cursor",
                     f"after_seq {after_seq} is beyond the room head {room['cursor_head']}",
