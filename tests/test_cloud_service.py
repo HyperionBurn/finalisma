@@ -264,6 +264,43 @@ class TestRoomLifecycle(CloudServiceTestBase):
         # room.created + room.joined = 2 events.
         self.assertEqual(len(body["events"]), 2)
 
+    def test_lifecycle_payloads_are_visible_to_members(self) -> None:
+        """Lifecycle metadata is public to room members; only messages redact."""
+        owner = self._signup("lifecycle-owner@example.com", "CorrectHorse!1")
+        room = self._create_room(owner["session_token"], cap=3)
+        peer = self._signup("lifecycle-peer@example.com", "CorrectHorse!1")
+        self._join_room(peer["session_token"], room["room_id"], room["link_token"])
+
+        for token in (owner["session_token"], peer["session_token"]):
+            status, poll = _post(self.base, "/v1/rooms/poll", {
+                "room_id": room["room_id"],
+                "after_seq": 0,
+            }, token)
+            self.assertEqual(status, 200)
+            lifecycle = [
+                event for event in poll["events"]
+                if event["kind"] in {"room.created", "room.joined"}
+            ]
+            self.assertEqual(len(lifecycle), 3)
+            self.assertTrue(all(event["payload"] for event in lifecycle))
+            self.assertNotIn(
+                {"redacted": True, "reason": "not_the_addressee"},
+                [event["payload"] for event in lifecycle],
+            )
+
+            status, log = _post(self.base, "/v1/rooms/event_log", {
+                "room_id": room["room_id"],
+            }, token)
+            self.assertEqual(status, 200)
+            lifecycle_log = [
+                event for event in log["events"]
+                if event["kind"] in {"room.created", "room.joined"}
+            ]
+            self.assertEqual(
+                [event["payload"] for event in lifecycle_log],
+                [event["payload"] for event in lifecycle],
+            )
+
     def test_four_agents_join_same_link(self) -> None:
         """The core product claim: ONE link, N agents (each an authenticated account)."""
         signup = self._signup("multi-owner@example.com", "CorrectHorse!1")

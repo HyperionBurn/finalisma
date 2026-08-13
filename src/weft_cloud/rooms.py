@@ -208,24 +208,28 @@ def _parse_json(raw: str | None, default: Any) -> Any:
 
 def _idempotent_receipts(tx: Any, tenant_id: str, room_id: str,
                          sender_agent_id: str, event_row: Any) -> list[dict]:
-    """Return durable receipts for a persisted room.message event."""
-    event_payload = _parse_json(event_row["payload_json"], {})
-    original_payload = event_payload.get("payload") if isinstance(event_payload, dict) else None
-    payload_json = _json({
-        "room_id": room_id,
-        "seq": int(event_row["seq"]),
-        "payload": original_payload,
-        "sender": sender_agent_id,
-    })
+    """Return delivery and consumption state for a persisted send.
+
+    Receipt rows are keyed by the event identity, not reconstructed from the
+    serialized payload. That makes retries stable even when payload encoding
+    or an outbox implementation changes, while preserving the existing
+    ``status`` field as delivery state and adding ``read_status`` for the
+    recipient's consumption state.
+    """
     rows = tx.execute(
-        "SELECT entry_id, recipient, status FROM cloud_outbox "
-        "WHERE tenant_id = ? AND payload_json = ? ORDER BY recipient, entry_id",
-        (tenant_id, payload_json),
+        "SELECT r.recipient_agent_id, r.entry_id, r.read_status, o.status "
+        "FROM cloud_room_receipts r "
+        "LEFT JOIN cloud_outbox o ON o.tenant_id = r.tenant_id "
+        "AND o.entry_id = r.entry_id "
+        "WHERE r.tenant_id = ? AND r.room_id = ? AND r.seq = ? "
+        "AND r.sender_agent_id = ? ORDER BY r.recipient_agent_id, r.entry_id",
+        (tenant_id, room_id, int(event_row["seq"]), sender_agent_id),
     ).fetchall()
     return [{
-        "agent_id": row["recipient"],
+        "agent_id": row["recipient_agent_id"],
         "entry_id": row["entry_id"],
-        "status": row["status"],
+        "status": row["status"] or "unknown",
+        "read_status": row["read_status"],
     } for row in rows]
 
 
@@ -625,7 +629,8 @@ class CloudRoomService:
     def _filter_payload_for_agent(payload: dict, agent_id: str) -> dict:
         """Redact message payloads not addressed to ``agent_id``.
 
-        For ``room.message`` events, only agents listed in ``targets`` (or
+        Callers use this only for ``room.message`` events. Only agents listed
+        in ``targets`` (or
         everyone for broadcast ``target_spec == "*"``) may see the payload.
         Non-addressees receive a redacted envelope so the ordered event
         sequence stays visible without leaking the body.
@@ -1253,13 +1258,18 @@ class CloudRoomService:
             next_seq = after_seq
             for r in rows:
                 raw_payload = _parse_json(r["payload_json"], {})
+                visible_payload = (
+                    self._filter_payload_for_agent(raw_payload, agent_id)
+                    if r["kind"] == "room.message"
+                    else raw_payload
+                )
                 events.append({
                     "event_id": r["event_id"],
                     "seq": r["seq"],
                     "origin_agent": r["origin_agent"],
                     "kind": r["kind"],
                     "message_kind": r["message_kind"],
-                    "payload": self._filter_payload_for_agent(raw_payload, agent_id),
+                    "payload": visible_payload,
                     "created_at": r["created_at"],
                 })
                 next_seq = r["seq"] + 1
@@ -1373,8 +1383,25 @@ class CloudRoomService:
                 "SELECT last_ack_seq FROM cloud_room_cursors WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
                 (tenant_id, room_id, agent_id),
             ).fetchone()
+            tx.execute(
+                "UPDATE cloud_room_receipts SET read_status = 'read', updated_at = ? "
+                "WHERE tenant_id = ? AND room_id = ? AND recipient_agent_id = ? "
+                "AND seq <= ? AND read_status = 'queued'",
+                (now, tenant_id, room_id, agent_id, int(seq)),
+            )
+            read_row = tx.execute(
+                "SELECT COUNT(*) AS c FROM cloud_room_receipts "
+                "WHERE tenant_id = ? AND room_id = ? AND recipient_agent_id = ? "
+                "AND seq <= ? AND read_status = 'read'",
+                (tenant_id, room_id, agent_id, int(seq)),
+            ).fetchone()
             tx.commit()
-        return {"room_id": room_id, "agent_id": agent_id, "last_ack_seq": int(row["last_ack_seq"])}
+        return {
+            "room_id": room_id,
+            "agent_id": agent_id,
+            "last_ack_seq": int(row["last_ack_seq"]),
+            "receipts_read": int(read_row["c"]),
+        }
 
     def heartbeat(self, tenant_id: str, room_id: str, agent_id: str) -> dict:
         with self.backend.transaction() as tx:
@@ -1510,11 +1537,20 @@ class CloudRoomService:
                 # committed IN THE SAME transaction as the event (all-or-nothing).
                 envelope_id = _new_id("oev")
                 receipts = []
+                now = utc_now_iso()
                 for target in targets:
                     entry_id = self.backend.enqueue_outbox_in_tx(
                         tx, tenant_id, envelope_id, target,
                         _json({"room_id": room_id, "seq": seq, "payload": payload,
                                "sender": sender_agent_id}),
+                    )
+                    tx.execute(
+                        "INSERT OR IGNORE INTO cloud_room_receipts("
+                        "tenant_id, room_id, seq, recipient_agent_id, sender_agent_id, "
+                        "entry_id, read_status, created_at, updated_at"
+                        ") VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?)",
+                        (tenant_id, room_id, seq, target, sender_agent_id,
+                         entry_id, now, now),
                     )
                     receipts.append({"agent_id": target, "entry_id": entry_id, "status": "queued"})
                 tx.commit()
@@ -1585,14 +1621,19 @@ class CloudRoomService:
             ).fetchall()
         events = []
         for r in rows:
+            raw_payload = _parse_json(r["payload_json"], {})
+            visible_payload = (
+                self._filter_payload_for_agent(raw_payload, agent_id)
+                if r["kind"] == "room.message"
+                else raw_payload
+            )
             events.append({
                 "event_id": r["event_id"],
                 "seq": r["seq"],
                 "origin_agent": r["origin_agent"],
                 "kind": r["kind"],
                 "message_kind": r["message_kind"],
-                "payload": self._filter_payload_for_agent(
-                    _parse_json(r["payload_json"], {}), agent_id),
+                "payload": visible_payload,
                 "created_at": r["created_at"],
             })
         return events

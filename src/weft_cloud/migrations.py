@@ -384,6 +384,31 @@ ALTER TABLE cloud_room_event_log ADD COLUMN message_kind TEXT;
 """
 
 
+_ROOM_RECEIPTS_SQL = """
+-- Durable per-recipient consumption state. ``cloud_outbox.status`` remains
+-- delivery state (queued/claimed/delivered/dead); ``read_status`` records the
+-- recipient's acknowledgement independently so the two lifecycle dimensions
+-- cannot be conflated.
+CREATE TABLE IF NOT EXISTS cloud_room_receipts (
+    tenant_id TEXT NOT NULL,
+    room_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    recipient_agent_id TEXT NOT NULL,
+    sender_agent_id TEXT NOT NULL,
+    entry_id TEXT NOT NULL,
+    read_status TEXT NOT NULL DEFAULT 'queued'
+        CHECK(read_status IN ('queued','read')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, room_id, seq, recipient_agent_id)
+);
+CREATE INDEX IF NOT EXISTS idx_cloud_room_receipts_recipient
+    ON cloud_room_receipts(tenant_id, room_id, recipient_agent_id, read_status, seq);
+CREATE INDEX IF NOT EXISTS idx_cloud_room_receipts_sender
+    ON cloud_room_receipts(tenant_id, room_id, sender_agent_id, seq);
+"""
+
+
 def _has_room_message_kind(execute: Callable[[str, tuple], Any]) -> bool:
     """True when cloud_room_event_log already has the message_kind column."""
     try:
@@ -612,6 +637,11 @@ MIGRATIONS: list[Migration] = [
         "cloud_012_identity_agent_keys",
         "agent API keys — long-lived, revocable config-file credentials (SHA-256 at rest)",
         _IDENTITY_AGENT_KEYS_SQL,
+    ),
+    Migration(
+        "cloud_013_room_receipts",
+        "durable per-recipient room receipt consumption state",
+        _ROOM_RECEIPTS_SQL,
     ),
 ]
 

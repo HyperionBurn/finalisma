@@ -511,5 +511,146 @@ class RoomLivenessThroughputTests(RoomLivenessTestBase):
                          "a tight poll loop must NOT write last_seen per call (throttled)")
 
 
+# ---------------------------------------------------------------------------
+# Coordinator plane parity: authenticated reads and writes refresh only the
+# caller's own presence row, with the same bounded-write contract as the cloud
+# plane.  These tests use the real dispatcher and SQLite state surface.
+# ---------------------------------------------------------------------------
+
+class CoordinatorRoomLivenessTests(unittest.TestCase):
+    def setUp(self) -> None:
+        import sqlite3
+
+        from weft_mcp.core import WeftStore
+        from weft_mcp.server import WeftDispatcher
+        import weft_mcp.room as room_module
+
+        self.sqlite3 = sqlite3
+        self.room_module = room_module
+        self.temp = tempfile.TemporaryDirectory()
+        root = Path(self.temp.name)
+        self.store = WeftStore(root / "state.db", root, require_actor_auth=True)
+        self.dispatcher = WeftDispatcher(self.store)
+        self.team = "team-coordinator-liveness"
+        self.tokens = {}
+        for agent_id in ("OWNER", "PEER"):
+            registered = self.dispatcher.call_tool(
+                "register_agent",
+                {"team_id": self.team, "agent_id": agent_id, "role": "member"},
+            )
+            self.tokens[agent_id] = registered["actor_token"]
+        created = self.dispatcher.call_tool(
+            "room_create", {"team_id": self.team, "owner_agent_id": "OWNER", "cap": 5},
+        )
+        self.room_id = created["room_id"]
+        for agent_id in ("OWNER", "PEER"):
+            self.dispatcher.call_tool("room_join", {
+                "team_id": self.team, "room_id": self.room_id,
+                "link_token": created["link_token"], "agent_id": agent_id,
+                "consent": True, "actor_token": self.tokens[agent_id],
+            })
+
+    def tearDown(self) -> None:
+        self.store.close()
+        self.temp.cleanup()
+
+    def _last_seen(self, agent_id: str) -> float:
+        conn = self.sqlite3.connect(self.dispatcher.rooms.db_path)
+        try:
+            row = conn.execute(
+                "SELECT last_seen FROM room_members WHERE room_id = ? AND agent_id = ?",
+                (self.room_id, agent_id),
+            ).fetchone()
+            return float(row[0])
+        finally:
+            conn.close()
+
+    def _backdate(self, agent_id: str) -> None:
+        conn = self.sqlite3.connect(self.dispatcher.rooms.db_path)
+        try:
+            conn.execute(
+                "UPDATE room_members SET last_seen = ? WHERE room_id = ? AND agent_id = ?",
+                (time.time() - 60.0, self.room_id, agent_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    @contextlib.contextmanager
+    def _touch_interval(self, seconds: float):
+        previous = self.room_module.ROOM_LIVENESS_TOUCH_INTERVAL
+        self.room_module.ROOM_LIVENESS_TOUCH_INTERVAL = seconds
+        try:
+            yield
+        finally:
+            self.room_module.ROOM_LIVENESS_TOUCH_INTERVAL = previous
+
+    def test_poll_refreshes_caller(self) -> None:
+        self._backdate("PEER")
+        before = self._last_seen("PEER")
+        with self._touch_interval(0.0001):
+            self.dispatcher.call_tool("room_poll", {
+                "team_id": self.team, "room_id": self.room_id,
+                "agent_id": "PEER", "actor_token": self.tokens["PEER"], "after_seq": 0,
+            })
+        self.assertGreater(self._last_seen("PEER"), before)
+
+    def test_send_info_and_ack_refresh_caller(self) -> None:
+        self._backdate("PEER")
+        before = self._last_seen("PEER")
+        with self._touch_interval(0.0001):
+            self.dispatcher.call_tool("room_info", {
+                "team_id": self.team, "room_id": self.room_id,
+                "agent_id": "PEER", "actor_token": self.tokens["PEER"],
+            })
+            self.dispatcher.call_tool("room_send", {
+                "team_id": self.team, "room_id": self.room_id,
+                "sender_agent_id": "PEER", "target_spec": "*",
+                "payload": {"text": "liveness"}, "actor_token": self.tokens["PEER"],
+            })
+            self.dispatcher.call_tool("room_ack", {
+                "team_id": self.team, "room_id": self.room_id,
+                "agent_id": "PEER", "seq": 0, "actor_token": self.tokens["PEER"],
+            })
+        self.assertGreater(self._last_seen("PEER"), before)
+
+    def test_activity_cannot_refresh_another_member(self) -> None:
+        before = self._last_seen("PEER")
+        with self._touch_interval(0.0001):
+            self.dispatcher.call_tool("room_poll", {
+                "team_id": self.team, "room_id": self.room_id,
+                "agent_id": "OWNER", "actor_token": self.tokens["OWNER"], "after_seq": 0,
+            })
+            self.dispatcher.call_tool("room_info", {
+                "team_id": self.team, "room_id": self.room_id,
+                "agent_id": "OWNER", "actor_token": self.tokens["OWNER"],
+            })
+        self.assertEqual(self._last_seen("PEER"), before)
+
+    def test_room_info_reads_shared_staleness_constant(self) -> None:
+        previous = self.room_module.ROOM_STALE_AFTER_SECONDS
+        self.room_module.ROOM_STALE_AFTER_SECONDS = 60
+        try:
+            self._backdate("PEER")
+            info = self.dispatcher.call_tool("room_info", {
+                "team_id": self.team, "room_id": self.room_id,
+                "agent_id": "OWNER", "actor_token": self.tokens["OWNER"],
+            })
+            status = {m["agent_id"]: m["status"] for m in info["members"]}
+            self.assertEqual(status["PEER"], "stale")
+        finally:
+            self.room_module.ROOM_STALE_AFTER_SECONDS = previous
+
+    def test_heartbeat_still_refreshes(self) -> None:
+        self._backdate("PEER")
+        before = self._last_seen("PEER")
+        response = self.dispatcher.call_tool("room_heartbeat", {
+            "team_id": self.team, "room_id": self.room_id,
+            "agent_id": "PEER", "actor_token": self.tokens["PEER"],
+        })
+        self.assertEqual(response["status"], "active")
+        self.assertGreater(self._last_seen("PEER"), before)
+
+
 if __name__ == "__main__":
     unittest.main()

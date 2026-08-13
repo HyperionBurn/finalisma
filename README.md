@@ -300,7 +300,8 @@ callers should use `with WeftStore(...) as store:` or call `store.close()`
 during shutdown. The performance reference file records a ~72.2ms weighted
 median, but the latest full gate run is not green: it measured 90.158ms weighted
 median / 104.705ms p95 and rejected the weighted-median and scenario-p95 guards.
-The same run passed all 883 tests, protocol smoke, and credential redaction.
+That benchmark run passed all 883 tests, protocol smoke, and credential redaction;
+the current suite has since grown to 884 with lifecycle-visibility regression coverage.
 Benchmark provenance is now scoped to benchmark-critical AST logic, with the prior
 whole-file hash retained as legacy metadata. Do not treat this as a universal
 latency claim; see
