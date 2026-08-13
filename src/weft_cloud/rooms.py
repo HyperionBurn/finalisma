@@ -82,9 +82,12 @@ _LINK_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 _ROOM_NAME_MAX_LENGTH = 160
 
 # Presence freshness threshold (seconds). A member whose last_seen is older
-# than this is displayed "stale" in room_info and excluded from target routing.
-# ONE named constant — routing and the status surface MUST agree, so the
-# literal is never duplicated (they silently diverged before).
+# than this is displayed "stale" in room_info. ONE named constant — every
+# presence surface MUST agree, so the literal is never duplicated (the status
+# surface and target routing silently diverged before the staleloss fix).
+# NOTE: this governs DISPLAY and liveness bookkeeping only. Deliverability is
+# keyed on membership, never on this window — an idle member still receives
+# its mail (see _route_targets; the P0 staleloss fix).
 ROOM_STALE_AFTER_SECONDS = 1800.0
 
 # Liveness write throttle (seconds). ANY authenticated room call by a member
@@ -662,17 +665,27 @@ class CloudRoomService:
         return seq
 
     def _route_targets(self, tx: Any, tenant_id: str, room_id: str, target_spec: Any) -> list[str]:
-        """Expand a target spec over the room's own active member set."""
+        """Expand a target spec over the room's own member set.
+
+        Deliverability is keyed on MEMBERSHIP, not on current presence.
+        ``stale`` is a derived presence notion (idle longer than the presence
+        window); an idle member still holds a seat, is still listed on the
+        roster, and must still receive its mail — the event log IS the delivery
+        mechanism and the recipient reads it when it returns. Only ``left``
+        members and non-members are unroutable.
+
+        This is the P0 fix: routing previously dropped idle members, so a
+        unicast to one created NO delivery row and NO receipt, and the poll
+        redaction check then never counted that member as an addressee — the
+        message was PERMANENTLY lost to its own intended recipient, with the
+        sender told nothing.
+        """
         member_rows = tx.execute(
-            "SELECT agent_id, last_seen FROM cloud_room_members "
+            "SELECT agent_id FROM cloud_room_members "
             "WHERE tenant_id = ? AND room_id = ? AND status = 'active'",
             (tenant_id, room_id),
         ).fetchall()
-        active_ids: set[str] = set()
-        for row in member_rows:
-            age = max(0.0, _time.time() - float(row["last_seen"]))
-            if age <= ROOM_STALE_AFTER_SECONDS:
-                active_ids.add(row["agent_id"])
+        active_ids: set[str] = {row["agent_id"] for row in member_rows}
 
         group_rows = tx.execute(
             "SELECT group_name, agent_id FROM cloud_room_group_members "
@@ -701,6 +714,38 @@ class CloudRoomService:
         for spec in specs:
             result |= _expand(spec)
         return sorted(result)
+
+    def _reject_unroutable_specs(self, tx: Any, tenant_id: str, room_id: str,
+                                 target_spec: Any, routed: list[str]) -> None:
+        """Refuse a send that names a target that is not a current member.
+
+        NO SILENT SUCCESS: ``200`` with ``receipts: []`` was indistinguishable
+        from a successful send. A spec that names an agent (a bare string that
+        is neither ``"*"`` nor a group name) must resolve to a current member
+        or the whole send is refused with ``recipient_not_found`` — the caller
+        can fix its own call from the error alone. ``left`` members and
+        never-joined ids both hit this: they are genuinely undeliverable.
+        The caller is a member, so naming a non-member of THIS room leaks
+        nothing the caller could not already read from the room's roster.
+        """
+        if isinstance(target_spec, str):
+            specs = [target_spec]
+        else:
+            specs = list(target_spec or [])
+        group_rows = tx.execute(
+            "SELECT group_name FROM cloud_room_groups WHERE tenant_id = ? AND room_id = ?",
+            (tenant_id, room_id),
+        ).fetchall()
+        group_names = {row["group_name"] for row in group_rows}
+        unrouted = [spec for spec in specs
+                    if isinstance(spec, str) and spec != "*"
+                    and spec not in routed and spec not in group_names]
+        if unrouted:
+            raise RoomError(
+                "recipient_not_found",
+                f"Recipient(s) are not members of this room: {', '.join(unrouted)}",
+                422,
+            )
 
     # ------------------------------------------------------------------
     # Room lifecycle
@@ -892,23 +937,42 @@ class CloudRoomService:
                 # the credential is never an authorization input here.
                 # Idempotent re-joins are NOT re-counted against the plan
                 # member cap and never re-gated by the room cap.
+                #
+                # Rejoin is otherwise a NO-OP: joined_at is a one-time fact and
+                # must not be rewritten (an idempotent client retrying a join
+                # silently churned the roster: 07:16:01 -> 07:53:18).
+                # Capabilities ARE recorded when the caller states them
+                # (explicit intent; an idempotent retry re-sends the same list,
+                # and an omitted list keeps the stored value), and the
+                # actor-token hash stays as the original join recorded.
+                # Only last_seen moves, exactly like heartbeat.
                 now = utc_now_iso()
-                tx.execute(
-                    "UPDATE cloud_room_members SET status = 'active', last_seen = ?, "
-                    "joined_at = ?, capabilities_json = ?, actor_token_hash = ? "
-                    "WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
-                    (now_epoch, now, _json(caps), actor_token_hash,
-                     real_tenant_id, room_id, agent_id),
-                )
+                if caps:
+                    tx.execute(
+                        "UPDATE cloud_room_members SET last_seen = ?, capabilities_json = ? "
+                        "WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
+                        (now_epoch, _json(caps), real_tenant_id, room_id, agent_id),
+                    )
+                else:
+                    tx.execute(
+                        "UPDATE cloud_room_members SET last_seen = ? "
+                        "WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
+                        (now_epoch, real_tenant_id, room_id, agent_id),
+                    )
                 tx.execute(
                     "INSERT INTO cloud_room_cursors(tenant_id, room_id, agent_id, last_ack_seq, updated_at) "
                     "VALUES (?, ?, ?, 0, ?) "
                     "ON CONFLICT(tenant_id, room_id, agent_id) DO NOTHING",
                     (real_tenant_id, room_id, agent_id, now),
                 )
+                cursor_row = tx.execute(
+                    "SELECT last_ack_seq FROM cloud_room_cursors WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
+                    (real_tenant_id, room_id, agent_id),
+                ).fetchone()
+                cursor = int(cursor_row["last_ack_seq"]) if cursor_row else 0
                 tx.commit()
                 return {"room_id": room_id, "agent_id": agent_id, "status": "active",
-                        "joined_at": now, "cursor": 0}
+                        "joined_at": existing["joined_at"], "cursor": cursor}
 
             # New identity OR a left member reactivating — both need a seat.
             # The plan member cap check + counter increment run here (they roll
@@ -958,10 +1022,15 @@ class CloudRoomService:
             )
             self._append_event(tx, real_tenant_id, room_id, agent_id, "room.joined",
                                {"agent_id": agent_id, "status": "active"})
+            cursor_row = tx.execute(
+                "SELECT last_ack_seq FROM cloud_room_cursors WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
+                (real_tenant_id, room_id, agent_id),
+            ).fetchone()
+            cursor = int(cursor_row["last_ack_seq"]) if cursor_row else 0
             tx.commit()
 
         return {"room_id": room_id, "agent_id": agent_id, "status": "active",
-                "joined_at": now, "cursor": 0}
+                "joined_at": now, "cursor": cursor}
 
     def room_info(self, tenant_id: str, room_id: str, agent_id: str) -> dict:
         """Member-only room summary with roster and presence.
@@ -1374,6 +1443,11 @@ class CloudRoomService:
                                 tx, tenant_id, room_id, sender_agent_id, existing,
                             ),
                         }
+                # Validate routing BEFORE the rate gate. A send that names a
+                # non-member is the caller's error (recipient_not_found) and
+                # must not consume the room's per-minute message budget.
+                targets = self._route_targets(tx, tenant_id, room_id, target_spec)
+                self._reject_unroutable_specs(tx, tenant_id, room_id, target_spec, targets)
 
             # Per-minute message budget, plan-driven (PLANS is the single source of
             # truth for the limit). Refuses with rate_limited + Retry-After.
@@ -1392,6 +1466,11 @@ class CloudRoomService:
                 if room["state"] == "closed":
                     raise RoomError("room_closed", "Room is closed", 409)
                 targets = self._route_targets(tx, tenant_id, room_id, target_spec)
+                # Reject again here (membership may have changed between the
+                # pre-rate validation and this delivery transaction) so a named
+                # non-member can never slip through and produce a silent
+                # empty-receipt success.
+                self._reject_unroutable_specs(tx, tenant_id, room_id, target_spec, targets)
                 if exclude_sender and sender_agent_id in targets:
                     targets = [t for t in targets if t != sender_agent_id]
 
