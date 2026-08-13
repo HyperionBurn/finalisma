@@ -265,6 +265,70 @@ class RoomReceiptLifecycleTests(RoomReceiptsTestBase):
         self.assertEqual(rows, [], "a refused send must leave no receipt rows")
 
 
+class RoomReceiptQueryTests(RoomReceiptsTestBase):
+    """The room_receipts query surface — sender-scoped, no oracle."""
+
+    def test_sender_queries_own_receipt_lifecycle(self) -> None:
+        owner, a, _, created = self._three_members("query")
+        sent = self._assert_ok(owner["session_token"], "room_send",
+                               {"room_id": created["room_id"], "target_spec": a["account_id"],
+                                "payload": {"text": "query-me"}}, request_id=10)
+        entry_id = sent["receipts"][0]["entry_id"]
+        before = self._assert_ok(owner["session_token"], "room_receipts",
+                                 {"room_id": created["room_id"], "entry_ids": [entry_id]},
+                                 request_id=11)
+        self.assertTrue(before["receipts"][0]["found"], "own receipt must be found")
+        self.assertEqual(before["receipts"][0]["status"], "queued")
+        self._assert_ok(a["session_token"], "room_ack",
+                        {"room_id": created["room_id"], "seq": sent["seq"]}, request_id=12)
+        after = self._assert_ok(owner["session_token"], "room_receipts",
+                                {"room_id": created["room_id"], "entry_ids": [entry_id]},
+                                request_id=13)
+        self.assertEqual(after["receipts"][0]["status"], "read",
+                         "sender must see the receipt transition queued -> read")
+
+    def test_recipient_cannot_query_senders_receipt(self) -> None:
+        owner, a, _, created = self._three_members("scopedquery")
+        sent = self._assert_ok(owner["session_token"], "room_send",
+                               {"room_id": created["room_id"], "target_spec": a["account_id"],
+                                "payload": {"text": "mine"}}, request_id=10)
+        entry_id = sent["receipts"][0]["entry_id"]
+        as_view = self._assert_ok(a["session_token"], "room_receipts",
+                                   {"room_id": created["room_id"], "entry_ids": [entry_id]},
+                                   request_id=11)
+        self.assertFalse(as_view["receipts"][0]["found"],
+                         "a recipient must not see the sender's outbox state (sender-scoped)")
+
+    def test_unknown_entry_id_reports_not_found_not_error(self) -> None:
+        owner, _, _, created = self._three_members("unknownquery")
+        result = self._assert_ok(owner["session_token"], "room_receipts",
+                                 {"room_id": created["room_id"],
+                                  "entry_ids": ["oeb_does_not_exist"]}, request_id=10)
+        self.assertFalse(result["receipts"][0]["found"],
+                         "unknown entry ids share the same not_found shape (no oracle)")
+
+    def test_invalid_args_refused(self) -> None:
+        owner, _, _, created = self._three_members("badargs")
+        resp = self._mcp_call(owner["session_token"], "room_receipts",
+                              {"room_id": created["room_id"], "entry_ids": "not-a-list"},
+                              request_id=10)
+        self.assertTrue(resp["isError"])
+        self.assertEqual(resp["error"]["code"], "invalid_argument")
+        resp = self._mcp_call(owner["session_token"], "room_receipts",
+                              {"room_id": created["room_id"],
+                               "entry_ids": ["e"] * 201}, request_id=11)
+        self.assertTrue(resp["isError"])
+        self.assertEqual(resp["error"]["code"], "invalid_argument")
+
+    def test_non_member_refused(self) -> None:
+        owner, _, _, created = self._three_members("nonmemquery")
+        outsider = self._signup("nonmemquery-out@example.com", tenant_id=owner["tenant_id"])
+        resp = self._mcp_call(outsider["session_token"], "room_receipts",
+                              {"room_id": created["room_id"], "entry_ids": ["oeb_x"]},
+                              request_id=10)
+        self.assertTrue(resp["isError"], "non-member receipt query must be refused")
+
+
 # ---------------------------------------------------------------------------
 # Coordinator plane — same receipt lifecycle, real MCP dispatcher.
 # ---------------------------------------------------------------------------

@@ -1409,6 +1409,62 @@ class CloudRoomService:
                 "last_ack_seq": int(row["last_ack_seq"]),
                 "receipts_read": int(read_row["c"])}
 
+    def receipts(self, tenant_id: str, room_id: str, agent_id: str,
+                 entry_ids: list[str]) -> dict:
+        """Sender-scoped delivery/read state for room message receipts.
+
+        The send response returned a receipt per recipient with its
+        ``entry_id``; this is the query surface for their CURRENT state
+        (receipt status: queued/read, plus the durable outbox entry's
+        lifecycle). Scoped to receipts whose ``sender_agent_id`` is the caller:
+        an arbitrary entry id must not reveal another sender's outbox state, so
+        unknown, foreign, and recipient-owned entry ids all share the same
+        ``not_found`` result. Membership checks run before any query, keeping
+        the cross-tenant / non-member no-oracle boundary.
+        """
+        if not isinstance(entry_ids, list):
+            raise RoomError("invalid_argument", "entry_ids must be a list of strings", 400)
+        if len(entry_ids) > 200:
+            raise RoomError("invalid_argument", "entry_ids must contain at most 200 items", 400)
+        if any(not isinstance(e, str) or not e.strip() for e in entry_ids):
+            raise RoomError("invalid_argument", "entry_ids must contain non-empty strings", 400)
+        with self.backend.transaction() as tx:
+            self._require_room(tx, tenant_id, room_id)
+            self._require_member(tx, tenant_id, room_id, agent_id)
+            self._touch_member(tx, tenant_id, room_id, agent_id)
+            rows = []
+            if entry_ids:
+                placeholders = ",".join("?" for _ in entry_ids)
+                rows = tx.execute(
+                    "SELECT r.entry_id, r.seq, r.recipient_agent_id, r.status, "
+                    "o.status AS outbox_status, o.attempts, o.next_attempt_at, o.last_error "
+                    "FROM cloud_room_receipts r "
+                    "LEFT JOIN cloud_outbox o ON o.tenant_id = r.tenant_id "
+                    "AND o.entry_id = r.entry_id "
+                    "WHERE r.tenant_id = ? AND r.room_id = ? "
+                    "AND r.sender_agent_id = ? AND r.entry_id IN (" + placeholders + ")",
+                    (tenant_id, room_id, agent_id, *entry_ids),
+                ).fetchall()
+        by_entry = {row["entry_id"]: row for row in rows}
+        return {
+            "room_id": room_id,
+            "receipts": [
+                {
+                    "entry_id": entry_id,
+                    "found": True,
+                    "recipient_agent_id": by_entry[entry_id]["recipient_agent_id"],
+                    "seq": int(by_entry[entry_id]["seq"]),
+                    "status": by_entry[entry_id]["status"],
+                    "outbox_status": by_entry[entry_id]["outbox_status"],
+                    "attempts": int(by_entry[entry_id]["attempts"] or 0),
+                    "next_attempt_at": by_entry[entry_id]["next_attempt_at"],
+                    "last_error": by_entry[entry_id]["last_error"],
+                }
+                if entry_id in by_entry else {"entry_id": entry_id, "found": False}
+                for entry_id in entry_ids
+            ],
+        }
+
     def heartbeat(self, tenant_id: str, room_id: str, agent_id: str) -> dict:
         with self.backend.transaction() as tx:
             self._require_room(tx, tenant_id, room_id)

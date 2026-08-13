@@ -198,6 +198,18 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
         }, ["room_id", "seq"]),
     },
     {
+        "name": "room_receipts",
+        "description": (
+            "Query current delivery/read state for entry ids from messages YOU "
+            "sent in this Room. Unknown or non-owned entry ids return found:false "
+            "without revealing another sender's outbox state."
+        ),
+        "inputSchema": _object_schema({
+            "room_id": _STRING,
+            "entry_ids": _STRING_LIST,
+        }, ["room_id", "entry_ids"]),
+    },
+    {
         "name": "room_heartbeat",
         "description": "Refresh your presence (last_seen) in a Room.",
         "inputSchema": _object_schema({"room_id": _STRING}, ["room_id"]),
@@ -504,6 +516,15 @@ class HostedMCPDispatcher:
             room_id=room_id,
             agent_id=ctx.agent_id,
             seq=self._required(args, "seq"),
+        ))
+
+    def _tool_room_receipts(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:
+        room_id = self._required(args, "room_id")
+        return self._room_call(lambda: self.rooms.receipts(
+            tenant_id=self._room_tenant(room_id, ctx.agent_id),
+            room_id=room_id,
+            agent_id=ctx.agent_id,
+            entry_ids=self._required(args, "entry_ids"),
         ))
 
     def _tool_room_heartbeat(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:
