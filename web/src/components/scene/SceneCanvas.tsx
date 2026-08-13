@@ -1,20 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { AdaptiveDpr, PerformanceMonitor } from '@react-three/drei';
-import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import CameraRig from './CameraRig';
 import RoomCore from './RoomCore';
 import AgentNodes from './AgentNodes';
 import EdgeLines from './EdgeLines';
 import MessageParticles from './MessageParticles';
-import { useTier, sceneActions } from './useSceneStore';
+import { sceneActions } from './useSceneStore';
 import { initEventBridge, disposeEventBridge, fireGateRefusal } from './eventBridge';
 
 /**
  * SceneCanvas.tsx — The R3F island. client:only="load".
  * Exposes window.WeftScene for the scroll lane to drive.
- * SCALED UP: stronger bloom, volumetric haze, wider FOV.
+ * SCALED UP: volumetric haze, wider FOV, and a lightweight animated graph.
  */
 
 // Frame time ring buffer
@@ -123,17 +122,6 @@ function SceneGroup({ children, position = [0, 0, 0] }: { children: React.ReactN
 }
 
 function SceneContent() {
-  const tier = useTier();
-  // Defer the postprocessing composer to the next frame so shader compile
-  // does not block the critical first paint / autoplay start. The scene
-  // (orbit, particles, pulses) renders immediately; the bloom + vignette
-  // layer mounts one frame later.
-  const [composerReady, setComposerReady] = useState(false);
-  useEffect(() => {
-    const id = requestAnimationFrame(() => setComposerReady(true));
-    return () => cancelAnimationFrame(id);
-  }, []);
-
   return (
     <>
       <PerformanceMonitor
@@ -159,21 +147,6 @@ function SceneContent() {
       <pointLight position={[-3, -2, 4]} intensity={0.6} color="#5B3DF0" />
       <pointLight position={[0, 0, 0]} intensity={0.8} color="#9D82FF" />
 
-      {/* Postprocessing — bloom tuned to stay within the <4ms scroll budget.
-          Mounted one frame after first paint so shader compile never blocks
-          autoplay. High intensity + very low threshold on a full-bleed canvas
-          is the single biggest frame-time driver; 0.35 / 0.9 keeps the glow
-          while holding ~60fps. PerformanceMonitor drops to medium automatically. */}
-      {composerReady && tier !== 'low' && (
-        <EffectComposer>
-          <Bloom
-            luminanceThreshold={0.3}
-            intensity={tier === 'medium' ? 0.85 : 1.1}
-            mipmapBlur
-          />
-          <Vignette eskil={false} offset={0.25} darkness={0.6} />
-        </EffectComposer>
-      )}
     </>
   );
 }
@@ -238,7 +211,7 @@ export default function SceneCanvas() {
     <Canvas
       frameloop={frameloop}
       dpr={[1, 1]}
-      gl={{ antialias: true, alpha: true, powerPreference: 'high-performance', preserveDrawingBuffer: true }}
+      gl={{ antialias: true, alpha: true, powerPreference: 'high-performance' }}
       camera={{ position: [0, 0, 14], fov: 60, near: 0.1, far: 100 }}
       style={{ width: '100%', height: '100%', display: 'block' }}
       data-agent-canvas

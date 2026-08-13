@@ -793,17 +793,8 @@ class LaunchSurfaceTests(unittest.TestCase):
             thread.join(timeout=5)
 
 
-class WebsiteCriticStaleDataTests(unittest.TestCase):
-    """The website critic must not crash on absent/stale baseline QA data.
-
-    Release-gate finding: the rendered QA artifact can carry a stale baseline
-    where the ledger split was never measured, so ``maxRuleDrift`` (and the
-    sibling ``ruleWidth``/``ruleLeft``) are JSON ``null``. The critic used to
-    call ``float(None)`` and die. Absent baseline data is a DISTINCT outcome
-    from a passing comparison: the critic must report it as a clear failure
-    (the gate stays red — nobody should ship on "we never measured this"),
-    not crash, and not silently pass.
-    """
+class WebsiteCriticCurrentContractTests(unittest.TestCase):
+    """The website critic validates the current WebGL/MCP landing contract."""
 
     def _run_critic(self, *, qa: dict[str, object], report: str) -> tuple[int, list[str]]:
         with tempfile.TemporaryDirectory(prefix="weft-critic-test-") as temporary:
@@ -817,35 +808,85 @@ class WebsiteCriticStaleDataTests(unittest.TestCase):
             payload = json.loads(stream.getvalue())
         return code, list(payload.get("failures", []))
 
-    def _stale_top_level(self) -> dict[str, object]:
+    def _current_qa(self) -> dict[str, object]:
         return {
             "oneH1": True,
-            "initialStoryCtaHidden": True,
-            "ruleFixed": False,
-            "ruleWidth": None,
-            "ruleLeft": None,
-            "maxRuleDrift": None,
-            "unpostedCount": 0,
-            "allUnpostedLabelled": True,
-            "formLabels": True,
             "htmlHasJsClass": True,
+            "canvasPresent": True,
+            "canvasWrapPresent": True,
+            "readoutHasLive": True,
+            "gatePresent": True,
+            "generatedLinkNonEmpty": True,
+            "formLabels": True,
+            "revealDefaultVisible": True,
+            "fallbackRows": 5,
+            "tierTabsCount": 4,
+            "tierPanelsCount": 4,
+            "stepsCount": 4,
+            "unlabelledColourRows": 0,
+            "linksWithNoName": 0,
+            "thirdParty": [],
         }
 
-    def test_null_max_rule_drift_reports_no_baseline_failure_not_crash(self) -> None:
+    def _current_interactions(self) -> dict[str, object]:
+        mobile = []
+        for viewport in ("390x844", "390x667", "320x568"):
+            mobile.append({
+                "viewport": viewport,
+                "documentWidth": int(viewport.split("x")[0]),
+                "viewportWidth": int(viewport.split("x")[0]),
+                "offenders": [],
+                "canvasWrapHasHeight": True,
+                "canvasMounted": True,
+                "fallbackHasEvents": True,
+                "eventsPresent": True,
+                "readoutLive": True,
+                "openingPrimaryCtaInFirstFold": True,
+                "noHorizontalOverflow": True,
+            })
+        mobile[0].update({
+            "navInitiallyInert": True,
+            "navOpen": "true",
+            "navOpenInert": False,
+            "navClosed": "false",
+            "navClosedInert": True,
+        })
+        return {
+            "linkCopied": "weft.test/r/room_test",
+            "tierSwitched": {"httpVisible": True, "stdioHidden": True, "selectedTab": "true"},
+            "tierCopied": "POST /mcp with MCP configuration",
+            "cohortApplicationPrepared": True,
+            "noJsCohort": {"leakFree": True},
+            "gateTriggered": True,
+            "supportingPageChecks": {
+                "guides": {"oneH1": True, "requiredText": True, "noHorizontalOverflow": True},
+                "blog": {"oneH1": True, "requiredText": True, "noHorizontalOverflow": True},
+            },
+            "mobileResults": mobile,
+            "demoPageChecks": {
+                "oneH1": True,
+                "boundaryVisible": True,
+                "controls": True,
+                "durationExpected": True,
+                "dimensionsExpected": True,
+                "hasMp4AndWebm": True,
+                "hasEnglishCaptions": True,
+                "posterSet": True,
+                "noHorizontalOverflow": True,
+            },
+        }
+
+    def _passing_qa(self) -> dict[str, object]:
         qa = {
-            "topLevelChecks": self._stale_top_level(),
-            "interactions": {},
+            "topLevelChecks": self._current_qa(),
+            "interactions": self._current_interactions(),
             "signals": {},
-            "performanceChecks": {},
+            "performanceChecks": {"cls": 0.01, "lcp": 200, "transferBytes": 100_000, "longTasks": [129]},
+            "accessibility": {"totalAxeViolations": 0},
         }
-        code, failures = self._run_critic(qa=qa, report="final result: passed\n")
-        self.assertEqual(code, 1)
-        self.assertTrue(
-            any("maxRuleDrift" in failure and "cannot compare" in failure for failure in failures),
-            f"expected a clear no-baseline failure naming maxRuleDrift, got: {failures}",
-        )
+        return qa
 
-    def test_absent_max_rule_drift_reports_no_baseline_failure_not_crash(self) -> None:
+    def test_missing_current_evidence_reports_clear_failure_not_crash(self) -> None:
         qa = {
             "topLevelChecks": {"oneH1": True, "htmlHasJsClass": True},
             "interactions": {},
@@ -855,35 +896,23 @@ class WebsiteCriticStaleDataTests(unittest.TestCase):
         code, failures = self._run_critic(qa=qa, report="final result: passed\n")
         self.assertEqual(code, 1)
         self.assertTrue(
-            any("maxRuleDrift" in failure and "cannot compare" in failure for failure in failures),
-            f"expected a clear no-baseline failure naming maxRuleDrift, got: {failures}",
+            any("canvasPresent" in failure for failure in failures),
+            f"expected a current-contract failure naming canvasPresent, got: {failures}",
         )
 
-    def test_present_max_rule_drift_still_fails_on_real_drift(self) -> None:
-        qa = {
-            "topLevelChecks": {
-                "oneH1": True,
-                "htmlHasJsClass": True,
-                "ruleFixed": True,
-                "maxRuleDrift": 3.4,
-                "allUnpostedLabelled": True,
-                "formLabels": True,
-                "initialStoryCtaHidden": True,
-            },
-            "interactions": {},
-            "signals": {},
-            "performanceChecks": {"cls": 0.01, "lcp": 200, "transferBytes": 100_000},
-        }
+    def test_current_contract_passes_without_retired_ledger_fields(self) -> None:
+        qa = self._passing_qa()
+        code, failures = self._run_critic(qa=qa, report="final result: passed\n")
+        self.assertEqual(code, 0, failures)
+
+    def test_current_contract_fails_on_real_long_task(self) -> None:
+        qa = self._passing_qa()
+        qa["performanceChecks"]["longTasks"] = [201]
         code, failures = self._run_critic(qa=qa, report="final result: passed\n")
         self.assertEqual(code, 1)
         self.assertTrue(
-            any("exceeds 1.5" in failure for failure in failures),
-            f"real drift must still fail the comparison, got: {failures}",
-        )
-        # Absent-data handling must not swallow the real-drift outcome.
-        self.assertFalse(
-            any("maxRuleDrift" in failure and "cannot compare" in failure for failure in failures),
-            f"a measured drift must not be reported as absent data: {failures}",
+            any("long task over 200 ms" in failure for failure in failures),
+            f"real long-task regression must fail the current contract, got: {failures}",
         )
 
 

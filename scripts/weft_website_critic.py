@@ -78,12 +78,13 @@ def main(argv: list[str] | None = None) -> int:
 
     home = (SITE / "index.html").read_text(encoding="utf-8")
     for phrase in (
-        "One incident. Two agents. One account of what happened.",
-        "MCP — the open protocol",
-        "Verified host (OpenCode 1.18.13)",
+        "One link. Many agents.",
+        "Speaks MCP",
+        "MCP is a public protocol; these names identify the hosts that speak it",
+        "MCP is the tool protocol your hosts already speak",
         "data-cohort-form",
-        "65",
-        "Watch the 42-second proof",
+        "single-node",
+        "Simulated account · no credentials · no live session",
         'property="og:site_name" content="Weft"',
         'name="twitter:image" content="/assets/og-card.png"',
     ):
@@ -102,33 +103,57 @@ def main(argv: list[str] | None = None) -> int:
     signals = qa.get("signals", {}) if isinstance(qa, dict) else {}
     performance = qa.get("performanceChecks", {}) if isinstance(qa, dict) else {}
 
-    expected_top = {
-        "oneH1": True,
-        "initialStoryCtaHidden": True,
-        "ruleFixed": True,
-        "allUnpostedLabelled": True,
-        "formLabels": True,
-        "htmlHasJsClass": True,
-    }
-    for key, expected in expected_top.items():
-        if top.get(key) is not expected:
+    expected_top = (
+        "oneH1",
+        "htmlHasJsClass",
+        "canvasPresent",
+        "canvasWrapPresent",
+        "readoutHasLive",
+        "gatePresent",
+        "generatedLinkNonEmpty",
+        "formLabels",
+        "revealDefaultVisible",
+    )
+    for key in expected_top:
+        if top.get(key) is not True:
             failures.append(f"rendered top-level check failed: {key}")
-    max_drift = _as_number(top.get("maxRuleDrift"))
-    if max_drift is None:
-        failures.append("ledger split baseline is absent (maxRuleDrift is null) — cannot compare")
-    elif max_drift > 1.5:
-        failures.append("ledger split drift exceeds 1.5 CSS pixels")
+    if int(top.get("fallbackRows", 0) or 0) < 5:
+        failures.append("rendered top-level check failed: fallbackRows < 5")
+    if int(top.get("tierTabsCount", 0) or 0) < 4:
+        failures.append("rendered top-level check failed: tierTabsCount < 4")
+    if int(top.get("tierPanelsCount", 0) or 0) < 4:
+        failures.append("rendered top-level check failed: tierPanelsCount < 4")
+    if int(top.get("stepsCount", 0) or 0) < 4:
+        failures.append("rendered top-level check failed: stepsCount < 4")
+    if int(top.get("unlabelledColourRows", 0) or 0) != 0:
+        failures.append("rendered top-level check failed: unlabelledColourRows is non-zero")
+    links_with_no_name = _as_number(top.get("linksWithNoName"))
+    if links_with_no_name is None:
+        failures.append("rendered top-level check failed: linksWithNoName is absent")
+    elif links_with_no_name != 0:
+        failures.append("rendered top-level check failed: linksWithNoName is non-zero")
     if top.get("thirdParty"):
         failures.append("homepage loaded a third-party runtime resource")
 
-    scroll = interactions.get("scrollChecks", {}) if isinstance(interactions, dict) else {}
-    for key in ("allPinned", "advances", "reachesDone", "planeHasDepth", "entriesFitBody"):
-        if scroll.get(key) is not True:
-            failures.append(f"desktop reconciliation check failed: {key}")
-    for family in ("reducedMotionChecks", "noJsChecks", "noJsMobileChecks", "supportingPageChecks"):
-        value = interactions.get(family, {}) if isinstance(interactions, dict) else {}
-        if not value:
-            failures.append(f"missing rendered evidence family: {family}")
+    if not isinstance(interactions, dict):
+        failures.append("rendered interaction evidence is missing")
+        interactions = {}
+    if not interactions.get("linkCopied", "").startswith("weft."):
+        failures.append("link-copy interaction did not produce a Weft room link")
+    tier = interactions.get("tierSwitched", {})
+    if not all((tier.get("httpVisible"), tier.get("stdioHidden"), tier.get("selectedTab") == "true")):
+        failures.append("tier-switch interaction did not select Streamable HTTP")
+    if "mcp" not in interactions.get("tierCopied", "").lower():
+        failures.append("tier-copy interaction did not produce MCP configuration")
+    if interactions.get("cohortApplicationPrepared") is not True:
+        failures.append("cohort brief interaction did not prepare a brief")
+    if interactions.get("noJsCohort", {}).get("leakFree") is not True:
+        failures.append("no-JavaScript cohort check did not remain leak-free")
+    if interactions.get("gateTriggered") is not True:
+        failures.append("evidence-gate refusal interaction was not triggered")
+    supporting = interactions.get("supportingPageChecks", {})
+    if not supporting or not all(all(checks.values()) for checks in supporting.values()):
+        failures.append("supporting-page checks are incomplete or failed")
 
     mobile = interactions.get("mobileResults", []) if isinstance(interactions, dict) else []
     if len(mobile) != 3:
@@ -138,16 +163,24 @@ def main(argv: list[str] | None = None) -> int:
             if result.get("documentWidth") != result.get("viewportWidth"):
                 failures.append(f"horizontal overflow at {result.get('viewport')}")
             for key in (
-                "storyStatic",
-                "storyTrackCompact",
-                "storyContentVisible",
-                "planeFlat",
+                "canvasWrapHasHeight",
+                "canvasMounted",
+                "fallbackHasEvents",
+                "eventsPresent",
+                "readoutLive",
                 "openingPrimaryCtaInFirstFold",
+                "noHorizontalOverflow",
             ):
                 if result.get(key) is not True:
                     failures.append(f"mobile check failed at {result.get('viewport')}: {key}")
-        if mobile[0].get("tapStoryBalanced") != "balanced":
-            failures.append("mobile tap-through story did not balance")
+            if result.get("offenders"):
+                failures.append(f"mobile layout has overflow offenders at {result.get('viewport')}")
+        if mobile[0].get("navInitiallyInert") is not True:
+            failures.append("mobile navigation is not inert while closed")
+        if mobile[0].get("navOpen") != "true" or mobile[0].get("navOpenInert") is not False:
+            failures.append("mobile navigation did not open interactively")
+        if mobile[0].get("navClosed") != "false" or mobile[0].get("navClosedInert") is not True:
+            failures.append("mobile navigation did not close back to inert")
 
     demo = interactions.get("demoPageChecks", {}) if isinstance(interactions, dict) else {}
     for key in (
@@ -189,6 +222,9 @@ def main(argv: list[str] | None = None) -> int:
     for key in ("consoleErrors", "failedRequests", "badResponses"):
         if signals.get(key):
             failures.append(f"browser signal is not empty: {key}")
+    accessibility = qa.get("accessibility", {}) if isinstance(qa, dict) else {}
+    if accessibility.get("totalAxeViolations") != 0:
+        failures.append("accessibility scan reported violations")
     cls = _as_number(performance.get("cls"))
     if cls is None:
         failures.append("CLS baseline is absent (cls is null) — cannot compare")
@@ -204,6 +240,9 @@ def main(argv: list[str] | None = None) -> int:
         failures.append("transfer baseline is absent (transferBytes is null) — cannot compare")
     elif int(transfer_bytes) > 2_000_000:
         failures.append("homepage transfer exceeds 2 MB")
+    long_tasks = performance.get("longTasks", [])
+    if any(_as_number(duration) is not None and float(duration) > 200 for duration in long_tasks):
+        failures.append("homepage has a long task over 200 ms")
 
     if "final result: passed" not in report.lower():
         failures.append("design QA report does not end in a passing result")

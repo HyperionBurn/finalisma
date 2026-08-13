@@ -176,7 +176,11 @@ const installPerformanceObservers = (page) => page.addInitScript(() => {
 
 const mobileLayoutChecks = (page) => page.evaluate(() => {
   const width = document.documentElement.clientWidth;
-  const offenders = [...document.querySelectorAll("*")].map((element) => {
+  const offenders = [...document.querySelectorAll("*")]
+    // The marquee track deliberately clips its duplicated, off-screen items;
+    // those descendants are not document layout overflow.
+    .filter((element) => !element.closest("[data-marquee-track]"))
+    .map((element) => {
     const rect = element.getBoundingClientRect();
     return {
       selector: element.className && typeof element.className === "string"
@@ -186,7 +190,7 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
       right: Math.round(rect.right),
       width: Math.round(rect.width)
     };
-  }).filter((item) => (item.right > width + 1 || item.left < -1)
+    }).filter((item) => (item.right > width + 1 || item.left < -1)
     && !item.selector.includes("folio-label")
     && !/^(pre|code|span\.code-)/.test(item.selector)).slice(0, 12);
 
@@ -212,17 +216,21 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
 });
 
 (async () => {
-  const browser = await chromium.launch({
+  const launchBrowser = () => chromium.launch({
     headless: true,
-    executablePath: process.env.WEFT_CHROMIUM_PATH || undefined
+    executablePath: process.env.WEFT_CHROMIUM_PATH || undefined,
+    // The WebGL canvas can stall headless screenshots on Windows GPU drivers.
+    // Keep visual/DOM assertions intact while making capture deterministic.
+    args: ["--disable-gpu"]
   });
+  let browser = await launchBrowser();
   const signals = { consoleErrors: [], failedRequests: [], badResponses: [] };
 
   const desktop = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
   capturePageSignals(desktop, signals);
   await installPerformanceObservers(desktop);
   await desktop.goto(siteUrl, { waitUntil: "networkidle" });
-  await desktop.screenshot({ path: screenshots.desktop });
+  await desktop.screenshot({ path: screenshots.desktop, animations: "disabled" });
 
   const topLevelChecks = await desktop.evaluate(() => {
     const canvas = document.querySelector("[data-agent-canvas]");
@@ -232,10 +240,8 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
     const generatedLink = document.querySelector("[data-generated-link]");
     const tierTabs = document.querySelectorAll("[data-tier-tab]");
     const tierPanels = document.querySelectorAll("[data-tier-panel]");
-    const proofItems = document.querySelectorAll("[data-proof-item]");
     const steps = document.querySelectorAll("[data-step]");
-    const unlabelledColourRows = [...proofItems].filter((item) => !(item.querySelector(".proof-label")?.textContent || "").trim())
-      .concat([...steps].filter((step) => !(step.querySelector("h3")?.textContent || "").trim()));
+    const unlabelledColourRows = [...steps].filter((step) => !(step.querySelector("h3")?.textContent || "").trim());
     const thirdParty = performance.getEntriesByType("resource")
       .map((entry) => entry.name)
       .filter((url) => new URL(url).origin !== location.origin);
@@ -252,11 +258,16 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
       generatedLinkNonEmpty: !!generatedLink && /weft\.[^/]*\/r\//.test(generatedLink.textContent || ""),
       tierTabsCount: tierTabs.length,
       tierPanelsCount: tierPanels.length,
-      proofItemsCount: proofItems.length,
       stepsCount: steps.length,
       unlabelledColourRows: unlabelledColourRows.length,
       thirdParty,
-      linksWithNoName: [...document.querySelectorAll("a,button")].filter((element) => !(element.innerText || element.getAttribute("aria-label") || "").trim()).length,
+      linksWithNoName: [...document.querySelectorAll("a,button")].filter((element) => {
+        const label = element.getAttribute("aria-label")
+          || element.getAttribute("title")
+          || element.textContent
+          || "";
+        return !label.trim();
+      }).length,
       formLabels: [...document.querySelectorAll("[data-cohort-form] input,[data-cohort-form] textarea")].every((control) => control.closest("label") || (control.id && document.querySelector(`label[for="${control.id}"]`))),
       revealDefaultVisible: revealBase.length > 0 && revealBase.every((opacity) => opacity === "1")
     };
@@ -350,6 +361,24 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
       await ctx.close();
     }
   })();
+  await desktop.waitForTimeout(100);
+  const performanceChecks = await desktop.evaluate(() => {
+    const resources = performance.getEntriesByType("resource");
+    return {
+      cls: window.__weftQaPerf?.cls || 0,
+      lcp: window.__weftQaPerf?.lcp || 0,
+      longTasks: window.__weftQaPerf?.longTasks || [],
+      resourceCount: resources.length,
+      transferBytes: resources.reduce((sum, entry) => sum + (entry.transferSize || 0), 0),
+      domNodes: document.getElementsByTagName("*").length
+    };
+  });
+  // The desktop page has completed all interactive assertions. Close its
+  // continuously-rendering WebGL island before auxiliary page scans so the
+  // headless browser cannot starve the accessibility probes.
+  await desktop.close();
+  await browser.close();
+  browser = await launchBrowser();
 
   const supportingPageChecks = {};
   for (const [name, route, destination, requiredText] of [
@@ -359,7 +388,7 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
     capturePageSignals(page, signals);
     await page.goto(new URL(route, siteUrl).href, { waitUntil: "networkidle" });
-    await page.screenshot({ path: destination });
+    await page.screenshot({ path: destination, animations: "disabled" });
     supportingPageChecks[name] = await page.evaluate((expected) => ({
       oneH1: document.querySelectorAll("h1").length === 1,
       requiredText: document.body.textContent.includes(expected),
@@ -375,7 +404,7 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
     const video = document.querySelector('video');
     return video && video.readyState >= 1 && Number.isFinite(video.duration);
   }, null, { timeout: 45000 });
-  await demoPage.screenshot({ path: screenshots.demo });
+  await demoPage.screenshot({ path: screenshots.demo, animations: "disabled" });
   const demoPageChecks = await demoPage.evaluate(() => {
     const video = document.querySelector('video');
     const sourceTypes = [...document.querySelectorAll('video source')].map((source) => source.type).sort();
@@ -412,6 +441,10 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
     capturePageSignals(page, signals);
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
     await page.waitForTimeout(300);
+    await page.waitForFunction(() => {
+      const heroCta = document.querySelector(".hero-ctas");
+      return !heroCta || getComputedStyle(heroCta).opacity === "1";
+    }, null, { timeout: 5000 });
     axeResults.push(await runAxeScan(page, name));
     lighthouseResults.push({ name, url, checks: await lighthouseChecks(page) });
     await page.close();
@@ -422,7 +455,7 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
   try {
     const og = await browser.newPage({ viewport: { width: 1200, height: 630 }, deviceScaleFactor: 1 });
     await og.goto(pathToFileURL(path.join(root, "site", "assets", "og-card.svg")).href, { waitUntil: "load" });
-    await og.screenshot({ path: screenshots.og });
+    await og.screenshot({ path: screenshots.og, animations: "disabled" });
     await og.close();
   } catch (_) {}
 
@@ -436,7 +469,7 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
       + `<div class="comparison"><div class="panel"><div class="label">RENDERED IMPLEMENTATION · 1440 × 900</div><img src="${dataUrl(screenshots.desktop)}"></div></div>`,
       { waitUntil: "load" }
     );
-    await comparison.screenshot({ path: screenshots.comparison, fullPage: true });
+    await comparison.screenshot({ path: screenshots.comparison, fullPage: true, animations: "disabled" });
     await comparison.close();
   } catch (_) {}
 
@@ -449,7 +482,7 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
     const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
     capturePageSignals(page, signals);
     await page.goto(siteUrl, { waitUntil: "networkidle" });
-    await page.screenshot({ path: destination });
+      await page.screenshot({ path: destination, animations: "disabled" });
     const checks = await mobileLayoutChecks(page);
     if (width === 390 && height === 844) {
       const nav = page.locator("#mobile-nav");
@@ -462,24 +495,11 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
       checks.navClosedInert = await nav.evaluate((element) => element.inert);
       const auditEl = await page.$("#audit");
       if (auditEl) await auditEl.scrollIntoViewIfNeeded();
-      await page.screenshot({ path: screenshots.mobileAudit });
+      await page.screenshot({ path: screenshots.mobileAudit, animations: "disabled" });
     }
     mobileResults.push(checks);
     await page.close();
   }
-
-  await desktop.waitForTimeout(100);
-  const performanceChecks = await desktop.evaluate(() => {
-    const resources = performance.getEntriesByType("resource");
-    return {
-      cls: window.__weftQaPerf?.cls || 0,
-      lcp: window.__weftQaPerf?.lcp || 0,
-      longTasks: window.__weftQaPerf?.longTasks || [],
-      resourceCount: resources.length,
-      transferBytes: resources.reduce((sum, entry) => sum + (entry.transferSize || 0), 0),
-      domNodes: document.getElementsByTagName("*").length
-    };
-  });
 
   const result = {
     siteUrl,
@@ -494,7 +514,7 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
       tierSwitched,
       tierCopied,
       cohortStatus,
-      cohortApplicationPrepared: cohortClipboard.includes("WEFT"),
+      cohortApplicationPrepared: /\bWeft\b/.test(cohortClipboard),
       noJsCohort,
       gateTriggered: gateAfterTrigger,
       gateStateText,
@@ -542,7 +562,6 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
     || !topLevelChecks.generatedLinkNonEmpty
     || topLevelChecks.tierTabsCount < 4
     || topLevelChecks.tierPanelsCount < 4
-    || topLevelChecks.proofItemsCount < 5
     || topLevelChecks.stepsCount < 4
     || topLevelChecks.unlabelledColourRows > 0
     || topLevelChecks.thirdParty.length
@@ -554,7 +573,7 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
     || !tierSwitched.stdioHidden
     || tierSwitched.selectedTab !== "true"
     || !tierCopied.includes("mcp")
-    || !cohortClipboard.includes("WEFT")
+    || !/\bWeft\b/.test(cohortClipboard)
     || !noJsCohort.leakFree
     || !Object.values(supportingPageChecks).every((checks) => Object.values(checks).every(Boolean))
     || !demoPageChecks.oneH1

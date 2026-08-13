@@ -1,5 +1,5 @@
 {
-  "siteUrl": "http://127.0.0.1:4175/",
+  "siteUrl": "http://127.0.0.1:53316/",
   "viewport": {
     "desktop": "1440x900",
     "mobile": [
@@ -9,7 +9,6 @@
     ]
   },
   "screenshots": {
-    "source": "artifacts\\design-qa\\source-design-target-1440x900.png",
     "desktop": "artifacts\\design-qa\\implementation-desktop-1440x900.png",
     "mobile": "artifacts\\design-qa\\implementation-mobile-390x844.png",
     "mobileShort": "artifacts\\design-qa\\implementation-mobile-short-390x667.png",
@@ -19,7 +18,7 @@
     "blog": "artifacts\\design-qa\\implementation-blog-1440x900.png",
     "demo": "artifacts\\design-qa\\implementation-demo-1440x900.png",
     "comparison": "artifacts\\design-qa\\comparison-desktop-1440x900.png",
-    "og": "site\\assets\\og-card.png",
+    "og": "artifacts\\design-qa\\implementation-og-card-1200x630.png",
     "story": [
       "artifacts\\design-qa\\implementation-story-0pct-1440x900.png",
       "artifacts\\design-qa\\implementation-story-25pct-1440x900.png",
@@ -29,321 +28,85 @@
     ]
   },
   "topLevelChecks": {
-    "title": "Weft — one incident, two agents, one account",
+    "title": "Weft — one link, many agents, all governed",
     "oneH1": true,
-    "initialStoryCtaHidden": true,
-    "ruleFixed": false,
-    "ruleWidth": null,
-    "ruleLeft": null,
-    "maxRuleDrift": null,
-    "unpostedCount": 0,
-    "allUnpostedLabelled": true,
+    "htmlHasJsClass": true,
+    "canvasPresent": true,
+    "canvasWrapPresent": true,
+    "fallbackRows": 5,
+    "readoutHasLive": true,
+    "gatePresent": true,
+    "generatedLinkNonEmpty": true,
+    "tierTabsCount": 4,
+    "tierPanelsCount": 4,
+    "stepsCount": 4,
+    "unlabelledColourRows": 0,
     "thirdParty": [],
     "linksWithNoName": 0,
     "formLabels": true,
-    "htmlHasJsClass": true
+    "revealDefaultVisible": true
   },
   "interactions": {
-    "copyStatus": "Configuration copied to the clipboard.",
-    "cohortStatus": "Application copied. Paste it into the channel that brought you here.",
+    "linkCopied": "weft.test/r/room_8cc840e0fd9044b7ab2154af9e9c1222",
+    "tierSwitched": {
+      "httpVisible": true,
+      "stdioHidden": true,
+      "selectedTab": "true"
+    },
+    "tierCopied": "POST /mcp HTTP/1.1\nHost: weft.switzerlandnorth.cloudapp.azure.com\nContent-Type: application/json\nAuthorization: Bearer <agk_ agent key>\n\n{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}",
+    "cohortStatus": "Brief copied to clipboard. Send it to the channel that brought you here.",
     "cohortApplicationPrepared": true,
-    "manualComplete": {
-      "session": "",
-      "balance": "",
-      "ctaVisible": false,
-      "namedTransport": ""
+    "noJsCohort": {
+      "locationSearch": "",
+      "navigated": false,
+      "leakFree": true
     },
-    "manualReset": {
-      "session": "",
-      "balance": "",
-      "ctaHidden": false
-    },
-    "scrollChecks": {
-      "present": false,
-      "checkpoints": [],
-      "allPinned": false,
-      "advances": false,
-      "reachesDone": false,
-      "planeHasDepth": false,
-      "entriesFitBody": false
-    },
-    "reducedMotionChecks": {
-      "storyStatic": null,
-      "trackCompact": null,
-      "planeFlat": true,
-      "revealsVisible": true
-    },
-    "noJsChecks": {
-      "revealsVisible": true,
-      "typeVisible": true,
-      "headlineVisible": true,
-      "noJsClass": true
-    },
-    "noJsMobileChecks": {
-      "fallbackNavVisible": null,
-      "fallbackNavLinks": null,
-      "menuButtonHidden": false,
-      "noHorizontalOverflow": true
-    },
+    "gateTriggered": true,
+    "gateStateText": "armed",
     "mobileResults": [
       {
         "viewport": "390x844",
         "documentWidth": 390,
         "viewportWidth": 390,
-        "offenders": [
-          {
-            "selector": "div.spec-copy",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "div.body-copy",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "p",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "p",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "b",
-            "left": 20,
-            "right": 446,
-            "width": 426
-          },
-          {
-            "selector": "b",
-            "left": 20,
-            "right": 474,
-            "width": 454
-          },
-          {
-            "selector": "ul.spec-list",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "li",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "span",
-            "left": 48,
-            "right": 508,
-            "width": 460
-          },
-          {
-            "selector": "li",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "span",
-            "left": 48,
-            "right": 508,
-            "width": 459
-          },
-          {
-            "selector": "li",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          }
-        ],
-        "storyStatic": false,
-        "storyTrackCompact": false,
-        "storyContentVisible": false,
-        "planeFlat": true,
+        "offenders": [],
+        "canvasWrapHasHeight": true,
+        "canvasMounted": true,
+        "fallbackHasEvents": true,
+        "eventsPresent": true,
+        "readoutLive": true,
         "openingPrimaryCtaInFirstFold": true,
-        "navInitiallyInert": false,
+        "noHorizontalOverflow": true,
+        "navInitiallyInert": true,
         "navOpen": "true",
         "navOpenInert": false,
         "navClosed": "false",
-        "navClosedInert": false,
-        "tapStoryBalanced": null,
-        "tapStoryCtaVisible": false
+        "navClosedInert": true
       },
       {
         "viewport": "390x667",
         "documentWidth": 390,
         "viewportWidth": 390,
-        "offenders": [
-          {
-            "selector": "div.spec-copy",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "div.body-copy",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "p",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "p",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "b",
-            "left": 20,
-            "right": 446,
-            "width": 426
-          },
-          {
-            "selector": "b",
-            "left": 20,
-            "right": 474,
-            "width": 454
-          },
-          {
-            "selector": "ul.spec-list",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "li",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "span",
-            "left": 48,
-            "right": 508,
-            "width": 460
-          },
-          {
-            "selector": "li",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "span",
-            "left": 48,
-            "right": 508,
-            "width": 459
-          },
-          {
-            "selector": "li",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          }
-        ],
-        "storyStatic": false,
-        "storyTrackCompact": false,
-        "storyContentVisible": false,
-        "planeFlat": true,
-        "openingPrimaryCtaInFirstFold": true
+        "offenders": [],
+        "canvasWrapHasHeight": true,
+        "canvasMounted": true,
+        "fallbackHasEvents": true,
+        "eventsPresent": true,
+        "readoutLive": true,
+        "openingPrimaryCtaInFirstFold": true,
+        "noHorizontalOverflow": true
       },
       {
         "viewport": "320x568",
         "documentWidth": 320,
         "viewportWidth": 320,
-        "offenders": [
-          {
-            "selector": "div.spec-copy",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "div.body-copy",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "p",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "p",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "b",
-            "left": 20,
-            "right": 446,
-            "width": 426
-          },
-          {
-            "selector": "b",
-            "left": 20,
-            "right": 474,
-            "width": 454
-          },
-          {
-            "selector": "ul.spec-list",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "li",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "span",
-            "left": 48,
-            "right": 508,
-            "width": 460
-          },
-          {
-            "selector": "li",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "span",
-            "left": 48,
-            "right": 508,
-            "width": 459
-          },
-          {
-            "selector": "a",
-            "left": 283,
-            "right": 382,
-            "width": 98
-          }
-        ],
-        "storyStatic": false,
-        "storyTrackCompact": false,
-        "storyContentVisible": false,
-        "planeFlat": true,
-        "openingPrimaryCtaInFirstFold": false
+        "offenders": [],
+        "canvasWrapHasHeight": true,
+        "canvasMounted": true,
+        "fallbackHasEvents": true,
+        "eventsPresent": true,
+        "readoutLive": true,
+        "openingPrimaryCtaInFirstFold": true,
+        "noHorizontalOverflow": true
       }
     ],
     "supportingPageChecks": {
@@ -375,29 +138,34 @@
       "noHorizontalOverflow": true
     }
   },
+  "canvas": {
+    "frameTimeMedianMs": 20.19999999925517,
+    "frameTimeP95Ms": 28.699999999254942,
+    "canvasAnimated": true
+  },
   "performanceChecks": {
-    "cls": 0.0006737437307098766,
-    "lcp": 164,
+    "cls": 0.0016950241528420782,
+    "lcp": 428,
     "longTasks": [
-      61
+      129
     ],
-    "resourceCount": 7,
-    "transferBytes": 235544,
-    "domNodes": 314
+    "resourceCount": 11,
+    "transferBytes": 1370657,
+    "domNodes": 372
   },
   "accessibility": {
     "axeResults": [
       {
         "label": "home",
-        "url": "http://127.0.0.1:4175/",
+        "url": "http://127.0.0.1:53316/",
         "violations": [],
         "violationCount": 0,
-        "passes": 27,
+        "passes": 28,
         "incomplete": 1
       },
       {
         "label": "blog",
-        "url": "http://127.0.0.1:4175/blog/index.html",
+        "url": "http://127.0.0.1:53316/blog/index.html",
         "violations": [],
         "violationCount": 0,
         "passes": 9,
@@ -405,7 +173,7 @@
       },
       {
         "label": "article",
-        "url": "http://127.0.0.1:4175/blog/secure-agent-handoffs.html",
+        "url": "http://127.0.0.1:53316/blog/secure-agent-handoffs.html",
         "violations": [],
         "violationCount": 0,
         "passes": 11,
@@ -413,7 +181,7 @@
       },
       {
         "label": "docs",
-        "url": "http://127.0.0.1:4175/docs/index.html",
+        "url": "http://127.0.0.1:53316/docs/index.html",
         "violations": [],
         "violationCount": 0,
         "passes": 9,
@@ -421,7 +189,7 @@
       },
       {
         "label": "demo",
-        "url": "http://127.0.0.1:4175/demo.html",
+        "url": "http://127.0.0.1:53316/demo.html",
         "violations": [],
         "violationCount": 0,
         "passes": 17,
@@ -429,7 +197,7 @@
       },
       {
         "label": "404",
-        "url": "http://127.0.0.1:4175/404.html",
+        "url": "http://127.0.0.1:53316/404.html",
         "violations": [],
         "violationCount": 0,
         "passes": 17,
@@ -439,13 +207,13 @@
     "lighthouseResults": [
       {
         "name": "home",
-        "url": "http://127.0.0.1:4175/",
+        "url": "http://127.0.0.1:53316/",
         "checks": {
-          "focusableCount": 32,
+          "focusableCount": 35,
           "labelledControls": 4,
           "totalControls": 4,
           "unlabelledControls": 0,
-          "liveRegionCount": 3,
+          "liveRegionCount": 6,
           "imagesTotal": 0,
           "imagesWithAlt": 0,
           "imagesMissingAlt": 0,
@@ -458,14 +226,14 @@
             "hasFooter": true,
             "mainCount": 1,
             "h1Count": 1,
-            "navCount": 2,
+            "navCount": 3,
             "ariaLandmarks": 0
           }
         }
       },
       {
         "name": "blog",
-        "url": "http://127.0.0.1:4175/blog/index.html",
+        "url": "http://127.0.0.1:53316/blog/index.html",
         "checks": {
           "focusableCount": 7,
           "labelledControls": 0,
@@ -491,7 +259,7 @@
       },
       {
         "name": "article",
-        "url": "http://127.0.0.1:4175/blog/secure-agent-handoffs.html",
+        "url": "http://127.0.0.1:53316/blog/secure-agent-handoffs.html",
         "checks": {
           "focusableCount": 6,
           "labelledControls": 0,
@@ -517,7 +285,7 @@
       },
       {
         "name": "docs",
-        "url": "http://127.0.0.1:4175/docs/index.html",
+        "url": "http://127.0.0.1:53316/docs/index.html",
         "checks": {
           "focusableCount": 9,
           "labelledControls": 0,
@@ -543,7 +311,7 @@
       },
       {
         "name": "demo",
-        "url": "http://127.0.0.1:4175/demo.html",
+        "url": "http://127.0.0.1:53316/demo.html",
         "checks": {
           "focusableCount": 8,
           "labelledControls": 0,
@@ -569,7 +337,7 @@
       },
       {
         "name": "404",
-        "url": "http://127.0.0.1:4175/404.html",
+        "url": "http://127.0.0.1:53316/404.html",
         "checks": {
           "focusableCount": 2,
           "labelledControls": 0,
@@ -596,74 +364,11 @@
     ],
     "totalAxeViolations": 0,
     "totalAxePages": 6,
-    "lighthouseNote": "Lighthouse CLI not available in this runtime. Lightweight equivalent checks (landmarks, form labels, focus order, image alt, heading order, skip link) implemented inline. Run `npx lighthouse <url>` manually for full Lighthouse scores."
+    "lighthouseNote": "Lightweight Lighthouse-equivalent checks implemented inline (landmarks, form labels, focus order, image alt, heading order, skip link). Run `npx lighthouse <url>` for full scores."
   },
   "signals": {
-    "consoleErrors": [
-      "Failed to load resource: the server responded with a status of 404 (File not found)",
-      "Refused to execute script from 'http://127.0.0.1:4175/proof-engine.js' because its MIME type ('text/html') is not executable, and strict MIME type checking is enabled.",
-      "Failed to load resource: the server responded with a status of 404 (File not found)",
-      "Refused to execute script from 'http://127.0.0.1:4175/proof-engine.js' because its MIME type ('text/html') is not executable, and strict MIME type checking is enabled.",
-      "Failed to load resource: the server responded with a status of 404 (File not found)",
-      "Refused to execute script from 'http://127.0.0.1:4175/proof-engine.js' because its MIME type ('text/html') is not executable, and strict MIME type checking is enabled.",
-      "Failed to load resource: the server responded with a status of 404 (File not found)",
-      "Refused to execute script from 'http://127.0.0.1:4175/proof-engine.js' because its MIME type ('text/html') is not executable, and strict MIME type checking is enabled.",
-      "Failed to load resource: the server responded with a status of 404 (File not found)",
-      "Refused to execute script from 'http://127.0.0.1:4175/proof-engine.js' because its MIME type ('text/html') is not executable, and strict MIME type checking is enabled.",
-      "Failed to load resource: the server responded with a status of 404 (File not found)",
-      "Refused to execute script from 'http://127.0.0.1:4175/proof-engine.js' because its MIME type ('text/html') is not executable, and strict MIME type checking is enabled."
-    ],
-    "failedRequests": [
-      {
-        "url": "http://127.0.0.1:4175/proof-engine.js",
-        "reason": "net::ERR_ABORTED"
-      },
-      {
-        "url": "http://127.0.0.1:4175/proof-engine.js",
-        "reason": "net::ERR_ABORTED"
-      },
-      {
-        "url": "http://127.0.0.1:4175/proof-engine.js",
-        "reason": "net::ERR_ABORTED"
-      },
-      {
-        "url": "http://127.0.0.1:4175/proof-engine.js",
-        "reason": "net::ERR_ABORTED"
-      },
-      {
-        "url": "http://127.0.0.1:4175/proof-engine.js",
-        "reason": "net::ERR_ABORTED"
-      },
-      {
-        "url": "http://127.0.0.1:4175/proof-engine.js",
-        "reason": "net::ERR_ABORTED"
-      }
-    ],
-    "badResponses": [
-      {
-        "url": "http://127.0.0.1:4175/proof-engine.js",
-        "status": 404
-      },
-      {
-        "url": "http://127.0.0.1:4175/proof-engine.js",
-        "status": 404
-      },
-      {
-        "url": "http://127.0.0.1:4175/proof-engine.js",
-        "status": 404
-      },
-      {
-        "url": "http://127.0.0.1:4175/proof-engine.js",
-        "status": 404
-      },
-      {
-        "url": "http://127.0.0.1:4175/proof-engine.js",
-        "status": 404
-      },
-      {
-        "url": "http://127.0.0.1:4175/proof-engine.js",
-        "status": 404
-      }
-    ]
+    "consoleErrors": [],
+    "failedRequests": [],
+    "badResponses": []
   }
 }
