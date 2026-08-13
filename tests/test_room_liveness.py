@@ -23,8 +23,9 @@ The fix under test:
     provably alive (the server holds its connection) and must never age
     toward staleness while the block is in flight.
   - The 1800-second staleness threshold is ONE module-level constant
-    (``ROOM_STALE_AFTER_SECONDS``) shared by target routing and the
-    ``room_info`` status surface.
+    (``ROOM_STALE_AFTER_SECONDS``) read by the ``room_info`` status surface.
+    Target routing is membership-keyed and does NOT consult it (see the
+    staleloss P0 fix in tests/test_room_stale_delivery.py).
   - ``room_heartbeat`` keeps working unchanged.
 
 Every test drives the REAL hosted MCP surface over REAL HTTP (the surface an
@@ -422,7 +423,15 @@ class RoomLivenessAuthTests(RoomLivenessTestBase):
 
 
 class RoomLivenessConstantTests(RoomLivenessTestBase):
-    """The staleness threshold is ONE constant; routing and room_info agree on it."""
+    """The staleness threshold is ONE constant; room_info reads it and routing NEVER drops by it.
+
+    Replaced invariant (post-staleloss P0): routing once dropped members older
+    than the threshold — that caused permanent silent unicast loss, so routing
+    is now membership-keyed and must route EVERY current member regardless of
+    presence age. The constant governs the DISPLAY status only. This test
+    proves both halves: the display reads the shared constant, and routing does
+    NOT follow it.
+    """
 
     def test_stale_threshold_single_constant_routing_and_info_agree(self) -> None:
         self.assertEqual(
@@ -431,9 +440,9 @@ class RoomLivenessConstantTests(RoomLivenessTestBase):
         )
         owner, member, created = self._two_members("const")
         tenant_id = owner["tenant_id"]
-        # A member idle 120s must flip BOTH surfaces when the shared constant is
-        # patched to 60 — proving routing and room_info read the SAME constant
-        # (a divergent hardcoded literal could not follow the patch).
+        # A member idle 120s must flip the DISPLAY when the shared constant is
+        # patched to 60 — proving room_info reads the SAME constant (a
+        # divergent hardcoded literal could not follow the patch).
         self._set_last_seen(tenant_id, created["room_id"], member["account_id"],
                             time.time() - 120)
         previous = getattr(rooms_module, "ROOM_STALE_AFTER_SECONDS", None)
@@ -444,14 +453,19 @@ class RoomLivenessConstantTests(RoomLivenessTestBase):
             statuses = {m["agent_id"]: m["status"] for m in info["members"]}
             self.assertEqual(statuses.get(member["account_id"]), "stale",
                              "room_info must read the shared staleness constant")
+            # THE POST-P0 INVARIANT: routing is membership-keyed, not
+            # presence-keyed. A member the display calls 'stale' is still a
+            # member and MUST still receive mail — otherwise the staleloss P0
+            # (silent permanent unicast loss to idle members) returns.
             sent = self._assert_ok(owner["session_token"], "room_send",
                                    {"room_id": created["room_id"],
                                     "target_spec": member["account_id"],
-                                    "payload": {"kind": "message", "text": "must-not-route"}},
+                                    "payload": {"kind": "message", "text": "must-route"}},
                                    request_id=31)
             routed = {r["agent_id"] for r in sent["receipts"]}
-            self.assertNotIn(member["account_id"], routed,
-                             "target routing must drop members stale under the shared constant")
+            self.assertIn(member["account_id"], routed,
+                          "target routing must NOT drop members the display calls stale "
+                          "(deliverability is keyed on membership)")
         finally:
             if previous is None:
                 del rooms_module.ROOM_STALE_AFTER_SECONDS
