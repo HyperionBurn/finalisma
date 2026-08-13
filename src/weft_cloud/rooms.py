@@ -81,6 +81,19 @@ _MESSAGE_KIND_RE = re.compile(r"^[a-z0-9_-]{1,32}$")
 _LINK_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 _ROOM_NAME_MAX_LENGTH = 160
 
+# Presence freshness threshold (seconds). A member whose last_seen is older
+# than this is displayed "stale" in room_info and excluded from target routing.
+# ONE named constant — routing and the status surface MUST agree, so the
+# literal is never duplicated (they silently diverged before).
+ROOM_STALE_AFTER_SECONDS = 1800.0
+
+# Liveness write throttle (seconds). ANY authenticated room call by a member
+# proves they are using the room, so the read paths refresh last_seen too.
+# The write is bounded to at most one per window so a busy poll loop does not
+# serialize the room behind SQLite's single writer; an active member's age
+# stays <= window, a tiny fraction of ROOM_STALE_AFTER_SECONDS.
+ROOM_LIVENESS_TOUCH_INTERVAL = 5.0
+
 
 def _validate_link_id(link_id: Any) -> None:
     """Validate a ``link_id`` is a well-formed control-plane identifier.
@@ -574,6 +587,37 @@ class CloudRoomService:
             raise RoomError("member_required", "Only room members can access this room", 403)
         return row
 
+    def _touch_member(self, tx: Any, tenant_id: str, room_id: str, agent_id: str,
+                      now: float | None = None) -> None:
+        """Throttled presence refresh for the CALLER's OWN membership row.
+
+        Liveness describes whether a member IS USING the room, not whether they
+        called one specific bookkeeping tool — so every authenticated room call
+        refreshes last_seen. The write is bounded to at most one per
+        ``ROOM_LIVENESS_TOUCH_INTERVAL`` (readers do not serialize the room
+        behind SQLite's single writer). Only ever touches the row keyed by
+        ``agent_id`` — the caller's authenticated account, never a request
+        argument — and a missing row is a no-op, so a non-member call can
+        neither create nor touch a membership row. Callers invoke this AFTER
+        ``_require_member``, so auth is established before any write.
+        """
+        if now is None:
+            now = _time.time()
+        row = tx.execute(
+            "SELECT last_seen FROM cloud_room_members "
+            "WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
+            (tenant_id, room_id, agent_id),
+        ).fetchone()
+        if row is None:
+            return
+        if now - float(row["last_seen"]) < ROOM_LIVENESS_TOUCH_INTERVAL:
+            return
+        tx.execute(
+            "UPDATE cloud_room_members SET last_seen = ?, status = 'active' "
+            "WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
+            (now, tenant_id, room_id, agent_id),
+        )
+
     @staticmethod
     def _filter_payload_for_agent(payload: dict, agent_id: str) -> dict:
         """Redact message payloads not addressed to ``agent_id``.
@@ -627,7 +671,7 @@ class CloudRoomService:
         active_ids: set[str] = set()
         for row in member_rows:
             age = max(0.0, _time.time() - float(row["last_seen"]))
-            if age <= 1800:
+            if age <= ROOM_STALE_AFTER_SECONDS:
                 active_ids.add(row["agent_id"])
 
         group_rows = tx.execute(
@@ -931,6 +975,7 @@ class CloudRoomService:
         with self.backend.transaction() as tx:
             room = self._require_room(tx, tenant_id, room_id)
             self._require_member(tx, tenant_id, room_id, agent_id)
+            self._touch_member(tx, tenant_id, room_id, agent_id)
             members = tx.execute(
                 "SELECT * FROM cloud_room_members WHERE tenant_id = ? AND room_id = ? AND status = 'active' ORDER BY joined_at",
                 (tenant_id, room_id),
@@ -940,7 +985,7 @@ class CloudRoomService:
                 age = max(0.0, _time.time() - float(m["last_seen"]))
                 member_list.append({
                     "agent_id": m["agent_id"],
-                    "status": "stale" if age > 1800 else "active",
+                    "status": "stale" if age > ROOM_STALE_AFTER_SECONDS else "active",
                     "capabilities": _parse_json(m["capabilities_json"], []),
                     "last_seen": float(m["last_seen"]),
                     "joined_at": m["joined_at"],
@@ -1112,6 +1157,7 @@ class CloudRoomService:
         with self.backend.transaction() as tx:
             room = self._require_room(tx, tenant_id, room_id)
             self._require_member(tx, tenant_id, room_id, agent_id)
+            self._touch_member(tx, tenant_id, room_id, agent_id)
             if after_seq is None:
                 cursor = tx.execute(
                     "SELECT last_ack_seq FROM cloud_room_cursors WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
@@ -1187,6 +1233,11 @@ class CloudRoomService:
         does not. ``after_seq`` is pinned on the first read (resolving the
         cursor default once), so concurrent ACKs cannot silently move the
         read window mid-wait.
+
+        Liveness: the caller's ``last_seen`` is refreshed when the wait BEGINS
+        and again when it RETURNS (throttled, so a 25-second block never ages
+        the caller toward stale — the server holds the connection and knows
+        the agent is there).
         """
         try:
             timeout_seconds = int(timeout_seconds)
@@ -1194,6 +1245,20 @@ class CloudRoomService:
             timeout_seconds = 20
         timeout_seconds = max(0, min(timeout_seconds, 30))
         deadline = _time.monotonic() + timeout_seconds
+
+        # BEGIN: prove the caller is alive the instant the block starts. A
+        # blocked waiter is provably alive — the server is holding its
+        # connection — so the wait must never age the caller toward stale.
+        # This runs in its own short transaction that fully closes before the
+        # poll loop, so no write lock is ever held while waiting (the lock
+        # discipline below is preserved). Auth is established here too, so a
+        # non-member is refused before any blocking starts.
+        with self.backend.transaction() as tx:
+            self._require_room(tx, tenant_id, room_id)
+            self._require_member(tx, tenant_id, room_id, agent_id)
+            self._touch_member(tx, tenant_id, room_id, agent_id)
+            tx.commit()
+
         result = self.poll(tenant_id, room_id, agent_id, after_seq, limit,
                            message_kinds=message_kinds)
         if not result["events"]:
@@ -1204,6 +1269,15 @@ class CloudRoomService:
                                    message_kinds=message_kinds)
                 if result["events"]:
                     break
+
+        # RETURN: refresh once more before handing control back, so a long
+        # block that ended on a throttled poll never returns with an aged
+        # last_seen. (The poll loop already keeps the caller fresh throughout;
+        # this is the explicit return bookend.)
+        with self.backend.transaction() as tx:
+            self._touch_member(tx, tenant_id, room_id, agent_id)
+            tx.commit()
+
         result["timed_out"] = not bool(result["events"])
         return result
 
@@ -1212,6 +1286,7 @@ class CloudRoomService:
         with self.backend.transaction() as tx:
             room = self._require_room(tx, tenant_id, room_id)
             self._require_member(tx, tenant_id, room_id, agent_id)
+            self._touch_member(tx, tenant_id, room_id, agent_id)
             if int(seq) > int(room["cursor_head"]):
                 raise RoomError("invalid_cursor", "Cannot acknowledge an event beyond the room head", 400)
             now = utc_now_iso()
@@ -1278,6 +1353,7 @@ class CloudRoomService:
             with self.backend.transaction() as tx:
                 room = self._require_room(tx, tenant_id, room_id)
                 self._require_member(tx, tenant_id, room_id, sender_agent_id)
+                self._touch_member(tx, tenant_id, room_id, sender_agent_id)
                 if room["state"] == "closed":
                     raise RoomError("room_closed", "Room is closed", 409)
                 if idempotency_key:
@@ -1420,6 +1496,7 @@ class CloudRoomService:
         with self.backend.transaction() as tx:
             self._require_room(tx, tenant_id, room_id)
             self._require_member(tx, tenant_id, room_id, agent_id)
+            self._touch_member(tx, tenant_id, room_id, agent_id)
             rows = tx.execute(
                 "SELECT * FROM cloud_room_event_log WHERE tenant_id = ? AND room_id = ? ORDER BY seq",
                 (tenant_id, room_id),
