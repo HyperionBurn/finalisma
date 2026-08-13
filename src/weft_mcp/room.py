@@ -221,6 +221,21 @@ CREATE TABLE IF NOT EXISTS room_group_members (
     agent_id TEXT NOT NULL,
     PRIMARY KEY (room_id, group_name, agent_id)
 );
+
+CREATE TABLE IF NOT EXISTS room_receipts (
+    room_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    recipient_agent_id TEXT NOT NULL,
+    sender_agent_id TEXT NOT NULL,
+    entry_id TEXT,
+    status TEXT NOT NULL DEFAULT 'queued'
+        CHECK(status IN ('queued','read')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (room_id, seq, recipient_agent_id)
+);
+CREATE INDEX IF NOT EXISTS idx_room_receipts_recipient
+    ON room_receipts(room_id, recipient_agent_id, status);
 """
 
 
@@ -756,11 +771,26 @@ class RoomStore:
                 "last_ack_seq = MAX(last_ack_seq, excluded.last_ack_seq), updated_at = excluded.updated_at",
                 (room_id, agent_id, int(seq), now),
             )
+            # Read-receipt lifecycle: acking past an event's seq means the
+            # recipient processed it — its receipt transitions queued -> read,
+            # scoped to THIS member's receipts only.
+            conn.execute(
+                "UPDATE room_receipts SET status = 'read', updated_at = ? "
+                "WHERE room_id = ? AND recipient_agent_id = ? AND seq <= ? AND status = 'queued'",
+                (now, room_id, agent_id, int(seq)),
+            )
+            read_row = conn.execute(
+                "SELECT COUNT(*) AS c FROM room_receipts "
+                "WHERE room_id = ? AND recipient_agent_id = ? AND seq <= ? AND status = 'read'",
+                (room_id, agent_id, int(seq)),
+            ).fetchone()
             row = conn.execute(
                 "SELECT last_ack_seq FROM room_cursors WHERE room_id = ? AND agent_id = ?",
                 (room_id, agent_id),
             ).fetchone()
-            return {"room_id": room_id, "agent_id": agent_id, "last_ack_seq": int(row["last_ack_seq"])}
+            return {"room_id": room_id, "agent_id": agent_id,
+                    "last_ack_seq": int(row["last_ack_seq"]),
+                    "receipts_read": int(read_row["c"])}
 
     # ------------------------------------------------------------------
     # Addressing — compose roster route_targets + envelope_v2 + outbox
@@ -784,6 +814,18 @@ class RoomStore:
             seq = self._append_event(conn, room_id, sender_agent_id, "room.message",
                                      {"payload": payload, "target_spec": target_spec},
                                      message_kind=message_kind)
+            # Durable per-recipient receipt rows, committed in the SAME
+            # transaction as the event (all-or-nothing). entry_id is filled
+            # after the outbox enqueue below.
+            now = _utc_now()
+            for target in targets:
+                conn.execute(
+                    "INSERT OR IGNORE INTO room_receipts("
+                    " room_id, seq, recipient_agent_id, sender_agent_id,"
+                    " entry_id, status, created_at, updated_at"
+                    ") VALUES (?, ?, ?, ?, NULL, 'queued', ?, ?)",
+                    (room_id, seq, target, sender_agent_id, now, now),
+                )
         envelope = _roster.build_envelope_v2(sender_agent_id, targets, "room.message",
                                              payload, capabilities=None)
         envelope["envelope_id"] = _new_id("oev")
@@ -794,6 +836,13 @@ class RoomStore:
             per_target_keys[recipient] = t["idempotency_key"]
         envelope["per_target_idempotency_keys"] = per_target_keys
         entry_ids = _outbox.enqueue(envelope, targets, roster_or_team_id=room_id)
+        with self._transaction() as conn:
+            for target, entry_id in zip(targets, entry_ids):
+                conn.execute(
+                    "UPDATE room_receipts SET entry_id = ? "
+                    "WHERE room_id = ? AND seq = ? AND recipient_agent_id = ?",
+                    (entry_id, room_id, seq, target),
+                )
         receipts = []
         for agent_id, entry_id in zip(targets, entry_ids):
             receipts.append({"agent_id": agent_id, "entry_id": entry_id, "status": "queued"})

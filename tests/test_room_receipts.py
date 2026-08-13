@@ -265,5 +265,111 @@ class RoomReceiptLifecycleTests(RoomReceiptsTestBase):
         self.assertEqual(rows, [], "a refused send must leave no receipt rows")
 
 
+# ---------------------------------------------------------------------------
+# Coordinator plane — same receipt lifecycle, real MCP dispatcher.
+# ---------------------------------------------------------------------------
+
+class CoordinatorRoomReceiptTests(unittest.TestCase):
+    def setUp(self) -> None:
+        import sqlite3 as _sqlite3
+
+        from weft_mcp.core import WeftStore
+        from weft_mcp.server import WeftDispatcher
+
+        self._sqlite3 = _sqlite3
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.store = WeftStore(self.root / "state.db", self.root, require_actor_auth=True)
+        self.dispatcher = WeftDispatcher(self.store)
+        self.team = "team-coord-receipts"
+        self.tokens = {}
+        for agent_id in ("OWNER", "A2"):
+            reg = self.dispatcher.call_tool(
+                "register_agent",
+                {"team_id": self.team, "agent_id": agent_id, "role": "member"},
+            )
+            self.tokens[agent_id] = reg["actor_token"]
+        created = self.dispatcher.call_tool(
+            "room_create", {"team_id": self.team, "owner_agent_id": "OWNER", "cap": 5},
+        )
+        self.room_id = created["room_id"]
+        self.link_token = created["link_token"]
+        for agent_id in ("OWNER", "A2"):
+            self.dispatcher.call_tool("room_join", {
+                "team_id": self.team, "room_id": self.room_id,
+                "link_token": self.link_token, "agent_id": agent_id,
+                "consent": True, "actor_token": self.tokens[agent_id],
+            })
+
+    def tearDown(self) -> None:
+        self.store.close()
+        self.temp.cleanup()
+
+    def _receipt_rows(self, recipient: str | None = None) -> list:
+        conn = self._sqlite3.connect(self.dispatcher.rooms.db_path)
+        try:
+            if recipient is None:
+                return conn.execute(
+                    "SELECT * FROM room_receipts WHERE room_id = ?",
+                    (self.room_id,),
+                ).fetchall()
+            return conn.execute(
+                "SELECT * FROM room_receipts WHERE room_id = ? AND recipient_agent_id = ?",
+                (self.room_id, recipient),
+            ).fetchall()
+        finally:
+            conn.close()
+
+    def _send(self, sender: str, target_spec, payload: dict) -> dict:
+        return self.dispatcher.call_tool("room_send", {
+            "team_id": self.team, "room_id": self.room_id,
+            "sender_agent_id": sender, "target_spec": target_spec,
+            "payload": payload, "actor_token": self.tokens[sender],
+        })
+
+    def test_send_creates_receipt_row_and_ack_transitions_it(self) -> None:
+        sent = self._send("OWNER", "A2", {"text": "coord-receipt"})
+        rows = self._receipt_rows("A2")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0][5], "queued")  # status column
+        self.assertIsNotNone(rows[0][4], "entry_id must be filled after the outbox enqueue")
+
+        acked = self.dispatcher.call_tool("room_ack", {
+            "team_id": self.team, "room_id": self.room_id,
+            "agent_id": "A2", "seq": sent["seq"], "actor_token": self.tokens["A2"],
+        })
+        self.assertEqual(acked["receipts_read"], 1,
+                         "coordinator ack must report the caller's read receipts")
+        self.assertEqual(self._receipt_rows("A2")[0][5], "read")
+
+    def test_ack_scoped_to_acker_only(self) -> None:
+        sent = self._send("OWNER", "A2", {"text": "scoped"})
+        owner_rows_before = self._receipt_rows("OWNER")
+        acked = self.dispatcher.call_tool("room_ack", {
+            "team_id": self.team, "room_id": self.room_id,
+            "agent_id": "A2", "seq": sent["seq"], "actor_token": self.tokens["A2"],
+        })
+        self.assertEqual(acked["receipts_read"], 1)
+        self.assertEqual(self._receipt_rows("A2")[0][5], "read")
+        # The sender's own view is untouched: no receipt row exists for the
+        # sender because the unicast excluded them.
+        self.assertEqual(self._receipt_rows("OWNER"), owner_rows_before)
+
+    def test_receipts_survive_store_reopen(self) -> None:
+        sent = self._send("OWNER", "A2", {"text": "durable-coord"})
+        self.dispatcher.call_tool("room_ack", {
+            "team_id": self.team, "room_id": self.room_id,
+            "agent_id": "A2", "seq": sent["seq"], "actor_token": self.tokens["A2"],
+        })
+        self.store.close()
+        from weft_mcp.core import WeftStore
+        from weft_mcp.server import WeftDispatcher
+        self.store = WeftStore(self.root / "state.db", self.root, require_actor_auth=True)
+        self.dispatcher = WeftDispatcher(self.store)
+        rows = self._receipt_rows("A2")
+        self.assertEqual(rows[0][5], "read",
+                         "coordinator receipt lifecycle must survive a store reopen")
+
+
 if __name__ == "__main__":
     unittest.main()
