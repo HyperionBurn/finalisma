@@ -197,6 +197,18 @@ class HostedMCPTransportTests(HostedMCPTestBase):
         self.assertEqual(status, HTTPStatus.ACCEPTED)
         self.assertEqual(body, b"")
 
+    def test_notification_method_with_id_is_202_not_an_sse_stream(self) -> None:
+        """A notifications/* method sent WITH an id replies 202 empty on the
+        JSON path; under an SSE-only Accept it must stay a 202 with no body,
+        never a streamed ``data:`` frame with no payload."""
+        token = self._signed_in("notify-with-id")
+        status, headers, body = _mcp_post(
+            self.base, "notifications/initialized", {}, token=token,
+            accept="text/event-stream", request_id=9, notification=False)
+        self.assertEqual(status, HTTPStatus.ACCEPTED)
+        self.assertNotEqual(headers.get("content-type"), "text/event-stream")
+        self.assertEqual(body, b"")
+
 
 class HostedMCPSSEKeepaliveTests(HostedMCPTestBase):
     """A long ``room_wait`` streamed over SSE must not sit silent: at least

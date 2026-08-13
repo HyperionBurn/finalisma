@@ -64,6 +64,12 @@ SERVER_NAME = "weft-cloud"
 SERVER_VERSION = "0.1.0"
 MAX_JSON_RPC_BYTES = 512 * 1024
 
+# Notification methods always yield no reply (202 with an empty body) even if
+# a client sends them with an ``id``; the HTTP layer shares this set so its
+# response-framing decision (plain 202 vs SSE vs JSON) matches
+# ``handle_json_rpc``'s "returns None" contract exactly.
+_MCP_NOTIFICATION_METHODS = frozenset({"notifications/initialized", "notifications/cancelled"})
+
 # room_wait concurrency bound. A blocking long-poll holds one HTTP connection
 # and one worker thread for up to timeout_seconds (clamped to 30). Many waiters
 # is the NORMAL case for the product, so the cap is generous; only when it is
@@ -341,7 +347,7 @@ class HostedMCPDispatcher:
                 ),
             }
             return None if is_notification else {"jsonrpc": "2.0", "id": request_id, "result": result}
-        if method in {"notifications/initialized", "notifications/cancelled"}:
+        if method in _MCP_NOTIFICATION_METHODS:
             return None
         if method == "ping":
             return None if is_notification else {"jsonrpc": "2.0", "id": request_id, "result": {}}

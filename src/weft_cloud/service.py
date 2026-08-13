@@ -52,6 +52,7 @@ from weft_cloud.mcp import (
     HostedMCPDispatcher,
     MAX_JSON_RPC_BYTES,
     _FORBIDDEN_IDENTITY_ARGS,
+    _MCP_NOTIFICATION_METHODS,
     _json_rpc_error,
     _wait_slots,
 )
@@ -1261,7 +1262,11 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
                 request_id, -32600,
                 "Not acceptable: this endpoint produces application/json or text/event-stream"))
             return
-        if accepts_sse and not accepts_json and not is_notification:
+        # A notification (or a notifications/* method carrying an id) is
+        # answered 202 with no body on the JSON path; keep that exact shape on
+        # the SSE path instead of opening a stream that has no payload.
+        replies_202 = is_notification or method in _MCP_NOTIFICATION_METHODS
+        if accepts_sse and not accepts_json and not replies_202:
             # Streamable HTTP SSE response. Headers go out first so keepalive
             # comment frames can be written while a tool (room_wait) blocks;
             # the JSON-RPC payload is delivered as the final data: frame.
