@@ -430,11 +430,24 @@ class RoomStore:
                     raise RoomError("actor_auth_invalid", "Link cannot overwrite an existing member identity")
                 now = _utc_now()
                 already_active = existing["status"] == "active"
-                conn.execute(
-                    "UPDATE room_members SET status = 'active', last_seen = ?, joined_at = ?, capabilities_json = ?, actor_token_hash = ? "
-                    "WHERE room_id = ? AND agent_id = ?",
-                    (_epoch(), now, _json(list(capabilities)), actor_token_hash, room_id, agent_id),
-                )
+                if already_active:
+                    # Idempotent re-join of an already-active member: refresh
+                    # presence ONLY. joined_at is a one-time fact — rewriting it
+                    # churned the roster on every client retry — and capabilities
+                    # + the actor-token hash stay as the original join recorded.
+                    conn.execute(
+                        "UPDATE room_members SET last_seen = ? WHERE room_id = ? AND agent_id = ?",
+                        (_epoch(), room_id, agent_id),
+                    )
+                    joined_at = existing["joined_at"]
+                else:
+                    # Left member reactivating: this IS a new membership period.
+                    conn.execute(
+                        "UPDATE room_members SET status = 'active', last_seen = ?, joined_at = ?, capabilities_json = ?, actor_token_hash = ? "
+                        "WHERE room_id = ? AND agent_id = ?",
+                        (_epoch(), now, _json(list(capabilities)), actor_token_hash, room_id, agent_id),
+                    )
+                    joined_at = now
                 conn.execute(
                     "INSERT INTO room_cursors(room_id, agent_id, last_ack_seq, updated_at) VALUES (?, ?, 0, ?) "
                     "ON CONFLICT(room_id, agent_id) DO NOTHING",
@@ -444,8 +457,13 @@ class RoomStore:
                 if not already_active:
                     self._append_event(conn, room_id, agent_id, "room.joined",
                                        {"agent_id": agent_id, "status": "active"})
+                cursor_row = conn.execute(
+                    "SELECT last_ack_seq FROM room_cursors WHERE room_id = ? AND agent_id = ?",
+                    (room_id, agent_id),
+                ).fetchone()
+                cursor = int(cursor_row["last_ack_seq"]) if cursor_row else 0
                 return {"room_id": room_id, "agent_id": agent_id, "status": "active",
-                        "joined_at": now, "cursor": 0}
+                        "joined_at": joined_at, "cursor": cursor}
 
             # New identity: enforce the cap atomically (BEGIN IMMEDIATE writer lock).
             active_count = conn.execute(
@@ -691,6 +709,7 @@ class RoomStore:
             if room["state"] == "closed":
                 raise RoomError("room_closed", "Room is closed")
             targets = self._route_targets(conn, room_id, target_spec)
+            self._reject_unroutable_specs(conn, room_id, target_spec, targets)
             if exclude_sender and sender_agent_id in targets:
                 targets = [t for t in targets if t != sender_agent_id]
             seq = self._append_event(conn, room_id, sender_agent_id, "room.message",
@@ -714,19 +733,22 @@ class RoomStore:
     def _route_targets(self, conn: sqlite3.Connection, room_id: str, target_spec: Any) -> list[str]:
         """Expand a target spec over the room's OWN member set.
 
-        Semantics match roster.route_targets (agent_id / group name / '*' /
-        mixed list), stale-excluded, sender NOT auto-excluded. The room owns
-        room_members + room_group_members, so routing reads those tables.
+        Deliverability is keyed on MEMBERSHIP, not on current presence.
+        ``stale`` is a derived presence notion (idle longer than the presence
+        window); an idle member still holds a seat and must still receive its
+        mail — the event log IS the delivery mechanism and the recipient reads
+        it when it returns. Only ``left`` members and non-members are
+        unroutable.
+
+        This is the P0 fix: routing previously dropped idle members, so a
+        unicast to one created NO delivery row and NO receipt, and the message
+        was silently lost to its own intended recipient.
         """
         member_rows = conn.execute(
-            "SELECT agent_id, last_seen FROM room_members WHERE room_id = ? AND status = 'active'",
+            "SELECT agent_id FROM room_members WHERE room_id = ? AND status = 'active'",
             (room_id,),
         ).fetchall()
-        active_ids: set[str] = set()
-        for row in member_rows:
-            age = max(0.0, _epoch() - float(row["last_seen"]))
-            if age <= 1800:
-                active_ids.add(row["agent_id"])
+        active_ids: set[str] = {row["agent_id"] for row in member_rows}
 
         group_rows = conn.execute(
             "SELECT group_name, agent_id FROM room_group_members WHERE room_id = ?",
@@ -754,6 +776,34 @@ class RoomStore:
         for spec in specs:
             result |= _expand(spec)
         return sorted(result)
+
+    def _reject_unroutable_specs(self, conn: sqlite3.Connection, room_id: str,
+                                 target_spec: Any, routed: list[str]) -> None:
+        """Refuse a send that names a target that is not a current member.
+
+        NO SILENT SUCCESS: ``200`` with ``receipts: []`` was indistinguishable
+        from a successful send. A spec that names an agent (a bare string that
+        is neither ``"*"`` nor a group name) must resolve to a current member
+        or the whole send is refused with ``recipient_not_found``. ``left``
+        members and never-joined ids both hit this: they are genuinely
+        undeliverable.
+        """
+        if isinstance(target_spec, str):
+            specs = [target_spec]
+        else:
+            specs = list(target_spec or [])
+        group_rows = conn.execute(
+            "SELECT group_name FROM room_groups WHERE room_id = ?", (room_id,),
+        ).fetchall()
+        group_names = {row["group_name"] for row in group_rows}
+        unrouted = [spec for spec in specs
+                    if isinstance(spec, str) and spec != "*"
+                    and spec not in routed and spec not in group_names]
+        if unrouted:
+            raise RoomError(
+                "recipient_not_found",
+                f"Recipient(s) are not members of this room: {', '.join(unrouted)}",
+            )
 
     def receipts(self, team_id: str, room_id: str, agent_id: str, entry_ids: Sequence[str],
                  actor_token: str) -> dict[str, Any]:
