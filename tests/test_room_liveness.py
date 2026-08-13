@@ -511,5 +511,196 @@ class RoomLivenessThroughputTests(RoomLivenessTestBase):
                          "a tight poll loop must NOT write last_seen per call (throttled)")
 
 
+# ---------------------------------------------------------------------------
+# Coordinator plane — same liveness defect, same fix, real MCP dispatcher.
+# The hosted cloud plane is covered above; the stdlib coordinator tier (the
+# surface Claude Desktop / Claude Code / Cursor host locally) had the same
+# defect: only room_heartbeat refreshed last_seen, so a member following the
+# documented poll loop aged into 'stale' while actively working.
+# ---------------------------------------------------------------------------
+
+class CoordinatorRoomLivenessTests(unittest.TestCase):
+    def setUp(self) -> None:
+        import sqlite3 as _sqlite3
+
+        from weft_mcp.core import WeftStore
+        from weft_mcp.server import WeftDispatcher
+        import weft_mcp.room as coord_room
+
+        self._sqlite3 = _sqlite3
+        self.coord_room = coord_room
+        self.temp = tempfile.TemporaryDirectory()
+        root = Path(self.temp.name)
+        self.store = WeftStore(root / "state.db", root, require_actor_auth=True)
+        self.dispatcher = WeftDispatcher(self.store)
+        self.team = "team-coord-liveness"
+        self.tokens = {}
+        for agent_id in ("OWNER", "A2"):
+            reg = self.dispatcher.call_tool(
+                "register_agent",
+                {"team_id": self.team, "agent_id": agent_id, "role": "member"},
+            )
+            self.tokens[agent_id] = reg["actor_token"]
+        created = self.dispatcher.call_tool(
+            "room_create", {"team_id": self.team, "owner_agent_id": "OWNER", "cap": 5},
+        )
+        self.room_id = created["room_id"]
+        self.link_token = created["link_token"]
+        for agent_id in ("OWNER", "A2"):
+            self.dispatcher.call_tool("room_join", {
+                "team_id": self.team, "room_id": self.room_id,
+                "link_token": self.link_token, "agent_id": agent_id,
+                "consent": True, "actor_token": self.tokens[agent_id],
+            })
+
+    def tearDown(self) -> None:
+        self.store.close()
+        self.temp.cleanup()
+
+    def _last_seen(self, agent_id: str) -> float:
+        conn = self._sqlite3.connect(self.dispatcher.rooms.db_path)
+        try:
+            row = conn.execute(
+                "SELECT last_seen FROM room_members WHERE room_id = ? AND agent_id = ?",
+                (self.room_id, agent_id),
+            ).fetchone()
+            return float(row[0])
+        finally:
+            conn.close()
+
+    def _backdate(self, agent_id: str) -> None:
+        conn = self._sqlite3.connect(self.dispatcher.rooms.db_path)
+        try:
+            conn.execute(
+                "UPDATE room_members SET last_seen = ? WHERE room_id = ? AND agent_id = ?",
+                (time.time() - 60.0, self.room_id, agent_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def _touch_interval(self, seconds: float):
+        return _patched_interval(self.coord_room, seconds)
+
+    def test_poll_refreshes_last_seen(self) -> None:
+        self._backdate("A2")
+        before = self._last_seen("A2")
+        time.sleep(0.02)
+        with self._touch_interval(0.0001):
+            self.dispatcher.call_tool("room_poll", {
+                "team_id": self.team, "room_id": self.room_id,
+                "agent_id": "A2", "actor_token": self.tokens["A2"], "after_seq": 0,
+            })
+        after = self._last_seen("A2")
+        self.assertGreater(after, before,
+                           "coordinator room_poll must refresh the caller's last_seen")
+
+    def test_send_refreshes_last_seen(self) -> None:
+        self._backdate("A2")
+        before = self._last_seen("A2")
+        time.sleep(0.02)
+        with self._touch_interval(0.0001):
+            self.dispatcher.call_tool("room_send", {
+                "team_id": self.team, "room_id": self.room_id,
+                "sender_agent_id": "A2", "target_spec": "*",
+                "payload": {"text": "coord-liveness-send"},
+                "actor_token": self.tokens["A2"],
+            })
+        after = self._last_seen("A2")
+        self.assertGreater(after, before,
+                           "coordinator room_send must refresh the caller's last_seen")
+
+    def test_info_refreshes_last_seen(self) -> None:
+        self._backdate("A2")
+        before = self._last_seen("A2")
+        time.sleep(0.02)
+        with self._touch_interval(0.0001):
+            self.dispatcher.call_tool("room_info", {
+                "team_id": self.team, "room_id": self.room_id,
+                "agent_id": "A2", "actor_token": self.tokens["A2"],
+            })
+        after = self._last_seen("A2")
+        self.assertGreater(after, before,
+                           "coordinator room_info must refresh the caller's last_seen")
+
+    def test_ack_refreshes_last_seen(self) -> None:
+        self._backdate("A2")
+        before = self._last_seen("A2")
+        time.sleep(0.02)
+        with self._touch_interval(0.0001):
+            self.dispatcher.call_tool("room_ack", {
+                "team_id": self.team, "room_id": self.room_id,
+                "agent_id": "A2", "seq": 0, "actor_token": self.tokens["A2"],
+            })
+        after = self._last_seen("A2")
+        self.assertGreater(after, before,
+                           "coordinator room_ack must refresh the caller's last_seen")
+
+    def test_member_cannot_refresh_another_members_last_seen(self) -> None:
+        a2_before = self._last_seen("A2")
+        with self._touch_interval(0.0001):
+            self.dispatcher.call_tool("room_poll", {
+                "team_id": self.team, "room_id": self.room_id,
+                "agent_id": "OWNER", "actor_token": self.tokens["OWNER"], "after_seq": 0,
+            })
+            self.dispatcher.call_tool("room_send", {
+                "team_id": self.team, "room_id": self.room_id,
+                "sender_agent_id": "OWNER", "target_spec": "*",
+                "payload": {"text": "ping"}, "actor_token": self.tokens["OWNER"],
+            })
+            self.dispatcher.call_tool("room_info", {
+                "team_id": self.team, "room_id": self.room_id,
+                "agent_id": "OWNER", "actor_token": self.tokens["OWNER"],
+            })
+        self.assertEqual(self._last_seen("A2"), a2_before,
+                         "a member's activity must never refresh another member's last_seen")
+
+    def test_display_reads_shared_constant(self) -> None:
+        previous = getattr(self.coord_room, "ROOM_STALE_AFTER_SECONDS", None)
+        self.coord_room.ROOM_STALE_AFTER_SECONDS = 60
+        try:
+            self._backdate("A2")
+            info = self.dispatcher.call_tool("room_info", {
+                "team_id": self.team, "room_id": self.room_id,
+                "agent_id": "OWNER", "actor_token": self.tokens["OWNER"],
+            })
+            statuses = {m["agent_id"]: m["status"] for m in info["members"]}
+            self.assertEqual(statuses.get("A2"), "stale",
+                             "coordinator room_info must read the shared staleness constant")
+        finally:
+            if previous is None:
+                del self.coord_room.ROOM_STALE_AFTER_SECONDS
+            else:
+                self.coord_room.ROOM_STALE_AFTER_SECONDS = previous
+
+    def test_heartbeat_still_works(self) -> None:
+        self._backdate("A2")
+        before = self._last_seen("A2")
+        time.sleep(0.02)
+        hb = self.dispatcher.call_tool("room_heartbeat", {
+            "team_id": self.team, "room_id": self.room_id,
+            "agent_id": "A2", "actor_token": self.tokens["A2"],
+        })
+        self.assertEqual(hb["status"], "active")
+        self.assertGreater(self._last_seen("A2"), before,
+                           "room_heartbeat must keep refreshing last_seen")
+
+
+def _patched_interval(module, seconds: float):
+    @contextlib.contextmanager
+    def _ctx():
+        previous = getattr(module, "ROOM_LIVENESS_TOUCH_INTERVAL", None)
+        module.ROOM_LIVENESS_TOUCH_INTERVAL = seconds
+        try:
+            yield
+        finally:
+            if previous is None:
+                del module.ROOM_LIVENESS_TOUCH_INTERVAL
+            else:
+                module.ROOM_LIVENESS_TOUCH_INTERVAL = previous
+
+    return _ctx()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -69,6 +69,23 @@ def _validate_message_kind(value: Any, field: str = "message_kind") -> str | Non
     return value
 
 
+# Presence freshness threshold (seconds). A member whose last_seen is older
+# than this is displayed "stale" in room_info. ONE named constant — every
+# presence surface MUST agree, so the literal is never duplicated (the status
+# surface and target routing silently diverged before the staleloss fix).
+# NOTE: this governs DISPLAY and liveness bookkeeping only. Deliverability is
+# keyed on membership, never on this window — an idle member still receives
+# its mail (see Room._route_targets; the P0 staleloss fix).
+ROOM_STALE_AFTER_SECONDS = 1800.0
+
+# Liveness write throttle (seconds). ANY authenticated room call by a member
+# proves they are using the room, so the read paths refresh last_seen too.
+# The write is bounded to at most one per window so a busy poll loop does not
+# serialize the room behind SQLite's single writer; an active member's age
+# stays <= window, a tiny fraction of ROOM_STALE_AFTER_SECONDS.
+ROOM_LIVENESS_TOUCH_INTERVAL = 5.0
+
+
 def _validate_message_kinds(value: Sequence[str] | None,
                             field: str = "message_kinds") -> list[str] | None:
     """Validate the optional ``message_kinds`` poll filter.
@@ -395,6 +412,34 @@ class RoomStore:
         self._require_member(conn, room_id, agent_id)
         return room
 
+    def _touch_member(self, conn: sqlite3.Connection, room_id: str, agent_id: str,
+                      now: float | None = None) -> None:
+        """Throttled presence refresh for the CALLER's OWN membership row.
+
+        Liveness describes whether a member IS USING the room, not whether they
+        called one specific bookkeeping tool — so every authenticated room call
+        refreshes last_seen. The write is bounded to at most one per
+        ``ROOM_LIVENESS_TOUCH_INTERVAL`` (readers do not serialize the room
+        behind SQLite's single writer). Only ever touches the row keyed by
+        ``agent_id`` — the caller's authenticated account, never a request
+        argument — and a missing row is a no-op. Callers invoke this AFTER
+        ``_require_authenticated_member``, so auth is established first.
+        """
+        if now is None:
+            now = _epoch()
+        row = conn.execute(
+            "SELECT last_seen FROM room_members WHERE room_id = ? AND agent_id = ?",
+            (room_id, agent_id),
+        ).fetchone()
+        if row is None:
+            return
+        if now - float(row["last_seen"]) < ROOM_LIVENESS_TOUCH_INTERVAL:
+            return
+        conn.execute(
+            "UPDATE room_members SET last_seen = ? WHERE room_id = ? AND agent_id = ?",
+            (now, room_id, agent_id),
+        )
+
     def join_room(self, team_id: str, room_id: str, link_token: str, agent_id: str,
                   consent: Any, capabilities: Sequence[str], actor_token: str,
                   actor_token_hash: str) -> dict[str, Any]:
@@ -573,6 +618,7 @@ class RoomStore:
     def room_info(self, team_id: str, room_id: str, agent_id: str, actor_token: str) -> dict[str, Any]:
         with self._transaction() as conn:
             room = self._require_authenticated_member(conn, team_id, room_id, agent_id, actor_token)
+            self._touch_member(conn, room_id, agent_id)
             members = conn.execute(
                 "SELECT * FROM room_members WHERE room_id = ? AND status = 'active' ORDER BY joined_at",
                 (room_id,),
@@ -582,7 +628,7 @@ class RoomStore:
                 age = max(0.0, _epoch() - float(m["last_seen"]))
                 member_list.append({
                     "agent_id": m["agent_id"],
-                    "status": "stale" if age > 1800 else "active",
+                    "status": "stale" if age > ROOM_STALE_AFTER_SECONDS else "active",
                     "capabilities": _parse_json(m["capabilities_json"], []),
                     "last_seen": float(m["last_seen"]),
                     "joined_at": m["joined_at"],
@@ -640,6 +686,7 @@ class RoomStore:
         kind_filter = _validate_message_kinds(message_kinds)
         with self._transaction() as conn:
             room = self._require_authenticated_member(conn, team_id, room_id, agent_id, actor_token)
+            self._touch_member(conn, room_id, agent_id)
             if after_seq is None:
                 cursor = conn.execute(
                     "SELECT last_ack_seq FROM room_cursors WHERE room_id = ? AND agent_id = ?",
@@ -690,6 +737,7 @@ class RoomStore:
     def ack(self, team_id: str, room_id: str, agent_id: str, seq: int, actor_token: str) -> dict[str, Any]:
         with self._transaction() as conn:
             room = self._require_authenticated_member(conn, team_id, room_id, agent_id, actor_token)
+            self._touch_member(conn, room_id, agent_id)
             if int(seq) > int(room["cursor_head"]):
                 raise RoomError("invalid_cursor", "Cannot acknowledge an event beyond the room head")
             now = _utc_now()
@@ -717,6 +765,7 @@ class RoomStore:
         message_kind = _validate_message_kind(message_kind)
         with self._transaction() as conn:
             room = self._require_authenticated_member(conn, team_id, room_id, sender_agent_id, actor_token)
+            self._touch_member(conn, room_id, sender_agent_id)
             if room["state"] == "closed":
                 raise RoomError("room_closed", "Room is closed")
             targets = self._route_targets(conn, room_id, target_spec)
