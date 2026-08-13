@@ -286,6 +286,145 @@ class RoomSeatReleaseTests(RoomSeatReleaseBase):
         self.assertEqual(resp["error"]["code"], "invalid_session")
 
 
+class CrossTenantSeatReleaseTests(RoomSeatReleaseBase):
+    """Seat release must work when the released identity joined ANOTHER tenant's room.
+
+    Cross-tenant joining is the product's headline feature: an agent that signs
+    up under its own brand-new org redeems someone else's link, and the link IS
+    the authorization. The membership row is therefore stored under the ROOM's
+    tenant, NOT the joiner's — see ``CloudRoomService.join_room`` (``real_tenant_id``).
+
+    A release path that matches on ``(tenant_id, agent_id)`` (where tenant_id is
+    the KEY's owning tenant) therefore matches ZERO rows for a cross-tenant
+    join, so revoking a key that had joined someone else's room permanently
+    burned the seat: ``409 room_full`` forever, with the membership row
+    unreachable. This is the exact live-production repro from the suite
+    docstring, with the joiner in a different tenant. These tests drive the
+    real wire surface (real server, real SQLite).
+    """
+
+    def _cross_tenant_room(self, cap: int = 3) -> dict:
+        """Owner org in tenant X creates a room; two keys from tenant Y join it.
+
+        Returns the owner session, the room, the outsider session, and the two
+        outsider keys. The key identities live in tenant Y (their owner org);
+        their membership rows live under the ROOM's tenant X.
+        """
+        owner = self._signup("owner@xtenant.example.com")
+        x_session = owner["session_token"]
+        x_tenant = owner["tenant_id"]
+        room = self._create_room(x_session, name="cross", cap=cap)
+
+        outsider = self._signup("outsider@ytenant.example.com")
+        y_session = outsider["session_token"]
+        y_tenant = outsider["tenant_id"]
+        self.assertNotEqual(x_tenant, y_tenant,
+                            "the two signups must land in different orgs")
+
+        key_a = self._mint_key(y_session, "crossA")
+        key_b = self._mint_key(y_session, "crossB")
+        for key in (key_a, key_b):
+            status, resp = self._join_room(key["agent_key"], room["room_id"], room["link_token"])
+            self.assertEqual(status, 200, f"cross-tenant join failed: {resp}")
+        return {
+            "x_session": x_session, "x_tenant": x_tenant,
+            "room": room, "y_session": y_session, "y_tenant": y_tenant,
+            "key_a": key_a, "key_b": key_b,
+        }
+
+    def _members_counter(self, room_id: str) -> int:
+        with self.service.backend.transaction() as tx:
+            row = tx.execute(
+                "SELECT value FROM cloud_room_counters "
+                "WHERE room_id = ? AND counter = 'members'",
+                (room_id,),
+            ).fetchone()
+        return int(row["value"]) if row else 0
+
+    def test_cross_tenant_revoke_frees_seat_so_new_agent_can_join(self) -> None:
+        """THE production repro, cross-tenant: full room -> revoke -> new agent joins."""
+        s = self._cross_tenant_room(cap=3)
+
+        # Room is full: a brand-new identity is refused room_full.
+        key_c = self._mint_key(s["y_session"], "crossC")
+        status, refused = self._join_room(key_c["agent_key"], s["room"]["room_id"], s["room"]["link_token"])
+        self.assertEqual(status, 409, f"room must be full before the revoke: {refused}")
+        self.assertEqual(refused["error"]["code"], "room_full")
+
+        status, info = self._room_info(s["x_session"], s["room"]["room_id"])
+        self.assertEqual(status, 200)
+        self.assertEqual(info["member_count"], 3)
+        self.assertEqual(info["cap"], 3)
+        self.assertEqual(self._members_counter(s["room"]["room_id"]), 3)
+
+        # Revoke key_a: it belongs to tenant Y, but its seat lives in tenant X's room.
+        self._revoke_key(s["y_session"], s["key_a"]["key_id"])
+
+        # The per-room member counter must drop with the active set.
+        self.assertEqual(self._members_counter(s["room"]["room_id"]), 2,
+                         "the cross-tenant member counter must decrement on revoke")
+
+        # The SAME key that was refused moments ago can now join.
+        status, joined = self._join_room(key_c["agent_key"], s["room"]["room_id"], s["room"]["link_token"])
+        self.assertEqual(status, 200, f"cross-tenant seat must free after revoke: {joined}")
+        self.assertEqual(joined["agent_id"], key_c["key_id"])
+        self.assertEqual(self._members_counter(s["room"]["room_id"]), 3)
+
+    def test_cross_tenant_revoke_drops_count_and_leaves_sibling_untouched(self) -> None:
+        s = self._cross_tenant_room(cap=3)
+        self._revoke_key(s["y_session"], s["key_a"]["key_id"])
+
+        status, info = self._room_info(s["x_session"], s["room"]["room_id"])
+        self.assertEqual(status, 200)
+        self.assertEqual(info["member_count"], 2,
+                         "cross-tenant member_count must drop when a key is revoked")
+        ids = {m["agent_id"] for m in info["members"]}
+        self.assertNotIn(s["key_a"]["key_id"], ids,
+                         "the released cross-tenant key must not be listed as active")
+        self.assertIn(s["key_b"]["key_id"], ids,
+                      "a surviving sibling key must still be listed as active")
+
+        # key_b keeps its seat AND its full capability in the room.
+        status, sent = self._send(s["key_b"]["agent_key"], s["room"]["room_id"], {"text": "sibling-alive"})
+        self.assertEqual(status, 200, f"surviving sibling key must still send: {sent}")
+        status, poll = self._poll(s["key_b"]["agent_key"], s["room"]["room_id"], after_seq=0)
+        self.assertEqual(status, 200)
+        self.assertIn("sibling-alive", json.dumps(poll["events"]))
+
+    def test_cross_tenant_events_by_revoked_identity_stay_readable_and_attributed(self) -> None:
+        s = self._cross_tenant_room(cap=3)
+        # key_a authors events before being revoked.
+        status, sent = self._send(s["key_a"]["agent_key"], s["room"]["room_id"],
+                                  {"text": "authored-across-tenant"})
+        self.assertEqual(status, 200, f"send failed: {sent}")
+
+        self._revoke_key(s["y_session"], s["key_a"]["key_id"])
+
+        # A surviving member still reads key_a's past events, attributed to key_a.
+        status, events = self._event_log(s["key_b"]["agent_key"], s["room"]["room_id"])
+        self.assertEqual(status, 200)
+        messages = [e for e in events["events"] if e["kind"] == "room.message"]
+        key_a_msgs = [e for e in messages if e["origin_agent"] == s["key_a"]["key_id"]]
+        self.assertTrue(key_a_msgs, "cross-tenant events authored by the revoked key must survive")
+        self.assertEqual(key_a_msgs[-1]["payload"]["payload"]["text"], "authored-across-tenant")
+        for e in key_a_msgs:
+            self.assertEqual(e["origin_agent"], s["key_a"]["key_id"],
+                             "cross-tenant events must keep their author attribution")
+
+        # The membership row is preserved (status='left') under the ROOM's tenant.
+        with self.service.backend.transaction() as tx:
+            row = tx.execute(
+                "SELECT tenant_id, status FROM cloud_room_members "
+                "WHERE room_id = ? AND agent_id = ?",
+                (s["room"]["room_id"], s["key_a"]["key_id"]),
+            ).fetchone()
+        self.assertIsNotNone(row, "the cross-tenant membership row must not be deleted")
+        self.assertEqual(row["status"], "left",
+                         "a revoked cross-tenant key's membership is marked left, not deleted")
+        self.assertEqual(row["tenant_id"], s["x_tenant"],
+                         "the membership lives under the ROOM's tenant, not the key owner's")
+
+
 class OrgOffboardingSeatReleaseTests(unittest.TestCase):
     """Org offboarding (remove_member) must release the account's seats too."""
 
@@ -365,6 +504,95 @@ class OrgOffboardingSeatReleaseTests(unittest.TestCase):
             ).fetchall()
         self.assertEqual(len(rows), 2, "offboarding must preserve the membership rows")
         self.assertTrue(all(r["status"] == "left" for r in rows))
+
+
+class CrossTenantOrgOffboardingSeatReleaseTests(unittest.TestCase):
+    """remove_member must release the removed account's seats in ANOTHER tenant's room."""
+
+    def setUp(self) -> None:
+        self.backend = SqliteWalBackend(tempfile.mkstemp(suffix=".db")[1])
+        self.backend.initialize()
+        ensure_schema(self.backend)
+        # Tenant X: owns the room the offboarded account has joined.
+        self.tenant_x = "tenant_xroom"
+        self.backend.create_tenant(self.tenant_x, "Room Org")
+        self.owner_x, _ = accounts.signup(self.backend, self.tenant_x, "owner@xroom.example.com", "password-123")
+        self._membership(self.tenant_x, "owner", self.owner_x)
+        # Tenant Y: the offboarded account's own org.
+        self.tenant_y = "tenant_yoff"
+        self.backend.create_tenant(self.tenant_y, "Offboarded Org")
+        self.owner_y, _ = accounts.signup(self.backend, self.tenant_y, "owner@yoff.example.com", "password-123")
+        self._membership(self.tenant_y, "owner", self.owner_y)
+        self.member_y, _ = accounts.signup(self.backend, self.tenant_y, "member@yoff.example.com", "password-123")
+        self._membership(self.tenant_y, "member", self.member_y)
+
+    def tearDown(self) -> None:
+        self.backend.close()
+
+    def _membership(self, tenant_id: str, role: str, account_id: str) -> None:
+        with self.backend.transaction() as tx:
+            tx.execute(
+                "INSERT INTO cloud_identity_members(tenant_id, account_id, role, joined_at) "
+                "VALUES (?, ?, ?, ?) ON CONFLICT(tenant_id, account_id) DO UPDATE SET role = ?",
+                (tenant_id, account_id, role, "now", role),
+            )
+            tx.commit()
+
+    def test_org_offboarding_releases_cross_tenant_seats(self) -> None:
+        rooms = CloudRoomService(self.backend)
+        _x_sid, owner_x_raw = sessions.create(self.backend, self.tenant_x, self.owner_x, role="owner")
+        _y_sid, owner_y_raw = sessions.create(self.backend, self.tenant_y, self.owner_y, role="owner")
+        owner_y_ctx = sessions.validate(self.backend, owner_y_raw)
+        _m_sid, member_y_raw = sessions.create(self.backend, self.tenant_y, self.member_y, role="member")
+
+        created = rooms.create_room(self.tenant_x, self.owner_x, owner_x_raw, cap=3, name="cross-offboard")
+        room_id = created["room_id"]
+        link = created["link_token"]
+
+        # The tenant-Y account joins the tenant-X room under its account AND a key.
+        rooms.join_room(self.tenant_y, room_id, link, self.member_y, True, member_y_raw)
+        key_id, raw_key = agent_keys.create(self.backend, self.tenant_y, self.member_y, "ci")
+        key_ctx = agent_keys.validate(self.backend, raw_key)
+        rooms.join_room(self.tenant_y, room_id, link, key_ctx.agent_id, True, member_y_raw)
+
+        info = rooms.room_info(self.tenant_x, room_id, self.owner_x)
+        self.assertEqual(info["member_count"], 3)
+
+        # Offboarding the account from its OWN org must release its seats in the
+        # other org's room too.
+        orgs.remove_member(owner_y_ctx, self.member_y)
+
+        info = rooms.room_info(self.tenant_x, room_id, self.owner_x)
+        self.assertEqual(info["member_count"], 1,
+                         "cross-tenant org offboarding must release the removed account's seats")
+        member_ids = {m["agent_id"] for m in info["members"]}
+        self.assertNotIn(self.member_y, member_ids)
+        self.assertNotIn(key_ctx.agent_id, member_ids)
+
+        # The removed account's key is dead.
+        with self.assertRaises(AuthError) as cm:
+            agent_keys.validate(self.backend, raw_key)
+        self.assertEqual(cm.exception.args[0], "invalid_session")
+
+        # A brand-new identity can take a freed seat.
+        fresh_key_id, fresh_raw = agent_keys.create(self.backend, self.tenant_x, self.owner_x, "fresh")
+        fresh_ctx = agent_keys.validate(self.backend, fresh_raw)
+        joined = rooms.join_room(self.tenant_x, room_id, link, fresh_ctx.agent_id, True, owner_x_raw)
+        self.assertEqual(joined["status"], "active")
+        info = rooms.room_info(self.tenant_x, room_id, self.owner_x)
+        self.assertEqual(info["member_count"], 2)
+
+        # The freed rows are preserved as 'left' under the ROOM's tenant — history intact.
+        with self.backend.transaction() as tx:
+            rows = tx.execute(
+                "SELECT agent_id, status, tenant_id FROM cloud_room_members "
+                "WHERE room_id = ? AND agent_id IN (?, ?)",
+                (room_id, self.member_y, key_ctx.agent_id),
+            ).fetchall()
+        self.assertEqual(len(rows), 2, "offboarding must preserve the membership rows")
+        self.assertTrue(all(r["status"] == "left" for r in rows))
+        self.assertTrue(all(r["tenant_id"] == self.tenant_x for r in rows),
+                        "the preserved rows live under the ROOM's tenant")
 
 
 if __name__ == "__main__":
