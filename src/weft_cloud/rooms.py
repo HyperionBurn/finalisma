@@ -259,7 +259,21 @@ def _append_event_tx(tx: Any, tenant_id: str, room_id: str, origin: str,
 
 def offboard_account_memberships_in_tx(tx: Any, tenant_id: str,
                                        account_id: str) -> int:
-    """Mark an account's active account/key room seats as left atomically."""
+    """Mark an account's active account/key room seats as left atomically.
+
+    The account's KEY identities are looked up under ``tenant_id`` — the org
+    being left — because a key belongs to exactly one (tenant, account) and
+    only THIS org's keys die with the membership. The account's MEMBERSHIPS,
+    however, are matched on identity alone: ``account_id`` (``acct_``) and
+    ``key_id`` (``key_``) are globally unique random identifiers, and a
+    cross-tenant join stores the membership row under the ROOM's tenant — the
+    link IS the authorization — so scoping the membership query to ``tenant_id``
+    would find zero rows for any seat the account held in another tenant's room.
+    Releasing across that boundary is correct ONLY here because this identity is
+    being permanently removed from the org. Downstream writes (membership
+    status, group rows, cursors, member counter, event log) are keyed on each
+    row's own ``tenant_id`` — the room's tenant — never on ``tenant_id``.
+    """
     key_rows = tx.execute(
         "SELECT key_id FROM cloud_identity_agent_keys "
         "WHERE tenant_id = ? AND account_id = ?",
@@ -268,33 +282,34 @@ def offboard_account_memberships_in_tx(tx: Any, tenant_id: str,
     identities = [account_id, *[row["key_id"] for row in key_rows]]
     placeholders = ",".join("?" for _ in identities)
     rows = tx.execute(
-        "SELECT room_id, agent_id FROM cloud_room_members "
-        "WHERE tenant_id = ? AND status = 'active' AND agent_id IN (" + placeholders + ")",
-        (tenant_id, *identities),
+        "SELECT tenant_id, room_id, agent_id FROM cloud_room_members "
+        "WHERE status = 'active' AND agent_id IN (" + placeholders + ")",
+        (*identities,),
     ).fetchall()
     for row in rows:
+        room_tenant_id = row["tenant_id"]
         tx.execute(
             "UPDATE cloud_room_members SET status = 'left' "
             "WHERE tenant_id = ? AND room_id = ? AND agent_id = ? AND status = 'active'",
-            (tenant_id, row["room_id"], row["agent_id"]),
+            (room_tenant_id, row["room_id"], row["agent_id"]),
         )
         tx.execute(
             "DELETE FROM cloud_room_group_members "
             "WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
-            (tenant_id, row["room_id"], row["agent_id"]),
+            (room_tenant_id, row["room_id"], row["agent_id"]),
         )
         tx.execute(
             "DELETE FROM cloud_room_cursors "
             "WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
-            (tenant_id, row["room_id"], row["agent_id"]),
+            (room_tenant_id, row["room_id"], row["agent_id"]),
         )
         tx.execute(
             "UPDATE cloud_room_counters SET value = MAX(0, value - 1), updated_at = ? "
             "WHERE tenant_id = ? AND room_id = ? AND counter = 'members'",
-            (utc_now_iso(), tenant_id, row["room_id"]),
+            (utc_now_iso(), room_tenant_id, row["room_id"]),
         )
         _append_event_tx(
-            tx, tenant_id, row["room_id"], row["agent_id"], "room.left",
+            tx, room_tenant_id, row["room_id"], row["agent_id"], "room.left",
             {"agent_id": row["agent_id"], "reason": "org_member_removed"},
         )
     return len(rows)
