@@ -1030,7 +1030,17 @@ class TestCountSyncTests(unittest.TestCase):
 
     @classmethod
     def _scan_for_stale_counts(cls, path: Path, label: str, live: int) -> list[tuple[str, str, int]]:
-        """Scan one file for published test counts that differ from ``live``."""
+        """Scan one file for published test counts that EXCEED ``live``.
+
+        R10 (process postmortem 2026-08-13): the guard once required every
+        published count to EQUAL the live count, so every lane that added a
+        test had to bump the same shared integer in the same two docs — a
+        merge conflict on every concurrent lane, guaranteed by construction.
+        The guard's real job is catching DELETED tests (a published count that
+        now overstates reality). Requiring ``claimed <= live`` keeps that
+        protection and removes the shared-integer conflict entirely: adding
+        tests never invalidates a published number, only deleting them does.
+        """
         found: list[tuple[str, str, int]] = []
         try:
             text = path.read_text(encoding="utf-8")
@@ -1039,11 +1049,11 @@ class TestCountSyncTests(unittest.TestCase):
         for line_no, line in enumerate(text.splitlines(), 1):
             for match in re.finditer(r"\b(\d{2,4})\s+(?:passing\s+)?standard-library tests\b", line, re.IGNORECASE):
                 claimed = int(match.group(1))
-                if claimed != live:
+                if claimed > live:
                     found.append((label, f"{line_no}: {line.strip()}", claimed))
             for match in re.finditer(r"\b(\d{2,4})\s+passing\s+tests?\b", line, re.IGNORECASE):
                 claimed = int(match.group(1))
-                if claimed != live:
+                if claimed > live:
                     found.append((label, f"{line_no}: {line.strip()}", claimed))
         return found
 
@@ -1078,7 +1088,8 @@ class TestCountSyncTests(unittest.TestCase):
         self.assertEqual(
             stale,
             [],
-            f"published test count differs from live discovery ({live}): {stale}",
+            f"published test count exceeds live discovery ({live}): {stale} "
+            f"(R10: counts must be <= live, not equal — see the postmortem)",
         )
 
 
