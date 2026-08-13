@@ -158,6 +158,18 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
         }, ["room_id", "target_spec", "payload"]),
     },
     {
+        "name": "room_receipts",
+        "description": (
+            "Query current delivery/read state for entry ids from messages YOU "
+            "sent in this Room. Unknown or non-owned entry ids return found:false "
+            "without revealing another sender's outbox state."
+        ),
+        "inputSchema": _object_schema({
+            "room_id": _STRING,
+            "entry_ids": _STRING_LIST,
+        }, ["room_id", "entry_ids"]),
+    },
+    {
         "name": "room_poll",
         "description": "Replay ordered Room events from your per-member cursor. At-least-once; ack to advance your own cursor.",
         "inputSchema": _object_schema({
@@ -196,18 +208,6 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
             "room_id": _STRING,
             "seq": _INTEGER,
         }, ["room_id", "seq"]),
-    },
-    {
-        "name": "room_receipts",
-        "description": (
-            "Query current delivery/read state for entry ids from messages YOU "
-            "sent in this Room. Unknown or non-owned entry ids return found:false "
-            "without revealing another sender's outbox state."
-        ),
-        "inputSchema": _object_schema({
-            "room_id": _STRING,
-            "entry_ids": _STRING_LIST,
-        }, ["room_id", "entry_ids"]),
     },
     {
         "name": "room_heartbeat",

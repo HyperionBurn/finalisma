@@ -42,6 +42,7 @@ HOSTED_TOOL_NAMES = [
     "room_create",
     "room_join",
     "room_send",
+    "room_receipts",
     "room_poll",
     "room_wait",
     "room_info",
@@ -228,7 +229,7 @@ class HostedMCPHandshakeTests(HostedMCPTestBase):
         token = acct["session_token"]
         _, listing = _mcp(self.base, "tools/list", None, token=token, request_id=1)
         names = [t["name"] for t in listing["result"]["tools"]]
-        self.assertEqual(len(names), 9)
+        self.assertEqual(len(names), 10)
         for forbidden in ("register_agent", "create_pairing", "join_pairing",
                           "create_task", "claim_task", "verify_task",
                           "complete_task", "org_create", "roster_create"):
