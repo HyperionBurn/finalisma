@@ -300,6 +300,59 @@ def offboard_account_memberships_in_tx(tx: Any, tenant_id: str,
     return len(rows)
 
 
+def release_agent_key_seats_in_tx(tx: Any, tenant_id: str, key_id: str) -> int:
+    """Release every active room seat held by ONE agent-key identity.
+
+    Called from key revocation IN THE SAME transaction as the revoke, so a
+    crash can never leave a revoked key's memberships unreachable — the
+    credential that could have called ``leave`` dies the moment the revoke
+    commits. This is the fix for "revoking a key permanently burns a seat":
+    a compromised key's owner is no longer rewarded with a degraded room.
+
+    The membership row is kept with ``status='left'`` — never deleted — so
+    past events stay readable and correctly attributed to the key identity
+    (the same contract as ``offboard_account_memberships_in_tx``). ``left``,
+    not ``stale``, is the right status: ``stale`` is a PRESENCE notion that
+    still counts toward the cap, while ``left`` is the seat-releasing status
+    that rejoin restores — and a revoked key can never rejoin, so the freed
+    seat is exactly the one a new identity should be able to take.
+
+    Scoped by ``(tenant_id, key_id)``: only this key's seats move, and only
+    inside this tenant. The per-room member counter is decremented (clamped at
+    zero) exactly as ``leave_room`` does, so the plan-level member quota stays
+    in step with the ACTIVE membership set.
+    """
+    # The room plane may not be initialized on a bare identity backend
+    # (revoke is a valid identity operation with no rooms). A missing table
+    # simply means there are no seats to release.
+    exists = tx.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='cloud_room_members'"
+    ).fetchone()
+    if exists is None:
+        return 0
+    rows = tx.execute(
+        "SELECT room_id FROM cloud_room_members "
+        "WHERE tenant_id = ? AND agent_id = ? AND status = 'active'",
+        (tenant_id, key_id),
+    ).fetchall()
+    for row in rows:
+        tx.execute(
+            "UPDATE cloud_room_members SET status = 'left' "
+            "WHERE tenant_id = ? AND room_id = ? AND agent_id = ? AND status = 'active'",
+            (tenant_id, row["room_id"], key_id),
+        )
+        tx.execute(
+            "UPDATE cloud_room_counters SET value = MAX(0, value - 1), updated_at = ? "
+            "WHERE tenant_id = ? AND room_id = ? AND counter = 'members'",
+            (utc_now_iso(), tenant_id, row["room_id"]),
+        )
+        _append_event_tx(
+            tx, tenant_id, row["room_id"], key_id, "room.left",
+            {"agent_id": key_id, "reason": "agent_key_revoked"},
+        )
+    return len(rows)
+
+
 class RoomError(Exception):
     """Carries a machine-readable error code for the HTTP surface."""
 

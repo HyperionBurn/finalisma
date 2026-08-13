@@ -137,15 +137,26 @@ def revoke(backend: Any, tenant_id: str, account_id: str, key_id: str) -> None:
 
     The conditional UPDATE matches nothing for a key owned by someone else, so
     an account can never revoke another account's key even with the id.
+
+    Revoking also RELEASES the key identity's room seats in the SAME
+    transaction: the rowcount gate ensures this only runs when this call
+    actually flipped the key to revoked (a re-revoke of an already-revoked key
+    changes nothing), and only ACTIVE memberships move, so the release is
+    idempotent. Without this, a revoked key's membership row stayed active
+    and counting toward the room cap while its credential could never
+    authenticate again to call ``leave`` — permanently burning a seat.
     """
     ensure_schema(backend)
     now = _time.time()
     with backend.transaction() as tx:
-        tx.execute(
+        cursor = tx.execute(
             "UPDATE cloud_identity_agent_keys SET revoked_at = ? "
             "WHERE key_id = ? AND tenant_id = ? AND account_id = ? AND revoked_at IS NULL",
             (now, key_id, tenant_id, account_id),
         )
+        if cursor.rowcount == 1:
+            from weft_cloud.rooms import release_agent_key_seats_in_tx
+            release_agent_key_seats_in_tx(tx, tenant_id, key_id)
         tx.commit()
 
 
