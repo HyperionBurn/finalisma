@@ -687,12 +687,25 @@ class RoomStore:
         with self._transaction() as conn:
             room = self._require_authenticated_member(conn, team_id, room_id, agent_id, actor_token)
             self._touch_member(conn, room_id, agent_id)
+            cursor_row = conn.execute(
+                "SELECT last_ack_seq FROM room_cursors WHERE room_id = ? AND agent_id = ?",
+                (room_id, agent_id),
+            ).fetchone()
+            last_ack = int(cursor_row["last_ack_seq"]) if cursor_row else 0
             if after_seq is None:
-                cursor = conn.execute(
-                    "SELECT last_ack_seq FROM room_cursors WHERE room_id = ? AND agent_id = ?",
-                    (room_id, agent_id),
-                ).fetchone()
-                after_seq = int(cursor["last_ack_seq"]) if cursor else 0
+                after_seq = last_ack
+            after_seq = int(after_seq)
+            # Cursor guards (F14 / P1): refuse impossible windows instead of
+            # silently echoing them, and report the skipped span so a client
+            # that jumped past unacked events can fix its own call.
+            if after_seq < 0:
+                raise RoomError("invalid_cursor", "after_seq cannot be negative")
+            if after_seq > int(room["cursor_head"]):
+                raise RoomError(
+                    "invalid_cursor",
+                    f"after_seq {after_seq} is beyond the room head {room['cursor_head']}",
+                )
+            behind_by = max(0, after_seq - last_ack)
             limit = max(1, min(int(limit), 200))
             if kind_filter:
                 placeholders = ", ".join("?" for _ in kind_filter)
@@ -719,11 +732,6 @@ class RoomStore:
                     "created_at": r["created_at"],
                 })
                 next_seq = r["seq"] + 1
-            cursor_row = conn.execute(
-                "SELECT last_ack_seq FROM room_cursors WHERE room_id = ? AND agent_id = ?",
-                (room_id, agent_id),
-            ).fetchone()
-            last_ack = int(cursor_row["last_ack_seq"]) if cursor_row else 0
             return {
                 "room_id": room_id,
                 "state": room["state"],
@@ -731,6 +739,7 @@ class RoomStore:
                 "next_seq": next_seq,
                 "cursor_head": int(room["cursor_head"]),
                 "last_ack_seq": last_ack,
+                "behind_by": behind_by,
                 "has_more": len(rows) == limit,
             }
 
