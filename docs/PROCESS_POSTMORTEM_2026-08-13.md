@@ -115,6 +115,78 @@ count lagged the live count. The count-sync guard itself runs in 0.5s.
 removed, run `tests.test_site.TestCountSyncTests` before the full suite and
 fix the published numbers up front.
 
+### F10 — The test-count guard is itself a bug generator (highest frequency)
+
+Every lane that adds a test must bump the same published number in
+`docs/YC_APPLICATION.md` and `docs/YC_READINESS.md`. With seven lanes in
+flight, a merge conflict on those two files was guaranteed by construction —
+it hit every merge attempted that day.
+
+**R10 — Derive the count, do not publish it.** One generated line, or relax
+the assertion to `>= N`. The guard's real job is catching *deleted* tests;
+`>= N` does that without serialising every lane behind one shared integer.
+(Orchestrator addition, signed off.)
+
+### F11 — Success inferred from output instead of exit codes (three times)
+
+A merge wrapper piped `git merge` through `tail`, printed "merged cleanly"
+for four merges that had all aborted, and lost `$?`. Caught only because HEAD
+had not moved. Same class as the deploy that reported success while serving
+8-hour-old code.
+
+**R11 — Never parse output for a verdict when an exit code exists.** For any
+state change, assert the STATE moved (HEAD, PID, row count), not that the
+command looked happy.
+
+### F12 — Lanes wrote into the integration worktree despite `--dir`
+
+A dirty integration tree blocked merges at least four times and cost more
+wall-clock than any single bug.
+
+**R12 — The orchestrator owns integration; no lane may hold it.** Lanes get
+their own worktree, always. The merge step verifies the tree is clean BEFORE
+attempting.
+
+### F13 — Deployed, then verified
+
+Twice survivable, once not: the seat fix went out and did nothing (wrong
+tenant scoping) and was announced as live. A green suite plus a changed PID
+says nothing about whether the bug is actually gone.
+
+**R13 — The fix's OWN live repro must run post-deploy.** Not a generic health
+check. A lane's R4 repro script is the post-deploy acceptance test. "Deployed"
+means that repro returned its expected result on production.
+
+## The meta-rule: encode it or expect it to fail
+
+F1–F13 were written as rules, i.e. discipline. The orchestrator broke its own
+stated rules within an hour of writing them, twice, under pressure. Rules
+that depend on being remembered at 3am are the same category of defect as
+expecting agents to heartbeat manually — the P0 this sprint fixed. Anything
+mechanical must be a GATE, not a habit:
+
+- the merge step must REFUSE a dirty tree (R12),
+- refuse a merge whose HEAD did not move (R11),
+- run count-sync before the suite (R9),
+- derive or relax the published count (R10),
+- and the deploy ledger must write itself (R7).
+
+Discipline is the last line, not the first one. Tooling first, habit second,
+and the room transcript is the audit trail when both fail.
+
+## Orchestrator's own failure list (self-reported, quoted in substance)
+
+1. Resolved merge conflicts with `git checkout --theirs` without reading the
+   diff — caused the `_pulse` break and the capabilities regression.
+2. Inferred success from output instead of exit codes, three times.
+3. Trusted lane status over the disk (declared a live lane dead).
+4. Bundled unrelated changes into one commit (made the mis-attribution possible).
+5. Deployed without verifying the exact artifact; shipped a seat fix that did
+   nothing.
+6. Dispatched lanes faster than they could be merged — seven at once — and
+   every lane bumped the same published test count, guaranteeing conflicts.
+7. Lanes wrote into the integration worktree despite `--dir`, dirtying it.
+
 ## What worked — keep doing it
 
 - **Independent second-party verification.** Caught F5, the single most
@@ -128,9 +200,12 @@ fix the published numbers up front.
 
 ## Standing decisions from this sprint
 
-- Receipt lifecycle (`cloud_013`) and coordinator-plane liveness parity ride
-  in a second deploy, after the first deploy soaks. Schema changes against a
-  live database get a soak period.
-- The product claim "agents communicate perfectly" now has three deployed
+- Receipt lifecycle (`cloud_013`) shipped in the second deploy (`f57a792`,
+  894 tests, 13 migrations applied, live proof 5/5: receipt created on send,
+  ack transitions queued->read, unknown target 422). The migration is purely
+  additive (CREATE TABLE IF NOT EXISTS) — the deferral was overcautious.
+- Coordinator-plane liveness parity rides with the next deploy.
+- The product claim "agents communicate perfectly" is now backed by deployed
   guarantees: membership-keyed deliverability, presence refreshed by any
-  authenticated call, and the SSE keepalive restored on `room_wait`.
+  authenticated call, SSE keepalive restored on `room_wait`, and a durable
+  receipt lifecycle.
