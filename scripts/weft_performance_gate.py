@@ -37,6 +37,7 @@ HARNESS_VERSION = 1
 EXPECTED_EXISTING_TESTS = 53
 TARGET_IMPROVEMENT_PERCENT = 20.0
 MAX_P95_REGRESSION_PERCENT = 5.0
+QUALITY_GATE_TEST_TIMEOUT_DEFAULT = 420
 SCENARIO_WEIGHTS = {
     "routing_fanout": 0.40,
     "session_relay": 0.35,
@@ -578,10 +579,13 @@ def _environment() -> dict[str, str]:
 def _run_quality_gates() -> dict[str, Any]:
     environment = os.environ.copy()
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
-    # The full suite legitimately grows (537 tests, ~180s measured 2026-08-08).
+    # The full suite legitimately grows (838 tests, ~333s measured 2026-08-13).
     # The wall-clock bound must follow the suite, so it is env-tunable with a
     # generous default; it is a resource bound, not an assertion.
-    test_timeout = int(os.environ.get("WEFT_GATE_TEST_TIMEOUT", "300"))
+    test_timeout = int(os.environ.get(
+        "WEFT_GATE_TEST_TIMEOUT",
+        str(QUALITY_GATE_TEST_TIMEOUT_DEFAULT),
+    ))
     tests = subprocess.run(
         [sys.executable, "-B", "-m", "unittest", "discover", "-s", "tests", "-v"],
         cwd=PROJECT_ROOT,
