@@ -239,6 +239,7 @@ class HostedMCPDispatcher:
         self.backend = service.backend
         self.rooms: CloudRoomService = service.rooms
         self.sessions = service.sessions
+        self._keepalive: Callable[[], None] | None = None
 
     # ------------------------------------------------------------------
     # Auth
@@ -264,23 +265,67 @@ class HostedMCPDispatcher:
     # MCP JSON-RPC framing (mirror of weft_mcp.server.handle_json_rpc)
     # ------------------------------------------------------------------
 
-    def handle_json_rpc(self, request: Any, bearer_token: str | None) -> dict[str, Any] | None:
+    def preauthenticate(
+        self,
+        request: Any,
+        bearer_token: str | None = None,
+        ctx: SessionContext | None = None,
+    ) -> tuple[Any, str, dict, bool, SessionContext] | None:
+        """Validate the JSON-RPC envelope and authenticate, WITHOUT dispatching.
+
+        This is exactly the validation-and-auth prefix of ``handle_json_rpc``,
+        factored out so the HTTP layer can pick the response framing (plain
+        JSON vs an SSE stream) before any tool runs — while refusing every
+        invalid shape and every bad credential identically to how
+        ``handle_json_rpc`` would:
+
+          - a malformed envelope returns ``None`` (the caller sends the same
+            ``-32600 Invalid JSON-RPC request`` error ``handle_json_rpc``
+            returns, with the same id),
+          - an invalid credential raises ``HostedMCPAuthError`` (HTTP 401).
+
+        Returns ``(request_id, method, params, is_notification, ctx)`` on
+        success. ``ctx`` may be supplied when the caller already
+        authenticated, to avoid a second credential lookup.
+        """
+        if not isinstance(request, dict) or request.get("jsonrpc") != "2.0":
+            return None
+        request_id = request.get("id")
+        method = request.get("method")
+        params = request.get("params") or {}
+        if not isinstance(method, str) or not isinstance(params, dict):
+            return None
+        is_notification = "id" not in request
+        if ctx is None:
+            ctx = self.authenticate(bearer_token)
+        return request_id, method, params, is_notification, ctx
+
+    def handle_json_rpc(self, request: Any, bearer_token: str | None = None,
+                        *, ctx: SessionContext | None = None,
+                        keepalive: Callable[[], None] | None = None) -> dict[str, Any] | None:
         """Handle one MCP JSON-RPC request; return None for notifications.
 
         Authentication happens BEFORE any method is dispatched, so an
         unauthenticated initialize / tools/list / tools/call is refused alike
         and reveals nothing about the tool set or the store.
-        """
-        if not isinstance(request, dict) or request.get("jsonrpc") != "2.0":
-            return _json_rpc_error(None, -32600, "Invalid JSON-RPC request")
-        request_id = request.get("id")
-        method = request.get("method")
-        params = request.get("params") or {}
-        if not isinstance(method, str) or not isinstance(params, dict):
-            return _json_rpc_error(request_id, -32600, "Invalid JSON-RPC request")
-        is_notification = "id" not in request
 
-        ctx = self.authenticate(bearer_token)
+        ``ctx`` short-circuits authentication: the HTTP layer may
+        pre-authenticate once via ``preauthenticate`` to choose the transport
+        framing without a second credential lookup. ``keepalive`` is an
+        optional callable the dispatcher invokes while a tool blocks (e.g.
+        ``room_wait``), so an SSE transport can emit comment frames instead
+        of sitting silent.
+        """
+        pre = self.preauthenticate(request, bearer_token, ctx=ctx)
+        if pre is None:
+            # Byte-identical to the pre-refactor refusals: a non-dict or
+            # non-2.0 envelope carries id=None; a bad method/params carries
+            # the request id.
+            bad_id = request.get("id") if (isinstance(request, dict)
+                                            and request.get("jsonrpc") == "2.0") else None
+            return _json_rpc_error(bad_id, -32600, "Invalid JSON-RPC request")
+        request_id, method, params, is_notification, ctx = pre
+        self._keepalive = keepalive
 
         if method == "initialize":
             requested = params.get("protocolVersion")
@@ -485,6 +530,7 @@ class HostedMCPDispatcher:
                 timeout_seconds=args.get("timeout_seconds", 20),
                 limit=args.get("limit", 100),
                 message_kinds=args.get("message_kinds"),
+                _pulse=self._keepalive,
             ))
         finally:
             _wait_slots.release()
