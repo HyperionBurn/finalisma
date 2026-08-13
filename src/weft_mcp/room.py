@@ -433,12 +433,23 @@ class RoomStore:
                 if already_active:
                     # Idempotent re-join of an already-active member: refresh
                     # presence ONLY. joined_at is a one-time fact — rewriting it
-                    # churned the roster on every client retry — and capabilities
-                    # + the actor-token hash stay as the original join recorded.
-                    conn.execute(
-                        "UPDATE room_members SET last_seen = ? WHERE room_id = ? AND agent_id = ?",
-                        (_epoch(), room_id, agent_id),
-                    )
+                    # churned the roster on every client retry. Capabilities ARE
+                    # recorded when the caller states them (explicit intent; an
+                    # idempotent retry re-sends the same list, and an omitted
+                    # list is indistinguishable from no intent, so keep the
+                    # stored value). The actor-token hash stays as the original
+                    # join recorded.
+                    if capabilities:
+                        conn.execute(
+                            "UPDATE room_members SET last_seen = ?, capabilities_json = ? "
+                            "WHERE room_id = ? AND agent_id = ?",
+                            (_epoch(), _json(list(capabilities)), room_id, agent_id),
+                        )
+                    else:
+                        conn.execute(
+                            "UPDATE room_members SET last_seen = ? WHERE room_id = ? AND agent_id = ?",
+                            (_epoch(), room_id, agent_id),
+                        )
                     joined_at = existing["joined_at"]
                 else:
                     # Left member reactivating: this IS a new membership period.

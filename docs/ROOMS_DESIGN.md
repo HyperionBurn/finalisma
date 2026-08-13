@@ -260,9 +260,16 @@ Compose three existing primitives:
 
 1. **`roster.route_targets(roster_id, target_spec)`** (roster.py:304-354)
    expands `target_spec` — an `agent_id`, a group name, `"*"` (broadcast to
-   active members), or a mixed list — into a de-duplicated, stale-excluded
-   recipient list. Stale members are excluded. The sender is **not**
-   auto-excluded; the room wrapper decides (see below).
+   members), or a mixed list — into a de-duplicated recipient list. The room
+   wrapper does **not** copy the roster primitive's stale-exclusion: an idle
+   (`stale`) member is a member who still holds a seat, and the event log is
+   the delivery mechanism, so a unicast/broadcast to an idle member creates a
+   durable delivery row and a receipt and stays readable when that member
+   returns — deliverability is keyed on **membership**, not on current
+   presence. Only `left` members and non-members are unroutable, and a send
+   that names one is refused with `recipient_not_found` (never a silent
+   `receipts: []`). The sender is **not** auto-excluded; the room wrapper
+   decides (see below).
 2. **`roster.build_envelope_v2(sender, targets, type, payload, capabilities)`**
    (roster.py:413-454) assembles the v2 envelope with a per-target
    `idempotency_key` so the same logical message fans out without cross-recipient
@@ -330,7 +337,7 @@ a room is not publicly readable). They are dispatched by `WeftDispatcher`
 | # | Tool | Required args | Returns | Notes |
 | --- | --- | --- | --- | --- |
 | 1 | `room_create` | `team_id, owner_agent_id, cap` | `{room_id, link_token, shareable_link, expires_at, cap, state}` | `name?`, `ttl_seconds?` (default 86400). Owner joins automatically. `cap` ≥ 2. `shareable_link` is an absolute `{origin}/j/{link_token}` URL an agent can fetch to discover the join endpoint and protocol. |
-| 2 | `room_join` | `team_id, room_id, link_token, agent_id, consent, actor_token` | `{room_id, agent_id, status, joined_at, cursor}` | `capabilities?`. `consent` must be literal boolean `true`. Link is consumed for THIS identity only. |
+| 2 | `room_join` | `team_id, room_id, link_token, agent_id, consent, actor_token` | `{room_id, agent_id, status, joined_at, cursor}` | `capabilities?`. `consent` must be literal boolean `true`. Link is consumed for THIS identity only. Re-join of an already-active member is a presence refresh — `joined_at` is never rewritten and `cursor` reports the member's ACTUAL `last_ack_seq`, not 0. |
 | 3 | `room_info` | `team_id, room_id, agent_id, actor_token` | `{room_id, state, cap, member_count, members:[{agent_id, status, capabilities, last_seen, joined_at}], owner_agent_id}` | Member-only. The ROOM OWNER additionally sees `link_id` (the identifier `room_revoke_link` needs) and `link_revoked` (confirmation the revocation landed). Ordinary members never see them, and `link_token` is never exposed. |
 | 4 | `room_leave` | `team_id, room_id, agent_id, actor_token` | `{room_id, agent_id, status: "left"}` | Emits `room.left`. |
 | 5 | `room_close` | `team_id, room_id, owner_agent_id, actor_token` | `{room_id, state: "closed"}` | Owner only. Invalidates all links. Emits `room.closed`. |

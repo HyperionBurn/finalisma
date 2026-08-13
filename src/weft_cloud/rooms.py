@@ -893,15 +893,25 @@ class CloudRoomService:
                 #
                 # Rejoin is otherwise a NO-OP: joined_at is a one-time fact and
                 # must not be rewritten (an idempotent client retrying a join
-                # silently churned the roster: 07:16:01 -> 07:53:18), and
-                # capabilities + the actor-token hash stay as the original
-                # join recorded. Only last_seen moves, exactly like heartbeat.
+                # silently churned the roster: 07:16:01 -> 07:53:18).
+                # Capabilities ARE recorded when the caller states them
+                # (explicit intent; an idempotent retry re-sends the same list,
+                # and an omitted list keeps the stored value), and the
+                # actor-token hash stays as the original join recorded.
+                # Only last_seen moves, exactly like heartbeat.
                 now = utc_now_iso()
-                tx.execute(
-                    "UPDATE cloud_room_members SET last_seen = ? "
-                    "WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
-                    (now_epoch, real_tenant_id, room_id, agent_id),
-                )
+                if caps:
+                    tx.execute(
+                        "UPDATE cloud_room_members SET last_seen = ?, capabilities_json = ? "
+                        "WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
+                        (now_epoch, _json(caps), real_tenant_id, room_id, agent_id),
+                    )
+                else:
+                    tx.execute(
+                        "UPDATE cloud_room_members SET last_seen = ? "
+                        "WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
+                        (now_epoch, real_tenant_id, room_id, agent_id),
+                    )
                 tx.execute(
                     "INSERT INTO cloud_room_cursors(tenant_id, room_id, agent_id, last_ack_seq, updated_at) "
                     "VALUES (?, ?, ?, 0, ?) "
