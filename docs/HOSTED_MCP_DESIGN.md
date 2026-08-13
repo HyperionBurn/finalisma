@@ -165,6 +165,45 @@ never become a way around confidentiality.
   `initialize` / `tools/list` / `tools/call` are all refused with the same
   generic 401 JSON-RPC error.
 
+### Transport: Accept negotiation and SSE streaming
+
+The request's `Accept` header is honoured (Streamable HTTP):
+
+- `Accept: text/event-stream` **only** → the response is a `text/event-stream`
+  stream. The JSON-RPC payload is framed as `data: <json>\n\n`; while a
+  blocking call (`room_wait`) holds the connection open, `: keepalive\n\n`
+  comment frames are emitted every **12 seconds** — deliberately below the
+  20–30 s idle floors of common proxies, load balancers and client read
+  timeouts (so a stream is never dropped as idle), yet far above the wait
+  loop's 0.25 s poll cadence (so it is ~5 bytes per 12 s of traffic). A 20 s
+  (default) wait emits one keepalive before the final frame; a 30 s (max)
+  wait emits two. The keepalive interval is a handler class attribute
+  (`_CloudHTTPHandler.mcp_sse_keepalive_seconds`) so it can be tuned or
+  shrunk in tests.
+- `Accept: application/json` (alone **or alongside** `text/event-stream`) →
+  the long-standing plain-JSON response, byte-for-byte as before. Choosing
+  JSON whenever the client accepts it keeps every currently-working caller
+  unchanged; SSE is used only when the client explicitly excludes JSON.
+- `Accept` that matches neither → **406** with a JSON-RPC error body.
+- Auth outranks negotiation: a failed authentication is always the same
+  byte-identical JSON 401 whatever media type the client asked for, and the
+  endpoint never starts an SSE stream for a request that cannot be
+  authenticated.
+- Notifications (`id` absent) keep their 202 empty response under every
+  Accept value.
+
+The response body of an SSE response has no `Content-Length`; it is delimited
+by connection close after the final `data:` frame, so the client sees EOF
+exactly when the stream ends. The stdio bridge
+(`src/weft_mcp/stdio_bridge.py`) already unwraps both shapes (plain JSON and
+`event:`/`data:`-framed SSE), and the coordinator-side client code has always
+parsed `data:` prefixes; this change adds the server side only.
+
+- Tests: `test_hosted_mcp_sse.py` (SSE framing with JSON-path payload parity,
+  JSON-only unchanged, both→JSON, neither→406, byte-identical 401s across
+  negotiated types, notification 202 under SSE, keepalive-before-final-frame
+  for a long `room_wait`).
+
 ## Deployment
 
 The endpoint lives **inside the existing `weft-cloud` process** (port 18788).

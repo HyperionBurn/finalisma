@@ -32,7 +32,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from http import HTTPStatus
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 from urllib.parse import urlsplit
 
 from weft_cloud.identity import (
@@ -52,6 +52,7 @@ from weft_cloud.mcp import (
     HostedMCPDispatcher,
     MAX_JSON_RPC_BYTES,
     _FORBIDDEN_IDENTITY_ARGS,
+    _MCP_NOTIFICATION_METHODS,
     _json_rpc_error,
     _wait_slots,
 )
@@ -975,6 +976,82 @@ class WeftCloudService:
 # HTTP handler
 # ---------------------------------------------------------------------------
 
+
+def _accept_ranges(accept_header: str | None) -> list[tuple[str, float]]:
+    """Parse an Accept header into ``[(media-range, q)]`` honouring q-parameters.
+
+    A missing ``q`` defaults to 1.0; ``q=0`` (or an unparseable q) is treated
+    as "not acceptable". Media ranges are returned in header order.
+    """
+    if not accept_header:
+        return []
+    ranges: list[tuple[str, float]] = []
+    for part in accept_header.split(","):
+        media, _, params = part.partition(";")
+        media = media.strip().lower()
+        if not media:
+            continue
+        q = 1.0
+        for param in params.split(";"):
+            param = param.strip()
+            if param[:2] == "q=":
+                try:
+                    q = float(param[2:].strip())
+                except ValueError:
+                    q = 0.0
+                q = 0.0 if q <= 0 else q
+        ranges.append((media, q))
+    return ranges
+
+
+def _accept_quality(ranges: list[tuple[str, float]], media_type: str) -> float:
+    """Effective q for ``media_type`` under RFC 7231 specificity ordering.
+
+    An exact media range beats ``type/*`` which beats ``*/*``, so an explicit
+    ``q=0`` for a concrete type excludes it even when ``*/*`` is also present.
+    """
+    mtype, msub = media_type.split("/", 1)
+    best: tuple[int, float] | None = None
+    for media, q in ranges:
+        if media == "*/*":
+            spec, rq = 0, q
+        elif media == f"{mtype}/*":
+            spec, rq = 1, q
+        elif media == media_type:
+            spec, rq = 2, q
+        else:
+            continue
+        if best is None or spec > best[0]:
+            best = (spec, rq)
+    return best[1] if best is not None else 0.0
+
+
+def _negotiate_mcp_media(accept_header: str | None) -> tuple[bool, bool]:
+    """Return ``(accepts_json, accepts_sse)`` for the hosted /mcp endpoint.
+
+    A request with no Accept header keeps the long-standing default: JSON
+    only. ``q=0`` ranges and unmatched media types yield False; a wildcard
+    accepts both.
+    """
+    ranges = _accept_ranges(accept_header)
+    if not ranges:
+        return True, False
+    accepts_json = _accept_quality(ranges, "application/json") > 0
+    accepts_sse = _accept_quality(ranges, "text/event-stream") > 0
+    return accepts_json, accepts_sse
+
+
+def _sse_data_frame(payload: dict) -> bytes:
+    """Frame a JSON-RPC payload as one SSE ``data:`` event.
+
+    JSON strings escape embedded newlines, so the frame is normally a single
+    line; the defensive split keeps the frame spec-correct even if that ever
+    changes.
+    """
+    body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    return b"data: " + body.replace(b"\n", b"\ndata: ") + b"\n\n"
+
+
 class _CloudHTTPHandler(BaseHTTPRequestHandler):
     """Routes HTTP requests to the service.
 
@@ -985,6 +1062,14 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
     service: WeftCloudService
 
     server_version = "weft-cloud/0.1.0"
+
+    # Keepalive interval for SSE long-polls (POST /mcp, room_wait). 12s is
+    # deliberately below the 20-30s idle floors of common proxies, load
+    # balancers and client read timeouts, yet far above the wait loop's 0.25s
+    # poll cadence, so a blocked stream is visibly alive without being noisy.
+    # A 20s (default) wait sees one keepalive before the final frame; a 30s
+    # (max) wait sees two.
+    mcp_sse_keepalive_seconds = 12
 
     def log_message(self, format: str, *args: Any) -> None:
         # Never log request bodies or tokens.
@@ -1012,6 +1097,58 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
             self.send_header(key, value)
         self.end_headers()
         self.wfile.write(body)
+
+    def _send_sse_headers(self) -> None:
+        """Open a streaming 200 ``text/event-stream`` response.
+
+        The body carries no Content-Length: it is delimited by connection
+        close (``close_connection`` is forced True after the last frame), so a
+        client reading the body sees EOF exactly when the stream ends.
+        """
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "close")
+        self._send_security_headers()
+        self.end_headers()
+
+    def _send_sse_comment(self, comment: bytes) -> None:
+        """Write a comment frame (``: ...``), which SSE clients ignore.
+
+        ``wfile`` is an unbuffered ``_SocketWriter``, so the write reaches the
+        socket immediately; ``flush`` is still called for explicitness.
+        """
+        self.wfile.write(comment)
+        self.wfile.flush()
+
+    def _send_sse_event(self, payload: dict) -> None:
+        """Write the final ``data:`` frame for a JSON-RPC response and close.
+
+        The response has no Content-Length, so end-of-body is signalled by
+        closing the connection after the frame.
+        """
+        self.wfile.write(_sse_data_frame(payload))
+        self.wfile.flush()
+        self.close_connection = True
+
+    def _make_sse_keepalive(self) -> Callable[[], None]:
+        """Build the keepalive callback passed to a blocking tool dispatch.
+
+        The callback rate-limits itself to ``mcp_sse_keepalive_seconds`` and
+        is invoked by the wait loop while ``room_wait`` is blocked; the first
+        pulse fires immediately so the client sees the stream is live the
+        moment blocking starts.
+        """
+        interval = self.mcp_sse_keepalive_seconds
+        last = [time.monotonic() - interval]
+
+        def _pulse() -> None:
+            now = time.monotonic()
+            if now - last[0] >= interval:
+                last[0] = now
+                self._send_sse_comment(b": keepalive\n\n")
+
+        return _pulse
 
     def _send_rate_limited(self, retry_after: int) -> None:
         retry_after = max(1, int(retry_after))
@@ -1061,6 +1198,20 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
         checked before any method is dispatched, so an unauthenticated
         initialize / tools/list / tools/call is refused alike and reveals
         nothing about the tool set or the store.
+
+        Transport (Streamable HTTP): the request's Accept header is honoured.
+
+          - ``text/event-stream`` ONLY   -> the response is an SSE stream: a
+            ``data: <json>`` frame, with ``: keepalive`` comment frames while
+            a blocking call (``room_wait``) holds the connection open.
+          - ``application/json`` (alone or alongside SSE) -> the long-standing
+            plain-JSON response. Picking JSON whenever the client accepts it
+            keeps every currently-working caller byte-identical to today; SSE
+            is only used when the client explicitly excludes JSON.
+          - accepts neither -> 406.
+
+        A failed authentication is ALWAYS the same byte-identical JSON 401,
+        whatever media type the client asked for — auth outranks negotiation.
         """
         try:
             length = int(self.headers.get("Content-Length", "0"))
@@ -1087,12 +1238,44 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
                 request.get("id"), -32600, "Mcp-Name does not match params.name"))
             return
         dispatcher = HostedMCPDispatcher(self.service)
+        bearer = _bearer_token(self)
         try:
-            response = dispatcher.handle_json_rpc(request, _bearer_token(self))
+            pre = dispatcher.preauthenticate(request, bearer)
         except HostedMCPAuthError:
+            # Refused identically under every negotiated media type.
             self._send_json(HTTPStatus.UNAUTHORIZED, _json_rpc_error(
-                request.get("id") if isinstance(request, dict) else None, -32001, "Unauthorized"))
+                request.get("id") if isinstance(request, dict) else None,
+                -32001, "Unauthorized"))
             return
+        if pre is None:
+            # Byte-identical shape refusal to handle_json_rpc: id=None for a
+            # non-2.0 envelope, the request id for a bad method/params.
+            bad_id = request.get("id") if (isinstance(request, dict)
+                                           and request.get("jsonrpc") == "2.0") else None
+            self._send_json(HTTPStatus.OK, _json_rpc_error(bad_id, -32600,
+                                                           "Invalid JSON-RPC request"))
+            return
+        request_id, _method, _params, is_notification, ctx = pre
+        accepts_json, accepts_sse = _negotiate_mcp_media(self.headers.get("Accept"))
+        if not accepts_json and not accepts_sse:
+            self._send_json(HTTPStatus.NOT_ACCEPTABLE, _json_rpc_error(
+                request_id, -32600,
+                "Not acceptable: this endpoint produces application/json or text/event-stream"))
+            return
+        # A notification (or a notifications/* method carrying an id) is
+        # answered 202 with no body on the JSON path; keep that exact shape on
+        # the SSE path instead of opening a stream that has no payload.
+        replies_202 = is_notification or method in _MCP_NOTIFICATION_METHODS
+        if accepts_sse and not accepts_json and not replies_202:
+            # Streamable HTTP SSE response. Headers go out first so keepalive
+            # comment frames can be written while a tool (room_wait) blocks;
+            # the JSON-RPC payload is delivered as the final data: frame.
+            self._send_sse_headers()
+            response = dispatcher.handle_json_rpc(
+                request, bearer, ctx=ctx, keepalive=self._make_sse_keepalive())
+            self._send_sse_event(response)
+            return
+        response = dispatcher.handle_json_rpc(request, bearer, ctx=ctx)
         if response is None:
             self.send_response(HTTPStatus.ACCEPTED)
             self.send_header("Content-Length", "0")
