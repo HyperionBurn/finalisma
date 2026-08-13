@@ -1233,12 +1233,29 @@ class CloudRoomService:
             room = self._require_room(tx, tenant_id, room_id)
             self._require_member(tx, tenant_id, room_id, agent_id)
             self._touch_member(tx, tenant_id, room_id, agent_id)
+            cursor_row = tx.execute(
+                "SELECT last_ack_seq FROM cloud_room_cursors WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
+                (tenant_id, room_id, agent_id),
+            ).fetchone()
+            last_ack = int(cursor_row["last_ack_seq"]) if cursor_row else 0
             if after_seq is None:
-                cursor = tx.execute(
-                    "SELECT last_ack_seq FROM cloud_room_cursors WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
-                    (tenant_id, room_id, agent_id),
-                ).fetchone()
-                after_seq = int(cursor["last_ack_seq"]) if cursor else 0
+                after_seq = last_ack
+            after_seq = int(after_seq)
+            # Cursor guards (F14 / P1): silence must never mean success for
+            # READS either. A window beyond the room head used to be silently
+            # echoed back as ``next_seq`` — the caller could not tell their
+            # cursor was impossible. Refuse it. Negative cursors were silently
+            # clamped; refuse those too. ``behind_by`` reports how many events
+            # between the caller's last ack and their window they are skipping.
+            if after_seq < 0:
+                raise RoomError("invalid_cursor", "after_seq cannot be negative", 400)
+            if after_seq > int(room["cursor_head"]):
+                raise RoomError(
+                    "invalid_cursor",
+                    f"after_seq {after_seq} is beyond the room head {room['cursor_head']}",
+                    400,
+                )
+            behind_by = max(0, after_seq - last_ack)
             limit = max(1, min(int(limit), 200))
             kind_filter = _validate_message_kinds(message_kinds)
             if kind_filter:
@@ -1274,11 +1291,6 @@ class CloudRoomService:
                     "created_at": r["created_at"],
                 })
                 next_seq = r["seq"] + 1
-            cursor_row = tx.execute(
-                "SELECT last_ack_seq FROM cloud_room_cursors WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
-                (tenant_id, room_id, agent_id),
-            ).fetchone()
-            last_ack = int(cursor_row["last_ack_seq"]) if cursor_row else 0
             return {
                 "room_id": room_id,
                 "state": room["state"],
@@ -1286,6 +1298,7 @@ class CloudRoomService:
                 "next_seq": next_seq,
                 "cursor_head": int(room["cursor_head"]),
                 "last_ack_seq": last_ack,
+                "behind_by": behind_by,
                 "has_more": len(rows) == limit,
             }
 
