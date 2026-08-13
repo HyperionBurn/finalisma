@@ -297,10 +297,15 @@ distributed rate limiting, and an outbox are required for that deployment tier.
 The single-node runtime uses bounded, thread-safe idle SQLite connection pools
 to avoid reopening the database for every handoff operation. Long-lived library
 callers should use `with WeftStore(...) as store:` or call `store.close()`
-during shutdown. The current locked baseline is ~72.2ms weighted median; the
-latest seven-trial run measured ~62.3ms and passed the strict semantic, p95,
-smoke, credential, and full-test gates. Methodology, commands, and scope limits
-are in [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+during shutdown. The performance reference file records a ~72.2ms weighted
+median, but the latest full gate run is not green: it measured 90.158ms weighted
+median / 104.705ms p95 and rejected the weighted-median and scenario-p95 guards.
+The same run passed all 883 tests, protocol smoke, and credential redaction.
+Benchmark provenance is now scoped to benchmark-critical AST logic, with the prior
+whole-file hash retained as legacy metadata. Do not treat this as a universal
+latency claim; see
+[docs/PERFORMANCE.md](docs/PERFORMANCE.md) for the evidence boundary and rerun
+instructions.
 
 ## Credential rotation and schema-v3 migration
 

@@ -8,8 +8,10 @@ the real code path a stdio MCP host uses. Authoritative usage lives here.
 
 The hosted Weft service (`weft_cloud`, e.g. `https://weft.switzerlandnorth.
 cloudapp.azure.com`) exposes its rooms as a **Streamable-HTTP** MCP endpoint:
-`POST /mcp`, authenticated with a Bearer session token or agent key. It is verified working —
-401 unauthenticated, 200 authenticated, 9 room tools.
+`POST /mcp`, authenticated with a Bearer session token or agent key. The local
+hosted-service test suite verifies the contract — 401 unauthenticated, 200
+authenticated, and 9 room tools. A fresh public-deployment probe is still
+required before treating those results as current production behavior.
 
 But the MCP hosts people actually use speak **stdio**. Claude Desktop, Cursor,
 Claude Code, and Codex all launch an MCP server as a subprocess: a `command`

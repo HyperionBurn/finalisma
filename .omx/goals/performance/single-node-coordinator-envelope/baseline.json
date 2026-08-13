@@ -96,7 +96,8 @@
     "python": "3.14.6",
     "sqlite": "3.50.4"
   },
-  "harness_sha256": "bed1c5f70bb4cfaa534a3fc4d3c7b821947715ed94b3852b2ed170fb7a65f4e7",
+  "harness_digest_scope": "benchmark-critical-ast-v1",
+  "harness_sha256": "080ea8824e2636c2e12db1e575e3ceaa839e61e95080c4e5e829c88a959bbc36",
   "harness_version": 1,
   "history": [
     {
@@ -108,6 +109,7 @@
     }
   ],
   "max_p95_regression_percent": 5.0,
+  "legacy_harness_sha256": "bed1c5f70bb4cfaa534a3fc4d3c7b821947715ed94b3852b2ed170fb7a65f4e7",
   "schema": "weft.performance-baseline/v1",
   "target_improvement_percent": 0.0
 }

@@ -2,6 +2,20 @@
 
 **Status: live and publicly reachable.**
 
+## Current read-only verification (2026-08-13)
+
+The scoped probe completed without changing the hosted service: Azure
+`/health` and `/healthz` returned HTTP 200 with the expected security headers,
+and `/` redirected unauthenticated callers to `/login`. The Azure origin's
+`/robots.txt` and `/sitemap.xml` also returned 200, but still carried the old
+Finalisma metadata. That is deployment drift, not proof that the current Weft
+marketing bundle is deployed there. A fresh authenticated multi-agent proof is
+not claimed here; it requires authorized credentials and a disposable room.
+The documented Vercel marketing origin returned the Weft homepage, but its
+read-only probe returned a `robots.txt` without a Sitemap line and a 404 for
+`/sitemap.xml`; the materialized SEO release is therefore not verified live
+there either.
+
 | Surface | URL | Hosted on |
 |---|---|---|
 | Marketing site | `https://finalisma.vercel.app` | Vercel (static, free, TLS) |
@@ -114,14 +128,16 @@ curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' \
   http://weft.switzerlandnorth.cloudapp.azure.com/signup                        # 301 → https
 ```
 
-Full multi-agent proof against the deployed instance (tunnel local 18788 → VM 18788 first):
+Historical full multi-agent proof against the deployed instance (tunnel local
+18788 → VM 18788 first):
 
 ```bash
 ssh -i <key> -N -L 18788:127.0.0.1:18788 azureuser@20.199.129.229 &
 PYTHONPATH=src python -B scripts/prove-multiagent.py     # expect exit 0, ALL CLAIMS VERIFIED
 ```
 
-That has been run against this deployment and passed.
+That was run against an earlier deployment and passed. Rerun it before making a
+current production-behavior claim.
 
 ## Honesty — what is NOT true
 

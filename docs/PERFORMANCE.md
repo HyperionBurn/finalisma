@@ -11,12 +11,30 @@ functions:
 
 ## Current verified result (latest local run)
 
-On the Windows development host, the locked baseline file records a seven-trial
-weighted median of **72.221 ms** (weighted p95 81.899 ms). The latest strict
-seven-trial run measured **62.327 ms** (weighted p95 69.204 ms), a 13.7% median
-improvement, and passed matching semantic digests, all scenario p95 guards, the
-868-test suite, smoke, and credential-output checks. The earlier 2026-08-10
-re-baseline is preserved in the baseline file's `history` array.
+On the Windows development host, the reference file records a seven-trial
+weighted median of **72.221 ms** (weighted p95 81.899 ms). The latest complete
+gate run measured **90.158 ms** (weighted p95 104.705 ms) and therefore
+**failed**: weighted median improvement was -24.84%, and scenario p95 changed
+by +30.83% (`routing_fanout`), +42.65% (`session_relay`), and +8.92%
+(`authenticated_core`). The quality sub-gates did pass: **883 tests**, protocol
+smoke, and credential-output checks.
+
+The reference metadata now uses the explicit `benchmark-critical-ast-v1`
+digest scope. Its prior whole-file hash (`bed1…`) is retained as
+`legacy_harness_sha256` because it was captured from a transient source state;
+the scoped digest matches the committed benchmark logic and is unaffected by
+quality-runner timeout/comment changes. This repairs provenance without
+changing any timing sample; the complete rerun above verified the repaired
+contract.
+
+The preceding complete run measured 71.349 ms / 79.400 ms p95, but failed a
+single session-relay p95 guard (+20.15%) and initially exposed a stale published
+test count; the count is now synchronized at 883. Three isolated seven-trial
+captures on the same host produced weighted medians of 73.981 ms, 87.975 ms,
+and 101.820 ms while the machine was under its normal background workload.
+That spread is evidence of measurement variance, not a stable optimization or
+regression claim. Do not overwrite the reference file to make a run pass;
+rerun on a controlled host before publishing a current performance number.
 
 **Provenance — do not confuse the numbers:**
 
@@ -24,7 +42,7 @@ re-baseline is preserved in the baseline file's `history` array.
 | --- | --- | --- | --- |
 | Original pre-optimization reference (initial commit `b4f3026`) | 1,265.771 ms | 3-scenario harness | Historical — the 95.31% improvement was claimed against this |
 | Re-captured baseline (2026-08-05) | 68.844 ms | Extended harness (roster/tenancy scenarios added) | Superseded by the 2026-08-10 re-baseline |
-| Locked baseline (current file) | 72.221 ms | Current harness | Current comparison reference |
+| Reference file (current artifact) | 72.221 ms | Benchmark-critical AST v1 | Timing guards currently reject the run |
 
 The published "95.31% faster (1,265.771 ms → 59.314 ms)" figure was measured
 against a 3-scenario harness that no longer exists — the harness was extended

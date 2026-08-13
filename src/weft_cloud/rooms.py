@@ -29,7 +29,7 @@ import threading
 import time as _time
 import uuid
 from contextlib import nullcontext
-from typing import Any
+from typing import Any, Callable
 
 from weft_cloud.storage import StorageBackend, utc_now_iso
 
@@ -1280,7 +1280,8 @@ class CloudRoomService:
 
     def wait(self, tenant_id: str, room_id: str, agent_id: str,
              after_seq: int | None = None, timeout_seconds: int = 20,
-             limit: int = 100, message_kinds: list[str] | None = None) -> dict:
+             limit: int = 100, message_kinds: list[str] | None = None,
+             _pulse: Callable[[], None] | None = None) -> dict:
         """Blocking long-poll over ``poll``: the continuous-collaboration primitive.
 
         Returns as soon as at least one event with ``seq > after_seq`` is
@@ -1333,6 +1334,8 @@ class CloudRoomService:
         if not result["events"]:
             pinned_after = int(result["next_seq"])
             while _time.monotonic() < deadline:
+                if _pulse is not None:
+                    _pulse()
                 _time.sleep(0.25)
                 result = self.poll(tenant_id, room_id, agent_id, pinned_after, limit,
                                    message_kinds=message_kinds)
