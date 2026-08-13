@@ -571,7 +571,7 @@ a:not(.plain) { text-decoration-thickness: 1px; text-underline-offset: .18em; }
 .resource-card { display: grid; grid-template-columns: 10rem 1fr auto; gap: var(--gut); align-items: baseline; padding: 24px 0; border-top: 1px solid var(--rule); text-decoration: none; transition: background-color .2s var(--ease); }
 .resource-card:last-child { border-bottom: 1px solid var(--rule); }
 .resource-card:hover { background: rgba(27, 22, 15, .04); }
-.resource-card h3 { font-family: var(--serif); font-weight: 440; font-size: clamp(21px, 2.2vw, 28px); line-height: 1.2; }
+.resource-card h2, .resource-card h3 { font-family: var(--serif); font-weight: 440; font-size: clamp(21px, 2.2vw, 28px); line-height: 1.2; }
 .resource-card p { font-family: var(--serif); font-size: 15px; line-height: 1.55; color: var(--ink-dim); margin-top: .4em; }
 .resource-arrow { font-family: var(--sans); font-weight: 700; color: var(--assert); }
 

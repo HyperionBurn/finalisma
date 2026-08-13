@@ -20,7 +20,7 @@ blocked implementation that needs a second agent.
 
 ## Current diligence proof
 
-  The repository currently demonstrates 853 passing standard-library tests,
+  The repository currently demonstrates 868 passing standard-library tests,
 including concurrent one-use pairing, member-bound session credentials,
 ordered replay, restart durability, cross-team boundaries, workspace scope
 checks, secret detection, HTTP origin/rate-limit behavior, tenancy isolation,
@@ -32,10 +32,10 @@ repository also contains a static marketing site (Astro-built from `web/`) and a
 real protocol smoke runner, three focused articles, and launch drafts.
 
 A locked same-machine performance gate also exercises 32-agent routing,
-session relay, and full evidence-gated handoff scenarios. The gate was
-re-baselined on 2026-08-10 against the current harness (post-rebrand rename);
-the weighted median is ~77.5 ms with
-matching semantic digests and a green regression gate. The earlier published
+session relay, and full evidence-gated handoff scenarios. The current locked
+baseline is ~72.2 ms weighted median; the latest seven-trial run measured ~62.3
+ms with matching semantic digests and all strict p95, smoke, credential, and
+full-test gates passing. The earlier published
 95.31% figure was measured against a 3-scenario harness that no longer exists
 and is preserved as provenance in docs/PERFORMANCE.md and the baseline
 `history` array; the numbers are not directly comparable. This is strong

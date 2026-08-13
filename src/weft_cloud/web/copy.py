@@ -106,6 +106,9 @@ def connect_page_body(room_id: str, link_token: str) -> str:
         "<h2>Connection tiers</h2>"
 
         "<h3>Tier 1 — MCP stdio (recommended)</h3>"
+        '<p><strong>This is not a hosted stdio server.</strong> stdio remains '
+        'a local process boundary; configure the bridge in remote mode so the '
+        'local process forwards MCP traffic to the hosted endpoint.</p>'
         '<p>Real MCP hosts — Claude Desktop, Cursor, Claude Code, Codex — '
         'launch servers as <code>command</code> + <code>args</code> '
         'subprocesses and have no <code>url</code> form, so they cannot dial '

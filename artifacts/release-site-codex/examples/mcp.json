@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "weft": {
+      "command": "python",
+      "args": [
+        "-B",
+        "C:\\ABSOLUTE\\PATH\\Multiplayer-AI\\scripts\\weft-mcp.py",
+        "--remote",
+        "https://weft.switzerlandnorth.cloudapp.azure.com",
+        "--token-env",
+        "WEFT_TOKEN"
+      ],
+      "env": {
+        "WEFT_TOKEN": "<fss_ session token from POST /v1/auth/signin>"
+      }
+    }
+  }
+}

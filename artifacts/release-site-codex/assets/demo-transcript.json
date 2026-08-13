@@ -1,0 +1,126 @@
+{
+  "schema": "weft.public-demo/v1",
+  "source": "real local WeftStore protocol run",
+  "boundary": "Agent hosts are deterministic fixtures; coordinator, SQLite state, pairing, session, lease, fencing, artifact hashing, secret scan, evidence gate, and completion are real.",
+  "credentials_redacted": true,
+  "duration_seconds": 42,
+  "proof": {
+    "pairing_preview_status": "issued",
+    "pairing_status": "consumed",
+    "session_state": "active",
+    "session_events_received": 1,
+    "last_ack_seq": 1,
+    "task_progress_observed": 60,
+    "evidence_passed": true,
+    "artifact_sha256_prefix": "ddfbabf3d961",
+    "secret_scan": "passed",
+    "task_status": "done",
+    "audit_event_count": 11,
+    "audit_event_types": [
+      "agent.credential_issued",
+      "agent.registered",
+      "pairing.issued",
+      "agent.credential_issued",
+      "pairing.joined",
+      "session.active",
+      "task.created",
+      "task.claimed",
+      "task.updated",
+      "quality.evaluated",
+      "task.completed"
+    ],
+    "raw_credentials_in_output": false
+  },
+  "frames": [
+    {
+      "eyebrow": "The handoff problem",
+      "headline": "One agent stalls. Copy-paste destroys the account.",
+      "caption": "Weft keeps scope, ownership, ordered progress, and evidence in one inspectable record.",
+      "agent_a": "Incident owner \u00b7 context exhausted",
+      "agent_b": "Review agent \u00b7 waiting outside the account",
+      "event": "No governed handoff yet",
+      "state": "unposted"
+    },
+    {
+      "eyebrow": "01 \u00b7 Identity",
+      "headline": "Agent A opens a named incident account.",
+      "caption": "The model route is recorded. The host keeps its provider credential and approval boundary.",
+      "agent_a": "Registered \u00b7 architect \u00b7 gpt-5.6-luna",
+      "agent_b": "Not joined",
+      "event": "agent.registered",
+      "state": "posted"
+    },
+    {
+      "eyebrow": "02 \u00b7 Pairing",
+      "headline": "A one-use link offers read + comment\u2014not blanket access.",
+      "caption": "The token expires, is stored only as a hash, and reveals policy before consent.",
+      "agent_a": "Pairing issued \u00b7 15-minute expiry",
+      "agent_b": "Policy preview \u00b7 no session credential",
+      "event": "pairing.issued",
+      "state": "posted"
+    },
+    {
+      "eyebrow": "03 \u00b7 Consent",
+      "headline": "Agent B previews the scope, then joins explicitly.",
+      "caption": "Literal consent=true opens a session with separate member-bound credentials.",
+      "agent_a": "Member A \u00b7 credential retained by host",
+      "agent_b": "Member B \u00b7 consent recorded",
+      "event": "pairing.joined \u00b7 session.active",
+      "state": "posted"
+    },
+    {
+      "eyebrow": "04 \u00b7 Ordered relay",
+      "headline": "The question crosses once and can replay after disconnect.",
+      "caption": "The receiver observes sequence 1, acknowledges sequence 1, and can resume from that cursor.",
+      "agent_a": "task.offer \u00b7 seq 1",
+      "agent_b": "poll \u2192 receive \u2192 ack 1",
+      "event": "weft.a2a/1.0 \u00b7 idempotent",
+      "state": "posted"
+    },
+    {
+      "eyebrow": "05 \u00b7 Scope + ownership",
+      "headline": "One file. One lease owner. One fencing token.",
+      "caption": "A stale owner cannot keep writing after the lease changes.",
+      "agent_a": "retry-boundary.txt \u00b7 declared scope",
+      "agent_b": "Task claimed \u00b7 atomic lease",
+      "event": "task.created \u00b7 task.claimed",
+      "state": "posted"
+    },
+    {
+      "eyebrow": "06 \u00b7 Work",
+      "headline": "The review agent reproduces the retry fan-out.",
+      "caption": "Progress reaches 60% with a bounded finding\u2014without gaining the first host's hidden history or provider key.",
+      "agent_a": "Owner watches ordered progress",
+      "agent_b": "Reproduction isolated \u00b7 60%",
+      "event": "task.updated",
+      "state": "posted"
+    },
+    {
+      "eyebrow": "07 \u00b7 Evidence gate",
+      "headline": "Completion waits for an artifact and a passing check.",
+      "caption": "Scope contained \u00b7 secret scan passed \u00b7 SHA-256 ddfbabf3d961\u2026",
+      "agent_a": "No prose-only close accepted",
+      "agent_b": "Artifact hashed \u00b7 check passed",
+      "event": "quality.evaluated",
+      "state": "posted"
+    },
+    {
+      "eyebrow": "08 \u00b7 Reconciled",
+      "headline": "The account closes on evidence\u2014not confidence.",
+      "caption": "Task status done \u00b7 11 audit events on file \u00b7 zero raw credentials printed.",
+      "agent_a": "Receives result + audit trail",
+      "agent_b": "Lease released \u00b7 work complete",
+      "event": "task.completed",
+      "state": "balanced"
+    },
+    {
+      "eyebrow": "Weft \u00b7 design-partner preview",
+      "headline": "One incident. Two agents. One account of what happened.",
+      "caption": "Run the local proof. Then help validate the first real host pair.",
+      "agent_a": "9 documented MCP paths",
+      "agent_b": "0 live Weft host validations",
+      "event": "Codex + Claude Code proposed first pair",
+      "state": "balanced"
+    }
+  ]
+}

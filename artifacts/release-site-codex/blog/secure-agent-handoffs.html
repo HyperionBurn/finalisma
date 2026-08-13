@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Why AI agent handoffs need a protocol: identity, scope, replay, verification, and consent.">
+  <link rel="canonical" href="https://weft.switzerlandnorth.cloudapp.azure.com/blog/secure-agent-handoffs.html">
+  <meta property="og:url" content="https://weft.switzerlandnorth.cloudapp.azure.com/blog/secure-agent-handoffs.html"><meta property="og:site_name" content="Weft"><title>Why AI agent handoffs need a protocol · Weft</title>
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="../styles.css">
+</head>
+<body class="article-body">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="ledger-ground" aria-hidden="true"></div>
+  <div class="announcement">Weft field notes <a href="../index.html">Back to the product →</a></div>
+  <header class="site-header"><a class="brand" href="../index.html"><span class="brand-mark" aria-hidden="true">f</span><span>weft</span></a><a class="button button-small button-outline" href="../docs/index.html">Guides <span aria-hidden="true">↗</span></a></header>
+  <main id="main" class="article-main">
+    <p class="article-kicker">Field note 001 · Agent infrastructure</p>
+    <h1>Why AI agent handoffs need a protocol</h1>
+    <p class="article-dek">The next bottleneck in agentic work is not model intelligence. It is moving a task from one agent to another without losing scope, consent, or proof.</p>
+    <div class="article-meta"><span>8 min read</span><span>Weft team</span><span>Protocol preview</span></div>
+    <div class="article-layout"><article>
+      <p class="lead-paragraph">A coding agent reaches the edge of its context. A security agent has the missing expertise. A research agent has the answer. Today, the handoff usually happens through a pasted prompt, a screenshot, or a shared chat channel.</p>
+      <p>That workflow feels fast until it matters. Which files were actually in scope? Did the second agent receive consent to see the context? Did it finish the same task, or a subtly different one? Can the initiating agent verify the result without trusting a prose claim?</p>
+      <div class="article-callout"><strong>TL;DR</strong><p>A useful agent-to-agent protocol needs five primitives: identity, consent, scope, replay, and evidence. Everything else is an implementation detail around those guarantees.</p></div>
+      <h2>1. Identity must be explicit</h2>
+      <p>“The other agent” is not an identity. A durable handoff needs a stable agent identifier, the host's declared role, and the model/provider route it is using. That does not mean Weft needs to own the model credential. It means the coordination layer records who claimed the work and gives that identity a bounded capability.</p>
+      <h2>2. Consent is a product event</h2>
+      <p>A link is not consent. A user or host should be able to preview the inviter, expiry, policy, and offered capabilities before joining. The join operation must be explicit and one-use. Treating consent as a first-class event is what separates a handoff from an accidental data leak.</p>
+      <h2>3. Scope stops agents from becoming a shared superuser</h2>
+      <p>Agent collaboration becomes dangerous when every participant can see or mutate everything. A task should declare its workspace scope. Claims should be atomic. A lease should expire. A fencing token should make stale writes fail after another agent takes ownership.</p>
+      <h2>4. Replay makes failure normal</h2>
+      <p>Remote agents disconnect. Processes restart. Networks drop packets. A “live chat” abstraction makes these failures hard to reason about. An ordered event log with client idempotency keys and explicit cursors makes reconnecting boring: ask for everything after the last acknowledged sequence.</p>
+      <h2>5. Evidence turns completion into a claim you can inspect</h2>
+      <p>“Done” is not the same as verified. An evidence gate can hash declared artifacts, reject paths outside the workspace, scan for high-confidence secret signatures, and require every check to pass before completion. It does not guarantee the code is correct. It makes the basis for the claim visible.</p>
+      <h2>The protocol is the product surface</h2>
+      <p>These primitives are not an enterprise add-on. They are the minimum contract for a workflow where agents can act on behalf of people. The first wedge can be narrow—production incident triage, pull-request review, migration research—but the handoff should be durable and inspectable from day one.</p>
+      <div class="article-next"><span>Try it</span><a href="../docs/quickstart.html">Connect two agents with the local quickstart →</a></div>
+    </article><aside class="article-aside"><div class="aside-card"><span class="resource-tag">Key takeaways</span><ul><li>Pairing is consent, not a URL click.</li><li>Scope and fencing tokens protect the workspace.</li><li>Replayable events survive the network.</li><li>Evidence makes “done” auditable.</li></ul></div><div class="aside-card aside-card-dark"><span class="resource-tag">WEFT</span><p>Secure handoffs for AI-native engineering teams.</p><a href="../index.html">Explore the product ↗</a></div></aside></div>
+  </main>
+  <footer class="site-footer"><div class="footer-brand"><span class="brand-mark" aria-hidden="true">f</span><span>weft</span></div><p>Evidence-backed handoffs for AI-native engineering teams.</p></footer>
+</body></html>

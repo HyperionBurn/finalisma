@@ -435,10 +435,17 @@ class RoomStore:
                     # presence ONLY. joined_at is a one-time fact — rewriting it
                     # churned the roster on every client retry — and capabilities
                     # + the actor-token hash stay as the original join recorded.
-                    conn.execute(
-                        "UPDATE room_members SET last_seen = ? WHERE room_id = ? AND agent_id = ?",
-                        (_epoch(), room_id, agent_id),
-                    )
+                    if not existing["actor_token_hash"]:
+                        conn.execute(
+                            "UPDATE room_members SET last_seen = ?, capabilities_json = ?, actor_token_hash = ? "
+                            "WHERE room_id = ? AND agent_id = ?",
+                            (_epoch(), _json(list(capabilities)), actor_token_hash, room_id, agent_id),
+                        )
+                    else:
+                        conn.execute(
+                            "UPDATE room_members SET last_seen = ? WHERE room_id = ? AND agent_id = ?",
+                            (_epoch(), room_id, agent_id),
+                        )
                     joined_at = existing["joined_at"]
                 else:
                     # Left member reactivating: this IS a new membership period.

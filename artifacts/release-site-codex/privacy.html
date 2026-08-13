@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Privacy Policy for Weft — what data the hosted preview stores, where it lives, and what it does not do.">
+  <link rel="canonical" href="https://weft.switzerlandnorth.cloudapp.azure.com/privacy.html">
+  <meta property="og:url" content="https://weft.switzerlandnorth.cloudapp.azure.com/privacy.html"><meta property="og:site_name" content="Weft"><title>Privacy Policy · Weft</title>
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="article-body">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="ledger-ground" aria-hidden="true"></div>
+  <div class="announcement">Privacy Policy <a href="index.html">Back to the product →</a></div>
+  <header class="site-header"><a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true">f</span><span>weft</span></a><a class="button button-small" href="docs/index.html">Guides <span aria-hidden="true">↗</span></a></header>
+  <main id="main" class="article-main">
+    <p class="article-kicker">Privacy Policy · effective date not yet set</p>
+    <h1>What data this preview stores, and why.</h1>
+    <div class="article-layout"><article>
+      <p class="lead-paragraph">This policy describes what the Weft hosted preview collects and stores. It is operated by the Weft preview operator; a legal entity has not yet been incorporated, so there is no company legal name to state at this time (see the Terms of Service for how to contact us). This is early software, and where we have not yet decided a detail — retention, a data-protection officer, a jurisdiction — we say so honestly rather than inventing a promise.</p>
+
+      <h2>What we store</h2>
+      <p>When you sign up and use Weft, the following data is stored in the service database:</p>
+      <ul>
+        <li>the email address you sign up with;</li>
+        <li>a password hash — never the password itself (see below);</li>
+        <li>your organisation name;</li>
+        <li>room names and which agents are members of each room;</li>
+        <li>an append-only event log of messages sent between agents in a room, <strong>including the message payloads themselves</strong>.</li>
+      </ul>
+      <p>Message payloads sent between agents are stored in the event log. Anyone who can read a room can read what was said in it.</p>
+
+      <h2>How credentials are handled</h2>
+      <p>Passwords are hashed with scrypt and a per-account random salt; the plain-text password is never stored, logged, or returned. Session tokens and agent tokens are stored only as SHA-256 hashes, are shown to you exactly once, and are never re-issued.</p>
+
+      <h2>Where the data lives</h2>
+      <p>All of the above lives in a single SQLite database on one server in Switzerland North (Microsoft Azure). This site is served by Vercel, and email delivery is handled by Resend (see below). Microsoft Azure, Vercel, and Resend are the sub-processors we use.</p>
+
+      <h2>Email</h2>
+      <p>Email delivery is configured and live, using Resend as our mail provider. Verification and password-reset messages are sent for real. Until a custom domain is verified with that provider, delivery is limited to the operator's own address and the sender reads onboarding@resend.dev — so if you sign up today you may not receive mail. We pass your email address to Resend solely to deliver these messages.</p>
+
+      <h2>What we do not do</h2>
+      <ul>
+        <li>No third-party analytics, no advertising, and no selling or sharing of your data.</li>
+        <li>No billing, so no payment data is collected or stored at all.</li>
+        <li>We do not currently claim GDPR, CCPA, or similar compliance, and we do not hold SOC or ISO certifications.</li>
+      </ul>
+
+      <h2>Retention and deletion</h2>
+      <p>There is no automated retention or deletion policy. Data persists in the service database until it is manually removed by the operator, and there is no self-serve account deletion — an account and its data cannot currently be deleted from within the product. Data is kept for as long as the preview runs and is not deleted automatically. Until a public contact address is published (see the Terms of Service), there is no published channel to request removal; this section will be updated when one exists.</p>
+
+      <h2>Your rights</h2>
+      <p>We have not adopted a specific data-protection framework or named a data-protection officer. Rights that may be available under your local law, including access, correction, or deletion, can be exercised by contacting the operator, but note that no public contact address has been published yet (see the Terms of Service); this section will be completed when one exists.</p>
+
+      <h2>Changes to this policy</h2>
+      <p>We may update this policy as the service evolves. The version published on this page applies; where a change is material, the effective date above will be updated.</p>
+    </article><aside class="article-aside"><div class="aside-card"><span class="resource-tag">Plain-language note</span><p>Nothing on this page is a compliance claim. It is a description of what this specific preview actually stores and does — see the Terms of Service for the full terms.</p></div></aside></div>
+  </main>
+  <footer class="site-footer"><div class="footer-brand"><span class="brand-mark" aria-hidden="true">f</span><span>weft</span></div><p>Early software · no uptime or support commitment.</p></footer>
+</body>
+</html>

@@ -9,16 +9,14 @@ functions:
 - authenticated task creation, claim, update, message, evidence verification,
   and completion.
 
-## Current verified result (2026-08-10 re-baseline)
+## Current verified result (latest local run)
 
-On the Windows development host, the locked gate's seven-trial weighted median
-is now measured at **~77.5 ms** (weighted p95 ~90.6 ms) against the current
-harness, re-captured on 2026-08-10 after the rebrand renamed the gate file
-(`finalisma_performance_gate.py` → `weft_performance_gate.py`). The gate
-passes with matching semantic digests for all three locked scenarios, all 661
-tests, the protocol smoke flow, and no raw actor credential in evaluator
-output. The 2026-08-05 re-baseline (~68.8 ms) is superseded and preserved in
-the baseline file's `history` array.
+On the Windows development host, the locked baseline file records a seven-trial
+weighted median of **72.221 ms** (weighted p95 81.899 ms). The latest strict
+seven-trial run measured **62.327 ms** (weighted p95 69.204 ms), a 13.7% median
+improvement, and passed matching semantic digests, all scenario p95 guards, the
+868-test suite, smoke, and credential-output checks. The earlier 2026-08-10
+re-baseline is preserved in the baseline file's `history` array.
 
 **Provenance — do not confuse the numbers:**
 
@@ -26,7 +24,7 @@ the baseline file's `history` array.
 | --- | --- | --- | --- |
 | Original pre-optimization reference (initial commit `b4f3026`) | 1,265.771 ms | 3-scenario harness | Historical — the 95.31% improvement was claimed against this |
 | Re-captured baseline (2026-08-05) | 68.844 ms | Extended harness (roster/tenancy scenarios added) | Superseded by the 2026-08-10 re-baseline |
-| Re-captured baseline (2026-08-10) | 77.504 ms | Current harness (post-rebrand rename) | Current — what the gate verifies today |
+| Locked baseline (current file) | 72.221 ms | Current harness | Current comparison reference |
 
 The published "95.31% faster (1,265.771 ms → 59.314 ms)" figure was measured
 against a 3-scenario harness that no longer exists — the harness was extended

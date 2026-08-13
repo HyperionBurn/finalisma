@@ -297,10 +297,10 @@ distributed rate limiting, and an outbox are required for that deployment tier.
 The single-node runtime uses bounded, thread-safe idle SQLite connection pools
 to avoid reopening the database for every handoff operation. Long-lived library
 callers should use `with WeftStore(...) as store:` or call `store.close()`
-during shutdown. The locked seven-trial evaluator (re-baselined 2026-08-05)
-records a ~68.8ms weighted median against the current extended harness with
-unchanged semantic digests; methodology,
-commands, and scope limits are in [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+during shutdown. The current locked baseline is ~72.2ms weighted median; the
+latest seven-trial run measured ~62.3ms and passed the strict semantic, p95,
+smoke, credential, and full-test gates. Methodology, commands, and scope limits
+are in [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 ## Credential rotation and schema-v3 migration
 
