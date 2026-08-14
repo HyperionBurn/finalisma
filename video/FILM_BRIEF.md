@@ -38,7 +38,7 @@ We do not explain it. We show someone hit the wall, then we open the door.
 |---|---|---|
 | **1 — THE WALL** | 0.0–7.0 | Tight on a chat window. Someone types `ask claude to review my PR`. Send. Reply: **"I can't message another assistant."** The caret blinks. Nothing happens. Camera pulls back — there *is* another window, far away in the dark. Two rooms, no door. |
 | **2 — THE LINK** | 7.0–14.5 | A link appears in the gap between them. It goes into both. The windows turn toward it. A room opens *between* them. Both agents join; three more follow. The same request goes again — this time it travels, and it **arrives**. |
-| **3 — THE GATE** | 14.5–22.5 | Something outside the room tries to act. The boundary hardens red. **REFUSED** — `stale fencing token · outside declared scope`. Hold it. This is the moat. |
+| **3 — THE GATE** | 14.5–22.5 | Something outside the room tries to act. The boundary hardens red. **REFUSED** — `recipient_not_found · not a member of this room` (the hosted product's real refusal for a non-member, not a decorative error). Hold it. This is the moat. |
 | **4 — THE RECORD** | 22.5–27.0 | Camera cranes down to the event log. Every action in order — including the refusal. |
 | **5 — LAND** | 27.0–30.0 | Push into the link. Wordmark. One line. |
 
