@@ -430,5 +430,56 @@ class CoordinatorRemoveMemberTests(unittest.TestCase):
         self.assertEqual(ctx.exception.code, "member_not_found")
 
 
+class CoordinatorTTLEnforcementTests(unittest.TestCase):
+    """Coordinator parity: the room TTL closes the ROOM, not just the link."""
+
+    def test_expired_room_closes_lazily_on_first_send(self) -> None:
+        import sqlite3 as _sqlite3
+
+        from weft_mcp.core import WeftError, WeftStore
+        from weft_mcp.server import WeftDispatcher
+
+        self.temp = tempfile.TemporaryDirectory()
+        root = Path(self.temp.name)
+        self.store = WeftStore(root / "state.db", root, require_actor_auth=True)
+        self.dispatcher = WeftDispatcher(self.store)
+        self.team = "team-coord-ttl"
+        reg = self.dispatcher.call_tool(
+            "register_agent",
+            {"team_id": self.team, "agent_id": "OWNER", "role": "member"},
+        )
+        created = self.dispatcher.call_tool(
+            "room_create", {"team_id": self.team, "owner_agent_id": "OWNER",
+                            "cap": 4, "ttl_seconds": 1},
+        )
+        self.room_id = created["room_id"]
+        try:
+            time.sleep(1.5)
+            with self.assertRaises(WeftError) as ctx:
+                self.dispatcher.call_tool("room_send", {
+                    "team_id": self.team, "room_id": self.room_id,
+                    "sender_agent_id": "OWNER", "target_spec": "*",
+                    "payload": {"text": "too-late"}, "actor_token": reg["actor_token"],
+                })
+            self.assertEqual(ctx.exception.code, "room_closed")
+            info = self.dispatcher.call_tool("room_info", {
+                "team_id": self.team, "room_id": self.room_id,
+                "agent_id": "OWNER", "actor_token": reg["actor_token"],
+            })
+            self.assertEqual(info["state"], "closed",
+                             "the expired coordinator room must be lazily closed")
+            polled = self.dispatcher.call_tool("room_poll", {
+                "team_id": self.team, "room_id": self.room_id,
+                "agent_id": "OWNER", "actor_token": reg["actor_token"], "after_seq": 0,
+            })
+            reasons = [e["payload"].get("reason") for e in polled["events"]
+                       if e["kind"] == "room.closed" and e.get("payload")]
+            self.assertIn("ttl_expired", reasons,
+                          "the close event must carry reason ttl_expired")
+        finally:
+            self.store.close()
+            self.temp.cleanup()
+
+
 if __name__ == "__main__":
     unittest.main()

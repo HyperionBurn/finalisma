@@ -883,12 +883,45 @@ class RoomStore:
     # Addressing — compose roster route_targets + envelope_v2 + outbox
     # ------------------------------------------------------------------
 
+    def _close_expired_room(self, room_id: str) -> None:
+        """Lazy TTL close, committed in its OWN short transaction.
+
+        ``ttl_seconds`` is a room-lifetime promise, not a link-only limit —
+        same bug class the cloud plane had. Reads stay available on closed
+        rooms (history is immutable); the first write after expiry marks the
+        room closed once, with a ``room.closed`` event carrying ``reason:
+        ttl_expired``, so the caller's own transaction then sees ``closed``
+        and refuses. The close must COMMIT independently: raising inside the
+        caller's transaction would roll the close back with the refusal.
+        """
+        with self._transaction() as conn:
+            room = conn.execute(
+                "SELECT * FROM room_rooms WHERE room_id = ?", (room_id,),
+            ).fetchone()
+            if room is None:
+                raise RoomError("room_not_found", "Room not found")
+            if room["state"] == "closed":
+                conn.commit()
+                return
+            expires = float(room["expires_at"] or 0.0)
+            if expires <= 0 or expires >= _epoch():
+                conn.commit()
+                return
+            conn.execute(
+                "UPDATE room_rooms SET state = 'closed' WHERE room_id = ?",
+                (room_id,),
+            )
+            self._append_event(conn, room_id, room["owner_agent_id"],
+                               "room.closed", {"reason": "ttl_expired"})
+            conn.commit()
+
     def room_send(self, team_id: str, room_id: str, sender_agent_id: str, target_spec: Any,
                   payload: Any, actor_token: str, exclude_sender: bool = True,
                   message_kind: str | None = None) -> dict[str, Any]:
         import weft_mcp.roster as _roster
         import weft_mcp.outbox as _outbox
         message_kind = _validate_message_kind(message_kind)
+        self._close_expired_room(room_id)
         with self._transaction() as conn:
             room = self._require_authenticated_member(conn, team_id, room_id, sender_agent_id, actor_token)
             self._touch_member(conn, room_id, sender_agent_id)
