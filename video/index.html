@@ -219,6 +219,34 @@
       .m-dot.cyan { background: #46E0FF; }
       .m-dot.green { background: #38E8A0; }
       .m-dot.violet { background: #7C5CFF; }
+
+      /* Motion streak behind a travelling dot: a fading tail that makes
+         traffic read as motion, not as beads (the animatic's explicit
+         failure). Streak is a separate absolutely-positioned element so its
+         opacity can trail the dot's path. */
+      .m-streak {
+        position: absolute; height: 2px; border-radius: 1px;
+        opacity: 0; transform-origin: 0 50%;
+      }
+      .m-streak.cyan { background: linear-gradient(90deg, rgba(70,224,255,0.55), rgba(70,224,255,0)); }
+      .m-streak.green { background: linear-gradient(90deg, rgba(56,232,160,0.55), rgba(56,232,160,0)); }
+      .m-streak.violet { background: linear-gradient(90deg, rgba(124,92,255,0.55), rgba(124,92,255,0)); }
+
+      /* ── FILM GRAIN (deterministic SVG turbulence, screen-space) ── */
+      #grain {
+        position: absolute; left: 0; top: 0; width: 1920px; height: 1080px;
+        pointer-events: none; opacity: 0.05; z-index: 95;
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='256' height='256'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='256' height='256' filter='url(%23n)' opacity='0.6'/></svg>");
+        background-repeat: repeat;
+      }
+
+      /* Specular sheen on the ring (subtle glass highlight arc) */
+      #ring-sheen {
+        position: absolute; left: -10%; top: -10%; width: 120%; height: 120%;
+        border-radius: 50%;
+        background: radial-gradient(circle at 32% 28%, rgba(255,255,255,0.14) 0%, transparent 42%);
+        opacity: 0;
+      }
     </style>
   </head>
   <body>
@@ -256,7 +284,7 @@
 
         <!-- THE ROOM -->
         <div id="room-group">
-          <div id="ring"></div>
+          <div id="ring"><div id="ring-sheen"></div></div>
            <!-- Chips positioned on the ring at -90°, -18°, 54°, 126°, 198° -->
            <!-- Ring center = (350,350) in room-group, radius = 150 -->
            <div class="chip" id="chip-link" style="left: 324px; top: 30px;"><span id="chip-link-text">weft.link/room/a1b2</span></div>
@@ -298,6 +326,9 @@
       <!-- Vignette (screen-space — sibling of #world, never inside it) -->
       <div id="vignette"></div>
 
+      <!-- Film grain (screen-space — sibling of #world, never inside it) -->
+      <div id="grain"></div>
+
       <!-- Captions (screen-space — sibling of #world, never inside it) -->
       <div id="captions">
         <div class="caption" id="cap-1" style="bottom: 0;">One link. One room.</div>
@@ -319,7 +350,7 @@
       const tl = gsap.timeline({ paused: true });
       window.__timelines["main"] = tl;
 
-      const ease = "power3.out";
+      const ease = "cubic-bezier(0.32, 0.72, 0, 1)"; // brief: custom cubic, never ease-in-out defaults
 
       // ═══════════════════════════════════════════
       // CAMERA RIG — animates #world, not #camera
@@ -379,7 +410,7 @@
       camTo(892, 462, 1.32, 0.06, "none", 18.34);
 
       // t=18.40 → 21.40: → 946,474,1.56  (CREEP IN)
-      camTo(946, 474, 1.56, 3.02, ease, 18.40);
+      camTo(946, 474, 1.56, 3.00, ease, 18.40);
 
       // t=21.40 → 23.20: → 960,470,0.95  (RELEASE)
       camTo(960, 470, 0.95, 1.8, ease, 21.40);
@@ -404,27 +435,45 @@
       // ═══════════════════════════════════════════
 
       // Typing effect for "ask claude to review my PR"
+      // Deterministic per-character rhythm: fixed base delay with longer
+      // pauses after spaces (a fixed array — no Math.random, render-safe).
       const typedEl = document.getElementById("typed-text");
       const fullText = "ask claude to review my PR";
-      let charIndex = 0;
+      const charTimes = [];
+      (function buildCharTimes() {
+        let t = 0;
+        for (let i = 0; i < fullText.length; i++) {
+          charTimes.push(t);
+          const pause = fullText[i] === " " ? 0.16 : (i === 2 ? 0.12 : 0.062);
+          t += pause;
+        }
+      })();
+      const typeTotal = charTimes[charTimes.length - 1];
 
-      // We'll use a manual typing approach driven by timeline position
+      // User bubble stays hidden while typing; it POPS in on send.
+      gsap.set("#msg-user", { opacity: 0, scale: 0.92 });
+
       tl.to({}, {
-        duration: 2.4,
+        duration: typeTotal,
         onUpdate: function() {
-          const prog = this.progress();
-          const chars = Math.floor(prog * fullText.length);
-          if (chars <= fullText.length) {
-            typedEl.textContent = fullText.substring(0, chars);
-          }
+          const t = this.progress() * typeTotal;
+          let n = 0;
+          while (n < fullText.length && charTimes[n] <= t) n++;
+          typedEl.textContent = fullText.substring(0, n);
         }
       }, 0.3);
 
-      // Denial appears at t=4.0
-      tl.to("#msg-denial-row", { opacity: 1, duration: 0.4, ease: "power1.out" }, 4.0);
+      // SEND: input line hands off to the sent bubble.
+      tl.to("#input-line", { opacity: 0, duration: 0.25, ease: "power1.in" }, 0.3 + typeTotal);
+      tl.to("#msg-user", { opacity: 1, scale: 1, duration: 0.45, ease: "back.out(1.6)" }, 0.34 + typeTotal);
+      tl.to("#caret", { opacity: 0, duration: 0.1 }, 0.3 + typeTotal);
 
-      // Caret stops blinking after denial
-      tl.to("#caret", { opacity: 0, duration: 0.1 }, 4.4);
+      // Denial appears at t=4.0 with a small shake (the refusal is felt, not just read).
+      tl.fromTo("#msg-denial-row", { opacity: 0, x: -8 },
+                { opacity: 1, x: 0, duration: 0.35, ease: "power2.out" }, 4.0);
+      tl.to("#msg-denial-row", { x: 2, duration: 0.06, ease: "none" }, 4.40);
+      tl.to("#msg-denial-row", { x: -2, duration: 0.06, ease: "none" }, 4.46);
+      tl.to("#msg-denial-row", { x: 0, duration: 0.06, ease: "none" }, 4.52);
 
       // ═══════════════════════════════════════════
       // ACT 2: THE LINK (7–14.5s)
@@ -451,6 +500,57 @@
         },
         duration: 0.5
       }, 11.5);
+      tl.fromTo("#winB-body .msg-bubble", { opacity: 0, y: 8, scale: 0.94 },
+                { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: "back.out(1.5)" }, 11.5);
+
+      // ── TRAFFIC: fanned broadcast dots with motion streaks ──
+      // The animatic's explicit failure: all dots left on the same vector and
+      // overlapped into one column. Each dot gets its own two-segment arc and
+      // a streak that reads as motion.
+      const roomGroup = document.getElementById("room-group");
+      const ringC = { x: 350, y: 350 }; // ring centre in room-group coords
+      const chipTargets = [
+        { el: "#chip-1", arc: -60 }, { el: "#chip-2", arc: 90 },
+        { el: "#chip-3", arc: 110 }, { el: "#chip-4", arc: -90 },
+        { el: "#chip-5", arc: 40 },
+      ];
+      const traffic = [];
+      chipTargets.forEach((t, i) => {
+        const chip = document.querySelector(t.el);
+        const cx = parseFloat(chip.style.left) + 26;
+        const cy = parseFloat(chip.style.top) + 26;
+        const dot = document.createElement("div");
+        dot.className = "m-dot cyan";
+        dot.style.left = (ringC.x - 4) + "px";
+        dot.style.top = (ringC.y - 4) + "px";
+        roomGroup.appendChild(dot);
+        const streak = document.createElement("div");
+        streak.className = "m-streak cyan";
+        roomGroup.appendChild(streak);
+        traffic.push({ dot, streak, cx, cy, arc: t.arc, t0: 10.5 + i * 0.45 });
+      });
+      traffic.forEach((tr) => {
+        const dx = tr.cx - ringC.x, dy = tr.cy - ringC.y;
+        const dist = Math.hypot(dx, dy);
+        const ang = Math.atan2(dy, dx);
+        const off = (ang + Math.PI / 2);
+        const midX = ringC.x + dx * 0.5 + tr.arc * Math.cos(off);
+        const midY = ringC.y + dy * 0.5 + tr.arc * Math.sin(off);
+        gsap.set(tr.streak, { left: ringC.x, top: ringC.y, width: dist,
+                              rotation: ang * 180 / Math.PI });
+        tl.fromTo(tr.streak, { scaleX: 0, opacity: 0 },
+                  { scaleX: 1, opacity: 0.5, duration: 0.18, ease: "none" }, tr.t0);
+        tl.to(tr.streak, { opacity: 0, duration: 0.35, ease: "power1.in" }, tr.t0 + 0.18);
+        tl.fromTo(tr.dot, { opacity: 0, x: 0, y: 0 },
+                  { opacity: 1, x: midX - ringC.x, y: midY - ringC.y,
+                    duration: 0.3, ease: "power1.in" }, tr.t0);
+        tl.to(tr.dot, { x: dx, y: dy, duration: 0.32, ease: "power1.out" }, tr.t0 + 0.3);
+        tl.to(tr.dot, { opacity: 0, duration: 0.2 }, tr.t0 + 0.62);
+      });
+
+      // Ring specular sheen blooms with the link, dies before the dive.
+      tl.to("#ring-sheen", { opacity: 1, duration: 0.8, ease }, 8.6);
+      tl.to("#ring-sheen", { opacity: 0, duration: 0.5, ease: "power1.in" }, 28.4);
 
       // ═══════════════════════════════════════════
       // ACT 3: THE GATE (14.5–22.5s)
@@ -462,19 +562,19 @@
        // Outsider moves toward ring (stops at ring edge ~x=600)
        tl.to("#outsider", { x: 400, duration: 2.0, ease: "power1.inOut" }, 16.0);
 
-      // Ring hardens red at impact
-      tl.to("#ring", { opacity: 1, duration: 0.1 }, 18.28);
+      // Ring hardens red at impact — with 120ms ANTICIPATION, an overshoot
+      // slam, and a decaying settle (never a single linear scale).
+      tl.to("#ring", { scale: 0.97, duration: 0.12, ease: "power1.in" }, 18.16);
       tl.set("#ring", { className: "refused" }, 18.28);
-
-      // Refusal flash
-      tl.to("#ring", { scale: 1.05, duration: 0.15, ease: "power2.out" }, 18.28);
-      tl.to("#ring", { scale: 1.0, duration: 0.3, ease: "elastic.out(1, 0.5)" }, 18.43);
+      tl.to("#ring", { scale: 1.06, duration: 0.14, ease: "back.out(2.5)" }, 18.28);
+      tl.to("#ring", { scale: 1.0, duration: 0.35, ease }, 18.42);
 
       // Outsider bounces back
        tl.to("#outsider", { x: 280, duration: 0.5, ease: "power2.out" }, 18.40);
 
-       // REFUSED stamp appears large and holds ~3s (18.3 → 21.3)
-       tl.to("#refused-stamp", { opacity: 1, scale: 1, duration: 0.3, ease: "power2.out" }, 18.3);
+       // REFUSED stamp appears with a pop and holds ~3s (18.3 → 21.3)
+       tl.fromTo("#refused-stamp", { opacity: 0, scale: 0.92 },
+                 { opacity: 1, scale: 1, duration: 0.3, ease: "back.out(1.8)" }, 18.3);
        tl.to("#refused-stamp", { opacity: 1, duration: 2.7 }, 18.6); // hold
        tl.to("#refused-stamp", { opacity: 0, duration: 0.4, ease: "power1.in" }, 21.3);
 
@@ -531,25 +631,36 @@
       // CAPTIONS
       // ═══════════════════════════════════════════
 
+      // ── CAPTIONS (kinetic type, transform-only — the capture engine
+      //    rejects layout reflow properties like letterSpacing) ──
+      function captionIn(sel, at) {
+        tl.fromTo(sel, { opacity: 0, y: 14, scaleX: 1.04 },
+                  { opacity: 1, y: 0, scaleX: 1,
+                    duration: 0.45, ease }, at);
+      }
+      function captionOut(sel, at) {
+        tl.to(sel, { opacity: 0, y: -10, duration: 0.35, ease: "power1.in" }, at);
+      }
+
       // Cap 1: 8.4–11.2 "One link. One room."
-      tl.to("#cap-1", { opacity: 1, duration: 0.4, ease: "power1.out" }, 8.4);
-      tl.to("#cap-1", { opacity: 0, duration: 0.4, ease: "power1.in" }, 10.8);
+      captionIn("#cap-1", 8.4);
+      captionOut("#cap-1", 10.8);
 
       // Cap 2: 12.4–16.0 "Everything they say arrives in order."
-      tl.to("#cap-2", { opacity: 1, duration: 0.4, ease: "power1.out" }, 12.4);
-      tl.to("#cap-2", { opacity: 0, duration: 0.4, ease: "power1.in" }, 15.6);
+      captionIn("#cap-2", 12.4);
+      captionOut("#cap-2", 15.6);
 
       // Cap 3: 22.5–24.9 "Forwarding is easy. Refusing is the product."
-      tl.to("#cap-3", { opacity: 1, duration: 0.4, ease: "power1.out" }, 22.5);
-      tl.to("#cap-3", { opacity: 0, duration: 0.4, ease: "power1.in" }, 24.5);
+      captionIn("#cap-3", 22.5);
+      captionOut("#cap-3", 24.5);
 
       // Cap 4: 25.9–27.6 "Every action, recorded in order."
-      tl.to("#cap-4", { opacity: 1, duration: 0.4, ease: "power1.out" }, 25.9);
-      tl.to("#cap-4", { opacity: 0, duration: 0.4, ease: "power1.in" }, 27.2);
+      captionIn("#cap-4", 25.9);
+      captionOut("#cap-4", 27.2);
 
       // ═══════════════════════════════════════════
-      // ATMOSPHERE PARALLAX (slow drift)
-      // ═══════════════════════════════════════════
+      // ATMOSPHERE PARALLAX (slow drift) + film grain drift
+      tl.to("#grain", { backgroundPosition: "18px 12px", duration: 30, ease: "none" }, 0);
       tl.to("#atmo1", { x: 40, y: 20, duration: 8, ease: "sine.inOut" }, 0);
       tl.to("#atmo1", { x: 0, y: 0, duration: 8, ease: "sine.inOut" }, 8);
       tl.to("#atmo1", { x: -30, y: 15, duration: 8, ease: "sine.inOut" }, 16);
