@@ -18,7 +18,8 @@ nothing about which tenants, rooms, or agents exist.
 Tools exposed (the room set the product promise depends on):
 
     room_create, room_join, room_send, room_receipts, room_poll, room_wait,
-    room_info, room_ack, room_heartbeat, room_event_log
+    room_info, room_ack, room_heartbeat, room_leave, room_remove_member,
+    room_event_log
 
 The full self-hosted 58-tool surface (``register_agent``, pairing, task,
 roster, outbox, bridge, metrics, tenancy, …) is intentionally NOT exposed
