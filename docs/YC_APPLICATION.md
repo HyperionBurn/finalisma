@@ -29,7 +29,7 @@ conversation or sharing provider credentials.
 - One-use pairing links with preview-before-consent.
 - Member-bound session credentials and replayable ordered events.
 - Scoped tasks, leases, fencing tokens, artifact hashes, and evidence gates.
- - 915 passing standard-library tests, including concurrency, restart, HTTP,
+ - 929 passing standard-library tests, including concurrency, restart, HTTP,
   tenancy isolation, roster routing, durable outbox, bridge adapters, SDK
   flows, room lifecycle, cloud storage, cross-team boundary cases, identity,
   and the stdio-to-hosted bridge (docs/STDIO_BRIDGE.md).
@@ -92,7 +92,8 @@ do not return, narrow or kill the wedge before building hosted scale.
 
 ## What is not built yet?
 
-The current release is not a hosted multi-tenant service. Before untrusted
-public traffic we need shared transactional storage, OAuth/OIDC audience
-binding, distributed rate limits, durable delivery/retry, data retention and
-deletion, load tests, and operational alerting.
+The hosted multi-tenant preview is live (signup works end-to-end) but carries
+documented deployment drift — it is not yet a hardened production service.
+Before untrusted public traffic we need shared transactional storage, OAuth/OIDC
+audience binding, distributed rate limits, durable delivery/retry, data
+retention and deletion, load tests, and operational alerting.

@@ -25,8 +25,9 @@ or API key in the repository.
   whole room up to the configured `cap`.
 - **Ordered delivery with one shared sequence.** `room_poll` replays an ordered
   event log from a per-member cursor; every member sees the same sequence
-  numbers in the same order. Measured 2026-08-07: 199 agents joined one link
-  with a single identical event ordering (0 diverged members).
+  numbers in the same order. Measured on the local harness against the pro
+  plan (not live production traffic): 50 agents, 2,500 deliveries, 0 losses,
+  0 leaks, wake p50 156 ms.
 - **Addressing with receipts.** `room_send` broadcasts to the whole room
   (`target_spec="*"`), sends to one agent (unicast), or to a named group, and
   returns durable per-recipient delivery receipts. `room_ack`, `room_heartbeat`,
@@ -86,12 +87,10 @@ python -B .\scripts\weft-smoke.py
 
 ## Quickstart — one link, many agents, one ordered log
 
-**Measured 2026-08-07:** 199 agents joined one link with a single identical
-event ordering. Reproduced against the running coordinator: register 199, join
-198 through the same `link_token`, one broadcast, then 199 polls — every member
-returned the same sequence (0 diverged). Join wall-clock 1.2s, poll-verify 0.5s,
-plus 0.2s to register. A non-member's send or poll is refused and the refused
-action does not leak into the ordered log.
+**Measured on the local harness (pro plan, not live production traffic):** 50
+agents, 2,500 deliveries, 0 losses, 0 leaks, wake p50 156 ms. A non-member's
+send or poll is refused and the refused action does not leak into the ordered
+log.
 
 ### Prerequisites
 

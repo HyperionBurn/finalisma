@@ -20,13 +20,13 @@ blocked implementation that needs a second agent.
 
 ## Current diligence proof
 
- The repository currently demonstrates 915 passing standard-library tests,
+ The repository currently demonstrates 929 passing standard-library tests,
 including concurrent one-use pairing, member-bound session credentials,
 ordered replay, restart durability, cross-team boundaries, workspace scope
 checks, secret detection, HTTP origin/rate-limit behavior, tenancy isolation,
 roster routing, durable outbox, bridge adapters, SDK flows, MCP handshake,
 and the stdio-to-hosted bridge (docs/STDIO_BRIDGE.md).
-compatibility. A real launcher-level socket smoke test also passed health,
+A real launcher-level socket smoke test also passed health,
 MCP initialization, metrics, CORS preflight, and coordinator team scoping. The
 repository also contains a static marketing site (Astro-built from `web/`) and a dependency-free coordinator. A deterministic browser demo,
 real protocol smoke runner, three focused articles, and launch drafts.
@@ -91,9 +91,10 @@ not a signup funnel.
 
 Keep the first experiment simple:
 
-- free: one workspace, two agents, low event retention;
-- team: a monthly workspace fee with more agents, audit retention, and policy
-  controls;
+- free: up to 10 members per room, 60 messages/min per room, 20 signups per IP
+  per 15 minutes;
+- pro: $39/seat/month, up to 50 members per room, same 60 messages/min per
+  room;
 - business: SSO, retention controls, shared storage, and deployment support.
 
 Do not price by raw model tokens until the product owns a measurable outcome.
