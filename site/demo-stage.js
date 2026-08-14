@@ -4,8 +4,8 @@
   const query = new URLSearchParams(location.search);
   const autoplay = query.get('autoplay') !== '0';
   const requestedFrame = Number.parseInt(query.get('frame') || '0', 10);
-  const requestedFrameMs = Number.parseInt(query.get('frameMs') || '4200', 10);
-  const frameMs = Number.isFinite(requestedFrameMs) ? Math.max(800, Math.min(10000, requestedFrameMs)) : 4200;
+  const requestedFrameMs = Number.parseInt(query.get('frameMs') || '4300', 10);
+  const frameMs = Number.isFinite(requestedFrameMs) ? Math.max(800, Math.min(10000, requestedFrameMs)) : 4300;
   const stage = document.querySelector('[data-demo-stage]');
 
   const fields = {
