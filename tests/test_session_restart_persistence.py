@@ -425,7 +425,7 @@ class MigrationPreservesLiveSessionsTests(unittest.TestCase):
             n = conn.execute("SELECT COUNT(*) AS c FROM schema_migrations").fetchone()["c"]
         finally:
             conn.close()
-        self.assertEqual(n, 13, "all cloud migrations must be recorded after upgrade")
+        self.assertEqual(n, 14, "all cloud migrations must be recorded after upgrade")
 
     def test_migrations_then_restart_preserves_live_sessions(self) -> None:
         """Migration + restart together (the exact deploy sequence)."""

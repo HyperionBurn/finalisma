@@ -200,7 +200,7 @@ class RoomReceiptLifecycleTests(RoomReceiptsTestBase):
         self.assertEqual(recipients, sorted([a["account_id"], b["account_id"]]),
                          "one receipt row per routed target, sender excluded")
         for r in rows:
-            self.assertEqual(r["status"], "queued")
+            self.assertEqual(r["read_status"], "queued")
             self.assertEqual(r["sender_agent_id"], owner["account_id"])
 
     def test_ack_marks_own_receipts_read_only(self) -> None:
@@ -217,8 +217,8 @@ class RoomReceiptLifecycleTests(RoomReceiptsTestBase):
                                    recipient=a["account_id"], seq=seq)
         b_row = self._receipt_rows(owner["tenant_id"], created["room_id"],
                                    recipient=b["account_id"], seq=seq)
-        self.assertEqual(a_row[0]["status"], "read", "acker's own receipt must transition to read")
-        self.assertEqual(b_row[0]["status"], "queued",
+        self.assertEqual(a_row[0]["read_status"], "read", "acker's own receipt must transition to read")
+        self.assertEqual(b_row[0]["read_status"], "queued",
                          "another recipient's receipt must be untouched by a's ack")
 
     def test_ack_below_seq_keeps_later_receipts_queued(self) -> None:
@@ -235,8 +235,8 @@ class RoomReceiptLifecycleTests(RoomReceiptsTestBase):
                                    recipient=a["account_id"], seq=sent1["seq"])
         second = self._receipt_rows(owner["tenant_id"], created["room_id"],
                                     recipient=a["account_id"], seq=sent2["seq"])
-        self.assertEqual(first[0]["status"], "read")
-        self.assertEqual(second[0]["status"], "queued",
+        self.assertEqual(first[0]["read_status"], "read")
+        self.assertEqual(second[0]["read_status"], "queued",
                          "acking an earlier seq must not read later receipts")
 
     def test_receipts_survive_service_restart(self) -> None:
@@ -250,7 +250,7 @@ class RoomReceiptLifecycleTests(RoomReceiptsTestBase):
         self.service.backend = SqliteWalBackend(self.db_path)
         rows = self._receipt_rows(owner["tenant_id"], created["room_id"],
                                   recipient=a["account_id"], seq=sent["seq"])
-        self.assertEqual(rows[0]["status"], "read",
+        self.assertEqual(rows[0]["read_status"], "read",
                          "receipt lifecycle must be durable across a service restart")
 
     def test_unknown_target_creates_no_receipt_row(self) -> None:
@@ -327,6 +327,127 @@ class RoomReceiptQueryTests(RoomReceiptsTestBase):
                               {"room_id": created["room_id"], "entry_ids": ["oeb_x"]},
                               request_id=10)
         self.assertTrue(resp["isError"], "non-member receipt query must be refused")
+
+
+_INTERIM_CLOUD_013_BODY = """
+CREATE TABLE IF NOT EXISTS cloud_room_receipts (
+    tenant_id TEXT NOT NULL,
+    room_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    recipient_agent_id TEXT NOT NULL,
+    sender_agent_id TEXT NOT NULL,
+    entry_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'queued'
+        CHECK(status IN ('queued','read')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, room_id, seq, recipient_agent_id)
+);
+CREATE INDEX IF NOT EXISTS idx_room_receipts_recipient
+    ON cloud_room_receipts(tenant_id, room_id, recipient_agent_id, status);
+CREATE INDEX IF NOT EXISTS idx_room_receipts_sender
+    ON cloud_room_receipts(tenant_id, room_id, sender_agent_id, seq);
+"""
+
+
+class ReceiptSchemaUpgradeTests(unittest.TestCase):
+    """The migration-id lesson: an already-applied cloud_013 is NEVER mutated.
+
+    A database created from the interim cloud_013 body (column ``status``)
+    must be upgraded by cloud_014 to the deployed canonical shape
+    (``read_status``) with data preserved. A fresh-suite run alone cannot
+    catch this class of bug because it always builds a fresh database —
+    this test runs the upgrade path against the interim state explicitly.
+    """
+
+    def test_interim_shape_converges_to_read_status_with_data(self) -> None:
+        import sqlite3 as _sqlite3
+
+        from weft_cloud import migrations as cloud_migrations
+
+        temp = tempfile.TemporaryDirectory()
+        db_path = str(Path(temp.name) / "interim.db")
+        try:
+            conn = _sqlite3.connect(db_path)
+            conn.row_factory = _sqlite3.Row
+            try:
+                # Simulate a database that already applied the interim
+                # cloud_013 body and recorded the whole ledger through 013.
+                conn.execute(
+                    "CREATE TABLE IF NOT EXISTS schema_migrations "
+                    "(migration_id TEXT PRIMARY KEY, applied_at TEXT NOT NULL)"
+                )
+                conn.executescript(_INTERIM_CLOUD_013_BODY)
+                for migration in cloud_migrations.MIGRATIONS:
+                    if migration.migration_id == "cloud_014_room_receipts_status_rename":
+                        continue
+                    conn.execute(
+                        "INSERT OR IGNORE INTO schema_migrations(migration_id, applied_at) "
+                        "VALUES (?, ?)",
+                        (migration.migration_id, "2026-08-13T00:00:00Z"),
+                    )
+                conn.execute(
+                    "INSERT INTO cloud_room_receipts("
+                    " tenant_id, room_id, seq, recipient_agent_id, sender_agent_id,"
+                    " entry_id, status, created_at, updated_at"
+                    ") VALUES ('t', 'r', 7, 'recv', 'send', 'oeb_1', 'read', 'x', 'x')"
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            backend = SqliteWalBackend(db_path)
+            try:
+                cloud_migrations.apply_migrations(backend)
+                with backend.transaction() as tx:
+                    cols = tx.execute(
+                        "SELECT name FROM pragma_table_info('cloud_room_receipts')"
+                    ).fetchall()
+                    col_names = {row["name"] for row in cols}
+                    self.assertIn("read_status", col_names,
+                                  "cloud_014 must produce the canonical read_status column")
+                    self.assertNotIn("status", col_names,
+                                     "the interim status column must be renamed away")
+                    row = tx.execute(
+                        "SELECT read_status FROM cloud_room_receipts WHERE seq = 7"
+                    ).fetchone()
+                    self.assertEqual(row["read_status"], "read",
+                                     "existing receipt data must survive the rename")
+                    applied = tx.execute(
+                        "SELECT COUNT(*) AS c FROM schema_migrations WHERE migration_id = "
+                        "'cloud_014_room_receipts_status_rename'"
+                    ).fetchone()["c"]
+                    self.assertEqual(applied, 1, "cloud_014 must be recorded in the ledger")
+            finally:
+                backend.close()
+        finally:
+            temp.cleanup()
+
+    def test_canonical_shape_is_a_no_op(self) -> None:
+        import sqlite3 as _sqlite3
+
+        from weft_cloud import migrations as cloud_migrations
+
+        temp = tempfile.TemporaryDirectory()
+        db_path = str(Path(temp.name) / "canonical.db")
+        try:
+            backend = SqliteWalBackend(db_path)
+            try:
+                cloud_migrations.apply_migrations(backend)
+                # Applying again must be a clean no-op, and the canonical
+                # column is read_status end to end.
+                cloud_migrations.apply_migrations(backend)
+                with backend.transaction() as tx:
+                    cols = tx.execute(
+                        "SELECT name FROM pragma_table_info('cloud_room_receipts')"
+                    ).fetchall()
+                    col_names = {row["name"] for row in cols}
+                    self.assertIn("read_status", col_names)
+                    self.assertNotIn("status", col_names)
+            finally:
+                backend.close()
+        finally:
+            temp.cleanup()
 
 
 # ---------------------------------------------------------------------------

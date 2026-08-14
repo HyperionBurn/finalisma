@@ -1389,15 +1389,15 @@ class CloudRoomService:
             # read. Scoped to THIS member's receipts only; other recipients'
             # rows are never touched.
             tx.execute(
-                "UPDATE cloud_room_receipts SET status = 'read', updated_at = ? "
+                "UPDATE cloud_room_receipts SET read_status = 'read', updated_at = ? "
                 "WHERE tenant_id = ? AND room_id = ? AND recipient_agent_id = ? "
-                "AND seq <= ? AND status = 'queued'",
+                "AND seq <= ? AND read_status = 'queued'",
                 (now, tenant_id, room_id, agent_id, int(seq)),
             )
             read_row = tx.execute(
                 "SELECT COUNT(*) AS c FROM cloud_room_receipts "
                 "WHERE tenant_id = ? AND room_id = ? AND recipient_agent_id = ? "
-                "AND seq <= ? AND status = 'read'",
+                "AND seq <= ? AND read_status = 'read'",
                 (tenant_id, room_id, agent_id, int(seq)),
             ).fetchone()
             row = tx.execute(
@@ -1436,7 +1436,7 @@ class CloudRoomService:
             if entry_ids:
                 placeholders = ",".join("?" for _ in entry_ids)
                 rows = tx.execute(
-                    "SELECT r.entry_id, r.seq, r.recipient_agent_id, r.status, "
+                    "SELECT r.entry_id, r.seq, r.recipient_agent_id, r.read_status, "
                     "o.status AS outbox_status, o.attempts, o.next_attempt_at, o.last_error "
                     "FROM cloud_room_receipts r "
                     "LEFT JOIN cloud_outbox o ON o.tenant_id = r.tenant_id "
@@ -1454,7 +1454,7 @@ class CloudRoomService:
                     "found": True,
                     "recipient_agent_id": by_entry[entry_id]["recipient_agent_id"],
                     "seq": int(by_entry[entry_id]["seq"]),
-                    "status": by_entry[entry_id]["status"],
+                    "status": by_entry[entry_id]["read_status"],
                     "outbox_status": by_entry[entry_id]["outbox_status"],
                     "attempts": int(by_entry[entry_id]["attempts"] or 0),
                     "next_attempt_at": by_entry[entry_id]["next_attempt_at"],
@@ -1613,7 +1613,7 @@ class CloudRoomService:
                     tx.execute(
                         "INSERT OR IGNORE INTO cloud_room_receipts("
                         " tenant_id, room_id, seq, recipient_agent_id, sender_agent_id,"
-                        " entry_id, status, created_at, updated_at"
+                        " entry_id, read_status, created_at, updated_at"
                         ") VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?)",
                         (tenant_id, room_id, seq, target, sender_agent_id,
                          entry_id, now, now),
