@@ -258,5 +258,94 @@ class RateLimitProofTests(ProductPerfectTestBase):
                       "the refusal must carry a retry_after the caller can act on")
 
 
+class RoomRemoveMemberTests(ProductPerfectTestBase):
+    def test_owner_removes_member_frees_seat_and_revokes_access(self) -> None:
+        owner, member, created = self._pair("rm")
+        removed = self._assert_ok(owner["session_token"], "room_remove_member",
+                                  {"room_id": created["room_id"],
+                                   "member_id": member["account_id"]}, request_id=10)
+        self.assertEqual(removed["status"], "left")
+        info = self._assert_ok(owner["session_token"], "room_info",
+                               {"room_id": created["room_id"]}, request_id=11)
+        self.assertEqual(info["member_count"], 1, "removal must free the seat")
+        resp = self._mcp_call(member["session_token"], "room_poll",
+                              {"room_id": created["room_id"]}, request_id=12)
+        self.assertTrue(resp["isError"], "the removed member must be refused on its next request")
+
+    def test_removed_member_can_rejoin_not_a_ban(self) -> None:
+        owner, member, created = self._pair("rmrejoin")
+        self._assert_ok(owner["session_token"], "room_remove_member",
+                        {"room_id": created["room_id"],
+                         "member_id": member["account_id"]}, request_id=10)
+        rejoined = self._assert_ok(member["session_token"], "room_join",
+                                   {"room_id": created["room_id"],
+                                    "link_token": created["link_token"], "consent": True},
+                                   request_id=11)
+        self.assertEqual(rejoined["status"], "active",
+                         "removal is not a ban: a valid link admits the member again")
+
+    def test_non_owner_cannot_remove(self) -> None:
+        owner, member, created = self._pair("rmno")
+        third = self._signup("rmno-third@example.com", tenant_id=owner["tenant_id"])
+        self._assert_ok(third["session_token"], "room_join",
+                        {"room_id": created["room_id"],
+                         "link_token": created["link_token"], "consent": True}, request_id=10)
+        resp = self._mcp_call(third["session_token"], "room_remove_member",
+                              {"room_id": created["room_id"],
+                               "member_id": member["account_id"]}, request_id=11)
+        self.assertTrue(resp["isError"], "a non-owner must be refused")
+        self.assertEqual(resp["error"]["code"], "owner_required")
+
+    def test_owner_cannot_remove_self(self) -> None:
+        owner, _, created = self._pair("rmself")
+        resp = self._mcp_call(owner["session_token"], "room_remove_member",
+                              {"room_id": created["room_id"],
+                               "member_id": owner["account_id"]}, request_id=10)
+        self.assertTrue(resp["isError"], "the owner cannot remove themselves")
+        self.assertEqual(resp["error"]["code"], "owner_required")
+
+    def test_unknown_target_not_found(self) -> None:
+        owner, _, created = self._pair("rmghost")
+        resp = self._mcp_call(owner["session_token"], "room_remove_member",
+                              {"room_id": created["room_id"],
+                               "member_id": "acct_does_not_exist"}, request_id=10)
+        self.assertTrue(resp["isError"], "an unknown target must be refused")
+        self.assertEqual(resp["error"]["code"], "member_not_found")
+
+    def test_removal_event_recorded_with_reason(self) -> None:
+        owner, member, created = self._pair("rmevent")
+        self._assert_ok(owner["session_token"], "room_remove_member",
+                        {"room_id": created["room_id"],
+                         "member_id": member["account_id"]}, request_id=10)
+        log = self._assert_ok(owner["session_token"], "room_event_log",
+                              {"room_id": created["room_id"]}, request_id=11)
+        left_events = [e for e in log["events"]
+                       if e.get("payload") and e["payload"].get("reason") == "removed_by_owner"]
+        self.assertEqual(len(left_events), 1,
+                         "the removal must emit exactly one room.left with reason removed_by_owner")
+
+
+class RoomTTLQuotaTests(ProductPerfectTestBase):
+    def test_ttl_close_releases_the_rooms_quota_slot(self) -> None:
+        owner, _, created = self._pair("ttlquota", ttl_seconds=1)
+
+        def rooms_counter() -> int:
+            with self.service.backend.transaction() as tx:
+                row = tx.execute(
+                    "SELECT value FROM cloud_counters WHERE tenant_id = ? AND counter = 'rooms'",
+                    (owner["tenant_id"],),
+                ).fetchone()
+            return int(row["value"]) if row else 0
+
+        self.assertEqual(rooms_counter(), 1, "one active room is counted")
+        time.sleep(1.5)
+        resp = self._mcp_call(owner["session_token"], "room_send",
+                              {"room_id": created["room_id"], "target_spec": "*",
+                               "payload": {"text": "after-expiry"}}, request_id=10)
+        self.assertTrue(resp["isError"], "send after expiry must be refused")
+        self.assertEqual(rooms_counter(), 0,
+                         "the lazy TTL close must release the tenant's active-room quota slot")
+
+
 if __name__ == "__main__":
     unittest.main()

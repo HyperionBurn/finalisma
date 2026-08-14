@@ -239,6 +239,18 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
         "inputSchema": _object_schema({"room_id": _STRING}, ["room_id"]),
     },
     {
+        "name": "room_remove_member",
+        "description": (
+            "Owner-only: remove a member from a Room. The removed member is refused "
+            "on its very next request and its seat is freed. Removal is NOT a ban: "
+            "a removed member who still holds a valid link can rejoin."
+        ),
+        "inputSchema": _object_schema({
+            "room_id": _STRING,
+            "member_id": _STRING,
+        }, ["room_id", "member_id"]),
+    },
+    {
         "name": "room_event_log",
         "description": "Return the full ordered event log for a Room (member-only audit surface).",
         "inputSchema": _object_schema({"room_id": _STRING}, ["room_id"]),
@@ -613,6 +625,16 @@ class HostedMCPDispatcher:
             tenant_id=self._room_tenant(room_id, ctx.agent_id),
             room_id=room_id,
             agent_id=ctx.agent_id,
+        ))
+
+    def _tool_room_remove_member(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:
+        room_id = self._required(args, "room_id")
+        member_id = self._required(args, "member_id")
+        return self._room_call(lambda: self.rooms.remove_member(
+            tenant_id=self._room_tenant(room_id, ctx.agent_id),
+            room_id=room_id,
+            owner_agent_id=ctx.agent_id,
+            target_agent_id=member_id,
         ))
 
     def _tool_room_event_log(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:

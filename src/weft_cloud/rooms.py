@@ -579,6 +579,14 @@ class CloudRoomService:
                 "UPDATE cloud_rooms SET state = 'closed' WHERE tenant_id = ? AND room_id = ?",
                 (tenant_id, room_id),
             )
+            # Mirror close_room: closing releases the tenant's active-room
+            # quota slot. Clamped at zero so a drifted counter can never go
+            # negative.
+            tx.execute(
+                "UPDATE cloud_counters SET value = MAX(0, value - 1), updated_at = ? "
+                "WHERE tenant_id = ? AND counter = 'rooms'",
+                (utc_now_iso(), tenant_id),
+            )
             self._append_event(tx, tenant_id, room_id, room["owner_agent_id"],
                                "room.closed", {"reason": "ttl_expired"})
             tx.commit()
@@ -957,10 +965,16 @@ class CloudRoomService:
             if room["state"] != "closed" and float(room["expires_at"] or 0.0) > 0 \
                     and float(room["expires_at"]) < now_epoch:
                 # Close commits BEFORE the refusal raise, so the close is not
-                # rolled back with it.
+                # rolled back with it. The tenant's active-room quota slot is
+                # released too (mirror close_room).
                 tx.execute(
                     "UPDATE cloud_rooms SET state = 'closed' WHERE tenant_id = ? AND room_id = ?",
                     (real_tenant_id, room_id),
+                )
+                tx.execute(
+                    "UPDATE cloud_counters SET value = MAX(0, value - 1), updated_at = ? "
+                    "WHERE tenant_id = ? AND counter = 'rooms'",
+                    (utc_now_iso(), real_tenant_id),
                 )
                 self._append_event(tx, real_tenant_id, room_id, room["owner_agent_id"],
                                    "room.closed", {"reason": "ttl_expired"})
@@ -1156,6 +1170,59 @@ class CloudRoomService:
                                {"agent_id": agent_id})
             tx.commit()
         return {"room_id": room_id, "agent_id": agent_id, "status": "left"}
+
+    def remove_member(self, tenant_id: str, room_id: str, owner_agent_id: str,
+                      target_agent_id: str) -> dict:
+        """Remove one active member from a room, releasing its seat atomically.
+
+        Owner-only. Removal is NOT a ban: a removed member who still holds a
+        valid link can rejoin. The membership row flips to ``left`` (history
+        and attribution preserved), group membership and the member's cursor
+        row are cleaned up, the member counter is decremented, and a
+        ``room.left`` event records the removal with ``reason:
+        removed_by_owner`` — all in one transaction.
+        """
+        with self.backend.transaction() as tx:
+            room = self._require_room(tx, tenant_id, room_id)
+            self._require_member(tx, tenant_id, room_id, owner_agent_id)
+            self._touch_member(tx, tenant_id, room_id, owner_agent_id)
+            if room["owner_agent_id"] != owner_agent_id:
+                raise RoomError("owner_required", "Only the room owner can remove a member", 403)
+            if target_agent_id == room["owner_agent_id"]:
+                raise RoomError("owner_required", "The room owner cannot be removed", 403)
+            target = tx.execute(
+                "SELECT 1 FROM cloud_room_members "
+                "WHERE tenant_id = ? AND room_id = ? AND agent_id = ? AND status = 'active'",
+                (tenant_id, room_id, target_agent_id),
+            ).fetchone()
+            if target is None:
+                raise RoomError("member_not_found", "Member not found in this room", 404)
+            tx.execute(
+                "UPDATE cloud_room_members SET status = 'left' "
+                "WHERE tenant_id = ? AND room_id = ? AND agent_id = ? AND status = 'active'",
+                (tenant_id, room_id, target_agent_id),
+            )
+            tx.execute(
+                "DELETE FROM cloud_room_group_members "
+                "WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
+                (tenant_id, room_id, target_agent_id),
+            )
+            tx.execute(
+                "DELETE FROM cloud_room_cursors "
+                "WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
+                (tenant_id, room_id, target_agent_id),
+            )
+            tx.execute(
+                "UPDATE cloud_room_counters SET value = MAX(0, value - 1), updated_at = ? "
+                "WHERE tenant_id = ? AND room_id = ? AND counter = 'members'",
+                (utc_now_iso(), tenant_id, room_id),
+            )
+            self._append_event(
+                tx, tenant_id, room_id, owner_agent_id, "room.left",
+                {"agent_id": target_agent_id, "reason": "removed_by_owner"},
+            )
+            tx.commit()
+        return {"room_id": room_id, "agent_id": target_agent_id, "status": "left"}
 
     def close_room(self, tenant_id: str, room_id: str, caller_agent_id: str) -> dict:
         """Close a room (owner only). Invalidates all links.
