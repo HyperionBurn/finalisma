@@ -535,6 +535,53 @@ class CoordinatorRoomStaleDeliveryTests(unittest.TestCase):
         })
         self.assertEqual(after["receipts"][0]["read_status"], "read")
 
+    def test_coordinator_receipts_are_sender_scoped(self) -> None:
+        sent = self._send("A2", "OWNER", {"text": "sender-private-receipt"})
+        entry_id = sent["receipts"][0]["entry_id"]
+
+        owner_view = self.dispatcher.call_tool("room_receipts", {
+            "team_id": self.team,
+            "room_id": self.room_id,
+            "agent_id": "OWNER",
+            "entry_ids": [entry_id],
+            "actor_token": self.tokens["OWNER"],
+        })
+        self.assertEqual(owner_view["receipts"], [{
+            "entry_id": entry_id,
+            "status": "not_found",
+            "read_status": "unknown",
+            "attempts": 0,
+            "next_attempt_at": None,
+            "last_error": None,
+        }])
+
+        sender_view = self.dispatcher.call_tool("room_receipts", {
+            "team_id": self.team,
+            "room_id": self.room_id,
+            "agent_id": "A2",
+            "entry_ids": [entry_id],
+            "actor_token": self.tokens["A2"],
+        })
+        self.assertEqual(sender_view["receipts"][0]["status"], "queued")
+        self.assertEqual(sender_view["receipts"][0]["read_status"], "queued")
+
+    def test_coordinator_receipts_validate_bounded_entry_ids(self) -> None:
+        from weft_mcp.core import WeftError
+
+        base = {
+            "team_id": self.team,
+            "room_id": self.room_id,
+            "agent_id": "OWNER",
+            "actor_token": self.tokens["OWNER"],
+        }
+        for entry_ids in ("not-a-list", [""], ["ok", 7], ["ok"] * 201):
+            with self.subTest(entry_ids=entry_ids), self.assertRaises(WeftError) as ctx:
+                self.dispatcher.call_tool("room_receipts", {
+                    **base,
+                    "entry_ids": entry_ids,
+                })
+            self.assertEqual(ctx.exception.code, "invalid_argument")
+
     def test_coordinator_broadcast_remains_visible_to_all_members(self) -> None:
         sent = self._send("OWNER", "*", {"text": "coordinator-public"})
         for agent_id in ("A2", "A3"):

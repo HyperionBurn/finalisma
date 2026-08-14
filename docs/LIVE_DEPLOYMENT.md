@@ -4,17 +4,22 @@
 
 ## Current read-only verification (2026-08-13)
 
-The scoped probe completed without changing the hosted service: Azure
-`/health` and `/healthz` returned HTTP 200 with the expected security headers,
-and `/` redirected unauthenticated callers to `/login`. The Azure origin's
-`/robots.txt` and `/sitemap.xml` also returned 200, but still carried the old
-Finalisma metadata. That is deployment drift, not proof that the current Weft
-marketing bundle is deployed there. A fresh authenticated multi-agent proof is
-not claimed here; it requires authorized credentials and a disposable room.
-The documented Vercel marketing origin returned the Weft homepage, but its
-read-only probe returned a `robots.txt` without a Sitemap line and a 404 for
-`/sitemap.xml`; the materialized SEO release is therefore not verified live
-there either.
+The fresh read-only probe completed without changing the hosted service. Azure
+`/health` and `/healthz` returned HTTP 200; `/` returned 303 to `/login`,
+`/login` and `/signup` returned 200, HTTP redirected 301 to HTTPS, and the
+unauthenticated REST room-create and MCP calls were refused (401 / JSON-RPC
+Unauthorized). The live Azure web/API responses carried HSTS, CSP where
+applicable, `X-Frame-Options: DENY`, and `Referrer-Policy: no-referrer`.
+`/.well-known/agent-card.json` returned 200. The Azure origin's `/robots.txt`
+and `/sitemap.xml` returned 200 but still carried the old Finalisma metadata;
+the Vercel origin returned 200 for `/`, but its `robots.txt` had no Sitemap
+line, `/sitemap.xml` returned 404, and `/release-manifest.json` returned 404.
+That is deployment drift, not proof that the current Weft marketing bundle is
+deployed there. The local Vercel materializer was separately verified in an
+isolated output (16 pages, manifest/sitemap/robots/canonical/contact checks
+green), but no deployment was performed. A fresh authenticated multi-agent
+proof is not claimed here; it requires authorized credentials and a disposable
+room.
 
 The current Weft customer probe used OpenCode with the exact model
 `opencode-go/deepseek-v4-pro`. It confirmed hosted room membership, ordered

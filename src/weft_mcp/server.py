@@ -1545,6 +1545,15 @@ def _json_rpc_error(request_id: Any, code: int, message: str, data: Any | None =
     return {"jsonrpc": "2.0", "id": request_id, "error": error}
 
 
+def _request_too_large_error(request_id: Any = None) -> dict[str, Any]:
+    return _json_rpc_error(
+        request_id,
+        -32600,
+        f"JSON-RPC request exceeds the {MAX_JSON_RPC_BYTES}-byte limit",
+        {"code": "request_too_large", "max_bytes": MAX_JSON_RPC_BYTES},
+    )
+
+
 def handle_json_rpc(dispatcher: WeftDispatcher, request: dict[str, Any]) -> dict[str, Any] | None:
     """Handle one MCP JSON-RPC request; return None for notifications."""
     if not isinstance(request, dict) or request.get("jsonrpc") != "2.0":
@@ -1854,7 +1863,12 @@ class _MCPRequestHandler(BaseHTTPRequestHandler):
         except ValueError:
             length = 0
         if length <= 0 or length > MAX_JSON_RPC_BYTES:
-            self._send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, _json_rpc_error(None, -32600, "Invalid request size"))
+            self.close_connection = True
+            self._discard_request_body()
+            error = (_request_too_large_error()
+                     if length > MAX_JSON_RPC_BYTES
+                     else _json_rpc_error(None, -32600, "Invalid request size"))
+            self._send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, error)
             return
         try:
             request = json.loads(self.rfile.read(length))
@@ -1916,7 +1930,12 @@ class _MCPRequestHandler(BaseHTTPRequestHandler):
         except ValueError:
             length = 0
         if length <= 0 or length > MAX_JSON_RPC_BYTES:
-            self._send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, _json_rpc_error(None, -32600, "Invalid request size"))
+            self.close_connection = True
+            self._discard_request_body()
+            error = (_request_too_large_error()
+                     if length > MAX_JSON_RPC_BYTES
+                     else _json_rpc_error(None, -32600, "Invalid request size"))
+            self._send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, error)
             return
         try:
             raw = self.rfile.read(length)

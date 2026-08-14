@@ -29,13 +29,14 @@ conversation or sharing provider credentials.
 - One-use pairing links with preview-before-consent.
 - Member-bound session credentials and replayable ordered events.
 - Scoped tasks, leases, fencing tokens, artifact hashes, and evidence gates.
-- 893 passing standard-library tests, including concurrency, restart, HTTP,
+ - 915 passing standard-library tests, including concurrency, restart, HTTP,
   tenancy isolation, roster routing, durable outbox, bridge adapters, SDK
   flows, room lifecycle, cloud storage, cross-team boundary cases, identity,
   and the stdio-to-hosted bridge (docs/STDIO_BRIDGE.md).
-- A locked same-machine coordinator benchmark with a re-baselined (2026-08-10)
-  weighted median of ~77.5 ms against the current harness, with
-  matching semantic digests and a green regression gate.
+- A locked same-machine coordinator benchmark with a 72.221 ms reference artifact.
+  The latest complete local gate measured 137.404 ms weighted median / 155.381 ms
+  p95 and failed its timing guards while its quality sub-gates passed; this remains
+  an unresolved local performance blocker pending a controlled idle-host rerun.
 - A static marketing site (Astro-built) and a dependency-free coordinator. The coordinator is Python stdlib-only, SQLite, no CDN. An interactive product simulation, quickstart, and
   reproducible 42-second MP4/WebM demo generated from a real local coordinator run.
 

@@ -157,7 +157,7 @@ Rules that must survive future edits:
   real v3 coordinator DB in place (additive only, never touches agent_credentials).
   `quotas.py`/`rate_limit.py` are plan-driven seams (Wave I adds billing). `mcp.py` is the
   hosted MCP endpoint at `POST /mcp` — authenticated with cloud sessions, tenant-confined,
-  exposing the 8 room tools over `CloudRoomService`; `service.py` routes `/mcp` to it
+  exposing the 10 room tools over `CloudRoomService`; `service.py` routes `/mcp` to it
    (Design: `docs/CLOUD_SPINE_DESIGN.md`, `docs/HOSTED_MCP_DESIGN.md`).
    `cloud_outbox` (the HOSTED delivery outbox — distinct from the email
    `cloud_identity_outbox`) has a full completion lifecycle: migration `cloud_010`
@@ -403,7 +403,7 @@ To regenerate the social card after editing `site/assets/og-card.svg`:
 node .\scripts\render-og-card.cjs
 ```
 
-**Verified for the current launch pass:** 65/65 Python tests and
+**Verified for the current launch pass:** 915/915 Python tests and
 `evidence_passed: true` on the smoke. The last recorded DOUBLE ENTRY harness run had
 `consoleErrors: []` and all 13 harness boolean checks true — `allPinned` with the five
 checkpoints at exactly 64px
@@ -415,7 +415,7 @@ verified with the `@supports` branch forced off (§4.1): checkpoints still pin a
 account still reaches `7 / balanced`. Blog index, article, mobile article and 404 were
 captured clean with zero console errors and zero serif declarations.
 
-The site copy and audit total now state 65 tests, with the same assertion in
+The site copy and audit total now state 915 tests, with the same assertion in
 `tests/test_site.py`. **That number is a measured fact stated on the page** — if you
 add or remove a test, update `site/index.html` (the microcopy in folio 00 and the total
 in folio 04) and the assertion in `tests/test_site.py`. Do not confuse this test count
@@ -431,12 +431,13 @@ Codex runtime. Do not install browsers or add a Node package just to run the har
 
 The locked single-node evaluator is `scripts/weft_performance_gate.py`; its
 baseline and OMX ledger live under
-`.omx/goals/performance/single-node-coordinator-envelope/`. The gate was re-baselined
-2026-08-05 (see §3): the current weighted median is ~68.8 ms against the extended
-harness with matching semantic digests and a green regression gate; the original
-1,265.771 ms -> 59.314 ms (95.31%) figure is preserved in the baseline `history`
-array. The gate requires 226 tests passing, smoke passing, and no raw credential in
-evaluator output. Read `docs/PERFORMANCE.md` before changing the
+`.omx/goals/performance/single-node-coordinator-envelope/`. The current reference
+artifact is 72.221 ms; the latest complete local gate measured 137.404 ms /
+155.381 ms p95 and failed its timing guards while its quality sub-gates passed.
+The older ~68.8 ms and 1,265.771 ms -> 59.314 ms (95.31%) results are historical
+evidence preserved in the baseline `history` array. The gate requires the current
+915-test suite to pass, smoke passing, and no raw credential in evaluator output.
+Read `docs/PERFORMANCE.md` before changing the
 harness, baseline, connection pooling, routing query, or session cursor path.
 
 `WeftStore` now owns bounded read/write connection pools. Long-lived callers
@@ -572,7 +573,7 @@ Priority order for the next agent:
    Making it a real multi-node service is a storage-layer change.
 9. A hosted MCP endpoint now exists at `POST /mcp` on `weft-cloud`
    (`src/weft_cloud/mcp.py`, `docs/HOSTED_MCP_DESIGN.md`): authenticated with
-   cloud sessions, tenant-confined, exposing the 9 room tools over
+   cloud sessions, tenant-confined, exposing the 10 room tools over
    `CloudRoomService` (the same store `/v1` uses). The remaining validation is
    breadth: the stdio tier is host-verified (OpenCode 1.18.13) and stdio hosts
    can reach the hosted `/mcp` endpoint through the `weft-mcp --remote`

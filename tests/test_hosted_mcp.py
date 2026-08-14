@@ -35,6 +35,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from weft_cloud.identity.tokens import hash_token
+from weft_cloud.mcp import MAX_JSON_RPC_BYTES
 from weft_cloud.service import WeftCloudService, _CloudHTTPHandler
 from weft_cloud.storage import SqliteWalBackend
 
@@ -42,6 +43,7 @@ HOSTED_TOOL_NAMES = [
     "room_create",
     "room_join",
     "room_send",
+    "room_receipts",
     "room_poll",
     "room_wait",
     "room_info",
@@ -196,6 +198,33 @@ class HostedMCPTestBase(unittest.TestCase):
 class HostedMCPHandshakeTests(HostedMCPTestBase):
     """MCP protocol handshake: initialize, tools/list, notifications, ping."""
 
+    def test_oversized_mcp_body_returns_structured_limit_error(self) -> None:
+        acct = self._signup("oversized-mcp@example.com")
+        request = urllib.request.Request(
+            self.base + "/mcp",
+            data=b"x" * (MAX_JSON_RPC_BYTES + 1),
+            method="POST",
+        )
+        request.add_header("Content-Type", "application/json")
+        request.add_header("Authorization", f"Bearer {acct['session_token']}")
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                self.fail(f"oversized MCP body unexpectedly returned {response.status}")
+        except urllib.error.HTTPError as exc:
+            status = exc.code
+            try:
+                body = json.loads(exc.read().decode("utf-8"))
+            finally:
+                exc.close()
+
+        self.assertEqual(status, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+        self.assertEqual(body["jsonrpc"], "2.0")
+        self.assertIsNone(body["id"])
+        self.assertEqual(body["error"]["code"], -32600)
+        self.assertEqual(body["error"]["data"]["code"], "request_too_large")
+        self.assertEqual(body["error"]["data"]["max_bytes"], MAX_JSON_RPC_BYTES)
+        self.assertIn(str(MAX_JSON_RPC_BYTES), body["error"]["message"])
+
     def test_authenticated_initialize_tools_list_and_ping(self) -> None:
         acct = self._signup("handshake@example.com")
         token = acct["session_token"]
@@ -228,7 +257,7 @@ class HostedMCPHandshakeTests(HostedMCPTestBase):
         token = acct["session_token"]
         _, listing = _mcp(self.base, "tools/list", None, token=token, request_id=1)
         names = [t["name"] for t in listing["result"]["tools"]]
-        self.assertEqual(len(names), 9)
+        self.assertEqual(len(names), 10)
         for forbidden in ("register_agent", "create_pairing", "join_pairing",
                           "create_task", "claim_task", "verify_task",
                           "complete_task", "org_create", "roster_create"):
@@ -323,6 +352,7 @@ class HostedMCPRoomFlowTests(HostedMCPTestBase):
             ("room_ack", {"room_id": room_id_a, "seq": 1}),
             ("room_heartbeat", {"room_id": room_id_a}),
             ("room_send", {"room_id": room_id_a, "target_spec": "*", "payload": {"k": "v"}}),
+            ("room_receipts", {"room_id": room_id_a, "entry_ids": []}),
             ("room_event_log", {"room_id": room_id_a}),
         ):
             self._assert_is_error(tenant_b["session_token"], name, args, "room_not_found",
@@ -523,6 +553,56 @@ class HostedMCPRoomFlowTests(HostedMCPTestBase):
         by_id = {m["agent_id"]: m for m in info["members"]}
         self.assertIn(b["account_id"], by_id)
         self.assertEqual(by_id[b["account_id"]]["status"], "active")
+
+    def test_sender_receipts_show_queued_then_read_without_cross_sender_leak(self) -> None:
+        """Receipt state is queryable over the real hosted MCP customer path."""
+        a, b = self._two_accounts("mcp-receipts")
+        created = self._assert_ok(a["session_token"], "room_create", {"cap": 4}, request_id=1)
+        self._assert_ok(b["session_token"], "room_join", {
+            "room_id": created["room_id"],
+            "link_token": created["link_token"],
+            "consent": True,
+        }, request_id=2)
+
+        sent = self._assert_ok(a["session_token"], "room_send", {
+            "room_id": created["room_id"],
+            "target_spec": b["account_id"],
+            "payload": {"text": "receipt-me"},
+        }, request_id=3)
+        entry_id = sent["receipts"][0]["entry_id"]
+
+        before = self._assert_ok(a["session_token"], "room_receipts", {
+            "room_id": created["room_id"],
+            "entry_ids": [entry_id],
+        }, request_id=4)
+        self.assertEqual(before["receipts"][0]["status"], "queued")
+        self.assertEqual(before["receipts"][0]["read_status"], "queued")
+
+        recipient_poll = self._assert_ok(b["session_token"], "room_poll", {
+            "room_id": created["room_id"],
+            "after_seq": 0,
+        }, request_id=5)
+        self.assertTrue(any(event["seq"] == sent["seq"] for event in recipient_poll["events"]))
+        self._assert_ok(b["session_token"], "room_ack", {
+            "room_id": created["room_id"],
+            "seq": sent["seq"],
+        }, request_id=6)
+
+        recipient_view = self._assert_ok(b["session_token"], "room_receipts", {
+            "room_id": created["room_id"],
+            "entry_ids": [entry_id],
+        }, request_id=7)
+        self.assertEqual(recipient_view["receipts"][0]["status"], "not_found")
+        self.assertEqual(recipient_view["receipts"][0]["read_status"], "unknown")
+
+        after = self._assert_ok(a["session_token"], "room_receipts", {
+            "room_id": created["room_id"],
+            "entry_ids": [entry_id, "oeb_unknown-receipt"],
+        }, request_id=8)
+        by_id = {receipt["entry_id"]: receipt for receipt in after["receipts"]}
+        self.assertEqual(by_id[entry_id]["read_status"], "read")
+        self.assertEqual(by_id["oeb_unknown-receipt"]["status"], "not_found")
+        self.assertEqual(by_id["oeb_unknown-receipt"]["read_status"], "unknown")
 
 
 class HostedMCPIdempotencyTests(HostedMCPTestBase):

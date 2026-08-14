@@ -1249,10 +1249,14 @@ class CloudRoomService:
             # between the caller's last ack and their window they are skipping.
             if after_seq < 0:
                 raise RoomError("invalid_cursor", "after_seq cannot be negative", 400)
-            if after_seq > int(room["cursor_head"]):
+            # ``next_seq`` is the first sequence after the current head and is
+            # a valid empty-page cursor. Reject only a cursor beyond that
+            # boundary; otherwise a reconnect that polls from ``next_seq``
+            # would fail instead of returning an empty page.
+            if after_seq > int(room["cursor_head"]) + 1:
                 raise RoomError(
                     "invalid_cursor",
-                    f"after_seq {after_seq} is beyond the room head {room['cursor_head']}",
+                    f"after_seq {after_seq} is beyond the next valid cursor {int(room['cursor_head']) + 1}",
                     400,
                 )
             behind_by = max(0, after_seq - last_ack)
@@ -1416,6 +1420,66 @@ class CloudRoomService:
             "last_ack_seq": int(row["last_ack_seq"]),
             "receipts_read": int(read_row["c"]),
         }
+
+    def receipts(self, tenant_id: str, room_id: str, agent_id: str,
+                 entry_ids: list[str]) -> dict:
+        """Return delivery/read state for this sender's room envelopes.
+
+        Receipt lookups are deliberately sender-scoped: a room member may
+        inspect delivery for messages it sent, but an arbitrary entry id must
+        not reveal another sender's outbox state. Unknown, foreign, and
+        recipient-owned entry ids therefore share the same ``not_found``
+        result. The room and tenant membership checks happen before the query
+        so cross-tenant/non-member calls retain the room no-oracle boundary.
+        """
+        if not isinstance(entry_ids, list):
+            raise RoomError("invalid_argument", "entry_ids must be a list of strings", 400)
+        if len(entry_ids) > 200:
+            raise RoomError("invalid_argument", "entry_ids must contain at most 200 items", 400)
+        if any(not isinstance(entry_id, str) or not entry_id.strip() for entry_id in entry_ids):
+            raise RoomError("invalid_argument", "entry_ids must contain non-empty strings", 400)
+
+        with self.backend.transaction() as tx:
+            self._require_room(tx, tenant_id, room_id)
+            self._require_member(tx, tenant_id, room_id, agent_id)
+            self._touch_member(tx, tenant_id, room_id, agent_id)
+            rows = []
+            if entry_ids:
+                placeholders = ",".join("?" for _ in entry_ids)
+                rows = tx.execute(
+                    "SELECT r.entry_id, r.read_status, o.status, o.attempts, "
+                    "o.next_attempt_at, o.last_error "
+                    "FROM cloud_room_receipts r "
+                    "LEFT JOIN cloud_outbox o ON o.tenant_id = r.tenant_id "
+                    "AND o.entry_id = r.entry_id "
+                    "WHERE r.tenant_id = ? AND r.room_id = ? "
+                    "AND r.sender_agent_id = ? AND r.entry_id IN (" + placeholders + ")",
+                    (tenant_id, room_id, agent_id, *entry_ids),
+                ).fetchall()
+
+        by_entry = {row["entry_id"]: row for row in rows}
+        result = []
+        for entry_id in entry_ids:
+            row = by_entry.get(entry_id)
+            if row is None:
+                result.append({
+                    "entry_id": entry_id,
+                    "status": "not_found",
+                    "read_status": "unknown",
+                    "attempts": 0,
+                    "next_attempt_at": None,
+                    "last_error": None,
+                })
+                continue
+            result.append({
+                "entry_id": entry_id,
+                "status": row["status"] or "unknown",
+                "read_status": row["read_status"],
+                "attempts": int(row["attempts"] or 0),
+                "next_attempt_at": row["next_attempt_at"],
+                "last_error": row["last_error"],
+            })
+        return {"room_id": room_id, "receipts": result}
 
     def heartbeat(self, tenant_id: str, room_id: str, agent_id: str) -> dict:
         with self.backend.transaction() as tx:

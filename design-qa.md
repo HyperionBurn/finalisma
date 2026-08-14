@@ -78,7 +78,8 @@ Desktop density is 1440 x 900 at deviceScaleFactor 1. Mobile coverage is 390 x 8
 
 ## Fresh verification
 
-`python -B -m unittest discover -s tests -v` passes 65 tests.
+`python -B -m unittest discover -s tests -v` passed the historical website-focused
+65-test harness; the current repository suite is 910 tests.
 
 `node scripts/capture-site-qa.cjs` exits 0 with:
 

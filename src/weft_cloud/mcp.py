@@ -17,8 +17,8 @@ nothing about which tenants, rooms, or agents exist.
 
 Tools exposed (the room set the product promise depends on):
 
-    room_create, room_join, room_send, room_poll, room_wait, room_info,
-    room_ack, room_heartbeat, room_event_log
+    room_create, room_join, room_send, room_receipts, room_poll, room_wait,
+    room_info, room_ack, room_heartbeat, room_event_log
 
 The full self-hosted 58-tool surface (``register_agent``, pairing, task,
 roster, outbox, bridge, metrics, tenancy, …) is intentionally NOT exposed
@@ -118,6 +118,15 @@ def _json_rpc_error(request_id: Any, code: int, message: str, data: Any | None =
     return {"jsonrpc": "2.0", "id": request_id, "error": error}
 
 
+def _request_too_large_error(request_id: Any = None) -> dict[str, Any]:
+    return _json_rpc_error(
+        request_id,
+        -32600,
+        f"JSON-RPC request exceeds the {MAX_JSON_RPC_BYTES}-byte limit",
+        {"code": "request_too_large", "max_bytes": MAX_JSON_RPC_BYTES},
+    )
+
+
 # ---------------------------------------------------------------------------
 # The hosted tool set. ``additionalProperties: False`` and the identity
 # argument rejection in ``HostedMCPDispatcher.call_tool`` are both load-bearing:
@@ -162,6 +171,18 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
             "exclude_sender": _BOOLEAN,
             "idempotency_key": _STRING,
         }, ["room_id", "target_spec", "payload"]),
+    },
+    {
+        "name": "room_receipts",
+        "description": (
+            "Query delivery status and durable recipient read_status for entry ids "
+            "from messages sent by you in this Room. Unknown or non-owned entry ids "
+            "return not_found without revealing another sender's outbox state."
+        ),
+        "inputSchema": _object_schema({
+            "room_id": _STRING,
+            "entry_ids": _STRING_LIST,
+        }, ["room_id", "entry_ids"]),
     },
     {
         "name": "room_poll",
@@ -508,6 +529,15 @@ class HostedMCPDispatcher:
             payload=self._required(args, "payload"),
             exclude_sender=bool(args.get("exclude_sender", True)),
             idempotency_key=args.get("idempotency_key"),
+        ))
+
+    def _tool_room_receipts(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:
+        room_id = self._required(args, "room_id")
+        return self._room_call(lambda: self.rooms.receipts(
+            tenant_id=self._room_tenant(room_id, ctx.agent_id),
+            room_id=room_id,
+            agent_id=ctx.agent_id,
+            entry_ids=self._required(args, "entry_ids"),
         ))
 
     def _tool_room_poll(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:

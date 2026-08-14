@@ -1,7 +1,7 @@
 # Weft stdio↔hosted MCP bridge
 
 **Status:** implemented (`src/weft_mcp/stdio_bridge.py`), wired into
-`weft-mcp --remote`, 12 integration tests (`tests/test_stdio_bridge.py`) driving
+`weft-mcp --remote`, 17 integration tests (`tests/test_stdio_bridge.py`) driving
 the real code path a stdio MCP host uses. Authoritative usage lives here.
 
 ## The problem it solves
@@ -10,7 +10,7 @@ The hosted Weft service (`weft_cloud`, e.g. `https://weft.switzerlandnorth.
 cloudapp.azure.com`) exposes its rooms as a **Streamable-HTTP** MCP endpoint:
 `POST /mcp`, authenticated with a Bearer session token or agent key. The local
 hosted-service test suite verifies the contract — 401 unauthenticated, 200
-authenticated, and 9 room tools. A fresh public-deployment probe is still
+authenticated, and 10 room tools. A fresh public-deployment probe is still
 required before treating those results as current production behavior.
 
 But the MCP hosts people actually use speak **stdio**. Claude Desktop, Cursor,
@@ -90,7 +90,7 @@ list, and revoke keys.
 - **Full JSON-RPC passthrough.** `initialize`, `notifications/initialized`,
   `tools/list`, `tools/call`, `ping` — all forwarded unchanged. The tool set is
   never filtered or rewritten: whatever the hosted endpoint exposes is exactly
-  what the client sees (the 9 hosted room tools).
+  what the client sees (the 10 hosted room tools).
 - **Both Streamable-HTTP response shapes are unwrapped.** The hosted endpoint
   may reply with plain JSON (`application/json`) or an SSE-framed body
   (`text/event-stream`: `event:` / `data:` lines, including multi-line `data`).

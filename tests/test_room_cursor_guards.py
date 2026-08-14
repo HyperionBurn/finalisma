@@ -207,6 +207,15 @@ class CloudCursorGuardTests(unittest.TestCase):
         self.assertTrue(resp["isError"], "wait beyond head must be refused")
         self.assertEqual(resp["error"]["code"], "invalid_cursor")
 
+    def test_poll_accepts_next_seq_after_empty_page(self) -> None:
+        owner, member, created = self._pair("cloud-next-seq")
+        first = self._assert_ok(member["session_token"], "room_poll",
+                                {"room_id": created["room_id"], "after_seq": 0}, request_id=10)
+        second = self._assert_ok(member["session_token"], "room_poll",
+                                 {"room_id": created["room_id"], "after_seq": first["next_seq"]}, request_id=11)
+        self.assertEqual(second["events"], [])
+        self.assertEqual(second["next_seq"], first["next_seq"])
+
 
 class CoordinatorCursorGuardTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -278,6 +287,19 @@ class CoordinatorCursorGuardTests(unittest.TestCase):
             "agent_id": "A2", "actor_token": self.tokens["A2"], "after_seq": head,
         })
         self.assertEqual(polled["behind_by"], head - 1)
+
+    def test_poll_accepts_next_seq_after_empty_page(self) -> None:
+        first = self.dispatcher.call_tool("room_poll", {
+            "team_id": self.team, "room_id": self.room_id,
+            "agent_id": "A2", "actor_token": self.tokens["A2"], "after_seq": 0,
+        })
+        second = self.dispatcher.call_tool("room_poll", {
+            "team_id": self.team, "room_id": self.room_id,
+            "agent_id": "A2", "actor_token": self.tokens["A2"],
+            "after_seq": first["next_seq"],
+        })
+        self.assertEqual(second["events"], [])
+        self.assertEqual(second["next_seq"], first["next_seq"])
 
 
 if __name__ == "__main__":

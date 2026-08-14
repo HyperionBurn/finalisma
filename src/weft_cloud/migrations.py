@@ -420,6 +420,21 @@ def _has_room_message_kind(execute: Callable[[str, tuple], Any]) -> bool:
         return False
 
 
+def _rename_receipt_status_column(execute: Callable[[str, tuple], Any]) -> None:
+    """Converge interim cloud_013 receipt tables onto ``read_status``.
+
+    Migration IDs are immutable: databases that already recorded cloud_013
+    must be repaired by a new forward migration rather than by changing the
+    old migration body. SQLite's column rename preserves the existing rows and
+    associated constraints/index references.
+    """
+    rows = execute("SELECT name FROM pragma_table_info('cloud_room_receipts')").fetchall()
+    columns = {row["name"] for row in rows}
+    if "read_status" in columns or "status" not in columns:
+        return
+    execute("ALTER TABLE cloud_room_receipts RENAME COLUMN status TO read_status")
+
+
 def _recover_room_membership_identity(execute: Callable[[str, tuple], Any]) -> None:
     """Rewrite room-membership identity to the authenticated ACCOUNT.
 
@@ -642,6 +657,11 @@ MIGRATIONS: list[Migration] = [
         "cloud_013_room_receipts",
         "durable per-recipient room receipt consumption state",
         _ROOM_RECEIPTS_SQL,
+    ),
+    Migration(
+        "cloud_014_room_receipts_status_rename",
+        "repair interim cloud_013 receipt tables by renaming status to read_status",
+        up_fn=_rename_receipt_status_column,
     ),
 ]
 

@@ -102,6 +102,17 @@ def _validate_message_kinds(value: Sequence[str] | None,
     return validated
 
 
+def _validate_entry_ids(value: Any, field: str = "entry_ids") -> list[str]:
+    """Validate the bounded receipt-query input before building SQL."""
+    if not isinstance(value, list):
+        raise RoomError("invalid_argument", f"{field} must be a list of strings")
+    if len(value) > 200:
+        raise RoomError("invalid_argument", f"{field} must contain at most 200 items")
+    if any(not isinstance(entry_id, str) or not entry_id.strip() for entry_id in value):
+        raise RoomError("invalid_argument", f"{field} must contain non-empty strings")
+    return value
+
+
 def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
@@ -722,10 +733,14 @@ class RoomStore:
             # that jumped past unacked events can fix its own call.
             if after_seq < 0:
                 raise RoomError("invalid_cursor", "after_seq cannot be negative")
-            if after_seq > int(room["cursor_head"]):
+            # ``next_seq`` is the first sequence after the current head and is
+            # a valid empty-page cursor. Reject only a cursor beyond that
+            # boundary; otherwise a reconnect that polls from ``next_seq``
+            # would fail instead of returning an empty page.
+            if after_seq > int(room["cursor_head"]) + 1:
                 raise RoomError(
                     "invalid_cursor",
-                    f"after_seq {after_seq} is beyond the room head {room['cursor_head']}",
+                    f"after_seq {after_seq} is beyond the next valid cursor {int(room['cursor_head']) + 1}",
                 )
             behind_by = max(0, after_seq - last_ack)
             limit = max(1, min(int(limit), 200))
@@ -950,22 +965,39 @@ class RoomStore:
     def receipts(self, team_id: str, room_id: str, agent_id: str, entry_ids: Sequence[str],
                  actor_token: str) -> dict[str, Any]:
         import weft_mcp.outbox as _outbox
+        entry_ids = _validate_entry_ids(entry_ids)
         with self._transaction() as conn:
             self._require_authenticated_member(conn, team_id, room_id, agent_id, actor_token)
             receipt_rows = conn.execute(
                 "SELECT entry_id, read_status FROM room_receipts "
-                "WHERE room_id = ? AND entry_id IN (" + ",".join("?" for _ in entry_ids) + ")",
-                (room_id, *entry_ids),
+                "WHERE room_id = ? AND sender_agent_id = ? AND entry_id IN ("
+                + ",".join("?" for _ in entry_ids) + ")",
+                (room_id, agent_id, *entry_ids),
             ).fetchall() if entry_ids else []
-        read_status_by_entry = {row["entry_id"]: row["read_status"] for row in receipt_rows}
+        receipt_by_entry = {row["entry_id"]: row for row in receipt_rows}
         result = []
         for eid in entry_ids:
+            receipt = receipt_by_entry.get(eid)
+            # Receipt state is sender-private. A member may know an entry id
+            # from another sender's event, but that must not reveal delivery
+            # or read state from the outbox. Unknown, foreign, and
+            # recipient-owned ids therefore share the same no-oracle result.
+            if receipt is None:
+                result.append({
+                    "entry_id": eid,
+                    "status": "not_found",
+                    "read_status": "unknown",
+                    "attempts": 0,
+                    "next_attempt_at": None,
+                    "last_error": None,
+                })
+                continue
             entry = _outbox.get_entry(eid)
             if entry is None:
                 result.append({
                     "entry_id": eid,
                     "status": "not_found",
-                    "read_status": read_status_by_entry.get(eid, "unknown"),
+                    "read_status": receipt["read_status"],
                     "attempts": 0,
                     "next_attempt_at": None,
                     "last_error": None,
@@ -974,7 +1006,7 @@ class RoomStore:
                 result.append({
                     "entry_id": entry.get("entry_id"),
                     "status": entry.get("status"),
-                    "read_status": read_status_by_entry.get(eid, "unknown"),
+                    "read_status": receipt["read_status"],
                     "attempts": entry.get("attempts", 0),
                     "next_attempt_at": entry.get("next_attempt_at"),
                     "last_error": entry.get("last_error"),

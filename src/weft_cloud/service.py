@@ -54,6 +54,7 @@ from weft_cloud.mcp import (
     _FORBIDDEN_IDENTITY_ARGS,
     _MCP_NOTIFICATION_METHODS,
     _json_rpc_error,
+    _request_too_large_error,
     _wait_slots,
 )
 from weft_cloud.quotas import QuotaError
@@ -1218,8 +1219,12 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
         except ValueError:
             length = 0
         if length <= 0 or length > MAX_JSON_RPC_BYTES:
-            self._send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
-                            _json_rpc_error(None, -32600, "Invalid request size"))
+            self.close_connection = True
+            self._discard_mcp_body()
+            error = (_request_too_large_error()
+                     if length > MAX_JSON_RPC_BYTES
+                     else _json_rpc_error(None, -32600, "Invalid request size"))
+            self._send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, error)
             return
         try:
             request = json.loads(self.rfile.read(length))

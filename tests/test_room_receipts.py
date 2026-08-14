@@ -202,5 +202,104 @@ class RoomReceiptLifecycleTests(unittest.TestCase):
         self.assertEqual(count, 0)
 
 
+_INTERIM_CLOUD_013_BODY = """
+CREATE TABLE IF NOT EXISTS cloud_room_receipts (
+    tenant_id TEXT NOT NULL,
+    room_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    recipient_agent_id TEXT NOT NULL,
+    sender_agent_id TEXT NOT NULL,
+    entry_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'queued'
+        CHECK(status IN ('queued','read')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, room_id, seq, recipient_agent_id)
+);
+CREATE INDEX IF NOT EXISTS idx_room_receipts_recipient
+    ON cloud_room_receipts(tenant_id, room_id, recipient_agent_id, status);
+CREATE INDEX IF NOT EXISTS idx_room_receipts_sender
+    ON cloud_room_receipts(tenant_id, room_id, sender_agent_id, seq);
+"""
+
+
+class ReceiptSchemaUpgradeTests(unittest.TestCase):
+    """Repair an already-applied interim cloud_013 without losing data."""
+
+    def test_interim_shape_converges_to_read_status_with_data(self) -> None:
+        import sqlite3
+
+        from weft_cloud import migrations
+
+        with tempfile.TemporaryDirectory() as temp:
+            db_path = str(Path(temp) / "interim.db")
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            try:
+                conn.execute(
+                    "CREATE TABLE schema_migrations "
+                    "(migration_id TEXT PRIMARY KEY, applied_at TEXT NOT NULL)"
+                )
+                conn.executescript(_INTERIM_CLOUD_013_BODY)
+                for migration in migrations.MIGRATIONS:
+                    if migration.migration_id == "cloud_014_room_receipts_status_rename":
+                        continue
+                    conn.execute(
+                        "INSERT INTO schema_migrations(migration_id, applied_at) VALUES (?, ?)",
+                        (migration.migration_id, "2026-08-13T00:00:00Z"),
+                    )
+                conn.execute(
+                    "INSERT INTO cloud_room_receipts(" 
+                    "tenant_id, room_id, seq, recipient_agent_id, sender_agent_id, "
+                    "entry_id, status, created_at, updated_at) "
+                    "VALUES ('t', 'r', 7, 'recv', 'send', 'oeb_1', 'read', 'x', 'x')"
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            backend = SqliteWalBackend(db_path)
+            try:
+                migrations.apply_migrations(backend)
+                with backend.transaction() as tx:
+                    columns = {
+                        row["name"] for row in tx.execute(
+                            "SELECT name FROM pragma_table_info('cloud_room_receipts')"
+                        ).fetchall()
+                    }
+                    self.assertIn("read_status", columns)
+                    self.assertNotIn("status", columns)
+                    row = tx.execute(
+                        "SELECT read_status FROM cloud_room_receipts WHERE seq = 7"
+                    ).fetchone()
+                    self.assertEqual(row["read_status"], "read")
+                    applied = tx.execute(
+                        "SELECT COUNT(*) AS c FROM schema_migrations "
+                        "WHERE migration_id = 'cloud_014_room_receipts_status_rename'"
+                    ).fetchone()["c"]
+                    self.assertEqual(applied, 1)
+            finally:
+                backend.close()
+
+    def test_canonical_shape_is_a_no_op(self) -> None:
+        from weft_cloud import migrations
+
+        with tempfile.TemporaryDirectory() as temp:
+            backend = SqliteWalBackend(str(Path(temp) / "canonical.db"))
+            try:
+                migrations.apply_migrations(backend)
+                migrations.apply_migrations(backend)
+                with backend.transaction() as tx:
+                    columns = {
+                        row["name"] for row in tx.execute(
+                            "SELECT name FROM pragma_table_info('cloud_room_receipts')"
+                        ).fetchall()
+                    }
+                    self.assertIn("read_status", columns)
+                    self.assertNotIn("status", columns)
+            finally:
+                backend.close()
+
+
 if __name__ == "__main__":
     unittest.main()

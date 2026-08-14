@@ -84,6 +84,7 @@ def main() -> int:
     print("  WEFT CLOUD — MULTI-AGENT PROOF")
     print("  One link, many agents, ordered delivery, gate refuses stale work")
     print("=" * 70)
+    run_id = str(int(time.time()))
 
     # 1. Health check.
     step("1. Service health check")
@@ -96,7 +97,7 @@ def main() -> int:
     # 2. Sign up an account.
     step("2. Sign up an account")
     signup = post("/v1/auth/signup", {
-        "email": "design-partner@example.com",
+        "email": f"design-partner-{run_id}@example.com",
         "password": "CorrectHorse-Battery-Staple!42",
     })
     if "_http_error" in signup:
@@ -116,7 +117,6 @@ def main() -> int:
     # 3. Create a room → ONE link.
     step("3. Create a room (cap=6, so 4+ agents fit)")
     room = post("/v1/rooms/create", {
-        "owner_agent_id": "owner-agent",
         "cap": 6,
         "name": "design-review",
     }, owner_token)
@@ -127,16 +127,25 @@ def main() -> int:
     link_token = room["link_token"]
     shareable = room["shareable_link"]
     show("room_id", room_id)
-    show("shareable_link", shareable)
+    if not (
+        isinstance(shareable, str)
+        and shareable.startswith(("http://", "https://"))
+        and shareable.endswith(f"/j/{link_token}")
+    ):
+        print("  FAIL: shareable link is not an absolute /j/<link_token> URL")
+        return 1
+    show("shareable_link", "[redacted]")
+    show("shareable_link_shape", {"absolute": True, "token_tail": True})
     show("cap", room["cap"])
     show("state", room["state"])
 
     # 4. FOUR separate agents redeem the SAME link.
     step("4. Four separate agents redeem the SAME link")
     agent_tokens = {}
+    agent_ids = {}
     for i, agent_name in enumerate(["agent-1", "agent-2", "agent-3", "agent-4"], start=1):
         # Each agent needs a session (sign up as a distinct user).
-        agent_email = f"{agent_name}@example.com"
+        agent_email = f"{agent_name}-{run_id}@example.com"
         agent_signup = post("/v1/auth/signup", {
             "email": agent_email,
             "password": f"AgentSecret-{i}!",
@@ -146,11 +155,11 @@ def main() -> int:
             return 1
         agent_token = agent_signup["session_token"]
         agent_tokens[agent_name] = agent_token
+        agent_ids[agent_name] = agent_signup["account_id"]
         # Join the room using the shared link.
         join = post("/v1/rooms/join", {
             "room_id": room_id,
             "link_token": link_token,
-            "agent_id": agent_name,
             "consent": True,
             "capabilities": ["read", "write"] if i % 2 else ["read"],
         }, agent_token)
@@ -161,7 +170,7 @@ def main() -> int:
 
     # Owner also joins (auto-joined on create, but verify).
     step("4b. Room info — roster")
-    info = post("/v1/rooms/poll", {"room_id": room_id, "agent_id": "owner-agent"}, owner_token)
+    info = post("/v1/rooms/poll", {"room_id": room_id}, owner_token)
     if "_http_error" in info:
         print(f"  FAIL: room poll failed: {info}")
         return 1
@@ -172,7 +181,6 @@ def main() -> int:
     step("5. Agent 1 broadcasts a message — all others receive it in order")
     send_result = post("/v1/rooms/send", {
         "room_id": room_id,
-        "sender_agent_id": "agent-1",
         "target_spec": "*",
         "payload": {"text": "hello from agent-1", "seq_marker": 1},
     }, agent_tokens["agent-1"])
@@ -186,7 +194,6 @@ def main() -> int:
     # Agent 2 sends another message.
     send2 = post("/v1/rooms/send", {
         "room_id": room_id,
-        "sender_agent_id": "agent-2",
         "target_spec": "*",
         "payload": {"text": "hello from agent-2", "seq_marker": 2},
     }, agent_tokens["agent-2"])
@@ -200,7 +207,6 @@ def main() -> int:
     for agent_name in ["agent-2", "agent-3", "agent-4"]:
         poll = post("/v1/rooms/poll", {
             "room_id": room_id,
-            "agent_id": agent_name,
             "after_seq": 0,
         }, agent_tokens[agent_name])
         if "_http_error" in poll:
@@ -227,8 +233,7 @@ def main() -> int:
     step("6. Unicast: agent 3 → agent 4 only")
     unicast = post("/v1/rooms/send", {
         "room_id": room_id,
-        "sender_agent_id": "agent-3",
-        "target_spec": "agent-4",
+        "target_spec": agent_ids["agent-4"],
         "payload": {"text": "private message to agent-4"},
         "exclude_sender": True,
     }, agent_tokens["agent-3"])
@@ -239,14 +244,13 @@ def main() -> int:
     # Verify only agent-4 got it.
     unicast_targets = [r["agent_id"] for r in unicast["receipts"]]
     show("unicast targets", unicast_targets)
-    if unicast_targets != ["agent-4"]:
+    if unicast_targets != [agent_ids["agent-4"]]:
         print(f"  FAIL: unicast reached wrong targets: {unicast_targets}")
         return 1
 
     # Agent 4 sees it.
     poll4 = post("/v1/rooms/poll", {
         "room_id": room_id,
-        "agent_id": "agent-4",
         "after_seq": 0,
     }, agent_tokens["agent-4"])
     last_event = poll4["events"][-1] if poll4["events"] else None
@@ -275,7 +279,7 @@ def main() -> int:
     step("7. Refuse a non-member trying to send (stale/out-of-scope action)")
     # Sign up a stranger who is NOT in the room.
     stranger = post("/v1/auth/signup", {
-        "email": "stranger@example.com",
+        "email": f"stranger-{run_id}@example.com",
         "password": "StrangerSecret!1",
     })
     if "_http_error" in stranger:
@@ -285,7 +289,6 @@ def main() -> int:
     # Stranger tries to send to the room — should be REFUSED (member_required).
     refused = post("/v1/rooms/send", {
         "room_id": room_id,
-        "sender_agent_id": "stranger",
         "target_spec": "*",
         "payload": {"text": "I should be refused"},
     }, stranger_token)
@@ -309,7 +312,6 @@ def main() -> int:
     step("7b. Refuse a non-member trying to poll")
     stranger_poll = post("/v1/rooms/poll", {
         "room_id": room_id,
-        "agent_id": "stranger",
     }, stranger_token)
     show("stranger poll result", stranger_poll)
     if stranger_poll.get("_http_error") not in (403, 404):
@@ -321,7 +323,6 @@ def main() -> int:
     step("8. Final ordered event log (from agent-4's view)")
     log = post("/v1/rooms/event_log", {
         "room_id": room_id,
-        "agent_id": "agent-4",
     }, agent_tokens["agent-4"])
     if "_http_error" in log:
         print(f"  FAIL: event log failed: {log}")
@@ -353,7 +354,6 @@ def main() -> int:
     rejoin = post("/v1/rooms/join", {
         "room_id": room_id,
         "link_token": link_token,
-        "agent_id": "agent-1",
         "consent": True,
     }, agent_tokens["agent-1"])
     if "_http_error" in rejoin:

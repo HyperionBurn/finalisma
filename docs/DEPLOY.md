@@ -230,9 +230,9 @@ Executed and confirmed on the authoring machine:
   `weft-web: WEFT_WEB_PORT must be an integer`.
 - Both processes started against one shared database file; the shared-store
   suite `tests/test_webapp_entrypoint.py` (6 tests) passes.
-- 524 tests, 2 pre-existing branch-drift failures unchanged (a cloud link_token
-  prefix and a marketing launch-surface string; both reproduced on a clean
-  tree, outside these files).
+ - 915 tests pass in the current integration tree; the historical 524-test,
+  two branch-drift-failure snapshot above is retained only as provenance for
+  that earlier deployment run and is not the current release gate.
 
 Not executed on the authoring machine (no Docker runtime installed):
 `docker build`, `docker compose up`, the volume backup/restore and the

@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from weft_mcp.core import WeftError, WeftStore
-from weft_mcp.server import WeftDispatcher, _MCPRequestHandler, _Metrics, _WindowRateLimiter, handle_json_rpc, run_stdio
+from weft_mcp.server import MAX_JSON_RPC_BYTES, WeftDispatcher, _MCPRequestHandler, _Metrics, _WindowRateLimiter, handle_json_rpc, run_stdio
 
 
 class WeftStoreTests(unittest.TestCase):
@@ -414,6 +414,39 @@ class MCPProtocolTests(unittest.TestCase):
             response.read()
             connection.close()
             self.assertEqual(response.status, 403)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+    def test_oversized_http_mcp_body_returns_structured_limit_error(self) -> None:
+        handler = type("OversizedMCPHTTPHandler", (_MCPRequestHandler,), {})
+        handler.dispatcher = self.dispatcher
+        handler.token = "test-token"
+        handler.allowed_origins = {"http://localhost"}
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            host, port = server.server_address
+            connection = HTTPConnection(host, port, timeout=5)
+            connection.request(
+                "POST",
+                "/mcp",
+                b"x" * (MAX_JSON_RPC_BYTES + 1),
+                {"Content-Type": "application/json", "Authorization": "Bearer test-token"},
+            )
+            response = connection.getresponse()
+            body = json.loads(response.read())
+            connection.close()
+
+            self.assertEqual(response.status, 413)
+            self.assertEqual(body["jsonrpc"], "2.0")
+            self.assertIsNone(body["id"])
+            self.assertEqual(body["error"]["code"], -32600)
+            self.assertEqual(body["error"]["data"]["code"], "request_too_large")
+            self.assertEqual(body["error"]["data"]["max_bytes"], MAX_JSON_RPC_BYTES)
+            self.assertIn(str(MAX_JSON_RPC_BYTES), body["error"]["message"])
         finally:
             server.shutdown()
             server.server_close()

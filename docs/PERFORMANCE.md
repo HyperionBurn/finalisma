@@ -16,14 +16,15 @@ weighted median of **72.221 ms** (weighted p95 81.899 ms). The latest complete
 gate run on 2026-08-13 measured **137.404 ms** (weighted p95 **155.381 ms**)
 and therefore **failed**: weighted median improvement was -90.25%, and scenario
 p95 changed by +82.59% (`routing_fanout`), +98.81% (`session_relay`), and
-+81.84% (`authenticated_core`). The quality sub-gates did pass: **894 tests**,
-protocol smoke, and credential-output checks. A long-running OpenCode process
++81.84% (`authenticated_core`). The quality sub-gates did pass for that
+historical **894-test snapshot**, along with protocol smoke and credential-output checks. A long-running OpenCode process
 was consuming substantial CPU and memory during this capture. That is a
 diagnostic confounder, not proof that host load caused the entire regression;
 the gate remains red until a controlled idle-host rerun explains or clears it.
 
 The preceding complete run measured **90.158 ms** (weighted p95 104.705 ms),
-also failed the weighted-median and scenario-p95 guards, and passed 894 tests,
+also failed the weighted-median and scenario-p95 guards, and passed the then-current
+894-test quality snapshot,
 protocol smoke, and credential-output checks. It remains historical evidence,
 not the current result.
 
@@ -38,7 +39,7 @@ contract.
 An earlier complete run measured 71.349 ms / 79.400 ms p95, but failed a
 single session-relay p95 guard (+20.15%) and initially exposed a stale published
 test count. The historical benchmark-run count is 894; the current repository
-suite is 900 tests after subsequent security and lifecycle coverage. Three isolated seven-trial
+suite is 915 tests after subsequent security and lifecycle coverage. Three isolated seven-trial
 captures on the same host produced weighted medians of 73.981 ms, 87.975 ms,
 and 101.820 ms while the machine was under its normal background workload.
 That spread is evidence of measurement variance, not a stable optimization or
