@@ -554,6 +554,35 @@ class CloudRoomService:
             raise RoomError("room_not_found", "Room not found", 404)
         return row
 
+    def _close_expired_room(self, tenant_id: str, room_id: str) -> None:
+        """Lazy TTL close, committed in its OWN short transaction.
+
+        ``ttl_seconds`` is a room-lifetime promise, not a link-only limit.
+        Reads stay available on closed rooms (history is immutable, like
+        explicitly-closed rooms today), but the first write after expiry
+        marks the room closed exactly once — with a ``room.closed`` event
+        carrying ``reason: ttl_expired`` — so the caller's own transaction
+        then sees ``closed`` and refuses. The close must COMMIT independently:
+        raising inside the caller's transaction would roll the close back with
+        the refusal, which is how the first implementation failed its test.
+        """
+        with self.backend.transaction() as tx:
+            room = self._require_room(tx, tenant_id, room_id)
+            if room["state"] == "closed":
+                tx.commit()
+                return
+            expires = float(room["expires_at"] or 0.0)
+            if expires <= 0 or expires >= _time.time():
+                tx.commit()
+                return
+            tx.execute(
+                "UPDATE cloud_rooms SET state = 'closed' WHERE tenant_id = ? AND room_id = ?",
+                (tenant_id, room_id),
+            )
+            self._append_event(tx, tenant_id, room_id, room["owner_agent_id"],
+                               "room.closed", {"reason": "ttl_expired"})
+            tx.commit()
+
     def _resolve_room_tenant(self, tx: Any, room_id: str, agent_id: str | None = None) -> str:
         """Find the tenant_id for a room, optionally scoped to a member.
 
@@ -925,6 +954,18 @@ class CloudRoomService:
         # and concurrent joins cannot oversubscribe a room.
         with self.backend.transaction() as tx:
             real_tenant_id, room, link_row = self._resolve_room_for_link(tx, room_id, link_token)
+            if room["state"] != "closed" and float(room["expires_at"] or 0.0) > 0 \
+                    and float(room["expires_at"]) < now_epoch:
+                # Close commits BEFORE the refusal raise, so the close is not
+                # rolled back with it.
+                tx.execute(
+                    "UPDATE cloud_rooms SET state = 'closed' WHERE tenant_id = ? AND room_id = ?",
+                    (real_tenant_id, room_id),
+                )
+                self._append_event(tx, real_tenant_id, room_id, room["owner_agent_id"],
+                                   "room.closed", {"reason": "ttl_expired"})
+                tx.commit()
+                raise RoomError("room_expired", "Room has expired", 410)
             if room["state"] == "closed":
                 raise RoomError("room_closed", "Room is closed", 409)
             if link_row["revoked"]:
@@ -1527,6 +1568,9 @@ class CloudRoomService:
         message_kind = _validate_message_kind(message_kind)
         lock_context = self._idempotency_lock if idempotency_key else nullcontext()
         with lock_context:
+            # Lazy TTL close commits in its own transaction, so a refusal in
+            # the delivery transaction can never roll the close back.
+            self._close_expired_room(tenant_id, room_id)
             with self.backend.transaction() as tx:
                 room = self._require_room(tx, tenant_id, room_id)
                 self._require_member(tx, tenant_id, room_id, sender_agent_id)

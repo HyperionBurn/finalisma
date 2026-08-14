@@ -1,0 +1,262 @@
+"""Product-completeness fixes — the gaps that remained after the P0 sprint.
+
+Three defects, each with a regression test that is RED before the fix:
+
+1. ``room_leave`` is missing from the hosted MCP surface. The service has
+   ``leave_room`` (and REST /v1/rooms/leave), but an MCP agent can join a room
+   and has NO way to exit — the known-list item that outlived the sprint.
+2. Room TTL is decorative. ``ttl_seconds`` is stored on the room row and
+   enforced ONLY for the join link; the room itself never closes. A room
+   created with ``ttl_seconds=60`` lives forever.
+3. ``message_kind`` is dead surface on the hosted plane: the service accepts
+   it, poll/wait filter on it, but the ``room_send`` tool schema never
+   exposes it, so every send's message_kind is permanently NULL and the
+   filter can never match anything.
+
+Plus a proof test for the room message budget (60/min): crossing it must
+produce a ``rate_limited`` refusal with ``retry_after`` — the security
+surface measured earlier as "consistent with, not proven".
+
+Tests drive the real hosted HTTP surface; no mocks for the SQLite layer.
+"""
+
+from __future__ import annotations
+
+import json
+import shutil
+import sys
+import tempfile
+import threading
+import time
+import unittest
+import urllib.error
+import urllib.request
+from http import HTTPStatus
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
+from weft_cloud.service import WeftCloudService, _CloudHTTPHandler
+from weft_cloud.storage import SqliteWalBackend
+
+
+def _post(base: str, path: str, body: dict, token: str | None = None) -> tuple[int, dict]:
+    data = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(base + path, data=data, method="POST")
+    req.add_header("Content-Type", "application/json")
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw = resp.read()
+            return resp.status, json.loads(raw.decode("utf-8")) if raw else {}
+    except urllib.error.HTTPError as exc:
+        payload = {}
+        try:
+            raw = exc.read()
+            payload = json.loads(raw.decode("utf-8")) if raw else {}
+        except Exception:
+            pass
+        finally:
+            exc.close()
+        return exc.code, payload
+
+
+def _mcp(base: str, method: str, params: dict | None, token: str | None = None,
+         request_id: int | None = 1, timeout: int = 10) -> tuple[int, dict | None]:
+    body: dict = {"jsonrpc": "2.0", "method": method}
+    if not request_id is None:
+        body["id"] = request_id
+    if params is not None:
+        body["params"] = params
+    data = json.dumps(body, separators=(",", ":")).encode("utf-8")
+    req = urllib.request.Request(base + "/mcp", data=data, method="POST")
+    req.add_header("Content-Type", "application/json")
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read()
+            return resp.status, json.loads(raw.decode("utf-8")) if raw else None
+    except urllib.error.HTTPError as exc:
+        payload = None
+        try:
+            raw = exc.read()
+            payload = json.loads(raw.decode("utf-8")) if raw else None
+        except Exception:
+            pass
+        finally:
+            exc.close()
+        return exc.code, payload
+
+
+def _tool_error_text(result: dict) -> dict:
+    content = result.get("content") or []
+    text = content[0].get("text", "") if content else ""
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return {"code": "unparseable", "message": text}
+    return parsed.get("error", {"code": "missing_error", "message": text})
+
+
+class ProductPerfectTestBase(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        from http.server import ThreadingHTTPServer
+
+        cls.tmpdir = tempfile.mkdtemp(prefix="weft-perfect-test-")
+        cls.db_path = str(Path(cls.tmpdir) / "test.db")
+        cls._httpd = ThreadingHTTPServer(("127.0.0.1", 0), _CloudHTTPHandler)
+        cls.port = cls._httpd.server_address[1]
+        cls.base = f"http://127.0.0.1:{cls.port}"
+        cls.service = WeftCloudService(SqliteWalBackend(cls.db_path))
+        _CloudHTTPHandler.service = cls.service
+        cls.server_thread = threading.Thread(
+            target=cls._httpd.serve_forever, daemon=True,
+        )
+        cls.server_thread.start()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        if cls._httpd is not None:
+            try:
+                cls._httpd.shutdown()
+            finally:
+                cls._httpd.server_close()
+        try:
+            cls.service.backend.close()
+        except Exception:
+            pass
+        shutil.rmtree(cls.tmpdir, ignore_errors=True)
+
+    def _signup(self, email: str, tenant_id: str | None = None) -> dict:
+        body: dict = {"email": email, "password": "password-123"}
+        if tenant_id is not None:
+            body["tenant_id"] = tenant_id
+        status, resp = _post(self.base, "/v1/auth/signup", body)
+        self.assertEqual(status, HTTPStatus.CREATED, f"signup failed: {resp}")
+        return resp
+
+    def _mcp_call(self, token: str, name: str, args: dict, request_id: int = 100,
+                  timeout: int = 10) -> dict:
+        status, payload = _mcp(self.base, "tools/call", {"name": name, "arguments": args},
+                               token=token, request_id=request_id, timeout=timeout)
+        self.assertEqual(status, HTTPStatus.OK, f"tools/call {name} HTTP {status}: {payload}")
+        result = (payload or {}).get("result") or {}
+        if result.get("isError"):
+            return {"isError": True, "error": _tool_error_text(result)}
+        return {"isError": False, "result": result.get("structuredContent")}
+
+    def _assert_ok(self, token: str, name: str, args: dict, request_id: int = 100) -> dict:
+        resp = self._mcp_call(token, name, args, request_id)
+        self.assertFalse(resp["isError"], f"{name} failed: {resp}")
+        return resp["result"]
+
+    def _pair(self, prefix: str, **create_kwargs) -> tuple[dict, dict, dict]:
+        owner = self._signup(f"{prefix}-owner@example.com")
+        member = self._signup(f"{prefix}-member@example.com", tenant_id=owner["tenant_id"])
+        created = self._assert_ok(owner["session_token"], "room_create",
+                                  {"cap": 4, **create_kwargs}, request_id=1)
+        self._assert_ok(member["session_token"], "room_join",
+                        {"room_id": created["room_id"],
+                         "link_token": created["link_token"], "consent": True},
+                        request_id=2)
+        return owner, member, created
+
+
+class RoomLeaveSurfaceTests(ProductPerfectTestBase):
+    def test_member_can_leave_via_hosted_mcp(self) -> None:
+        owner, member, created = self._pair("leave")
+        left = self._assert_ok(member["session_token"], "room_leave",
+                               {"room_id": created["room_id"]}, request_id=10)
+        self.assertEqual(left["status"], "left")
+        info = self._assert_ok(owner["session_token"], "room_info",
+                               {"room_id": created["room_id"]}, request_id=11)
+        self.assertEqual(info["member_count"], 1,
+                         "leaving must free the seat (only the owner remains)")
+        ids = {m["agent_id"] for m in info["members"]}
+        self.assertNotIn(member["account_id"], ids)
+        # A left member is no longer a member: polling must be refused.
+        resp = self._mcp_call(member["session_token"], "room_poll",
+                              {"room_id": created["room_id"]}, request_id=12)
+        self.assertTrue(resp["isError"], "a left member must lose room access")
+
+    def test_non_member_cannot_leave(self) -> None:
+        owner, _, created = self._pair("leavenon")
+        outsider = self._signup("leavenon-out@example.com", tenant_id=owner["tenant_id"])
+        resp = self._mcp_call(outsider["session_token"], "room_leave",
+                              {"room_id": created["room_id"]}, request_id=10)
+        self.assertTrue(resp["isError"], "non-member leave must be refused")
+
+
+class RoomTTLEnforcementTests(ProductPerfectTestBase):
+    def test_expired_room_closes_lazily_and_refuses_sends(self) -> None:
+        owner, member, created = self._pair("ttl", ttl_seconds=1)
+        time.sleep(1.5)
+        resp = self._mcp_call(member["session_token"], "room_send",
+                              {"room_id": created["room_id"], "target_spec": "*",
+                               "payload": {"text": "too-late"}}, request_id=10)
+        self.assertTrue(resp["isError"], "send to an expired room must be refused")
+        self.assertIn(resp["error"]["code"], ("room_closed", "room_expired"))
+        info = self._assert_ok(owner["session_token"], "room_info",
+                               {"room_id": created["room_id"]}, request_id=11)
+        self.assertEqual(info["state"], "closed",
+                         "the expired room must be lazily closed, not left active")
+        # History remains readable (reads keep working on closed rooms).
+        polled = self._assert_ok(owner["session_token"], "room_poll",
+                                 {"room_id": created["room_id"], "after_seq": 0},
+                                 request_id=12)
+        self.assertGreaterEqual(polled["cursor_head"], 1,
+                                "history must remain readable after closure")
+
+
+class MessageKindSurfaceTests(ProductPerfectTestBase):
+    def test_send_message_kind_roundtrips_and_filters(self) -> None:
+        owner, member, created = self._pair("mk")
+        sent = self._assert_ok(owner["session_token"], "room_send",
+                               {"room_id": created["room_id"], "target_spec": "*",
+                                "payload": {"text": "tagged"}, "message_kind": "task-update"},
+                               request_id=10)
+        seq = sent["seq"]
+        # The event carries the kind.
+        polled = self._assert_ok(member["session_token"], "room_poll",
+                                 {"room_id": created["room_id"], "after_seq": 0},
+                                 request_id=11)
+        kinds = {e.get("message_kind") for e in polled["events"] if e.get("seq") == seq}
+        self.assertIn("task-update", kinds,
+                      "the send's message_kind must be stored on the event")
+        # The poll filter matches on it.
+        filtered = self._assert_ok(member["session_token"], "room_poll",
+                                   {"room_id": created["room_id"], "after_seq": 0,
+                                    "message_kinds": ["task-update"]}, request_id=12)
+        filtered_seqs = [e["seq"] for e in filtered["events"]]
+        self.assertIn(seq, filtered_seqs, "message_kinds filter must match the tagged event")
+        # An unrelated filter excludes it.
+        other = self._assert_ok(member["session_token"], "room_poll",
+                                {"room_id": created["room_id"], "after_seq": 0,
+                                 "message_kinds": ["other-kind"]}, request_id=13)
+        self.assertNotIn(seq, [e["seq"] for e in other["events"]],
+                         "an unrelated filter must exclude the tagged event")
+
+
+class RateLimitProofTests(ProductPerfectTestBase):
+    def test_room_message_budget_crossing_refuses_with_retry_after(self) -> None:
+        owner, member, created = self._pair("rl")
+        refused = None
+        for i in range(75):
+            resp = self._mcp_call(owner["session_token"], "room_send",
+                                  {"room_id": created["room_id"], "target_spec": "*",
+                                   "payload": {"text": f"burst-{i}"}}, request_id=1000 + i)
+            if resp["isError"]:
+                refused = resp
+                break
+        self.assertIsNotNone(refused, "crossing 60 sends/min must refuse")
+        self.assertEqual(refused["error"]["code"], "rate_limited",
+                         "the refusal must name rate_limited")
+        self.assertIn("retry_after", refused["error"],
+                      "the refusal must carry a retry_after the caller can act on")
+
+
+if __name__ == "__main__":
+    unittest.main()
