@@ -157,10 +157,10 @@ Rules that must survive future edits:
   real v3 coordinator DB in place (additive only, never touches agent_credentials).
   `quotas.py`/`rate_limit.py` are plan-driven seams (Wave I adds billing). `mcp.py` is the
   hosted MCP endpoint at `POST /mcp` — authenticated with cloud sessions, tenant-confined,
-  exposing the 10 room tools over `CloudRoomService`; `service.py` routes `/mcp` to it
+  exposing the 12 room tools over `CloudRoomService`; `service.py` routes `/mcp` to it
    (Design: `docs/CLOUD_SPINE_DESIGN.md`, `docs/HOSTED_MCP_DESIGN.md`).
    `cloud_outbox` (the HOSTED delivery outbox — distinct from the email
-   `cloud_identity_outbox`) has a full completion lifecycle: migration `cloud_010`
+   `cloud_identity_outbox`) has a full completion lifecycle: migration `cloud_011`
    adds `claimed_at`/`claimed_by`/`last_error`/`dispatched_at`, the backend exposes
    lease-aware `claim_due_outbox` + `mark_outbox_delivered/retry/dead`, and
    `delivery_worker.py` drains it with a pluggable `Deliverer` (lease reclaim,
@@ -573,7 +573,7 @@ Priority order for the next agent:
    Making it a real multi-node service is a storage-layer change.
 9. A hosted MCP endpoint now exists at `POST /mcp` on `weft-cloud`
    (`src/weft_cloud/mcp.py`, `docs/HOSTED_MCP_DESIGN.md`): authenticated with
-   cloud sessions, tenant-confined, exposing the 10 room tools over
+   cloud sessions, tenant-confined, exposing the 12 room tools over
    `CloudRoomService` (the same store `/v1` uses). The remaining validation is
    breadth: the stdio tier is host-verified (OpenCode 1.18.13) and stdio hosts
    can reach the hosted `/mcp` endpoint through the `weft-mcp --remote`

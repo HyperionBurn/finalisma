@@ -736,9 +736,13 @@ Identity migrations extend the existing `MIGRATIONS` list in `migrations.py`. Th
 | `cloud_007_room_tables` | cloud room lifecycle + event log + addressing | `cloud_rooms`, `cloud_room_members`, `cloud_room_links`, `cloud_room_event_log`, `cloud_room_cursors`, `cloud_room_groups`, `cloud_room_group_members` |
 | `cloud_008_identity_outbox_delivery` | identity email outbox delivery state | ALTERs `cloud_identity_outbox` (status/attempts/backoff/lease) |
 | `cloud_009_room_message_kind` | room event log `message_kind` column | ALTER `cloud_room_event_log` |
-| `cloud_010_cloud_outbox_lifecycle` | hosted delivery outbox completion lifecycle | ALTERs `cloud_outbox` (`claimed_at`/`claimed_by`/`last_error`/`dispatched_at`) |
+| `cloud_010_room_membership_account` | bind room membership to the authenticated account | Python rewrite of `cloud_room_members` (recoverable from the session table) |
+| `cloud_011_cloud_outbox_lifecycle` | hosted delivery outbox completion lifecycle | ALTERs `cloud_outbox` (`claimed_at`/`claimed_by`/`last_error`/`dispatched_at`) |
+| `cloud_012_identity_agent_keys` | agent API keys (long-lived, revocable, SHA-256 at rest) | `cloud_identity_agent_keys` |
+| `cloud_013_room_receipts` | durable per-recipient room receipt consumption state | `cloud_room_receipts` (delivery `status` + `read_status`) |
+| `cloud_014_room_receipts_status_rename` | repair interim `cloud_013` receipt tables by renaming `status` → `read_status` | guarded `RENAME COLUMN` on `cloud_room_receipts` |
 
-**Note:** `cloud_001_init` is Wave F's and already exists. Wave G appends `cloud_002` through `cloud_006`; later waves append `cloud_007` through `cloud_010`. Existing migrations are not modified.
+**Note:** `cloud_001_init` is Wave F's and already exists. Wave G appends `cloud_002` through `cloud_006`; later waves append `cloud_007` through `cloud_014`. Migration ids are the ledger's primary key and are **never mutated**: a numbering collision in the `cloud_010` slot was resolved by renumbering the outbox lifecycle migration to `cloud_011` (a new forward migration), and the interim `cloud_013` receipt column naming was repaired by the separate `cloud_014` rename rather than by editing the recorded `cloud_013` body.
 
 ---
 

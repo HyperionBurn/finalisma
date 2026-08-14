@@ -79,18 +79,54 @@ A tier is only "supported" when a captured transcript exists in the repo. No exc
 The goal is complete only when **every** line is true and independently verified.
 
 ### Product
-- [ ] Rooms: create, invite-by-link, N-agent join, presence, roster, leave, close.
-- [ ] Addressing: unicast, group, broadcast — all with delivery receipts.
-- [ ] Ordered replay with per-member cursors; reconnect loses and duplicates nothing.
-- [ ] Governance preserved: consent, scopes, leases, fencing, evidence gates, audit.
+- [x] Rooms: create, invite-by-link, N-agent join, presence, roster, leave, close.
+- [x] Addressing: unicast, group, broadcast — all with delivery receipts.
+- [x] Ordered replay with per-member cursors; reconnect loses and duplicates nothing.
+- [x] Governance preserved: consent, scopes, leases, fencing, evidence gates, audit.
 - [ ] All four connection tiers proven with committed transcripts.
 
+> **Shipped status (2026-08-13):** the room product object is implemented on
+> both planes — the coordinator (`src/weft_mcp/room.py`, 12 `room_*` tools,
+> `docs/ROOMS_DESIGN.md`) and the hosted cloud (`src/weft_cloud/rooms.py` +
+> the 12-tool hosted MCP surface, `docs/HOSTED_MCP_DESIGN.md`). Lifecycle is
+> complete: members leave with `room_leave`, the owner removes members with
+> `room_remove_member` (seat freed, `room.left` with `reason: removed_by_owner`,
+> not a ban), and `ttl_seconds` closes the room itself (lazy close on the
+> first write after expiry, `room.closed` with `reason: ttl_expired`, quota
+> slot released) — not a link-only limit. Delivery receipts are durable and
+> two-dimensional: per-recipient `entry_id` + delivery `status` at send, and a
+> `read_status` that `room_ack` transitions `queued` → `read` (returning
+> `receipts_read`); `room_receipts` is sender-scoped with no outbox oracle.
+> Replay is ordered and at-least-once with monotonic per-member cursors and
+> guarded `after_seq` windows (`invalid_cursor` beyond head+1 or negative;
+> `behind_by` reported; `head+1` is the legal EOF marker). Scale proof: the
+> dogfood run recorded 199 agents joining one link with a single identical
+> event ordering (`docs/DOGFOOD_FINDINGS_2026-08-07.md`), and the hosted
+> `room_wait` surface caps 128 concurrent waiters with agreement tests. The
+> four-tier line stays open: the stdio tier is host-verified (OpenCode
+> 1.18.13), but host-product transcripts for the remaining tiers are still
+> required before "any agent" is claimed (§3).
+
 ### Hosted service
-- [ ] Multi-tenant isolation with a negative test proving tenant B cannot read tenant A.
-- [ ] Shared transactional storage, migrations, and a documented backup/restore. (2026-08-05 Wave F decision: v1 runs **SQLite-WAL**, single instance — superseding the earlier "Postgres" wording for the v1 milestone; Postgres is a later scale decision behind the same `StorageBackend` ABC. See §1 and the annotation at the top of this file.)
+- [x] Multi-tenant isolation with a negative test proving tenant B cannot read tenant A.
+- [x] Shared transactional storage, migrations, and a documented backup/restore. (2026-08-05 Wave F decision: v1 runs **SQLite-WAL**, single instance — superseding the earlier "Postgres" wording for the v1 milestone; Postgres is a later scale decision behind the same `StorageBackend` ABC. See §1 and the annotation at the top of this file.)
 - [ ] Real auth: email + OIDC, sessions, revocation, credential rotation.
 - [ ] Multi-instance safe: distributed rate limits, no single-node assumptions.
-- [ ] Durable delivery under crash; DLQ recovery proven by a kill-mid-flight test.
+- [x] Durable delivery under crash; DLQ recovery proven by a kill-mid-flight test.
+
+> **Shipped status (2026-08-13):** tenant isolation is structural
+> (`TenantContext` guard + `WHERE tenant_id = ?` scoping) and negative-tested
+> (`tests/test_tenancy_negative.py`, and the hosted-MCP cross-tenant
+> no-oracle suite); storage is the `StorageBackend` ABC over SQLite-WAL with a
+> forward-only, idempotent migration ledger (`cloud_001` … `cloud_014`;
+> ids are the ledger's primary key and are never mutated), with backup/restore
+> documented in `docs/DEPLOY.md`; the hosted delivery outbox has a full
+> lifecycle (lease/retry/dead-letter, `cloud_011`) and real crash-kill
+> durability tests. "Real auth" stays open: email auth, sessions,
+> revocation, and agent-key rotation are shipped (Wave G), but OIDC is still
+> a design only (`docs/IDENTITY_OIDC.md`). Multi-instance safety is
+> deliberately NOT shipped — the deployment is a documented single-node
+> SQLite-WAL pair (`docs/DEPLOY.md`).
 
 ### Web application
 - [ ] Sign up, sign in, verify email, reset password.

@@ -308,8 +308,9 @@ class Migration:
 
 MIGRATIONS: list[Migration] = [
     Migration("cloud_001_init", "cloud plane bootstrap", CLOUD_INIT_SQL),
-    Migration("cloud_002_quotas", "quota counters", QUOTAS_SQL),
-    # ...
+    Migration("cloud_002_identity_accounts", "identity accounts", ACCOUNTS_SQL),
+    # ... (canonical registry lives in src/weft_cloud/migrations.py —
+    # currently cloud_001_init through cloud_014_room_receipts_status_rename)
 ]
 
 def apply_migrations(backend: StorageBackend) -> None:
@@ -329,6 +330,10 @@ def apply_migrations(backend: StorageBackend) -> None:
 - **Tracked:** `schema_migrations(migration_id TEXT PRIMARY KEY, applied_at TEXT NOT NULL)`
   records what has run. `get_schema_version()` returns `SELECT COUNT(*) FROM schema_migrations`.
 - **Ordered:** Migrations are a list, applied in index order. No gaps, no out-of-order.
+- **Ids are immutable.** `migration_id` is the ledger's primary key and is never
+  mutated once recorded; a repair to an already-applied migration ships as a new
+  forward migration under a fresh id (e.g. `cloud_014_room_receipts_status_rename`
+  repairs interim `cloud_013` tables rather than editing `cloud_013`).
 
 ### 4.2 The v3→cloud upgrade path
 
