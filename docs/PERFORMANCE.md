@@ -22,6 +22,21 @@ was consuming substantial CPU and memory during this capture. That is a
 diagnostic confounder, not proof that host load caused the entire regression;
 the gate remains red until a controlled idle-host rerun explains or clears it.
 
+2026-08-14 note (supersedes for the current tree): three single-trial gate
+runs on 2026-08-14 measured weighted medians of ~144.8 ms, ~68.8 ms, and
+~145.0 ms against the same 72.221 ms reference (-100.5%, +4.5%, -100.6%
+"improvement" respectively) — run-to-run variance of this size on the same
+tree is host load, not code: the regressing scenarios (`session_relay`,
+`routing_fanout`) were untouched by the changes under test, and multiple
+OpenCode/agent sessions were active on the host during every capture. The one
+code change that DOES touch the coordinator hot path — the presence touch —
+was optimized in this tree to an in-memory throttle (zero DB work inside the
+window); the immediately-following run moved from -50.6% to +4.5% median,
+consistent with that fix. The gate remains red pending a controlled idle-host
+rerun, per the standing rule: never rebaseline to hide a regression, never
+report a performance figure that was not measured under documented
+conditions.
+
 The preceding complete run measured **90.158 ms** (weighted p95 104.705 ms),
 also failed the weighted-median and scenario-p95 guards, and passed the then-current
 894-test quality snapshot,

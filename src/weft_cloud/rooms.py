@@ -633,20 +633,34 @@ class CloudRoomService:
 
     def _touch_member(self, tx: Any, tenant_id: str, room_id: str, agent_id: str,
                       now: float | None = None) -> None:
-        """Throttled presence refresh for the CALLER's OWN membership row.
+        """Throttled presence refresh for the CALLER'S OWN membership row.
 
         Liveness describes whether a member IS USING the room, not whether they
-        called one specific bookkeeping tool — so every authenticated room call
+        called one specific bookkeeping tool - so every authenticated room call
         refreshes last_seen. The write is bounded to at most one per
         ``ROOM_LIVENESS_TOUCH_INTERVAL`` (readers do not serialize the room
         behind SQLite's single writer). Only ever touches the row keyed by
-        ``agent_id`` — the caller's authenticated account, never a request
-        argument — and a missing row is a no-op, so a non-member call can
+        ``agent_id`` - the caller's authenticated account, never a request
+        argument - and a missing row is a no-op, so a non-member call can
         neither create nor touch a membership row. Callers invoke this AFTER
         ``_require_member``, so auth is established before any write.
+
+        Performance contract: the throttle check happens IN MEMORY first, so
+        the common case does ZERO database work (the same optimization that
+        fixed the coordinator envelope perf-gate regression). The memo is a
+        throttle only, never an authorization or correctness input.
         """
         if now is None:
             now = _time.time()
+        memo = getattr(self, "_touch_memo", None)
+        if memo is None:
+            memo = {}
+            self._touch_memo = memo
+        key = (tenant_id, room_id, agent_id)
+        last = memo.get(key)
+        if last is not None and now - last < ROOM_LIVENESS_TOUCH_INTERVAL:
+            return
+        memo[key] = now
         row = tx.execute(
             "SELECT last_seen FROM cloud_room_members "
             "WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",

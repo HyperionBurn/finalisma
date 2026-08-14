@@ -347,5 +347,88 @@ class RoomTTLQuotaTests(ProductPerfectTestBase):
                          "the lazy TTL close must release the tenant's active-room quota slot")
 
 
+class CoordinatorRemoveMemberTests(unittest.TestCase):
+    """Coordinator-plane parity for the owner remove_member surface."""
+
+    def setUp(self) -> None:
+        from weft_mcp.core import WeftStore
+        from weft_mcp.server import WeftDispatcher
+
+        self.temp = tempfile.TemporaryDirectory()
+        root = Path(self.temp.name)
+        self.store = WeftStore(root / "state.db", root, require_actor_auth=True)
+        self.dispatcher = WeftDispatcher(self.store)
+        self.team = "team-coord-remove"
+        self.tokens = {}
+        for agent_id in ("OWNER", "A2"):
+            reg = self.dispatcher.call_tool(
+                "register_agent",
+                {"team_id": self.team, "agent_id": agent_id, "role": "member"},
+            )
+            self.tokens[agent_id] = reg["actor_token"]
+        created = self.dispatcher.call_tool(
+            "room_create", {"team_id": self.team, "owner_agent_id": "OWNER", "cap": 5},
+        )
+        self.room_id = created["room_id"]
+        self.link_token = created["link_token"]
+        for agent_id in ("OWNER", "A2"):
+            self.dispatcher.call_tool("room_join", {
+                "team_id": self.team, "room_id": self.room_id,
+                "link_token": self.link_token, "agent_id": agent_id,
+                "consent": True, "actor_token": self.tokens[agent_id],
+            })
+
+    def tearDown(self) -> None:
+        self.store.close()
+        self.temp.cleanup()
+
+    def test_owner_removes_member_and_it_can_rejoin(self) -> None:
+        removed = self.dispatcher.call_tool("room_remove_member", {
+            "team_id": self.team, "room_id": self.room_id,
+            "owner_agent_id": "OWNER", "target_agent_id": "A2",
+            "actor_token": self.tokens["OWNER"],
+        })
+        self.assertEqual(removed["status"], "left")
+        from weft_mcp.core import WeftError
+        with self.assertRaises(WeftError):
+            self.dispatcher.call_tool("room_poll", {
+                "team_id": self.team, "room_id": self.room_id,
+                "agent_id": "A2", "actor_token": self.tokens["A2"], "after_seq": 0,
+            })
+        rejoined = self.dispatcher.call_tool("room_join", {
+            "team_id": self.team, "room_id": self.room_id,
+            "link_token": self.link_token, "agent_id": "A2",
+            "consent": True, "actor_token": self.tokens["A2"],
+        })
+        self.assertEqual(rejoined["status"], "active")
+
+    def test_non_owner_refused_and_self_removal_refused(self) -> None:
+        from weft_mcp.core import WeftError
+        with self.assertRaises(WeftError) as ctx:
+            self.dispatcher.call_tool("room_remove_member", {
+                "team_id": self.team, "room_id": self.room_id,
+                "owner_agent_id": "A2", "target_agent_id": "OWNER",
+                "actor_token": self.tokens["A2"],
+            })
+        self.assertEqual(ctx.exception.code, "owner_required")
+        with self.assertRaises(WeftError) as ctx2:
+            self.dispatcher.call_tool("room_remove_member", {
+                "team_id": self.team, "room_id": self.room_id,
+                "owner_agent_id": "OWNER", "target_agent_id": "OWNER",
+                "actor_token": self.tokens["OWNER"],
+            })
+        self.assertEqual(ctx2.exception.code, "owner_required")
+
+    def test_ghost_target_not_found(self) -> None:
+        from weft_mcp.core import WeftError
+        with self.assertRaises(WeftError) as ctx:
+            self.dispatcher.call_tool("room_remove_member", {
+                "team_id": self.team, "room_id": self.room_id,
+                "owner_agent_id": "OWNER", "target_agent_id": "ghost",
+                "actor_token": self.tokens["OWNER"],
+            })
+        self.assertEqual(ctx.exception.code, "member_not_found")
+
+
 if __name__ == "__main__":
     unittest.main()
