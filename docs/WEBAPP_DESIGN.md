@@ -3,7 +3,17 @@
 **Status:** Authoritative spec for the Wave H web application (the hosted dashboard).
 **Source of truth:** `docs/PRODUCT_ROADMAP.md` §4 (Web application ship gate), §5 (Wave H).
 **Scope:** Server-rendered multi-tenant dashboard: auth, org/member management, rooms, live event stream, audit log, connect-an-agent.
-**Hard boundary:** `src/weft_mcp/` stays stdlib-only and UNTOUCHED. The web app lives entirely in `src/weft_cloud/web/` and drives rooms by instantiating `RoomStore(db_path)` and calling its methods, plus `backend.bind_room(...)` to bind to a tenant. No dependency on `weft_mcp` is added.
+**Hard boundary:** `src/weft_mcp/` stays stdlib-only and UNTOUCHED. The web app lives entirely in `src/weft_cloud/web/`.
+
+> **Implementation delta (recorded honestly, not retrofitted into the prose
+> below):** the sections below are the Wave-H design. The shipped
+> implementation in `src/weft_cloud/web/app.py` differs in three places, each
+> noted inline where it matters — (1) rooms are driven by `CloudRoomService`
+> over the single cloud SQLite-WAL database, NOT by per-tenant `RoomStore`
+> coordinator DBs (see §6); (2) CSRF is a cookie-based scheme, NOT the
+> `cloud_identity_csrf` table (see §4.4); (3) connect-an-agent is a hosted
+> connector-config generator that mints real `agk_` agent keys, NOT the
+> four-tier placeholder blobs (see §7).
 
 ---
 
@@ -54,7 +64,7 @@ src/weft_cloud/web/
       connect.html     # /room/{room_id}/connect — copy-paste config
 ```
 
-The coordinator plane (`src/weft_mcp/`) is untouched and stays stdlib-only. The web app imports `weft_mcp.room.RoomStore` and `weft_mcp.tokens` only as a *client* — it calls `RoomStore(db_path)` directly. This is composition, not modification.
+The coordinator plane (`src/weft_mcp/`) is untouched and stays stdlib-only. **Delta:** the design said the web app would import `weft_mcp.room.RoomStore` and `weft_mcp.tokens` as a *client*; the implementation instead instantiates `CloudRoomService` from `src/weft_cloud/rooms.py` over the SAME cloud database `/v1` and `/mcp` use — the coordinator plane is not imported at all. This is still composition, not modification, and the hard boundary holds.
 
 ---
 
@@ -70,7 +80,8 @@ All state-changing routes are POST; all reads are GET. Auth is enforced per-rout
 | POST | `/signup` | `auth_post_signup` | public | `accounts.signup(backend, tenant_id, email, password)` → creates tenant+account, issues verification token, sets no session (email not verified), redirects 303 to `/login?verify_sent=1` |
 | GET | `/login` | `auth_get_login` | public | Render login form |
 | POST | `/login` | `auth_post_login` | public | `accounts.authenticate(backend, tenant_id, email, password)` → `sessions.create(backend, tenant_id, account_id, role)` → set cookie → 303 to `/` |
-| POST | `/logout` | `auth_post_logout` | public (best-effort) | Revoke session if present, clear cookie, 303 to `/login` |
+| POST | `/logout` | `auth_post_logout` | public (best-effort; CSRF-gated) | Revoke session if present, clear cookie, 303 to `/login`. **Delta:** the implementation validates `_csrf` first (403 on mismatch) and revokes via `sessions.revoke`; web sessions are `fss_`-only, so there is no `agk_` branch here (the `agk_` branch lives in the REST `/v1/auth/signout` funnel). |
+| GET | `/health` | `handle_get_health` | public | Liveness endpoint for load balancers (200 without auth). **Delta:** shipped; not in the original table. |
 | GET | `/verify` | `auth_get_verify` | public (token in query) | Render "verify" landing; if token valid, auto-verify and redirect to `/login?verified=1` |
 | POST | `/verify` | `auth_post_verify` | public | `accounts.verify_email(backend, token)` → 303 to `/login?verified=1` |
 | GET | `/reset-request` | `auth_get_reset_request` | public | Render reset-request form |
@@ -86,7 +97,12 @@ All state-changing routes are POST; all reads are GET. Auth is enforced per-rout
 | --- | --- | --- | --- | --- |
 | GET | `/` | `dashboard_home` | member+ | Rooms dashboard (list of rooms + create form) |
 | GET | `/org` | `org_get` | member+ | View members + pending invites |
-| POST | `/org` | `org_post_create` | public (self-service signup-as-org) | Create a NEW tenant (org) + account + owner membership. This is the onboarding path for a brand-new user who has no org yet. `backend.create_tenant(tenant_id, email, "free")` → `accounts._create_account(...)` → add membership as owner → issue session → set cookie → 303 to `/`. **Only allowed when the requester has NO existing session OR is not a member of any org.** |
+| POST | `/org` | `org_post_create` | public (self-service signup-as-org) | Create a NEW tenant (org) + account + owner membership. This is the onboarding path for a brand-new user who has no org yet. `backend.create_tenant(tenant_id, email, "free")` → `accounts._create_account(...)` → add membership as owner → issue session → set cookie → 303 to `/`. **Only allowed when the requester has NO existing session OR is not a member of any org.** **Delta:** the implementation requires an authenticated session, checks the web-layer `_membership_count(account_id)`, and refuses with 400 when the account already belongs to an org. It never creates a second org: org creation happens at `/signup`, and this route is effectively the one-org-per-account guard only. |
+| GET | `/agent-keys` | `handle_get_agent_keys` | member+ | List the account's agent keys (id, label, created, last-used, revoked) with revoke buttons. **Delta:** shipped; not in the original table. Session-cookie-gated — a leaked `agk_` bearer credential must never manage keys. |
+| POST | `/agent-keys` | `handle_post_agent_keys` | member+ | Mint an agent key (`agent_keys.create`); the raw `agk_` token is rendered EXACTLY ONCE in this response. **Delta:** shipped; not in the original table. |
+| POST | `/agent-keys/revoke` | `handle_post_agent_keys_revoke` | member+ | Revoke one key (`agent_keys.revoke`, scoped to tenant + account). **Delta:** shipped; not in the original table. |
+| GET | `/config` | `handle_get_config` | member+ | Connector-config generator form (client picker). **Delta:** shipped; not in the original table (see §7). |
+| POST | `/config` | `handle_post_config` | member+ | Mint a fresh agent key and render a complete stdio MCP config for Claude Desktop / Cursor / Codex with the key embedded in an `env` block. **Delta:** shipped; not in the original table (see §7). |
 | POST | `/org/invite` | `org_post_invite` | admin+ | `invites.create(ctx, email, role)` → 303 to `/org` |
 | POST | `/org/role` | `org_post_role` | admin+ (owner to set owner) | `orgs.set_role(ctx, account_id, new_role)` → 303 to `/org` |
 | POST | `/org/remove` | `org_post_remove` | admin+ | `orgs.remove_member(ctx, account_id)` → 303 to `/org` |
@@ -99,12 +115,13 @@ All state-changing routes are POST; all reads are GET. Auth is enforced per-rout
 | GET | `/rooms` | `room_list` | member+ | List rooms for tenant (`backend.list_rooms(tenant_id)`) |
 | POST | `/rooms` | `room_create` | admin+ | Create room (see §6) → 303 to `/room/{room_id}` |
 | GET | `/room/{room_id}` | `room_detail` | member+ | Room detail: roster, event log, audit, connect link |
-| POST | `/room/{room_id}/close` | `room_post_close` | owner-only (org owner, not room owner — see note) | `RoomStore.close_room(...)` → 303 to `/room/{room_id}` |
+| POST | `/room/{room_id}/close` | `room_post_close` | owner-only (org owner, not room owner — see note) | `RoomStore.close_room(...)` → 303 to `/room/{room_id}`. **Delta:** the implementation calls `CloudRoomService.close_room(tenant_id, room_id, caller_agent_id=ctx.account_id)` — the room's `owner_agent_id` IS the creating account (`CloudRoomService.create_room` auto-joins the authenticated account as owner), so the synthetic `web:{tenant_id}` owner and the raw `owner_actor_token` from the note below were never needed and were not shipped. |
+| POST | `/room/{room_id}/revoke-link` | `handle_post_room_revoke_link` | owner-only | Revoke the room's link via `CloudRoomService.revoke_link` (owner's `link_id` shown on the detail page). **Delta:** shipped; not in the original table. |
 | GET | `/room/{room_id}/events` | `room_get_events` | member+ | JSON event poll endpoint for client-side JS polling (returns events after_seq) |
 | GET | `/room/{room_id}/audit` | `room_get_audit` | member+ | Audit log (`backend.list_audit(tenant_id)`) |
 | GET | `/room/{room_id}/connect` | `room_get_connect` | member+ | Connect-an-agent page (copy-paste config per tier) |
 
-**Note on room close authorization:** RoomStore.close_room requires the caller to be the room's `owner_agent_id`, but the web app's room model maps rooms to orgs (tenants), not to agent identities. The web app creates rooms with a synthetic `owner_agent_id = "web:{tenant_id}"` and an `actor_token_hash` derived from a per-room random actor token stored (raw) in `cloud_room_links.owner_actor_token`. The web route enforces **org owner** can close (since org IS the tenant and the room belongs to it). This is a deliberate simplification: in the web plane, the org owner is the room administrator. `RoomStore.close_room` is called with the synthetic owner_agent_id and the stored raw actor token. The raw `owner_actor_token` is an app-internal synthetic credential — it is never rendered to any page, never placed in a URL, and never logged.
+**Note on room close authorization:** ~~RoomStore.close_room requires the caller to be the room's `owner_agent_id`, but the web app's room model maps rooms to orgs (tenants), not to agent identities. The web app creates rooms with a synthetic `owner_agent_id = "web:{tenant_id}"` and an `actor_token_hash` derived from a per-room random actor token stored (raw) in `cloud_room_links.owner_actor_token`. The web route enforces **org owner** can close (since org IS the tenant and the room belongs to it). This is a deliberate simplification: in the web plane, the org owner is the room administrator. `RoomStore.close_room` is called with the synthetic owner_agent_id and the stored raw actor token. The raw `owner_actor_token` is an app-internal synthetic credential — it is never rendered to any page, never placed in a URL, and never logged.~~ **Superseded by implementation:** the web app creates rooms through `CloudRoomService.create_room` with the authenticated ACCOUNT as `owner_agent_id` (no synthetic identity, no stored raw actor token). Close/revoke authority is therefore the room owner's — which is the org member who created the room — enforced by `CloudRoomService`'s `owner_required` check, not by an org-role check. The "org owner can close any room" simplification was not shipped.
 
 ### 3.4 Static asset route
 
@@ -145,7 +162,22 @@ For each authenticated request:
 
 ### 4.4 CSRF
 
-- **Strategy:** per-session token (not per-form). One CSRF token per session, stored in a dedicated `cloud_identity_csrf(session_id, csrf_token)` table (migration `cloud_015_web_csrf` — proposed id; the canonical ledger in `src/weft_cloud/migrations.py` ends at `cloud_014`, and migration ids are the ledger's primary key and are never mutated, so any proposal must take a fresh id). No ALTER on the Wave G `cloud_identity_sessions` table — sessions stay untouched.
+> **Implementation delta (read first):** the design below specified a
+> per-session CSRF token stored in a dedicated `cloud_identity_csrf(session_id,
+> csrf_token)` table (migration `cloud_015_web_csrf`, proposed) plus an
+> optional `SessionContext.session_id` field. **Neither shipped.** The
+> implementation (`web/app.py`) uses a **cookie-based scheme**: every page
+> render mints `secrets.token_urlsafe(32)` as `_new_csrf()`, sets it as the
+> HttpOnly `fss_csrf` cookie, and embeds it in the `_csrf` hidden input; every
+> state-changing POST compares the submitted value with the cookie via
+> `secrets.compare_digest` (`_validate_csrf`, 403 on mismatch). No
+> `cloud_identity_csrf` table exists and the migration registry still ends at
+> `cloud_014`. The security property claimed below (HttpOnly + SameSite=Lax
+> cookies make a cross-site attacker unable to read or set the token) holds
+> for the cookie scheme too. The proposed design is retained below for
+> reference.
+
+- **Strategy (as designed, superseded):** per-session token (not per-form). One CSRF token per session, stored in a dedicated `cloud_identity_csrf(session_id, csrf_token)` table (migration `cloud_015_web_csrf` — proposed id; the canonical ledger in `src/weft_cloud/migrations.py` ends at `cloud_014`, and migration ids are the ledger's primary key and are never mutated, so any proposal must take a fresh id). No ALTER on the Wave G `cloud_identity_sessions` table — sessions stay untouched.
 - **Session id plumbing:** `SessionContext` gains an OPTIONAL `session_id` field (default `None`, backward-compatible — Wave G constructs it with keyword args and never inspects it). `sessions.validate` fills it from the session row. Handlers use `ctx.session_id` to read the CSRF row. `sessions.revoke` deletes the CSRF row alongside the revocation.
 - **Generation:** `secrets.token_urlsafe(32)` at session creation, stored alongside the session row.
 - **Injection:** every state-changing form includes `<input type="hidden" name="_csrf" value="{{csrf_token}}">`. The base template injects it for all forms automatically.
@@ -220,6 +252,23 @@ The app reuses `site/styles.css` tokens and the `site/assets/fonts/` font files.
 
 ## 6. Rooms dashboard mechanics
 
+> **Implementation delta (read first):** the mechanics below describe the
+> Wave-H design (per-tenant `RoomStore` coordinator DBs, `backend.bind_room`,
+> a `cloud_room_links` table holding the raw link token). The shipped
+> implementation drives `CloudRoomService` over the single cloud database —
+> the same store `/v1` and `/mcp` use — and keeps the raw link token in an
+> **in-process cache** on the web app (`WeftWebApp._link_token_cache`, a dict;
+> populated at room creation and read by the connect page). No
+> `cloud_room_links` table as designed here exists (the `cloud_room_links`
+> table in `rooms.py` is the cloud room service's link table: `token_hash`
+> only, no raw token, no `owner_actor_token`), no per-tenant coordinator DB is
+> opened, and `bind_room` is not called. Consequences: (a) the link token
+> cannot be re-rendered after a web-server restart until the room is touched
+> again — an accepted v1 tradeoff; (b) org membership (not room membership)
+> gates the room pages, with payload redaction still applied per viewer
+> (`_filter_payload_for_agent`); (c) room ownership is the creating account,
+> so close/revoke-link use `CloudRoomService`'s `owner_required` check.
+
 ### 6.1 Room creation
 
 When an admin+ member creates a room:
@@ -241,6 +290,9 @@ When an admin+ member creates a room:
 - The web app stores `(tenant_id, room_id, link_id, link_token, created_at)` in `cloud_room_links` (a new cloud-plane table, NOT the coordinator's `room_links` table). This is the ONLY place the raw link token persists in the cloud plane.
 - The connect page (`/room/{room_id}/render`) reads this row and renders the raw token into the copy-paste config blocks.
 - **Access control:** only members of the tenant can view the connect page. Non-members get 303→`/login`. The raw link token is never rendered to non-members.
+
+> **Delta:** superseded by the in-process `_link_token_cache` (see §6.0) and
+> by the hosted connector-config generator (see §7).
 
 ### 6.3 Live roster / presence
 
@@ -269,6 +321,25 @@ When an admin+ member creates a room:
 ---
 
 ## 7. Connect-an-agent
+
+> **Implementation delta (read first):** the four-tier placeholder design
+> below was superseded by the **hosted connector-config generator**
+> (`/config`, `web/config_gen.py`). The hosted service is reachable only as
+> `POST /mcp` with a Bearer credential, and real MCP hosts (Claude Desktop,
+> Cursor, Codex) launch servers as `command` + `args` stdio subprocesses with
+> no URL form — so the shipped generator mints a REAL `agk_` agent key per
+> generation (`agent_keys.create`, raw key rendered exactly once, embedded in
+> the config's `env` block as `WEFT_TOKEN`, never in `args` because argv is
+> visible to every process) and emits the stdio-bridge invocation
+> (`scripts/weft-mcp.py --remote <origin> --token-env WEFT_TOKEN`) in each
+> host's native config shape (JSON `mcpServers` for Claude Desktop and Cursor,
+> TOML `[mcp_servers.weft]` for Codex), plus `PYTHONUTF8=1` (without it a
+> Windows host decodes UTF-8 JSON-RPC as cp1252 — a real shipped bug).
+> Placeholders are gone: the web plane now mints the credential it renders,
+> and the coordinator-side actor-token/bridge steps no longer appear at all.
+> Verified end to end: the bridge launched with the generated config returns
+> the hosted room tools from `tools/list`. The four-tier design below is
+> retained for reference.
 
 The connect page (`/room/{room_id}/connect`) generates copy-paste config for the four tiers, derived from the INTEROP transcripts. Config is generated server-side into `<pre>` blocks; a JS copy-to-clipboard button enhances each block.
 
@@ -342,7 +413,7 @@ The four tiers map to rooms as follows:
 **Each account is a member of exactly one org (tenant) in v1.** The session row carries `tenant_id`. Every cloud query is scoped by `ctx.tenant_id`. There is no org switcher, no "active org" concept.
 
 - **Enforced at signup:** `accounts.signup(backend, tenant_id, email, password)` creates a NEW tenant (org) for the signing-up user. The user is the owner of that org.
-- **Enforced at invite-accept:** `invites.accept(backend, token, email, password)` adds the accepter to the invite's tenant. The web handler checks `orgs.membership_count(backend, account_id)` BEFORE accepting and refuses with a `tenant_conflict` error if the account already belongs to a different org (one-org-per-account). This check lives in the web layer (a new additive `orgs.membership_count` helper); the Wave G `invites.accept` itself is unchanged so existing identity contracts stay green.
+- **Enforced at invite-accept:** `invites.accept(backend, token, email, password)` adds the accepter to the invite's tenant. The web handler checks `orgs.membership_count(backend, account_id)` BEFORE accepting and refuses with a `tenant_conflict` error if the account already belongs to a different org (one-org-per-account). This check lives in the web layer (a new additive `orgs.membership_count` helper); the Wave G `invites.accept` itself is unchanged so existing identity contracts stay green. **Delta:** the check shipped as a PRIVATE web-layer helper, `WeftWebApp._membership_count(account_id)` (`SELECT COUNT(*) FROM cloud_identity_members WHERE account_id = ?`) — `orgs.py` was not extended. The refusal surfaces as a 400 page on `POST /org`; `invites.accept` remains unchanged as designed.
 - **Enforced at every request:** the session's `tenant_id` scopes all queries. A request carries exactly one tenant_id. There is no path where a request is ambiguous about which tenant it belongs to.
 
 ### 8.2 No cross-tenant path
@@ -506,6 +577,10 @@ class WebAppDriver:
 | `tests/test_webapp_orgs.py` | Org routes | create org, list members, invite flow, set role, remove member, leave org, one-org-per-account enforcement |
 | `tests/test_webapp_rooms.py` | Room routes | create room, list rooms, room detail, event poll, audit log, close room, connect page renders config, live event stream |
 | `tests/test_webapp_security.py` | Negative tests (§9) | All 35 negative cases from §9.1–9.6 |
+| `tests/test_webapp_agent_keys.py` | Agent-key UI (shipped, not in the original table) | page requires session cookie, raw key shown exactly once, list shows metadata not secret, revoke, CSRF-gated mutations |
+| `tests/test_webapp_v1_parity.py` | REST-vs-MCP parity (shipped, not in the original table) | `room_receipts`/`room_remove_member` have REST equivalents; non-integer `after_seq`/`limit`/`seq` → 400 `invalid_argument`; negative ack seq → `invalid_cursor`; error-code parity for `recipient_not_found`/`invalid_cursor`/`consent_required`/`quota_exceeded`/`room_closed`/`room_expired` |
+| `tests/test_webapp_entrypoint.py` | Entry point (shipped) | runtime config precedence, boots and serves signup/login |
+| `tests/test_webapp_static_traversal.py` | Static-file containment (shipped) | dot-dot/backslash/drive-letter traversal rejected |
 
 ### 10.3 Test data
 
@@ -547,12 +622,15 @@ Mirrors IDENTITY_DESIGN.md §14 style.
 
 ## 12. New primitives this design requires
 
+> **Delta:** of the four primitives below, none shipped in the designed shape.
+> Their actual fates are recorded per row.
+
 | Primitive | Location | Purpose |
 | --- | --- | --- |
-| `orgs.membership_count(backend, account_id) -> int` | `src/weft_cloud/identity/orgs.py` | Returns the number of memberships for an account (additive helper; used to enforce one-org-per-account at invite-accept in the web layer). |
-| `SessionContext.session_id` (optional field) | `src/weft_cloud/identity/context.py` | Backward-compatible optional field filled by `sessions.validate` so the web layer can read the session's CSRF row. |
-| `cloud_identity_csrf(session_id, csrf_token)` | migration `cloud_015_web_csrf` (proposed id — ledger head is `cloud_014`; ids are never mutated) | Stores per-session CSRF tokens (separate table — no ALTER on Wave G tables). |
-| `cloud_room_links(tenant_id, room_id, link_id, link_token, owner_actor_token, created_at)` | migration `cloud_016_web_room_links` (proposed id — `cloud_007`/`cloud_008` are taken) | Stores raw room link token (connect-page UX) and the synthetic room-owner actor token (for RoomStore calls), both tenant-scoped. |
+| `orgs.membership_count(backend, account_id) -> int` | `src/weft_cloud/identity/orgs.py` | Returns the number of memberships for an account (additive helper; used to enforce one-org-per-account at invite-accept in the web layer). **Delta:** shipped as a private `WeftWebApp._membership_count` method in `web/app.py` instead — `orgs.py` untouched. |
+| `SessionContext.session_id` (optional field) | `src/weft_cloud/identity/context.py` | Backward-compatible optional field filled by `sessions.validate` so the web layer can read the session's CSRF row. **Delta:** not shipped. `SessionContext` instead gained `_agent_id` + an `agent_id` property (agent-key room identity); CSRF is cookie-based and needs no session id. |
+| `cloud_identity_csrf(session_id, csrf_token)` | migration `cloud_015_web_csrf` (proposed id — ledger head is `cloud_014`; ids are never mutated) | Stores per-session CSRF tokens (separate table — no ALTER on Wave G tables). **Delta:** not shipped; the registry still ends at `cloud_014`. CSRF is the `fss_csrf` cookie + `secrets.compare_digest` scheme (§4.4). |
+| `cloud_room_links(tenant_id, room_id, link_id, link_token, owner_actor_token, created_at)` | migration `cloud_016_web_room_links` (proposed id — `cloud_007`/`cloud_008` are taken) | Stores raw room link token (connect-page UX) and the synthetic room-owner actor token (for RoomStore calls), both tenant-scoped. **Delta:** not shipped. The raw link token lives in the in-process `_link_token_cache`; the synthetic owner token was never needed (§6.0). The `cloud_room_links` table that DOES exist belongs to the cloud room service (hash-only link rows, created by `cloud_007_room_tables`). |
 
 All migrations are additive — no existing Wave F/G table is altered.
 
@@ -565,7 +643,7 @@ All migrations are additive — no existing Wave F/G table is altered.
 | Session management | `identity/sessions.py`: `create`, `validate`, `revoke`, `revoke_all_for_account` (plus optional `SessionContext.session_id` for CSRF lookup) |
 | Role enforcement | `identity/context.py`: `SessionContext.require_role`, `require_db_role` |
 | One-org-per-account | `identity/orgs.py`: additive `membership_count` helper |
-| Room operations | `weft_mcp/room.py`: `RoomStore.create_room/room_info/poll/close_room` |
+| Room operations | `src/weft_cloud/rooms.py`: `CloudRoomService.create_room/room_info/poll/close_room/revoke_link/remove_member/receipts` (the shipped dependency — see §6.0; the designed `weft_mcp/room.py::RoomStore` path was not used) |
 | Tenant scoping | `storage.py`: `StorageBackend` ABC, `bind_room`, `list_rooms`, `append_audit`, `list_audit` |
 | Token hygiene | `identity/tokens.py`: `generate_token`, `hash_token` |
 | Design system | `site/styles.css`: FIELD NOTES tokens, `[hidden]` rule, `@font-face` declarations |

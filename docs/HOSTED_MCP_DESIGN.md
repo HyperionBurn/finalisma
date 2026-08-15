@@ -3,7 +3,8 @@
 **Status:** implemented (`src/weft_cloud/mcp.py`), endpoint at `POST /mcp` on
 the hosted `weft-cloud` service, 27 integration tests
 (`tests/test_hosted_mcp.py`) driving the real HTTP surface, plus 8 SSE
-framing tests (`tests/test_hosted_mcp_sse.py`).
+framing tests (`tests/test_hosted_mcp_sse.py`) and 1 agent-key auth test
+(`tests/test_hosted_mcp_agent_keys.py`).
 
 ## The gap this closes
 
@@ -126,6 +127,15 @@ directions: create over `/v1`, join + message over MCP; create over MCP,
 join + message over `/v1`. `test_plan_room_member_cap_enforced_through_hosted_mcp`
 shows the cap refusal (`room_full`) through the MCP path.
 
+**REST parity for receipts and removal.** Every room tool has a `/v1` twin;
+the two newest are `POST /v1/rooms/receipts` (sender-scoped delivery/read
+state, `service.py::handle_room_receipts`) and
+`POST /v1/rooms/remove_member` (owner-only seat release,
+`service.py::handle_room_remove_member`). Both call the same
+`CloudRoomService.receipts` / `CloudRoomService.remove_member` methods the MCP
+tools call, with the same tenant resolution via the caller's membership and
+the same refusal codes — nothing on one surface is weaker than the other.
+
 ## `room_wait` — the blocking long-poll
 
 `room_poll` returns immediately, so an agent polls once, has nothing left to
@@ -161,6 +171,28 @@ never become a way around confidentiality.
   wake-on-event latency, empty-at-timeout, redacted-envelope confidentiality,
   identity-argument rejection, 4-concurrent-waiters ordering agreement, and
   blocked-waiter-does-not-block-writers).
+
+## Cursor validation (`room_poll` / `room_wait` / `room_ack`)
+
+Silence must never mean success for reads OR acks. The cursor arguments are
+validated inside `CloudRoomService` (`src/weft_cloud/rooms.py`), so the
+behaviour is byte-identical on both surfaces — the MCP tools and the `/v1`
+REST handlers call the same methods:
+
+- `after_seq` / `limit` that are not integers (including booleans) →
+  `invalid_argument` (HTTP 400). A malformed cursor previously escaped as a
+  `ValueError` → 500.
+- `after_seq < 0` → `invalid_cursor` (HTTP 400) — never silently clamped.
+- `after_seq > cursor_head + 1` → `invalid_cursor` — an impossible read window
+  is refused, never silently echoed back as `next_seq`.
+- `room_ack` `seq` not an integer → `invalid_argument`; `seq < 0` →
+  `invalid_cursor`; `seq > cursor_head` → `invalid_cursor` (an ack of an event
+  that does not exist is the caller's error).
+- `room_wait` inherits the same guards through its internal `poll` loop;
+  `timeout_seconds` is coerced and clamped (0..30) rather than refused.
+
+The SDK maps `invalid_cursor` to `ConflictError` (`src/weft_sdk/client.py`
+`_ERROR_MAP`).
 
 ## MCP protocol details
 

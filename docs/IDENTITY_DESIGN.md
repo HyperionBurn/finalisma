@@ -19,6 +19,7 @@ src/weft_cloud/
     __init__.py        # package marker
     accounts.py        # AccountStore: signup, password hashing (scrypt), verification, reset
     sessions.py        # SessionStore: opaque session tokens, SHA-256 at rest, rotation, revocation
+    agent_keys.py      # agent API keys: long-lived agk_ credentials, validate/revoke, seat release
     orgs.py            # OrgStore: membership, roles, role-gated operations via SessionContext
     invites.py         # InviteStore: email-addressed, expiring, single-use invites
     tokens.py          # Token generation + hashing (secrets.token_urlsafe, SHA-256)
@@ -30,6 +31,7 @@ src/weft_cloud/
 | --- | --- |
 | `accounts.py` | Account lifecycle: create, password hash/verify, email verification, password reset. All tenant-scoped. |
 | `sessions.py` | Session lifecycle: issue, validate, rotate, revoke, revoke-all. Token hygiene per `roster.py`. |
+| `agent_keys.py` | Agent API keys (added after the Wave-G lock, migration `cloud_012`): long-lived `agk_` credentials, validate (role re-derived per request), revoke + revoke_by_token_hash with room-seat release. Authoritative detail: `docs/AGENT_KEYS.md`. |
 | `orgs.py` | Org/membership/role operations. Every gated method takes `SessionContext` as required first arg. |
 | `invites.py` | Invite create/accept. Single-use, expiring, role-scoped, email-locked. |
 | `tokens.py` | Opaque token generation (`secrets.token_urlsafe`) + SHA-256 hashing. Shared by sessions, verification, reset, invites. |
@@ -219,6 +221,54 @@ token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
 row = tx.execute("SELECT * FROM cloud_identity_sessions WHERE token_hash = ?", (token_hash,)).fetchone()
 ```
 
+### 4.6 Agent keys (`agk_`) — the long-lived sibling credential
+
+Added after the Wave-G lock (migration `cloud_012_identity_agent_keys`; canonical
+spec `docs/AGENT_KEYS.md`). Browser sessions die after 24h with no refresh path;
+a desktop MCP client holds a STATIC bearer token in a config file and never signs
+in, so it needs a credential with no expiry clock: the agent key.
+
+- **Raw token:** `agk_{secrets.token_urlsafe(32)}`, returned EXACTLY ONCE at
+  creation (`agent_keys.create(backend, tenant_id, account_id, label)`).
+  Only `sha256(raw)` is stored (`token_hash` UNIQUE). The row id (`key_...`)
+  is a deliberately DISTINCT prefix from the raw credential so a listing can
+  never be mistaken for the secret.
+- **Role model — never more than the account holds.** Sessions snapshot their
+  role; agent keys do NOT (a snapshot would let a demoted account keep an
+  admin key forever). `agent_keys.validate` RE-DERIVES the role from
+  `cloud_identity_members` on every request; a demoted or removed account's
+  key is refused on the next request.
+- **Identity:** `validate` returns a `SessionContext` whose room-facing
+  `agent_id` is the key's own `key_id` (see `context.py` `_agent_id` /
+  `agent_id` property) — one account running several keys gets several
+  DISTINCT room members, each addressable on its own. Sessions keep the
+  account as their agent identity.
+- **Revocation is immediate:** `revoke` is a conditional UPDATE scoped to
+  `(tenant_id, account_id, key_id)` — an account can never revoke another
+  account's key even with the id. `revoke_by_token_hash(backend, token_hash)`
+  is the shared-signout-funnel variant: **one transaction** performs the
+  lookup, the conditional UPDATE, and the room-seat release
+  (`rooms.release_agent_key_seats_in_tx`) under a single writer lock, so a
+  crash can never leave a revoked key's memberships unreachable — the
+  credential that could have called `leave` dies the moment the revoke
+  commits. It must NEVER be called from inside another
+  `backend.transaction()`: SQLite has one writer, and the nested
+  `BEGIN IMMEDIATE` self-deadlocks. A revoked key's room seats are released
+  to `left` (history and attribution preserved; a revoked key can never
+  rejoin, so the freed seat is exactly the one a new identity should take).
+- **Signout funnel:** `handle_signout` (REST `/v1/auth/signout`) branches on
+  the presented bearer — an `agk_` bearer is revoked via
+  `agent_keys.revoke_by_token_hash` (killing the key itself, or signout would
+  answer `signed_out: true` while the credential stays live); an `fss_`
+  bearer via `sessions.revoke_by_token_hash`.
+- **Password reset revokes all of an account's keys**
+  (`revoke_all_for_account`), matching the session hygiene — a reset must not
+  leave a working config-file key behind. Membership removal revokes the
+  account's keys for that tenant in the SAME transaction
+  (`revoke_all_for_tenant_account_in_tx`), so a removed member's long-lived
+  credential cannot survive a crash between the membership delete and the
+  revocation.
+
 ---
 
 ## 5. Email Verification + Password Reset
@@ -384,6 +434,14 @@ def require_role(self, required: str) -> None:
 ### 6.5 Server-side enforcement
 
 All role checks are enforced **server-side** in the `orgs.py` service layer. The `SessionContext` carries the authenticated role. A caller cannot elevate its role because the role comes from the session (issued from the DB), never from a client-supplied argument.
+
+**Owner minting is owner-gated (transfer-ownership rule, implemented in
+`orgs.add_member`):** `add_member` with `role="member"`/`"admin"` requires an
+admin+ caller; minting an `owner` additionally requires an OWNER caller,
+enforced at BOTH layers — `ctx.require_role("owner")` AND
+`require_db_role(..., "owner")` — mirroring `set_role`'s owner-to-owner rule.
+An admin can never mint a new owner (who could then delete the org or remove
+the admin).
 
 ---
 
@@ -751,6 +809,7 @@ Identity migrations extend the existing `MIGRATIONS` list in `migrations.py`. Th
 | Token Type | Prefix | Purpose | Expiry | Stored As | Single-Use | Consumed By |
 | --- | --- | --- | --- | --- | --- | --- |
 | Session | `fss_` | Authenticated session | 24h (configurable) | `sha256(raw)` in `token_hash` | No (rotated/revoked) | `sessions.validate()` |
+| Agent key | `agk_` | Long-lived config-file credential for MCP clients | none (revocable) | `sha256(raw)` in `token_hash` | No (revoked) | `agent_keys.validate()` |
 | Verification | `fvt_` | Email verification | 24h | `sha256(raw)` in `verification_token_hash` | Yes | `accounts.verify_email()` |
 | Reset | `frt_` | Password reset | 30 min | `sha256(raw)` in `reset_token_hash` | Yes | `accounts.reset_password()` |
 | Invite | `fiv_` | Org invitation | 7 days | `sha256(raw)` in `token_hash` | Yes | `invites.accept()` |
@@ -784,6 +843,10 @@ Identity migrations extend the existing `MIGRATIONS` list in `migrations.py`. Th
 9. **The identity plane must not touch coordinator tables.** No migration or query may reference `agent_credentials`, `tasks`, `sessions` (coordinator), `session_events`, `room_*`, etc. The orchestrator must verify: all identity SQL references only `cloud_*` tables.
 
 10. **The `Mailer` interface must be swappable without touching callers.** Stage 1 uses `LocalOutboxMailer`; Stage 2 swaps in a real provider. The orchestrator must verify: callers depend only on the `Mailer` ABC, never on `LocalOutboxMailer` directly.
+
+11. **`agent_keys.revoke_by_token_hash` (and the `agk_` branch of the signout funnel) must never run inside another `backend.transaction()`.** SQLite has one writer; the nested `BEGIN IMMEDIATE` opens a second connection that blocks on the outer writer while the outer transaction waits for the inner to return — a 15s self-deadlock surfacing as a 500. The orchestrator must verify: signout calls it outside any transaction, and any future caller does the same.
+
+12. **Owner minting must be owner-gated at both layers.** `orgs.add_member(..., role="owner")` must call `ctx.require_role("owner")` AND `require_db_role(..., "owner")`, or an admin could mint a new owner who outranks them. The orchestrator must verify the DB-role layer is present — a hand-forged SessionContext must not mint an owner.
 
 ---
 
