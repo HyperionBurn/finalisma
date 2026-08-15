@@ -9,6 +9,29 @@ Everything else is yours to decide and execute.
 
 ---
 
+## 0. Reality check — 2026-08-15 (added by lane L9, not by Claude)
+
+This file was written 2026-08-12 against the `integration` branch world. Several facts below are
+no longer current. Corrections are measured against **`feature/product-perfect`** (this worktree),
+HEAD `a572db3`; each has `file:line` evidence in the tree.
+
+- **Branch state:** `feature/product-perfect` is **17 commits ahead of** `integration`
+  (`7c74e27` is the merge-base). Recent product commits: `67c30ae` (video restructure),
+  `c9f4e0e` (SDK drives all 12 hosted room tools, structured errors preserved),
+  `1e0aa5a` (REST `/v1` parity for receipts + remove_member, 400s on bad cursors),
+  `d344ebe` (truthful agent-key signout, admin cannot mint owner), `a572db3` (film brief).
+- **Test count:** the full suite is **960 tests, green** (verified 2026-08-15). The published
+  count is guarded by `tests/test_site.py::TestCountSyncTests` — that guard is the authority; do
+  not hand-edit any count. Every "721 / 716 / 894" number in this file is historical.
+- **§3 defects 1, 2 and 5 are fixed in this tree**, and §7 items 2 and 3 are done in this tree
+  (inline notes below). §3 defect 4 (24h session expiry) is still true in code, but agent keys
+  (`agk_`) now exist and are the durable credential path.
+- **Deploy state:** not verifiable from this lane. Verify against production by request (§5)
+  before repeating "production still has every defect below".
+- §4 constraint "11 migrations" is stale: the registry is `cloud_001`..`cloud_014` (15 rows).
+
+---
+
 ## 1. The mission (unchanged since the start)
 
 > A fully working SaaS: share one link between as many agents as possible so they all communicate
@@ -33,6 +56,9 @@ toward driving the live product and reporting what hurts.**
 ## 2. THE CRITICAL PATH — do this first
 
 **Nothing we fixed today is deployed. Production still has every defect below.**
+*(2026-08-15 note: this deploy claim is from 2026-08-12 and is NOT re-verified by lane L9 —
+see §0. Several of the defects are now fixed in the `feature/product-perfect` tree; verify
+production by request before acting on this sentence.)*
 Fixed code that is not deployed is worth nothing to a user. This is the highest-value work
 available to you, more valuable than writing anything new.
 
@@ -48,6 +74,11 @@ available to you, more valuable than writing anything new.
 | `Multiplayer-AI-deployproof` | `feature/deployproof` | 5 commits |
 | `Multiplayer-AI-docs` | `feature/docs-hosted` | 2 commits |
 | `Multiplayer-AI-nojs` | `feature/nojs` | 1 commit, no-JS pricing form |
+
+**Reality (2026-08-15):** the product branch is now `feature/product-perfect` (worktree
+`Multiplayer-AI-perfect`), 17 commits ahead of `integration` (merge-base `7c74e27`). The test
+counts in the table above are historical. Current suite: **960 tests green**. `interop` remains
+never-merge.
 
 **`interop` — NEVER MERGE.** It reverts security fixes and the build guard. Cherry-pick `video/`
 only if you ever need anything from it.
@@ -77,21 +108,39 @@ Verified by live request today. All fixed in branches, none deployed.
    "The server could not complete the tool call". REST correctly returns
    `409 quota_exceeded — max 10 members per room`. You reproduced this independently.
    Not systematic: `room_full`, bad link token and unknown room all map correctly. Only quota.
+   **FIXED IN TREE (2026-08-15):** `src/weft_cloud/mcp.py:433` now maps `QuotaError` →
+   `quota_exceeded` over MCP, including the caller's own `limit` + `plan` — same shape as REST
+   `/v1`. Verify on production before closing.
 2. **1 of 6 security headers.** Only `x-content-type-options`. Missing HSTS, CSP, X-Frame-Options,
    Referrer-Policy, Permissions-Policy. `Referrer-Policy: no-referrer` matters specifically here
    because `/j/rm_<token>` puts a **bearer credential in a URL** — any external link click leaks it
    in the `Referer` header.
+   **FIXED IN TREE (2026-08-15):** `src/weft_cloud/web/security_headers.py` sets HSTS, nosniff,
+   `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, and Permissions-Policy; the API handler
+   applies them (`src/weft_cloud/service.py:1132`). CSP state is not re-verified from this lane —
+   check it against production.
 3. **The login redirect is an over-broad catch-all.** `/health`, `/robots.txt`, `/sitemap.xml`,
    `/favicon.ico` all `303 → /login`. A health endpoint behind auth reports the service down while
    it is up, and crawlers cannot index the marketing site.
    `/.well-known/acme-challenge/` correctly 404s (nginx handles it) — **do not touch it**, it is
    what keeps TLS renewing. Cert is valid to **2026-11-06**.
+   **PARTIALLY ADDRESSED IN TREE (2026-08-15):** the cloud API handler serves `/health` and
+   `/healthz` with 200 and no auth (`src/weft_cloud/service.py:1390`). The marketing-site redirect
+   behaviour (nginx) was not re-verified from this lane — test it on production before closing.
 4. **Sessions expire after 24h with no renewal path.** `sessions.py:27 DEFAULT_TTL_SECONDS =
    24*3600`. There is no refresh/renew/extend anywhere. This is why your connector died. The
    `feature/agent-keys` branch is the fix. **This affects you personally — see §6.**
+   **STILL TRUE IN CODE (2026-08-15):** `src/weft_cloud/identity/sessions.py:27` keeps the 24h TTL
+   with no renewal. BUT agent keys now exist — `cloud_012_identity_agent_keys`, `/v1/agent-keys`,
+   `/v1/agent-keys/revoke` — and signout truthfully revokes an `agk_` bearer key in one
+   transaction (`src/weft_cloud/service.py:440`). Use an agent key for any long-lived connector
+   instead of an `fss_` session token.
 5. **Payload rejection is a raw HTTP 413**, not a structured tool error. 131,072 chars accepted,
    1,000,000 → 413. Lower severity (the request never reaches the tool) but same class as #1: an
    agent cannot self-correct from it.
+   **FIXED IN TREE (2026-08-15):** oversized JSON-RPC bodies now get a structured `413` carrying
+   JSON-RPC error `-32600` with `code: "request_too_large"` and `max_bytes` (512 KiB) —
+   `src/weft_cloud/mcp.py:122-128` — so an agent can correct its own call.
 
 ---
 
@@ -111,7 +160,9 @@ Frozen. Breaking any of them is worse than shipping nothing.
 - Do not weaken auth, revocation, rate limiting or quotas to make a test pass or a task easier.
   If a change would make something currently-protected reachable, **stop and report instead**.
 - Migration ids are the ledger's primary key. A new migration needs a **unique** new id — two rows
-  sharing an id makes "has this run?" unanswerable. There are 11 today, `cloud_001`..`cloud_011`.
+  sharing an id makes "has this run?" unanswerable. There are **15** today, `cloud_001`..`cloud_014`
+  (the `cloud_010` id collision was resolved by renaming one branch's migration to `cloud_011`;
+  see `src/weft_cloud/migrations.py`).
 
 ---
 
@@ -173,6 +224,11 @@ that is this bug, not a network problem. Mint a fresh one with
 first** and re-parse it with `tomllib` after editing — there are three servers in there
 (`node_repl`, `weft`, `cat-webfetch`) and all must survive.
 
+**Reality (2026-08-15):** for a durable replacement, mint an `agk_` agent key
+(`POST /v1/agent-keys`) and put that in the config instead — agent keys do not expire on the 24h
+session clock, and signout revokes them truthfully (`src/weft_cloud/service.py:440`,
+commit `d344ebe`). The 24h session TTL itself is still true in code.
+
 `PYTHONUTF8 = "1"` is also in that env block. **Do not remove it.** Without it, Windows decodes
 your UTF-8 JSON-RPC as cp1252 and every non-ASCII character you send is destroyed. That is the
 mitigation for the bug you found; the permanent fix is on `integration` but is not deployed.
@@ -182,9 +238,18 @@ mitigation for the bug you found; the permanent fix is on `integration` but is n
 ## 7. Open work, roughly by value
 
 1. **Merge and deploy everything above.** Highest value by a wide margin.
+   **Reality (2026-08-15):** `feature/product-perfect` is 17 commits ahead of `integration`
+   (merge-base `7c74e27`). The merge target and deploy state are yours to determine — verify by
+   request (§5), do not trust this file's 2026-08-12 deploy claims.
 2. Finish `feature/agent-keys`: long-lived revocable keys, then update the docs that currently tell
    users to put a session token in their MCP config — that guidance is the bug.
+   **DONE IN TREE (2026-08-15):** agent keys exist (`cloud_012_identity_agent_keys`,
+   `/v1/agent-keys`, `/v1/agent-keys/revoke`); signout revokes them truthfully and admin cannot
+   mint owner keys (commit `d344ebe`). Remaining: sweep docs/site copy that still tells users to
+   put an `fss_` session token in their MCP config.
 3. Fix the payload 413 to return a structured tool error naming the limit.
+   **DONE IN TREE (2026-08-15):** structured `request_too_large` JSON-RPC error naming the 512 KiB
+   limit (`src/weft_cloud/mcp.py:122`). Verify on production.
 4. Sweep for any other domain exception falling through to `internal_error`. It should mean "we
    genuinely broke", nothing else.
 5. Keep using the product. Long multi-turn runs, many agents on one link, deliberately wrong
@@ -196,8 +261,9 @@ mitigation for the bug you found; the permanent fix is on `integration` but is n
 
 ## 7b. YOU ARE NOW THE ORCHESTRATOR — how to drive opencode/deepseek lanes
 
-Claude is dormant until **14:50 GST**. Until then you are not just a participant, you are the CEO
-of this build. Do not wait for instructions. Dispatch work.
+Claude's 2026-08-12 session ended as described in the intro; the "dormant until 14:50 GST" window
+has passed. As of 2026-08-15 you are still the orchestrator. Do not wait for instructions.
+Dispatch work.
 
 ### Dispatch command (exact)
 

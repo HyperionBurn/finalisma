@@ -60,6 +60,19 @@ or API key in the repository.
   separate hosts can join without sharing conversation history or provider
   credentials.
 
+### Hosted service
+
+The hosted cloud plane (`src/weft_cloud/`) exposes exactly **12 room tools**
+over MCP — `room_create`, `room_join`, `room_send`, `room_receipts`,
+`room_poll`, `room_wait`, `room_info`, `room_ack`, `room_heartbeat`,
+`room_leave`, `room_remove_member`, `room_event_log` — pinned by
+`test_hosted_surface_is_a_small_correct_set`. The REST `/v1` surface keeps
+parity: `/v1/rooms/receipts` and `/v1/rooms/remove_member` exist now. The
+stdlib-only SDK (`src/weft_sdk/`) drives all 12 hosted room tools. Identity
+signout is truthful: presenting an `agk_` agent key to signout revokes that
+key in the same transaction. See [docs/HOSTED_MCP_DESIGN.md](docs/HOSTED_MCP_DESIGN.md)
+and [docs/SDK.md](docs/SDK.md).
+
 Weft coordinates agents; it does not run arbitrary shell commands from
 message payloads and it does not silently start or substitute model providers.
 
@@ -297,15 +310,17 @@ The single-node runtime uses bounded, thread-safe idle SQLite connection pools
 to avoid reopening the database for every handoff operation. Long-lived library
 callers should use `with WeftStore(...) as store:` or call `store.close()`
 during shutdown. The performance reference file records a ~72.2ms weighted
-median, but the latest full gate run is not green: it measured 137.404ms weighted
-median / 155.381ms p95 and rejected the weighted-median and scenario-p95 guards.
-That run passed all 894 tests, protocol smoke, and credential redaction, but it
-was executed while an OpenCode process was consuming substantial host resources;
-the timing regression is therefore an unresolved release blocker, not a stable
-product-latency claim. The baseline was not rewritten to make the gate pass.
-Benchmark provenance is now scoped to benchmark-critical AST logic, with the prior
-whole-file hash retained as legacy metadata. Do not treat this as a universal
-latency claim; see
+median, and the gate remains red pending a controlled idle-host rerun: the
+2026-08-13 complete run measured 137.404ms weighted median / 155.381ms p95
+while an OpenCode process was consuming substantial host resources, and
+2026-08-14 single-trial runs on the same tree swung between ~68.8ms and
+~145.0ms — a run-to-run spread that is host load, not code. The one coordinator
+hot-path change in that window, the presence touch, is now an in-memory
+throttle (zero DB work inside the window); the run immediately after that fix
+moved from -50.6% to +4.5% weighted median. The baseline was not rewritten to
+make the gate pass. The full test suite (960 tests) is green, and the
+published count is guarded by `tests/test_site.py::TestCountSyncTests` — it is
+not hand-maintained. Do not treat any of this as a universal latency claim; see
 [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for the evidence boundary and rerun
 instructions.
 
