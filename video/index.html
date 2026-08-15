@@ -217,7 +217,7 @@
         border-radius: 50%; opacity: 0;
       }
       .m-dot.cyan { background: #46E0FF; }
-      .m-dot.green { background: #38E8A0; }
+      .m-dot.green { background: #34d399; }
       .m-dot.violet { background: #7C5CFF; }
 
       /* Motion streak behind a travelling dot: a fading tail that makes
@@ -229,7 +229,7 @@
         opacity: 0; transform-origin: 0 50%;
       }
       .m-streak.cyan { background: linear-gradient(90deg, rgba(70,224,255,0.55), rgba(70,224,255,0)); }
-      .m-streak.green { background: linear-gradient(90deg, rgba(56,232,160,0.55), rgba(56,232,160,0)); }
+      .m-streak.green { background: linear-gradient(90deg, rgba(52,211,153,0.55), rgba(52,211,153,0)); }
       .m-streak.violet { background: linear-gradient(90deg, rgba(124,92,255,0.55), rgba(124,92,255,0)); }
 
       /* ── FILM GRAIN (deterministic SVG turbulence, screen-space) ── */
@@ -246,6 +246,21 @@
         border-radius: 50%;
         background: radial-gradient(circle at 32% 28%, rgba(255,255,255,0.14) 0%, transparent 42%);
         opacity: 0;
+      }
+
+      /* Red threat pulse during the refusal creep (transform/opacity only) */
+      #ring-glow {
+        position: absolute; left: -25%; top: -25%; width: 150%; height: 150%;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(255,77,77,0.35) 0%, transparent 65%);
+        filter: blur(18px);
+        opacity: 0;
+      }
+
+      /* Thinking dots (act-1 waiting beat) */
+      .think-dot {
+        display: inline-block; width: 5px; height: 5px; border-radius: 50%;
+        background: rgba(255,255,255,0.7); margin-right: 5px; opacity: 0;
       }
     </style>
   </head>
@@ -268,9 +283,12 @@
                  <div class="msg-bubble agent" id="msg-denial">I can't message another assistant.</div>
                </div>
              </div>
-             <div class="input-line" id="input-line">
-               <span id="typed-text"></span><span class="caret" id="caret"></span>
-             </div>
+              <div class="input-line" id="input-line">
+                <span id="typed-text"></span><span class="caret" id="caret"></span>
+                <span id="think-dots" style="display:none;">
+                  <span class="think-dot" id="td-1"></span><span class="think-dot" id="td-2"></span><span class="think-dot" id="td-3"></span>
+                </span>
+              </div>
            </div>
          </div>
 
@@ -284,7 +302,7 @@
 
         <!-- THE ROOM -->
         <div id="room-group">
-          <div id="ring"><div id="ring-sheen"></div></div>
+          <div id="ring"><div id="ring-sheen"></div><div id="ring-glow"></div></div>
            <!-- Chips positioned on the ring at -90°, -18°, 54°, 126°, 198° -->
            <!-- Ring center = (350,350) in room-group, radius = 150 -->
            <div class="chip" id="chip-link" style="left: 324px; top: 30px;"><span id="chip-link-text">weft.link/room/a1b2</span></div>
@@ -360,69 +378,96 @@
       // ═══════════════════════════════════════════
       const world = document.getElementById("world");
 
-      function setCam(targetX, targetY, s) {
-        const dx = 960 - targetX * s;
-        const dy = 540 - targetY * s;
+      // Proxy object drives all camera keyframes
+      const camProxy = { tx: 400, ty: 470, s: 2.30 };
+
+      // CAMERA BREATHING: a slow sinusoidal micro-drift layered on every
+      // keyframe so no hold is ever frozen. Killed at 26.9s so the final
+      // landing matrix (checked by verify-ending) stays exact.
+      const breathe = { x: 0, y: 0 };
+      const breathTween = gsap.to(breathe, {
+        x: 7, y: 5, duration: 2.2, ease: "sine.inOut", yoyo: true, repeat: -1,
+        onUpdate: () => setCam(camProxy.tx, camProxy.ty, camProxy.s)
+      });
+      tl.to(breathe, { x: 0, y: 0, duration: 0.4, ease: "power1.in" }, 26.5);
+      tl.call(() => breathTween.kill(), undefined, 26.9);
+
+      function camTo(tx, ty, s, dur, easeType, startT) {
+        tl.to(camProxy, {
+          tx, ty, s, duration: dur, ease: easeType || ease,
+          onUpdate: () => setCam(camProxy.tx + breathe.x, camProxy.ty + breathe.y, camProxy.s)
+        }, startT);
+      }
+
+      function setCam(tx, ty, s) {
+        const dx = 960 - (tx + breathe.x) * s;
+        const dy = 540 - (ty + breathe.y) * s;
         world.style.transform = `translate(${dx}px, ${dy}px) scale(${s})`;
       }
 
       // Initial state: t=0 keyframe
       setCam(400, 470, 2.30);
 
-      // Proxy object drives all camera keyframes
-      const camProxy = { tx: 400, ty: 470, s: 2.30 };
-
-      function camTo(tx, ty, s, dur, easeType, startT) {
+      // ═══════════════════════════════════════════
+      // SCENE STRUCTURE (hard cuts, no cross-fades):
+      //   S1 0–4    macro typing → send → denial (shake)
+      //   S2 4–7    CUT wide — the gap, the link pops
+      //   S3 7–11   CUT to the room — ring forms, chips snap in
+      //   S4 11–14.5 three hard cuts INSIDE the room — traffic waves
+      //   S5 14.5–19 CUT to the gate — dart, slam, REFUSED
+      //   S6 19–23.5 CUT to the event log — cascade + scan
+      //   S7 23.5–30 drift on the record, whip to the wide system view,
+      //               then the unchanged final dive
+      // Camera cuts are instant repositioning; every scene keeps moving.
+      // ═══════════════════════════════════════════
+      function cut(tx, ty, s, at) {
+        tl.call(() => {
+          camProxy.tx = tx; camProxy.ty = ty; camProxy.s = s;
+          setCam(tx, ty, s);
+        }, undefined, at);
+      }
+      function push(tx, ty, s, dur, easeType, at) {
         tl.to(camProxy, {
           tx, ty, s, duration: dur, ease: easeType || ease,
           onUpdate: () => setCam(camProxy.tx, camProxy.ty, camProxy.s)
-        }, startT);
+        }, at);
       }
 
-      // t=0.00 → 3.20: 400,470,2.30 → 405,468,2.24
-      camTo(405, 468, 2.24, 3.2, ease, 0.00);
+      // S1: macro on the typing — slow creep-in for tension.
+      cut(400, 470, 2.60, 0);
+      push(416, 470, 2.74, 3.8, ease, 0.1);
 
-      // t=3.20 → 5.00: → 410,470,2.15
-      camTo(410, 470, 2.15, 1.8, ease, 3.20);
+      // S2: CUT wide — the gap between two windows.
+      cut(960, 470, 0.90, 4.0);
+      push(960, 470, 1.05, 2.8, ease, 4.2);
 
-      // t=5.00 → 8.60: → 960,470,0.86  (BIG PULL BACK)
-      camTo(960, 470, 0.86, 3.6, ease, 5.00);
+      // S3: CUT to the room — formation.
+      cut(960, 470, 1.25, 7.0);
+      push(960, 470, 1.32, 3.6, ease, 7.2);
 
-      // t=8.60 → 10.40: → 960,470,1.00
-      camTo(960, 470, 1.00, 1.8, ease, 8.60);
+      // S4: three hard cuts INSIDE the room — traffic waves.
+      cut(960, 470, 1.50, 11.0);
+      push(968, 466, 1.55, 1.0, ease, 11.05);
+      cut(880, 470, 1.35, 12.2);
+      push(886, 468, 1.40, 1.0, ease, 12.25);
+      cut(1040, 470, 1.35, 13.2);
+      push(1034, 472, 1.40, 1.0, ease, 13.25);
 
-      // t=10.40 → 13.00: → 966,466,1.06
-      camTo(966, 466, 1.06, 2.6, ease, 10.40);
+      // S5: CUT to the gate — dart, slam, creep.
+      cut(830, 470, 1.06, 14.5);
+      push(946, 474, 1.56, 3.0, ease, 15.5);
 
-      // t=13.00 → 15.60: → 972,464,1.14
-      camTo(972, 464, 1.14, 2.6, ease, 13.00);
+      // S6: CUT to the event log — cascade.
+      cut(960, 1150, 1.05, 19.0);
+      push(960, 1130, 1.10, 3.8, ease, 19.2);
 
-      // t=15.60 → 17.40: → 830,470,1.06
-      camTo(830, 470, 1.06, 1.8, ease, 15.60);
-
-      // t=17.40 → 18.28: → 900,470,1.32  (PUNCH)
-      camTo(900, 470, 1.32, 0.88, "none", 17.40);
-
-      // t=18.28 → 18.40: shake frame 1 (nudge +8px)
-      camTo(908, 478, 1.32, 0.06, "none", 18.28);
-
-      // t=18.40 → 18.52: shake frame 2 (nudge -8px)
-      camTo(892, 462, 1.32, 0.06, "none", 18.34);
-
-      // t=18.40 → 21.40: → 946,474,1.56  (CREEP IN)
-      camTo(946, 474, 1.56, 3.00, ease, 18.40);
-
-      // t=21.40 → 23.20: → 960,470,0.95  (RELEASE)
-      camTo(960, 470, 0.95, 1.8, ease, 21.40);
-
-      // t=23.20 → 25.30: → 960,880,0.99  (CRANE DOWN)
-      camTo(960, 880, 0.99, 2.1, ease, 23.20);
-
-      // t=25.30 → 26.90: → 960,1150,1.02  (LOG FILLS FRAME)
-      camTo(960, 1150, 1.02, 1.6, ease, 25.30);
-
-      // t=26.90 → 28.40: → 960,800,0.60  (PULL WIDE)
-      camTo(960, 800, 0.60, 1.5, ease, 26.92);
+      // S7: drift on the record, then a fast whip-out to the wide system
+      // view. The camera must still frame the log at >= scale 1.0 through
+      // t=26.75 (verify-ending samples its screen-space geometry there).
+      push(965, 1145, 1.12, 2.0, ease, 23.0);
+      push(972, 1152, 1.15, 1.8, ease, 25.0);
+      push(960, 800, 0.60, 0.45, "power2.in", 26.85);
+      push(968, 806, 0.62, 1.1, ease, 27.3);
 
       // t=28.40 → 30.00: PUSH INTO THE LINK — target the chip's world centre
       // (960,176: #chip-link is 52×52 at world 934,150) so the camera actually
@@ -431,7 +476,7 @@
       camTo(960, 176, 2.30, 1.58, ease, 28.42);
 
       // ═══════════════════════════════════════════
-      // ACT 1: THE WALL (0–7s)
+      // ACT 1: S1 THE WALL (0–4s)
       // ═══════════════════════════════════════════
 
       // Typing effect for "ask claude to review my PR"
@@ -444,7 +489,7 @@
         let t = 0;
         for (let i = 0; i < fullText.length; i++) {
           charTimes.push(t);
-          const pause = fullText[i] === " " ? 0.16 : (i === 2 ? 0.12 : 0.062);
+          const pause = fullText[i] === " " ? 0.12 : (i === 2 ? 0.09 : 0.045);
           t += pause;
         }
       })();
@@ -463,50 +508,58 @@
         }
       }, 0.3);
 
-      // SEND: input line hands off to the sent bubble.
-      tl.to("#input-line", { opacity: 0, duration: 0.25, ease: "power1.in" }, 0.3 + typeTotal);
-      tl.to("#msg-user", { opacity: 1, scale: 1, duration: 0.45, ease: "back.out(1.6)" }, 0.34 + typeTotal);
+      // SEND: typed text and caret hand off to the sent bubble; the input
+      // line stays live for the thinking dots, then hands off at the denial.
+      tl.to("#typed-text", { opacity: 0, duration: 0.25, ease: "power1.in" }, 0.3 + typeTotal);
       tl.to("#caret", { opacity: 0, duration: 0.1 }, 0.3 + typeTotal);
+      tl.to("#msg-user", { opacity: 1, scale: 1, duration: 0.45, ease: "back.out(1.6)" }, 0.34 + typeTotal);
+      tl.call(() => { document.getElementById("think-dots").style.display = "inline"; }, undefined, 0.45 + typeTotal);
+      tl.fromTo("#think-dots .think-dot", { opacity: 0, y: 0 },
+                { opacity: 1, y: -4, duration: 0.25, ease: "sine.inOut", yoyo: true, repeat: 2, stagger: 0.12 }, 0.45 + typeTotal);
+      tl.to("#think-dots", { opacity: 0, duration: 0.15 }, 2.95);
+      tl.to("#input-line", { opacity: 0, duration: 0.2, ease: "power1.in" }, 2.95);
 
-      // Denial appears at t=4.0 with a small shake (the refusal is felt, not just read).
+      // Denial appears at t=3.05 with a small shake (the refusal is felt, not just read).
       tl.fromTo("#msg-denial-row", { opacity: 0, x: -8 },
-                { opacity: 1, x: 0, duration: 0.35, ease: "power2.out" }, 4.0);
-      tl.to("#msg-denial-row", { x: 2, duration: 0.06, ease: "none" }, 4.40);
-      tl.to("#msg-denial-row", { x: -2, duration: 0.06, ease: "none" }, 4.46);
-      tl.to("#msg-denial-row", { x: 0, duration: 0.06, ease: "none" }, 4.52);
+                { opacity: 1, x: 0, duration: 0.35, ease: "power2.out" }, 3.05);
+      tl.to("#msg-denial-row", { x: 2, duration: 0.06, ease: "none" }, 3.45);
+      tl.to("#msg-denial-row", { x: -2, duration: 0.06, ease: "none" }, 3.51);
+      tl.to("#msg-denial-row", { x: 0, duration: 0.06, ease: "none" }, 3.57);
 
       // ═══════════════════════════════════════════
-      // ACT 2: THE LINK (7–14.5s)
+      // ACT 2: S2–S4 THE LINK / THE ROOM (4–14.5s)
       // ═══════════════════════════════════════════
 
-      // Ring fades in
-      tl.to("#ring", { opacity: 1, duration: 1.0, ease: "power1.out" }, 7.5);
+      // Ring forms with a pop — the room ASSEMBLES, it does not fade in.
+      tl.fromTo("#ring", { opacity: 0, scale: 0.7 },
+                { opacity: 1, scale: 1, duration: 0.6, ease: "back.out(1.4)" }, 7.1);
 
-      // Link pill appears in center
-      tl.to("#chip-link", { opacity: 1, scale: 1, duration: 0.6, ease: "back.out(1.7)" }, 8.6);
+      // Link pill pops in the gap between the two windows in S2
+      tl.to("#chip-link", { opacity: 1, scale: 1, duration: 0.6, ease: "back.out(1.7)" }, 4.6);
 
       // Chips dock one by one
-       tl.to("#chip-1", { opacity: 1, scale: 1, duration: 0.4, ease: "back.out(1.7)" }, 9.5);
-       tl.to("#chip-2", { opacity: 1, scale: 1, duration: 0.4, ease: "back.out(1.7)" }, 9.9);
-       tl.to("#chip-3", { opacity: 1, scale: 1, duration: 0.4, ease: "back.out(1.7)" }, 10.3);
-       tl.to("#chip-4", { opacity: 1, scale: 1, duration: 0.4, ease: "back.out(1.7)" }, 10.7);
-       tl.to("#chip-5", { opacity: 1, scale: 1, duration: 0.4, ease: "back.out(1.7)" }, 11.1);
+       tl.to("#chip-1", { opacity: 1, scale: 1, duration: 0.4, ease: "back.out(1.7)" }, 7.7);
+       tl.to("#chip-2", { opacity: 1, scale: 1, duration: 0.4, ease: "back.out(1.7)" }, 7.9);
+       tl.to("#chip-3", { opacity: 1, scale: 1, duration: 0.4, ease: "back.out(1.7)" }, 8.1);
+       tl.to("#chip-4", { opacity: 1, scale: 1, duration: 0.4, ease: "back.out(1.7)" }, 8.3);
+       tl.to("#chip-5", { opacity: 1, scale: 1, duration: 0.4, ease: "back.out(1.7)" }, 8.5);
+      [1, 2, 3, 4, 5].forEach((n) => {
+        tl.to(`#chip-${n}`, { scale: 1.07, duration: 0.22, ease: "sine.inOut", yoyo: true, repeat: 3 }, 9.4 + n * 0.08);
+      });
 
-      // Message arrives in Window B
+      // Message arrives in Window B — the reply lands in S2's wide shot
       tl.to("#winB-body", {
         onStart: () => {
           document.getElementById("winB-body").innerHTML =
             '<div class="msg-row"><div class="msg-bubble agent">Sure, I\'ll review your PR now.</div></div>';
         },
         duration: 0.5
-      }, 11.5);
+      }, 5.2);
       tl.fromTo("#winB-body .msg-bubble", { opacity: 0, y: 8, scale: 0.94 },
-                { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: "back.out(1.5)" }, 11.5);
+                { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: "back.out(1.5)" }, 5.2);
 
-      // ── TRAFFIC: fanned broadcast dots with motion streaks ──
-      // The animatic's explicit failure: all dots left on the same vector and
-      // overlapped into one column. Each dot gets its own two-segment arc and
-      // a streak that reads as motion.
+      // TRAFFIC: three waves across three camera angles — every cut gets
+      // its own broadcast so the frame is never still.
       const roomGroup = document.getElementById("room-group");
       const ringC = { x: 350, y: 350 }; // ring centre in room-group coords
       const chipTargets = [
@@ -514,85 +567,104 @@
         { el: "#chip-3", arc: 110 }, { el: "#chip-4", arc: -90 },
         { el: "#chip-5", arc: 40 },
       ];
-      const traffic = [];
-      chipTargets.forEach((t, i) => {
-        const chip = document.querySelector(t.el);
-        const cx = parseFloat(chip.style.left) + 26;
-        const cy = parseFloat(chip.style.top) + 26;
-        const dot = document.createElement("div");
-        dot.className = "m-dot cyan";
-        dot.style.left = (ringC.x - 4) + "px";
-        dot.style.top = (ringC.y - 4) + "px";
-        roomGroup.appendChild(dot);
-        const streak = document.createElement("div");
-        streak.className = "m-streak cyan";
-        roomGroup.appendChild(streak);
-        traffic.push({ dot, streak, cx, cy, arc: t.arc, t0: 10.5 + i * 0.45 });
-      });
-      traffic.forEach((tr) => {
-        const dx = tr.cx - ringC.x, dy = tr.cy - ringC.y;
-        const dist = Math.hypot(dx, dy);
-        const ang = Math.atan2(dy, dx);
-        const off = (ang + Math.PI / 2);
-        const midX = ringC.x + dx * 0.5 + tr.arc * Math.cos(off);
-        const midY = ringC.y + dy * 0.5 + tr.arc * Math.sin(off);
-        gsap.set(tr.streak, { left: ringC.x, top: ringC.y, width: dist,
-                              rotation: ang * 180 / Math.PI });
-        tl.fromTo(tr.streak, { scaleX: 0, opacity: 0 },
-                  { scaleX: 1, opacity: 0.5, duration: 0.18, ease: "none" }, tr.t0);
-        tl.to(tr.streak, { opacity: 0, duration: 0.35, ease: "power1.in" }, tr.t0 + 0.18);
-        tl.fromTo(tr.dot, { opacity: 0, x: 0, y: 0 },
-                  { opacity: 1, x: midX - ringC.x, y: midY - ringC.y,
-                    duration: 0.3, ease: "power1.in" }, tr.t0);
-        tl.to(tr.dot, { x: dx, y: dy, duration: 0.32, ease: "power1.out" }, tr.t0 + 0.3);
-        tl.to(tr.dot, { opacity: 0, duration: 0.2 }, tr.t0 + 0.62);
-      });
+      function makeTrafficWave(t0Base, toRing, cls) {
+        chipTargets.forEach((t, i) => {
+          const chip = document.querySelector(t.el);
+          const cx = parseFloat(chip.style.left) + 26;
+          const cy = parseFloat(chip.style.top) + 26;
+          const from = toRing ? { x: cx, y: cy } : { x: ringC.x, y: ringC.y };
+          const to = toRing ? { x: ringC.x, y: ringC.y } : { x: cx, y: cy };
+          const dot = document.createElement("div");
+          dot.className = "m-dot " + cls;
+          dot.style.left = (from.x - 4) + "px";
+          dot.style.top = (from.y - 4) + "px";
+          roomGroup.appendChild(dot);
+          const streak = document.createElement("div");
+          streak.className = "m-streak " + cls;
+          roomGroup.appendChild(streak);
+          const t0 = t0Base + i * 0.22;
+          const dx = to.x - from.x, dy = to.y - from.y;
+          const dist = Math.hypot(dx, dy);
+          const ang = Math.atan2(dy, dx);
+          const off = (ang + Math.PI / 2);
+          const midX = from.x + dx * 0.5 + t.arc * Math.cos(off);
+          const midY = from.y + dy * 0.5 + t.arc * Math.sin(off);
+          gsap.set(streak, { left: from.x, top: from.y, width: dist,
+                            rotation: ang * 180 / Math.PI });
+          tl.fromTo(streak, { scaleX: 0, opacity: 0 },
+                    { scaleX: 1, opacity: 0.5, duration: 0.18, ease: "none" }, t0);
+          tl.to(streak, { opacity: 0, duration: 0.35, ease: "power1.in" }, t0 + 0.18);
+          tl.fromTo(dot, { opacity: 0, x: 0, y: 0 },
+                    { opacity: 1, x: midX - from.x, y: midY - from.y,
+                      duration: 0.3, ease: "power1.in" }, t0);
+          tl.to(dot, { x: dx, y: dy, duration: 0.32, ease: "power1.out" }, t0 + 0.3);
+          tl.to(dot, { opacity: 0, duration: 0.2 }, t0 + 0.62);
+        });
+      }
+      makeTrafficWave(11.05, true, "cyan");   // chips → ring (delivery)
+      makeTrafficWave(12.25, false, "green"); // ring → chips (acks)
+      makeTrafficWave(13.25, true, "cyan");   // another delivery, new angle
 
       // Ring specular sheen blooms with the link, dies before the dive.
-      tl.to("#ring-sheen", { opacity: 1, duration: 0.8, ease }, 8.6);
+      tl.to("#ring-sheen", { opacity: 1, duration: 0.8, ease }, 7.3);
       tl.to("#ring-sheen", { opacity: 0, duration: 0.5, ease: "power1.in" }, 28.4);
 
       // ═══════════════════════════════════════════
-      // ACT 3: THE GATE (14.5–22.5s)
+      // ACT 3: S5 THE GATE (14.5–19s)
       // ═══════════════════════════════════════════
 
-       // Outsider enters from left
-       tl.to("#outsider", { opacity: 1, duration: 0.5, ease: "power1.out" }, 16.0);
-
-       // Outsider moves toward ring (stops at ring edge ~x=600)
-       tl.to("#outsider", { x: 400, duration: 2.0, ease: "power1.inOut" }, 16.0);
+      // S5 THE GATE: outsider darts in fast — the refusal is a SLAM, not a walk.
+      tl.to("#outsider", { opacity: 1, duration: 0.4, ease: "power1.out" }, 14.6);
+      tl.to("#outsider", { x: 400, duration: 0.9, ease: "power2.in" }, 14.6);
 
       // Ring hardens red at impact — with 120ms ANTICIPATION, an overshoot
       // slam, and a decaying settle (never a single linear scale).
-      tl.to("#ring", { scale: 0.97, duration: 0.12, ease: "power1.in" }, 18.16);
-      tl.set("#ring", { className: "refused" }, 18.28);
-      tl.to("#ring", { scale: 1.06, duration: 0.14, ease: "back.out(2.5)" }, 18.28);
-      tl.to("#ring", { scale: 1.0, duration: 0.35, ease }, 18.42);
+      tl.to("#ring", { scale: 0.97, duration: 0.12, ease: "power1.in" }, 15.38);
+      tl.set("#ring", { className: "refused" }, 15.5);
+      tl.to("#ring", { scale: 1.06, duration: 0.14, ease: "back.out(2.5)" }, 15.5);
+      tl.to("#ring", { scale: 1.0, duration: 0.35, ease }, 15.64);
 
       // Outsider bounces back
-       tl.to("#outsider", { x: 280, duration: 0.5, ease: "power2.out" }, 18.40);
+      tl.to("#outsider", { x: 280, duration: 0.5, ease: "power2.out" }, 15.62);
 
-       // REFUSED stamp appears with a pop and holds ~3s (18.3 → 21.3)
-       tl.fromTo("#refused-stamp", { opacity: 0, scale: 0.92 },
-                 { opacity: 1, scale: 1, duration: 0.3, ease: "back.out(1.8)" }, 18.3);
-       tl.to("#refused-stamp", { opacity: 1, duration: 2.7 }, 18.6); // hold
-       tl.to("#refused-stamp", { opacity: 0, duration: 0.4, ease: "power1.in" }, 21.3);
+      // REFUSED stamp pops and holds while the reason types itself in.
+      tl.fromTo("#refused-stamp", { opacity: 0, scale: 0.92 },
+                { opacity: 1, scale: 1, duration: 0.3, ease: "back.out(1.8)" }, 15.7);
+      tl.to("#refused-stamp", { opacity: 0, duration: 0.4, ease: "power1.in" }, 18.4);
 
-       // Outsider exits (fades out and moves away before lockup)
-       tl.to("#outsider", { opacity: 0, x: 100, duration: 0.6, ease: "power1.in" }, 26.5);
+      // The ring throws a red glow while the refusal is on screen, then the
+      // stamp's reason line types itself in — evidence, not decoration.
+      tl.fromTo("#ring-glow", { opacity: 0 },
+                { opacity: 0.9, duration: 0.3, ease: "power1.in" }, 15.5);
+      tl.to("#ring-glow", { opacity: 0.35, duration: 0.6, ease: "sine.inOut", yoyo: true, repeat: 3 }, 15.8);
+      tl.to("#ring-glow", { opacity: 0, duration: 0.4, ease: "power1.in" }, 18.2);
+      const reasonEl = document.querySelector("#refused-stamp .reason");
+      const reasonText = reasonEl.textContent.trim();
+      tl.to({}, {
+        duration: 0.9,
+        onStart: () => { reasonEl.textContent = ""; },
+        onUpdate: function() {
+          reasonEl.textContent = reasonText.substring(0, Math.round(this.progress() * reasonText.length));
+        }
+      }, 15.9);
+
+      // Outsider exits with the scene (before the cut to the record).
+      tl.to("#outsider", { opacity: 0, x: 100, duration: 0.6, ease: "power1.in" }, 18.6);
 
        // ═══════════════════════════════════════════
-       // ACT 4: THE RECORD (22.5–27s)
+       // ACT 4: S6 THE RECORD (19–23.5s)
        // ═══════════════════════════════════════════
 
-       // Log panel fades in as camera cranes down
-       tl.to("#log-shell", { opacity: 1, duration: 0.6, ease: "power1.out" }, 25.3);
+      // S6 THE RECORD: the log pops in and its rows cascade down the plate.
+      tl.fromTo("#log-shell", { opacity: 0, scale: 0.98 },
+                { opacity: 1, scale: 1, duration: 0.5, ease }, 19.1);
 
-       // Log rows highlight in sequence
-       const logRows = document.querySelectorAll(".log-row");
-       logRows.forEach((row, i) => {
-         tl.fromTo(row, { opacity: 0.3 }, { opacity: 1, duration: 0.2 }, 25.5 + i * 0.2);
-       });
+      // Log rows slide in and highlight in sequence — a scan, not a list.
+      const logRows = document.querySelectorAll(".log-row");
+      logRows.forEach((row, i) => {
+        tl.fromTo(row, { opacity: 0.25, y: 6 },
+                  { opacity: 1, y: 0, duration: 0.25, ease: "power2.out" }, 19.3 + i * 0.12);
+      });
 
        // ═══════════════════════════════════════════
        // ACT 5: LAND (27–30s)
@@ -642,33 +714,37 @@
         tl.to(sel, { opacity: 0, y: -10, duration: 0.35, ease: "power1.in" }, at);
       }
 
-      // Cap 1: 8.4–11.2 "One link. One room."
-      captionIn("#cap-1", 8.4);
-      captionOut("#cap-1", 10.8);
+      // Cap 1 (S2): 4.7–6.3 "One link. One room."
+      captionIn("#cap-1", 4.7);
+      captionOut("#cap-1", 6.3);
 
-      // Cap 2: 12.4–16.0 "Everything they say arrives in order."
-      captionIn("#cap-2", 12.4);
-      captionOut("#cap-2", 15.6);
+      // Cap 2 (S3): 8.8–10.6 "Everything they say arrives in order."
+      captionIn("#cap-2", 8.8);
+      captionOut("#cap-2", 10.6);
 
-      // Cap 3: 22.5–24.9 "Forwarding is easy. Refusing is the product."
-      captionIn("#cap-3", 22.5);
-      captionOut("#cap-3", 24.5);
+      // Cap 3 (S5): 16.0–18.4 "Forwarding is easy. Refusing is the product."
+      captionIn("#cap-3", 16.0);
+      captionOut("#cap-3", 18.4);
 
-      // Cap 4: 25.9–27.6 "Every action, recorded in order."
-      captionIn("#cap-4", 25.9);
-      captionOut("#cap-4", 27.2);
+      // Cap 4 (S6): 19.6–21.6 "Every action, recorded in order."
+      captionIn("#cap-4", 19.6);
+      captionOut("#cap-4", 21.6);
 
       // ═══════════════════════════════════════════
       // ATMOSPHERE PARALLAX (slow drift) + film grain drift
       tl.to("#grain", { backgroundPosition: "18px 12px", duration: 30, ease: "none" }, 0);
-      tl.to("#atmo1", { x: 40, y: 20, duration: 8, ease: "sine.inOut" }, 0);
-      tl.to("#atmo1", { x: 0, y: 0, duration: 8, ease: "sine.inOut" }, 8);
-      tl.to("#atmo1", { x: -30, y: 15, duration: 8, ease: "sine.inOut" }, 16);
-      tl.to("#atmo1", { x: 0, y: 0, duration: 6, ease: "sine.inOut" }, 24);
+      tl.to("#atmo1", { x: 50, y: 25, duration: 5, ease: "sine.inOut" }, 0);
+      tl.to("#atmo1", { x: -5, y: 0, duration: 5, ease: "sine.inOut" }, 5);
+      tl.to("#atmo1", { x: -40, y: 18, duration: 5, ease: "sine.inOut" }, 10);
+      tl.to("#atmo1", { x: 0, y: 0, duration: 5, ease: "sine.inOut" }, 15);
+      tl.to("#atmo1", { x: 25, y: -12, duration: 5, ease: "sine.inOut" }, 20);
+      tl.to("#atmo1", { x: 0, y: 0, duration: 5, ease: "sine.inOut" }, 25);
 
-      tl.to("#atmo2", { x: -30, y: -20, duration: 10, ease: "sine.inOut" }, 0);
-      tl.to("#atmo2", { x: 0, y: 0, duration: 10, ease: "sine.inOut" }, 10);
-      tl.to("#atmo2", { x: 20, y: -10, duration: 10, ease: "sine.inOut" }, 20);
+      tl.to("#atmo2", { x: -35, y: -24, duration: 6, ease: "sine.inOut" }, 0);
+      tl.to("#atmo2", { x: 5, y: 0, duration: 6, ease: "sine.inOut" }, 6);
+      tl.to("#atmo2", { x: 26, y: -14, duration: 6, ease: "sine.inOut" }, 12);
+      tl.to("#atmo2", { x: 0, y: 0, duration: 6, ease: "sine.inOut" }, 18);
+      tl.to("#atmo2", { x: -20, y: 10, duration: 6, ease: "sine.inOut" }, 24);
 
       // ═══════════════════════════════════════════
       // SIZE THE EVENT LOG SHELL TO ITS CONTENT
