@@ -79,7 +79,7 @@ Desktop density is 1440 x 900 at deviceScaleFactor 1. Mobile coverage is 390 x 8
 ## Fresh verification
 
 `python -B -m unittest discover -s tests -v` passed the historical website-focused
-65-test harness; the current repository suite is 910 tests.
+65-test harness; the repository suite is now 960 tests (count-guarded; it was 910 when this was written).
 
 `node scripts/capture-site-qa.cjs` exits 0 with:
 
