@@ -168,12 +168,84 @@ def _validate_message_kinds(value: Any) -> list[str] | None:
             "invalid_argument",
             "message_kinds must be an optional list of message_kind strings",
         )
+    if len(value) > _MESSAGE_KINDS_MAX_ITEMS:
+        raise RoomError(
+            "invalid_argument",
+            f"message_kinds must contain at most {_MESSAGE_KINDS_MAX_ITEMS} entries",
+        )
     validated: list[str] = []
     for entry in value:
         v = _validate_message_kind(entry, "message_kinds")
         if v is not None:
             validated.append(v)
     return validated
+
+
+# Poll filter bound: one IN() placeholder is built per entry (rooms.poll), and
+# SQLite rejects more than SQLITE_MAX_VARIABLE_NUMBER (32 766) variables. An
+# unbounded list therefore turned a big filter into an OperationalError -> 500.
+# 64 is the documented cap, mirroring the entry_ids <= 200 precedent.
+_MESSAGE_KINDS_MAX_ITEMS = 64
+
+# Send addressing bounds: one unroutable spec per entry is reflected into the
+# recipient_not_found message, so the list length and per-entry length are
+# capped BEFORE any routing/reflection happens (LOW-4, 2026-08-15 audit).
+_TARGET_SPEC_MAX_ITEMS = 64
+_TARGET_SPEC_MAX_LEN = 128
+
+# Receipts echo each requested entry_id back verbatim in not_found entries;
+# a 1 MB entry_id was reflected as a 1 MB response body (LOW-4). Bounded at
+# the same validation boundary that already refuses non-string entries.
+_ENTRY_ID_MAX_LEN = 512
+
+
+def _validate_room_id(room_id: Any) -> str:
+    """Validate a caller-supplied ``room_id`` is a non-empty string.
+
+    A non-string container (list/dict) previously reached the SQLite bind in
+    the room resolution queries and raised ``sqlite3.ProgrammingError``, which
+    escaped as an HTTP 500 / MCP internal_error. Only the TYPE is checked
+    here — a well-formed but fabricated id still resolves to the uniform
+    ``room_not_found`` 404, so the no-oracle behaviour is unchanged.
+    """
+    if not isinstance(room_id, str) or not room_id.strip():
+        raise RoomError("invalid_argument", "room_id must be a non-empty string", 400)
+    return room_id
+
+
+def _normalize_target_spec(target_spec: Any) -> list[str]:
+    """Normalize a send's ``target_spec`` into a bounded list of strings.
+
+    ``target_spec`` must be a string or a list/tuple of strings, with at most
+    ``_TARGET_SPEC_MAX_ITEMS`` entries of at most ``_TARGET_SPEC_MAX_LEN``
+    characters each. Anything else (int/bool/float previously raised
+    ``TypeError`` inside ``list(...)`` -> 500; dicts were silently
+    type-confused into their keys) is the caller's ``invalid_argument`` 400.
+    The bounds keep the ``recipient_not_found`` reflection small (LOW-4).
+    """
+    if isinstance(target_spec, str):
+        specs = [target_spec]
+    elif isinstance(target_spec, (list, tuple)):
+        specs = list(target_spec)
+    else:
+        raise RoomError(
+            "invalid_argument", "target_spec must be a string or a list of strings", 400,
+        )
+    if len(specs) > _TARGET_SPEC_MAX_ITEMS:
+        raise RoomError(
+            "invalid_argument",
+            f"target_spec must contain at most {_TARGET_SPEC_MAX_ITEMS} entries",
+            400,
+        )
+    for spec in specs:
+        if not isinstance(spec, str) or len(spec) > _TARGET_SPEC_MAX_LEN:
+            raise RoomError(
+                "invalid_argument",
+                f"each target_spec entry must be a string of at most "
+                f"{_TARGET_SPEC_MAX_LEN} characters",
+                400,
+            )
+    return specs
 
 
 def _validate_room_name(value: Any) -> str | None:
@@ -606,6 +678,7 @@ class CloudRoomService:
         room resolves the same uniform ``room_not_found`` as a room that never
         existed (no existence oracle).
         """
+        _validate_room_id(room_id)
         if agent_id:
             row = tx.execute(
                 "SELECT tenant_id FROM cloud_room_members "
@@ -762,10 +835,7 @@ class CloudRoomService:
                 return {spec}
             return set()
 
-        if isinstance(target_spec, str):
-            specs = [target_spec]
-        else:
-            specs = list(target_spec or [])
+        specs = _normalize_target_spec(target_spec)
 
         result: set[str] = set()
         for spec in specs:
@@ -785,10 +855,7 @@ class CloudRoomService:
         The caller is a member, so naming a non-member of THIS room leaks
         nothing the caller could not already read from the room's roster.
         """
-        if isinstance(target_spec, str):
-            specs = [target_spec]
-        else:
-            specs = list(target_spec or [])
+        specs = _normalize_target_spec(target_spec)
         group_rows = tx.execute(
             "SELECT group_name FROM cloud_room_groups WHERE tenant_id = ? AND room_id = ?",
             (tenant_id, room_id),
@@ -908,6 +975,7 @@ class CloudRoomService:
         scoped. An invalid link yields invalid_link (no oracle on which rooms
         exist).
         """
+        _validate_room_id(room_id)
         try:
             link_hash = _token_hash(link_token)
         except ValueError:
@@ -1204,6 +1272,8 @@ class CloudRoomService:
                 raise RoomError("owner_required", "Only the room owner can remove a member", 403)
             if target_agent_id == room["owner_agent_id"]:
                 raise RoomError("owner_required", "The room owner cannot be removed", 403)
+            if not isinstance(target_agent_id, str) or not target_agent_id.strip():
+                raise RoomError("invalid_argument", "member_id must be a non-empty string", 400)
             target = tx.execute(
                 "SELECT 1 FROM cloud_room_members "
                 "WHERE tenant_id = ? AND room_id = ? AND agent_id = ? AND status = 'active'",
@@ -1572,6 +1642,12 @@ class CloudRoomService:
             raise RoomError("invalid_argument", "entry_ids must contain at most 200 items", 400)
         if any(not isinstance(entry_id, str) or not entry_id.strip() for entry_id in entry_ids):
             raise RoomError("invalid_argument", "entry_ids must contain non-empty strings", 400)
+        if any(len(entry_id) > _ENTRY_ID_MAX_LEN for entry_id in entry_ids):
+            raise RoomError(
+                "invalid_argument",
+                f"entry_ids must contain strings of at most {_ENTRY_ID_MAX_LEN} characters",
+                400,
+            )
 
         with self.backend.transaction() as tx:
             self._require_room(tx, tenant_id, room_id)

@@ -539,7 +539,12 @@ class WeftCloudService:
         a caller can only ever resolve a room they are an active member of.
         Anything else yields the uniform ``room_not_found`` — identical to a
         fabricated room_id, so the endpoint is not a room-existence oracle.
+        A non-string container ``room_id`` (list/dict) is refused here as the
+        caller's ``invalid_argument`` 400 BEFORE any DB bind — it previously
+        raised ``sqlite3.ProgrammingError`` on the bind and escaped as a 500.
         """
+        if not isinstance(room_id, str) or not room_id.strip():
+            raise _ServiceError("invalid_argument", "room_id must be a non-empty string")
         try:
             with self.backend.transaction() as tx:
                 return self.rooms._resolve_room_tenant(tx, room_id, agent_id)
