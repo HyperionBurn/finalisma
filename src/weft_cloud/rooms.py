@@ -1362,7 +1362,10 @@ class CloudRoomService:
             last_ack = int(cursor_row["last_ack_seq"]) if cursor_row else 0
             if after_seq is None:
                 after_seq = last_ack
-            after_seq = int(after_seq)
+            if isinstance(after_seq, bool) or not isinstance(after_seq, int):
+                # A non-integer cursor is the CALLER's error and must come
+                # back as a clean 400, not escape as a ValueError -> 500.
+                raise RoomError("invalid_argument", "after_seq must be an integer", 400)
             # Cursor guards (F14 / P1): silence must never mean success for
             # READS either. A window beyond the room head used to be silently
             # echoed back as ``next_seq`` — the caller could not tell their
@@ -1382,7 +1385,9 @@ class CloudRoomService:
                     400,
                 )
             behind_by = max(0, after_seq - last_ack)
-            limit = max(1, min(int(limit), 200))
+            if isinstance(limit, bool) or not isinstance(limit, int):
+                raise RoomError("invalid_argument", "limit must be an integer", 400)
+            limit = max(1, min(limit, 200))
             kind_filter = _validate_message_kinds(message_kinds)
             if kind_filter:
                 placeholders = ", ".join("?" for _ in kind_filter)
@@ -1509,7 +1514,14 @@ class CloudRoomService:
             room = self._require_room(tx, tenant_id, room_id)
             self._require_member(tx, tenant_id, room_id, agent_id)
             self._touch_member(tx, tenant_id, room_id, agent_id)
-            if int(seq) > int(room["cursor_head"]):
+            if isinstance(seq, bool) or not isinstance(seq, int):
+                raise RoomError("invalid_argument", "seq must be an integer", 400)
+            if seq < 0:
+                # Symmetric with poll: a negative cursor is refused with
+                # invalid_cursor, never silently accepted (MAX semantics used
+                # to let a negative ack look like a successful no-op).
+                raise RoomError("invalid_cursor", "seq cannot be negative", 400)
+            if seq > int(room["cursor_head"]):
                 raise RoomError("invalid_cursor", "Cannot acknowledge an event beyond the room head", 400)
             now = utc_now_iso()
             tx.execute(

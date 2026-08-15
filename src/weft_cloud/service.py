@@ -437,13 +437,20 @@ class WeftCloudService:
         if token:
             from weft_cloud.identity.tokens import hash_token
             token_hash = hash_token(token)
-            # One transaction: revoke_by_token_hash does the lookup and the
-            # UPDATE under a single writer lock. Calling sessions.revoke from
-            # inside a nested transaction would BEGIN IMMEDIATE on a SECOND
-            # connection — SQLite has one writer, so that inner BEGIN blocks
-            # until this one commits, and this one cannot commit until the
-            # inner returns: a 15s self-deadlock surfacing as a 500.
-            self.sessions.revoke_by_token_hash(self.backend, token_hash)
+            if token.startswith("agk_"):
+                # An agent-key bearer IS the key: signout must kill the key
+                # itself, or it would answer signed_out:true while the
+                # presented credential stays live (the silent-failure form of
+                # the signout regression). One transaction: revoke_by_token_hash
+                # does the lookup, the UPDATE, and the room-seat release under a
+                # single writer lock. Calling it from inside a nested transaction
+                # would BEGIN IMMEDIATE on a SECOND connection — SQLite has one
+                # writer, so that inner BEGIN blocks until this one commits, and
+                # this one cannot commit until the inner returns: a 15s
+                # self-deadlock surfacing as a 500.
+                self.agent_keys.revoke_by_token_hash(self.backend, token_hash)
+            else:
+                self.sessions.revoke_by_token_hash(self.backend, token_hash)
         return _json_response(HTTPStatus.OK, {"signed_out": True})
 
     def handle_me(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
@@ -878,6 +885,28 @@ class WeftCloudService:
         )
         return _json_response(HTTPStatus.OK, result)
 
+    def handle_room_receipts(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
+        """Query delivery/read state for the caller's own sends (POST /v1/rooms/receipts).
+
+        REST parity with the hosted MCP tool ``room_receipts``: same
+        CloudRoomService.receipts call, same tenant resolution via the
+        caller's membership, and the same sender-scoped result — unknown or
+        non-owned entry ids return ``not_found`` inside the receipts list
+        without revealing another sender's outbox state.
+        """
+        ctx = self._authenticate(handler)
+        body = _read_body(handler)
+        self._reject_identity_args(body)
+        room_id = body.get("room_id")
+        entry_ids = body.get("entry_ids")
+        if not room_id:
+            raise _ServiceError("invalid_argument", "room_id is required")
+        if entry_ids is None:
+            raise _ServiceError("invalid_argument", "entry_ids is required")
+        tenant_id = self._room_tenant(room_id, ctx.agent_id)
+        result = self.rooms.receipts(tenant_id, room_id, ctx.agent_id, entry_ids)
+        return _json_response(HTTPStatus.OK, result)
+
     def handle_room_leave(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
         ctx = self._authenticate(handler)
         body = _read_body(handler)
@@ -887,6 +916,25 @@ class WeftCloudService:
             raise _ServiceError("invalid_argument", "room_id is required")
         tenant_id = self._room_tenant(room_id, ctx.agent_id)
         result = self.rooms.leave_room(tenant_id, room_id, ctx.agent_id)
+        return _json_response(HTTPStatus.OK, result)
+
+    def handle_room_remove_member(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
+        """Owner-only removal of a member (POST /v1/rooms/remove_member).
+
+        REST parity with the hosted MCP tool ``room_remove_member``: the
+        owner frees a member's seat exactly as over MCP. The removed member is
+        refused on its very next request; removal is NOT a ban — a removed
+        member who still holds a valid link can rejoin.
+        """
+        ctx = self._authenticate(handler)
+        body = _read_body(handler)
+        self._reject_identity_args(body)
+        room_id = body.get("room_id")
+        member_id = body.get("member_id")
+        if not room_id or not member_id:
+            raise _ServiceError("invalid_argument", "room_id and member_id are required")
+        tenant_id = self._room_tenant(room_id, ctx.agent_id)
+        result = self.rooms.remove_member(tenant_id, room_id, ctx.agent_id, member_id)
         return _json_response(HTTPStatus.OK, result)
 
     def handle_room_close(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
@@ -1408,8 +1456,10 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
             "/v1/rooms/connect": self.service.handle_connect_room,
             "/v1/rooms/join": self.service.handle_join_room,
             "/v1/rooms/leave": self.service.handle_room_leave,
+            "/v1/rooms/remove_member": self.service.handle_room_remove_member,
             "/v1/rooms/close": self.service.handle_room_close,
             "/v1/rooms/send": self.service.handle_room_send,
+            "/v1/rooms/receipts": self.service.handle_room_receipts,
             "/v1/rooms/poll": self.service.handle_room_poll,
             "/v1/rooms/wait": self.service.handle_room_wait,
             "/v1/rooms/ack": self.service.handle_room_ack,
