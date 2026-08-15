@@ -14,7 +14,7 @@ The acceptance bar (agreed in the build room):
 5. wake latency p50 measured from real room_wait returns,
 6. the harness must go RED against a deliberately broken build.
 
-## Results
+## Results — 2026-08-14 (historical; superseded by the 2026-08-15 re-measure below)
 
 | agents | deliveries expected | losses | read failures | leaks | order violations | wake p50 | rate retries |
 |--------|---------------------|--------|---------------|-------|-------------------|----------|--------------|
@@ -23,6 +23,50 @@ The acceptance bar (agreed in the build room):
 
 Selftest (deliberate routing break re-injecting the staleloss shape): harness
 reports failure — the guard goes red.
+
+## Results — 2026-08-15 re-measure (independent verification)
+
+Same harness (`scripts/scale_proof.py`), same target (local cloud instance,
+1 account + N-1 agent keys, Pro plan). The harness now also emits wake p95;
+the run's full JSON report is the ground truth. Two full 50-agent soaks were
+run back-to-back on 2026-08-15 and both passed; the table records the run
+with p95 captured, and the first soak (pre-p95 instrumentation) passed at
+wake p50 126.7 ms with 711 wake samples.
+
+| agents | deliveries expected | losses | read failures | leaks | order violations | wake p50 | wake p95 | room rate retries | ip rate retries |
+|--------|---------------------|--------|---------------|-------|-------------------|----------|----------|-------------------|-----------------|
+| 10     | 200                 | 0      | 0             | 0     | 0                 | 125.6 ms | 241.9 ms | 0                 | 0               |
+| 50     | 5000                | 0      | 0             | 0     | 0                 | 133.2 ms | 242.3 ms | 0                 | 11              |
+
+Notes on the 2026-08-15 numbers:
+
+- `deliveries_expected` = cycles × (broadcasts × (agents−1) + unicasts). The
+  50-agent run completed 2 full cycles in the 10-minute soak window
+  (2 × 2500 = 5000), matching the per-cycle accounting of the 2026-08-14
+  2500 figure.
+- The 11 `ip_rate_retries` on the 50-agent run are the per-IP request limiter
+  returning 429 during verification polling; the harness retries honestly
+  after `retry_after` and reports the count. Zero `rate_limited` retries on
+  room sends — the 1.25 s global send pace stayed under the 60/min room
+  budget. The 10-agent run and the first 50-agent soak both measured 0.
+- Identity topology held on every run: roster length asserted == agents
+  (50 distinct key identities, 1 account + 49 agent keys), keys-identity
+  mode.
+- Selftest re-run on 2026-08-15 against the final harness state: the
+  injected routing break was detected (losses 38 reported, `pass: false`,
+  exit 0 with `SELFTEST PASS`). The guard goes red.
+
+Provenance: all 2026-08-15 numbers above were produced by running, in this
+order, on 2026-08-15 on the harness's local target:
+
+```powershell
+python -B scripts/scale_proof.py --selftest
+python -B scripts/scale_proof.py --agents 50 --minutes 10 --plan pro
+python -B scripts/scale_proof.py --agents 10 --minutes 1 --plan pro
+python -B scripts/scale_proof.py --selftest
+```
+
+Re-run to reproduce; do not copy into other documents without re-measuring.
 
 ## Plan boundaries measured along the way (each is a product fact)
 

@@ -11,7 +11,7 @@ against the acceptance bar agreed in the build room:
      subsequence of the global seq order,
   3. unicast leak = 0 (every non-addressee sees redacted/not_the_addressee
      and the payload is replaced wholesale),
-  4. wake latency p50 measured from real timestamps, never asserted,
+  4. wake latency p50/p95 measured from real timestamps, never asserted,
   5. soak: the broadcast ring runs for --minutes (default 10).
 
 The harness must FAIL against a broken build: --selftest injects a deliberate
@@ -401,9 +401,11 @@ def run_scale(base: str, agents: int, minutes: float,
         wait_thread.join(timeout=10)
 
     wake_p50_ms = None
+    wake_p95_ms = None
     if wake_samples:
         ordered = sorted(wake_samples)
         wake_p50_ms = round(ordered[len(ordered) // 2] * 1000, 1)
+        wake_p95_ms = round(ordered[min(len(ordered) - 1, int(len(ordered) * 0.95))] * 1000, 1)
 
     report = {
         "agents": agents,
@@ -417,6 +419,7 @@ def run_scale(base: str, agents: int, minutes: float,
         "order_violations": order_violations,
         "wake_samples": len(wake_samples),
         "wake_p50_ms": wake_p50_ms,
+        "wake_p95_ms": wake_p95_ms,
         "rate_limit_retries": rate_hits[0],
         "ip_rate_retries": sum(c.rate_retries for c in clients),
         "send_pace_s": MIN_SEND_GAP,
@@ -520,7 +523,7 @@ def main() -> None:
     if report["pass"]:
         print(f"SCALE PROOF PASS: {args.agents} agents, {report['cycles']} cycles, "
               f"0 losses, 0 leaks, 0 order violations, "
-              f"wake p50 {report['wake_p50_ms']}ms")
+              f"wake p50 {report['wake_p50_ms']}ms, wake p95 {report['wake_p95_ms']}ms")
         sys.exit(0)
     print(f"SCALE PROOF FAIL: {report['losses']} losses, "
           f"{report['read_failures']} read failures, {report['unicast_leaks']} leaks, "
