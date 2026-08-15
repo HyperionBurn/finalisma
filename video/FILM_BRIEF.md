@@ -44,7 +44,7 @@ We do not explain it. We show someone hit the wall, then we open the door.
 | **4 — TRAFFIC** | 11.0–14.5 | Three **HARD CUTS inside the room** — 11.0 @ 1.50 / 12.2 @ 1.35 / 13.2 @ 1.35, each with a 1s push | Three traffic waves: chips→ring delivery 11.05; ring→chips green **ACKS** 12.25; second delivery 13.25. Every dot flies a two-segment arc with a motion **STREAK**. | HARD CUT ×3 (interior) | *(none)* |
 | **5 — THE GATE** | 14.5–19.0 | **HARD CUT** to the gate: 830,470 @ 1.06 → creep push to 946,474 @ 1.56 | The outsider **DARTS** in over 0.9s (power2.in) after 120ms anticipation; the ring **SLAMS** red at 15.5 with overshoot + settle; the **REFUSED** stamp **POPS** at 15.7; red glow **PULSES** on the ring; the reason line `recipient_not_found · not a member of this room` **TYPES** itself 15.9–16.8. | HARD CUT | **Forwarding is easy. Refusing is the product.** — 16.0–18.4 |
 | **6 — THE RECORD** | 19.0–23.5 | **HARD CUT** to the event log: 960,1150 @ 1.05 → push to 1.10 | The log shell **POPS** at 19.1; 8 rows **CASCADE** slide-in from 19.3 (0.12 stagger) — every action in order, including the refusal. | HARD CUT | **Every action, recorded in order.** — 19.6–21.6 |
-| **7 — LAND** | 23.5–30.0 | **HARD CUT** wide: 960,800 @ 0.60 | Windows + room + log at once. The global camera breathing **ZEROES** 26.5–26.9; the windows **FADE** at 26.9; the final **DIVE** into the link runs 28.42–30.0 and the wordmark lockup **BLOOMS** from the chip's exact position. | HARD CUT | wordmark **WEFT** + `One link. Every agent. On the record.` at the lockup |
+| **7 — LAND** | 23.5–30.0 | Drift on the record (965,1145 @ 1.12 → 972,1152 @ 1.15), then a fast **WHIP-OUT** to the wide system view at 26.85 (960,800 @ 0.60) | Windows + room + log at once. The global camera breathing **ZEROES** 26.5–26.9; the windows **FADE** at 26.9; the final **DIVE** into the link runs 28.42–30.0 and the wordmark lockup **BLOOMS** from the chip's exact position. | WHIP-OUT + HARD CUT | wordmark **WEFT** + `One link. Every agent. On the record.` at the lockup |
 
 ### Rhythm
 
@@ -117,7 +117,7 @@ Camera = scale the world about its centre, then translate so the target point la
 | S4 | 11.00 | 960, 470 | 1.50 | 1s push; re-cut 12.2 at 880,470 @ 1.35 + 1s push; re-cut 13.2 at 1040,470 @ 1.35 + 1s push |
 | S5 | 14.50 | 830, 470 | 1.06 | creep push to 946, 474 @ 1.56 — never static through the verdict |
 | S6 | 19.00 | 960, 1150 | 1.05 | push to 1.10 |
-| S7 | 23.50 | 960, 800 | 0.60 | breathing zeroed 26.5–26.9; windows fade 26.9; dive into the link 28.42 → 30.00 at 960, 176 @ 2.30 |
+| S7 | 23.00 | drift 965,1145 @ 1.12 → 972,1152 @ 1.15, then 26.85 whip to 960,800 @ 0.60 (power2.in) | breathing zeroed 26.5–26.9; windows fade 26.9; dive into the link 28.42 → 30.00 at 960, 176 @ 2.30 |
 
 Easing: use a custom cubic `cubic-bezier(0.32, 0.72, 0, 1)` for every large move
 (GSAP: `CustomEase` or `power3.out` as the closest stock equivalent). `linear` only for holds
@@ -175,7 +175,7 @@ The Figma animatic could not do these. You can, and should:
   marks, no colours borrowed from those products.** They are there because the audience needs to
   recognise the problem. Nothing may imply partnership, endorsement, or that either vendor has
   integrated with us. If in doubt, make them plainer, never fancier.
-- The refusal reason must stay literally true to what the evidence gate actually checks: `recipient_not_found � not a member of this room`. Do not embellish it.
+- The refusal reason must stay literally true to what the evidence gate actually checks: `recipient_not_found � not a member of this room`. Do not embellish it.
 
 - The log rows describe a plausible session — keep them mechanical and unremarkable. No
   "10,000 agents", no fake scale.
