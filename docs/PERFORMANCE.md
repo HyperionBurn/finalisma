@@ -37,6 +37,41 @@ rerun, per the standing rule: never rebaseline to hide a regression, never
 report a performance figure that was not measured under documented
 conditions.
 
+2026-08-15 note (supersedes for the current tree): two complete seven-trial
+gate runs on 2026-08-15, back to back on the same tree with zero code change,
+measured weighted medians of **71.531 ms** and **76.553 ms** against the
+72.221 ms reference (+0.96% and -6.00% "improvement"). Run 1 failed only the
+scenario-p95 guards: `routing_fanout` p95 +66.10%, `session_relay` p95 +75.60%
+(medians +0.39% and +5.64%). Run 2 failed the weighted-median guard and
+`session_relay` p95 +31.46% (median +19.65%) while `routing_fanout` swung to
+-4.74% median / -12.52% p95. A 78-point p95 swing on an untouched scenario
+between consecutive runs is the measurement noise floor on this host, not code.
+Both runs passed all quality sub-gates (960 tests, protocol smoke, no raw
+credential in output).
+
+Profiling evidence, same host, same day (scratch harness in the temp dir, not
+the repo): per-operation medians in the session relay loop are send 0.084 ms,
+poll 0.050 ms, ack 0.033 ms (160 of each per trial) — the loop is I/O bound with
+no N+1 queries or re-reads (statement economy is pinned by
+`tests/test_performance_hotpaths.py`). Two stall classes remain per trial:
+(a) a deterministic ~5-6 ms WAL-checkpoint stall that a scratch experiment
+(`PRAGMA wal_autocheckpoint=10000`) removes, shaving ~5 ms/trial (~10% of the
+scenario), and (b) a ~10-13 ms stall that hits even read-only operations
+(`session_poll` max 8.9-12.1 ms in every run; one 12.75 ms stall in 320
+read-only `route_task` calls whose p99 is otherwise 0.241 ms). Class (b) is
+host noise — it cannot come from coordinator code and is consistent with the
+long-running agent sessions active on this host. The gated code also cannot
+have regressed by construction: the last `core.py` change predates the
+2026-08-13 10:37 baseline capture, and every post-baseline commit touches only
+`room.py`, which the gate's locked scenarios never execute. Per the standing
+rule the baseline was **not** touched and nothing was rebaselined. Candidate
+micro-optimizations found but deliberately not applied in this lane (their
+combined ceiling is ~10-15% on one scenario and cannot close a ±20-30% noise
+gap): WAL-checkpoint deferral (~5 ms/trial on `session_relay`) and per-agent
+capability-parse caching in `_route` (~10% of `routing_fanout`). The gate
+remains red pending a controlled idle-host rerun; on this host it cannot
+distinguish a true regression from load noise.
+
 The preceding complete run measured **90.158 ms** (weighted p95 104.705 ms),
 also failed the weighted-median and scenario-p95 guards, and passed the then-current
 894-test quality snapshot,
