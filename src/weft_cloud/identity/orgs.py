@@ -75,13 +75,21 @@ def list_members(ctx: SessionContext) -> list[dict]:
 
 
 def add_member(ctx: SessionContext, email: str, role: str = "member") -> None:
-    """Add an account to the org with the given role (admin/owner only)."""
+    """Add an account to the org with the given role (admin/owner only).
+
+    Minting an ``owner`` additionally requires an owner caller — the
+    transfer-ownership rule, mirroring ``set_role`` — so an admin can never
+    mint a new owner (who could then delete the org or remove the admin).
+    """
     ctx = _require_ctx(ctx)
     ensure_schema(ctx.backend)
     if role not in ROLE_RANK:
         raise ValueError(f"invalid role: {role}")
     ctx.require_role("admin")
     require_db_role(ctx.backend, ctx.tenant_id, ctx.account_id, "admin")
+    if role == "owner":
+        ctx.require_role("owner")
+        require_db_role(ctx.backend, ctx.tenant_id, ctx.account_id, "owner")
 
     account_id = accounts._create_account(
         ctx.backend, ctx.tenant_id, email, _ORG_BOOTSTRAP_PASSWORD, email_verified=1
