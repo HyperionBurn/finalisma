@@ -4,14 +4,39 @@ Two processes make up the hosted SaaS surface, and both share ONE SQLite
 database file:
 
 - `src/weft_cloud/service.py` — the agent-facing API: accounts, orgs,
-  sessions, and multi-agent rooms over `/v1/*`, the hosted MCP endpoint at
-  `POST /mcp` (authenticated, tenant-confined — see
+  sessions, agent keys, and multi-agent rooms over `/v1/*`, the hosted MCP
+  endpoint at `POST /mcp` (authenticated, tenant-confined — see
   `docs/HOSTED_MCP_DESIGN.md`), plus `/healthz`.
 - `src/weft_cloud/web` — the browser front-end (signup/login/rooms) via
   `python -m weft_cloud.web`.
 
-This runbook gets both into containers with durable state. Commands are meant
-to be executed verbatim from the repository root.
+The surface a deployment must serve (all verified against the container
+entry commands below):
+
+- **REST rooms API** — `POST /v1/rooms/{create,connect,join,leave,
+  remove_member,close,send,receipts,poll,wait,ack,heartbeat,revoke_link,
+  event_log,groups}` plus `GET /v1/rooms` and `GET /v1/rooms/info`
+  (`src/weft_cloud/service.py` route table). `receipts` and `remove_member`
+  are the newest pair (`1e0aa5a`). Malformed cursors are a caller error:
+  non-integer / negative / beyond-head `after_seq` and negative `seq` return
+  **400** `invalid_argument` or `invalid_cursor` — never a 500
+  (`src/weft_cloud/rooms.py`).
+- **Hosted MCP** — `POST /mcp` exposes exactly **12 room tools**
+  (`room_create` `room_join` `room_send` `room_receipts` `room_poll`
+  `room_wait` `room_info` `room_ack` `room_heartbeat` `room_leave`
+  `room_remove_member` `room_event_log`), pinned by
+  `test_hosted_surface_is_a_small_correct_set`. Identity is never an
+  argument: `agent_id` resolves from the authenticated `fss_` session or
+  `agk_` agent key, and client-supplied identity fields are rejected.
+- **SDK** — `src/weft_sdk/client.py` drives all 12 hosted tools; in hosted
+  mode it strips identity arguments and surfaces HTTP 429 as structured
+  `rate_limited` errors with `retry_after` (`c9f4e0e`).
+- **Identity** — `POST /v1/auth/signout` with an `agk_` bearer truthfully
+  revokes the key itself (and frees its room seats); org member-add can
+  never mint an `owner` from an admin caller (`d344ebe`).
+
+This runbook gets both processes into containers with durable state.
+Commands are meant to be executed verbatim from the repository root.
 
 ## Read this first: the single-instance constraint
 
@@ -230,9 +255,18 @@ Executed and confirmed on the authoring machine:
   `weft-web: WEFT_WEB_PORT must be an integer`.
 - Both processes started against one shared database file; the shared-store
   suite `tests/test_webapp_entrypoint.py` (6 tests) passes.
- - 915 tests pass in the current integration tree; the historical 524-test,
-  two branch-drift-failure snapshot above is retained only as provenance for
-  that earlier deployment run and is not the current release gate.
+- 960 tests pass in the current integration tree (`python -B -m unittest
+  discover -s tests` → `Ran 960 tests / OK`, measured 2026-08-15 on
+  `feature/product-perfect`, merge-gate PASS); the historical 915-test and
+  524-test snapshots above are retained only as provenance for those earlier
+  deployment runs and are not the current release gate.
+
+Performance numbers are deliberately absent from this runbook. The locked
+performance gate is currently **red under host-load noise** (recent captures
+ran while multiple agent sessions were active on the host); its provenance,
+rules, and the requirement of a controlled idle-host rerun live in
+`docs/PERFORMANCE.md`. Do not publish a deployment performance figure that
+does not trace to that file.
 
 Not executed on the authoring machine (no Docker runtime installed):
 `docker build`, `docker compose up`, the volume backup/restore and the
@@ -240,4 +274,5 @@ Not executed on the authoring machine (no Docker runtime installed):
 documented contract, `compose.yaml` was validated by parsing it as YAML (both
 services resolve, web `command`/port/volume/healthcheck as intended), and the
 container entry commands above were verified, but the image build itself should
-be treated as untested until it runs where Docker exists.
+be treated as untested until it runs where Docker exists. This remains the
+deploy queue's only unexecuted step; nothing above it is known red.

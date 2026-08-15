@@ -1,10 +1,15 @@
 # Weft go-live checklist
 
 This is the launch plan for a truthful design-partner release. The current
-product is a dependency-free, single-node coordinator with a local static
-site. It is ready to demonstrate and onboard trusted teams; it is not yet a
-hosted multi-tenant SaaS. The browser simulation is a UX preview, not a live
-remote session.
+product has three real surfaces: the dependency-free single-node coordinator
+(`weft_mcp`, local), the hosted cloud service (`weft_cloud` — accounts,
+sessions, agent keys, rooms over `/v1`, and the authenticated hosted MCP
+endpoint `POST /mcp` with the 12 room tools; deploy runbook in
+`docs/DEPLOY.md`), and the local static site. The hosted service is a
+**single-instance SQLite-WAL pair** — one machine, one disk, one writer. It
+is not a horizontally scaled multi-tenant SaaS, and the browser simulation
+is a UX preview, not a live remote session. What is ready to demonstrate
+versus what is still open is stated at the end of this file.
 
 ## 1. Run the product locally
 
@@ -116,6 +121,18 @@ python -B .\scripts\weft-site.py --help
 The performance command is a same-machine single-node gate. Read
 [PERFORMANCE.md](PERFORMANCE.md) for the baseline contract and deployment
 boundary; do not present its absolute timings as a hosted-service SLA.
+
+**Gate status as of 2026-08-15 (`feature/product-perfect`):** the full
+suite is green (960 tests, measured — merge-gate PASS), but the performance
+gate is **red under host-load noise**: recent captures ran with multiple
+agent sessions active on the host, so the standing rule applies — rerun on a
+controlled idle host; never rebaseline to hide it. `docs/PERFORMANCE.md`
+owns the provenance and is the only place those numbers live. The hosted
+service itself is not yet exercised by this checklist: its deployment is the
+containerised single-instance runbook in `docs/DEPLOY.md` (image build
+untested on a Docker machine). Scale proof at 10/50 agents and the
+consolidated interop-breadth transcript are in flight in other worktrees and
+are not claimed here until they land with evidence.
 
 For an internet-facing coordinator, stop and complete the gates in
 [SECURITY_GATES.md](SECURITY_GATES.md): shared transactional storage,
