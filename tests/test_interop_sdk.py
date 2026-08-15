@@ -16,14 +16,20 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
+import urllib.error
+import urllib.request
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from weft_sdk import WeftClient, WeftError
+from weft_cloud.service import WeftCloudService, _CloudHTTPHandler
+from weft_cloud.storage import SqliteWalBackend
 
 
 def _pick_free_port() -> int:
@@ -279,6 +285,99 @@ class SdkInteropTest(unittest.TestCase):
             self.assertEqual(ctx.exception.code, "actor_auth_invalid")
         finally:
             impostor.close()
+
+
+class SdkHostedInteropTests(unittest.TestCase):
+    """The SDK must be able to drive the HOSTED MCP surface with a bearer
+    credential — the same endpoint the stdio bridge and the web app use.
+
+    RED: ``WeftClient._call`` injects ``team_id`` and ``agent_id`` into every
+    tool call, and the hosted dispatcher rejects client-supplied identity
+    arguments (``weft_cloud/mcp.py`` ``_FORBIDDEN_IDENTITY_ARGS``), so a room
+    call is refused with ``invalid_argument`` instead of succeeding.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.tmpdir = tempfile.mkdtemp(prefix="weft-sdk-hosted-")
+        cls.db_path = str(Path(cls.tmpdir) / "test.db")
+        cls.service = WeftCloudService(SqliteWalBackend(cls.db_path))
+        cls._httpd = ThreadingHTTPServer(("127.0.0.1", 0), _CloudHTTPHandler)
+        _CloudHTTPHandler.service = cls.service
+        cls.port = cls._httpd.server_address[1]
+        cls.base = f"http://127.0.0.1:{cls.port}"
+        cls.thread = threading.Thread(target=cls._httpd.serve_forever, daemon=True)
+        cls.thread.start()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        if cls._httpd is not None:
+            try:
+                cls._httpd.shutdown()
+            finally:
+                cls._httpd.server_close()
+        try:
+            cls.service.backend.close()
+        except Exception:
+            pass
+        import shutil
+        shutil.rmtree(cls.tmpdir, ignore_errors=True)
+
+    def _post(self, path: str, body: dict, token: str | None = None) -> tuple[int, dict]:
+        data = json.dumps(body).encode("utf-8")
+        req = urllib.request.Request(self.base + path, data=data, method="POST")
+        req.add_header("Content-Type", "application/json")
+        if token:
+            req.add_header("Authorization", f"Bearer {token}")
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                raw = resp.read()
+                return resp.status, json.loads(raw.decode("utf-8")) if raw else {}
+        except urllib.error.HTTPError as exc:
+            payload = {}
+            try:
+                raw = exc.read()
+                payload = json.loads(raw.decode("utf-8")) if raw else {}
+            except Exception:
+                pass
+            finally:
+                exc.close()
+            return exc.code, payload
+
+    def test_sdk_room_poll_drives_hosted_surface(self) -> None:
+        """Sign up, create a room over the hosted REST surface, then drive
+        room_poll through the SDK against the hosted /mcp endpoint."""
+        status, acct = self._post("/v1/auth/signup", {
+            "email": "sdk-hosted@example.com", "password": "password-123",
+        })
+        self.assertEqual(status, 201, f"signup failed: {acct}")
+        status, room = self._post(
+            "/v1/rooms/create", {"cap": 4}, token=acct["session_token"],
+        )
+        self.assertEqual(status, 201, f"room create failed: {room}")
+
+        client = WeftClient(
+            f"{self.base}/mcp",
+            acct["account_id"],
+            "",
+            bearer_token=acct["session_token"],
+        )
+        try:
+            try:
+                poll = client.room_poll(room["room_id"])
+            except WeftError as exc:
+                self.fail(
+                    f"SDK room call against the hosted surface was refused: "
+                    f"code={exc.code!r} message={exc.message!r} — the SDK must "
+                    "not inject identity arguments (team_id/agent_id/"
+                    "actor_token) that the hosted dispatcher rejects"
+                )
+            self.assertEqual(poll.room_id, room["room_id"])
+            self.assertIn("room.created",
+                          [e.kind for e in poll.events],
+                          "owner must see the room.created lifecycle event")
+        finally:
+            client.close()
 
 
 if __name__ == "__main__":

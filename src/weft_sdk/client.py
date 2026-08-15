@@ -10,6 +10,7 @@ from __future__ import annotations
 import http.client
 import json
 import os
+import re
 import secrets
 import threading
 import time
@@ -94,6 +95,28 @@ _ERROR_MAP = {
 def _raise_structured(code: str, message: str, details: Any | None = None) -> None:
     cls = _ERROR_MAP.get(code, WeftError)
     raise cls(code, message, details)
+
+
+# Client-supplied identity arguments the HOSTED dispatcher rejects
+# (mirror of weft_cloud/mcp.py _FORBIDDEN_IDENTITY_ARGS — the SDK is a pure
+# protocol client and cannot import weft_cloud). When the client is in hosted
+# mode (a bearer credential was supplied), these are stripped from every tool
+# call: identity is derived from the authenticated session, never an argument.
+_HOSTED_FORBIDDEN_IDENTITY_ARGS = frozenset({
+    "team_id",
+    "tenant_id",
+    "agent_id",
+    "actor_token",
+    "owner_agent_id",
+    "sender_agent_id",
+    "caller_agent_id",
+})
+
+# A structured error code is safe to adopt from a non-200 body only if it is a
+# short snake_case identifier. This keeps the redaction contract intact: an
+# arbitrary body (which may carry tokens) can never be echoed into the
+# exception, only a well-formed machine code is.
+_SAFE_HTTP_ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 
 
 # ---------------------------------------------------------------------------
@@ -222,6 +245,8 @@ class RoomPoll:
     cursor_head: int
     last_ack_seq: int
     has_more: bool
+    behind_by: int | None = None
+    timed_out: bool = False
 
 
 @dataclass
@@ -312,6 +337,45 @@ class _JsonRpcTransport:
     def close(self) -> None:
         pass  # connections are per-call; nothing pooled
 
+    @staticmethod
+    def _http_error(status: int, body: bytes, retry_after_header: str | None) -> WeftError:
+        """Raise a structured WeftError from a non-200 response.
+
+        The hosted service refuses with HTTP 429 + a structured body
+        {"error": {"code": "rate_limited", ..., "retry_after": N}} plus a
+        Retry-After header. The structured ``code`` and ``retry_after`` are
+        extracted so a caller can back off — while the server's own message
+        text is NEVER adopted: the body can carry tokens, so only a validated
+        machine code (short snake_case identifier) and a numeric retry_after
+        ever reach the exception.
+        """
+        code = "http_error"
+        retry_after: int | float | None = None
+        parsed: Any = None
+        try:
+            parsed = json.loads(body.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            parsed = None
+        if isinstance(parsed, dict):
+            err = parsed.get("error")
+            if isinstance(err, dict):
+                candidate = err.get("code")
+                if isinstance(candidate, str) and _SAFE_HTTP_ERROR_CODE.fullmatch(candidate):
+                    code = candidate
+                ra = err.get("retry_after")
+                if isinstance(ra, bool):
+                    pass
+                elif isinstance(ra, (int, float)):
+                    retry_after = ra
+                elif isinstance(ra, str) and ra.strip().isdigit():
+                    retry_after = float(ra.strip())
+        if retry_after is None and isinstance(retry_after_header, str) and retry_after_header.strip().isdigit():
+            retry_after = float(retry_after_header.strip())
+        details: dict[str, Any] = {"status": status}
+        if retry_after is not None:
+            details["retry_after"] = retry_after
+        return WeftError(code, f"HTTP {status} from coordinator", details)
+
     def call(self, method: str, params: dict[str, Any], idempotency_key: str | None = None) -> Any:
         """Make a tools/call JSON-RPC call and return the structured result."""
         if idempotency_key is None:
@@ -345,13 +409,7 @@ class _JsonRpcTransport:
                     continue
 
                 if status != 200:
-                    # Do NOT embed the coordinator response body into the raised
-                    # exception — it can carry tokens. Redact it to status only.
-                    raise WeftError(
-                        "http_error",
-                        f"HTTP {status} from coordinator",
-                        {"status": status, "body": "<redacted>"},
-                    )
+                    raise self._http_error(status, body, resp.getheader("Retry-After"))
 
                 envelope = json.loads(body.decode("utf-8"))
                 if "error" in envelope and envelope["error"]:
@@ -388,6 +446,13 @@ class WeftClient:
     Token hygiene: the actor_token is accepted as a constructor argument or via
     the WEFT_ACTOR_TOKEN environment variable.  It is NEVER logged and
     NEVER appears in __repr__.
+
+    Hosted mode: when a ``bearer_token`` (an ``fss_`` session or ``agk_``
+    agent key for the hosted /mcp surface) is supplied, the client is in
+    hosted mode and never injects identity arguments (team_id / agent_id /
+    actor_token / owner_agent_id / sender_agent_id / caller_agent_id) into
+    tool calls — the hosted dispatcher derives identity from the
+    authenticated credential and rejects client-supplied identity arguments.
     """
 
     def __init__(
@@ -403,6 +468,7 @@ class WeftClient:
         self.agent_id = agent_id
         self.team_id = team_id
         self._actor_token = actor_token or os.environ.get("WEFT_ACTOR_TOKEN")
+        self._bearer_token = bearer_token
         self._transport = _JsonRpcTransport(coordinator_url, bearer_token=bearer_token, timeout=timeout)
 
     # -- representation -----------------------------------------------------
@@ -413,10 +479,19 @@ class WeftClient:
     # -- low-level RPC ------------------------------------------------------
 
     def _call(self, method: str, **kwargs: Any) -> Any:
-        params: dict[str, Any] = {"team_id": self.team_id, "agent_id": self.agent_id}
-        params.update({k: v for k, v in kwargs.items() if v is not None})
-        if self._actor_token:
-            params["actor_token"] = self._actor_token
+        if self._bearer_token:
+            # Hosted mode: identity is derived from the authenticated bearer
+            # credential. Never inject team_id/agent_id/actor_token — the
+            # hosted dispatcher refuses them — and strip the identity
+            # arguments room methods inject for the self-hosted surface.
+            params = {k: v for k, v in kwargs.items() if v is not None}
+            for forbidden in _HOSTED_FORBIDDEN_IDENTITY_ARGS:
+                params.pop(forbidden, None)
+        else:
+            params = {"team_id": self.team_id, "agent_id": self.agent_id}
+            params.update({k: v for k, v in kwargs.items() if v is not None})
+            if self._actor_token:
+                params["actor_token"] = self._actor_token
         return self._transport.call(method, params)
 
     # -- connection check ---------------------------------------------------
@@ -813,6 +888,33 @@ class WeftClient:
             agent_id=agent_id or self.agent_id,
             **kwargs,
         )
+        return self._poll_from_result(result)
+
+    def room_wait(self, room_id: str, after_seq: int | None = None,
+                  timeout_seconds: int = 20, limit: int = 100,
+                  message_kinds: list[str] | None = None,
+                  agent_id: str | None = None, **kwargs: Any) -> RoomPoll:
+        """Block until another agent speaks in the Room, then return the new
+        events after after_seq (same ordering, redaction, and cursor semantics
+        as room_poll). Returns an EMPTY result at the timeout — that is
+        normal, not an error — with timed_out=True. Blocks for up to
+        timeout_seconds (the server clamps to a max of 30). Prefer this over
+        room_poll when you expect a reply: it wakes the moment a message lands.
+        """
+        result = self._call(
+            "room_wait",
+            room_id=room_id,
+            after_seq=after_seq,
+            timeout_seconds=timeout_seconds,
+            limit=limit,
+            message_kinds=message_kinds,
+            agent_id=agent_id or self.agent_id,
+            **kwargs,
+        )
+        return self._poll_from_result(result)
+
+    @staticmethod
+    def _poll_from_result(result: dict[str, Any]) -> RoomPoll:
         events = [
             RoomEvent(
                 event_id=e["event_id"],
@@ -833,6 +935,8 @@ class WeftClient:
             cursor_head=result["cursor_head"],
             last_ack_seq=result["last_ack_seq"],
             has_more=result["has_more"],
+            behind_by=result.get("behind_by"),
+            timed_out=bool(result.get("timed_out", False)),
         )
 
     def room_ack(self, room_id: str, seq: int, agent_id: str | None = None, **kwargs: Any) -> int:
@@ -846,6 +950,43 @@ class WeftClient:
             **kwargs,
         )
         return result["last_ack_seq"]
+
+    def room_event_log(self, room_id: str, agent_id: str | None = None,
+                       **kwargs: Any) -> list[RoomEvent]:
+        """Return the full ordered event log for a Room (member-only audit
+        surface). Payloads are redacted exactly as in room_poll: a non-addressee
+        of a unicast sees the envelope, never the private body."""
+        result = self._call(
+            "room_event_log",
+            room_id=room_id,
+            agent_id=agent_id or self.agent_id,
+            **kwargs,
+        )
+        return [
+            RoomEvent(
+                event_id=e["event_id"],
+                seq=e["seq"],
+                origin_agent=e["origin_agent"],
+                kind=e["kind"],
+                payload=e.get("payload"),
+                created_at=e.get("created_at", ""),
+                message_kind=e.get("message_kind"),
+            )
+            for e in result.get("events", [])
+        ]
+
+    def room_remove_member(self, room_id: str, member_id: str, agent_id: str | None = None,
+                           **kwargs: Any) -> dict[str, Any]:
+        """Owner-only: remove a member from a Room. The removed member is
+        refused on its very next request and its seat is freed. Removal is NOT
+        a ban: a removed member who still holds a valid link can rejoin."""
+        return self._call(
+            "room_remove_member",
+            room_id=room_id,
+            member_id=member_id,
+            agent_id=agent_id or self.agent_id,
+            **kwargs,
+        )
 
     def room_heartbeat(self, room_id: str, agent_id: str | None = None, **kwargs: Any) -> dict[str, Any]:
         """Refresh this member's presence in the Room."""
