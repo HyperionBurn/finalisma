@@ -1,0 +1,11 @@
+# Template for review/installation by the VM owner. See weft-restore-drill.service.
+
+[Unit]
+Description=Run weft-restore-drill.service daily, during quiet hours
+
+[Timer]
+OnCalendar=*-*-* 03:15:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
