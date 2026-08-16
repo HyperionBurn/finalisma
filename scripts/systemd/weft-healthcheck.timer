@@ -1,0 +1,11 @@
+# Template for review/installation by the VM owner. See weft-healthcheck.service.
+
+[Timer]
+# A health probe's whole point is "is it up RIGHT NOW" — catching up on a
+# probe that was missed during downtime has no value, the next one fires
+# soon regardless. Persistent is deliberately left at its default (false).
+OnBootSec=1min
+OnUnitActiveSec=1min
+
+[Install]
+WantedBy=timers.target

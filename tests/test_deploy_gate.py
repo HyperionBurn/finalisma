@@ -1,0 +1,342 @@
+"""Tests for the deploy gate's own trustworthiness.
+
+Covers the locally-testable core of three of the four real incidents in the
+ops brief:
+
+- FAILURE 3: silence must never be a verdict (scripts/classify_suite_log.py).
+- FAILURE 2: a CRLF that reaches bash on the VM aborts the cutover
+  (scripts/normalize_line_endings.py, plus a real bash -n reproduction).
+- FAILURE 1: a restart must be PROVEN (MainPID before/after), never assumed
+  from a zero exit code (scripts/restart_proof.py).
+
+Plus a general safety net: every shipped deploy script at least parses, and
+the line-ending policy that prevents FAILURE 2 from recurring is actually
+declared in .gitattributes.
+
+Stdlib only, no network, no VM, no real systemd. The ssh/scp/systemctl
+orchestration in the .sh scripts themselves cannot be exercised without a
+real VM (out of scope here — see the hard constraint against mutating the
+live VM) and is covered by review plus `bash -n`, not by unit tests.
+"""
+
+from __future__ import annotations
+
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+SCRIPTS_DIR = REPO_ROOT / "scripts"
+sys.path.insert(0, str(SCRIPTS_DIR))
+
+from classify_suite_log import classify, INCONCLUSIVE, PASS, REAL_FAILURE  # noqa: E402
+from normalize_line_endings import normalize, normalize_file  # noqa: E402
+from restart_proof import evaluate_restart  # noqa: E402
+
+BASH = shutil.which("bash")
+
+
+class ClassifySuiteLogTests(unittest.TestCase):
+    """FAILURE 3 (real incident): the old gate piped the suite through
+    `| tail -4` and treated an EMPTY capture as failure. A harness problem
+    (python off PATH, an early kill, a lost pipe) was then indistinguishable
+    from genuinely broken tests, and it discarded the evidence needed to
+    tell them apart."""
+
+    def test_empty_capture_is_inconclusive_not_failure(self):
+        # This is the literal shape of the real incident.
+        verdict = classify("", exit_code=None)
+        self.assertEqual(verdict.label, INCONCLUSIVE)
+        self.assertEqual(verdict.process_exit, 2)
+        self.assertIsNone(verdict.test_count)
+
+    def test_truncated_output_with_no_ran_line_is_inconclusive(self):
+        # e.g. a timeout kills python before it ever prints a summary line.
+        log = "Traceback (most recent call last):\n  ...\nKilled\n"
+        verdict = classify(log, exit_code=137)
+        self.assertEqual(verdict.label, INCONCLUSIVE)
+        self.assertEqual(verdict.process_exit, 2)
+
+    def test_pass(self):
+        log = "...\n" + "-" * 40 + "\nRan 525 tests in 12.345s\n\nOK\n"
+        verdict = classify(log, exit_code=0)
+        self.assertEqual(verdict.label, PASS)
+        self.assertEqual(verdict.process_exit, 0)
+        self.assertEqual(verdict.test_count, 525)
+
+    def test_real_failure(self):
+        log = "Ran 525 tests in 12.345s\n\nFAILED (failures=2)\n"
+        verdict = classify(log, exit_code=1)
+        self.assertEqual(verdict.label, REAL_FAILURE)
+        self.assertEqual(verdict.process_exit, 1)
+        self.assertEqual(verdict.test_count, 525)
+
+    def test_exit_code_wins_over_misleading_text(self):
+        # "Check exit codes, never parse output when an exit code exists" —
+        # manufacture text that looks like a pass but a nonzero exit code,
+        # and confirm the exit code wins.
+        log = "Ran 10 tests in 1.0s\n\nOK (unrelated line also happens to say OK)\n"
+        verdict = classify(log, exit_code=1)
+        self.assertEqual(verdict.label, REAL_FAILURE)
+
+    def test_zero_tests_collected_is_inconclusive(self):
+        # Discovery finding nothing means -s/-p or PYTHONPATH is almost
+        # certainly misconfigured — not a legitimate empty-but-passing suite.
+        log = "Ran 0 tests in 0.000s\n\nOK\n"
+        verdict = classify(log, exit_code=0)
+        self.assertEqual(verdict.label, INCONCLUSIVE)
+        self.assertEqual(verdict.test_count, 0)
+
+    def test_no_exit_code_falls_back_to_text(self):
+        self.assertEqual(classify("Ran 3 tests in 0.01s\n\nOK\n", exit_code=None).label, PASS)
+        self.assertEqual(
+            classify("Ran 3 tests in 0.01s\n\nFAILED (errors=1)\n", exit_code=None).label,
+            REAL_FAILURE,
+        )
+
+    def test_cli_end_to_end(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ok_log = Path(tmp) / "ok.log"
+            ok_log.write_text("Ran 4 tests in 0.02s\n\nOK\n", encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, str(SCRIPTS_DIR / "classify_suite_log.py"), str(ok_log), "0"],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0)
+            self.assertIn("PASS", result.stdout)
+
+            empty_log = Path(tmp) / "empty.log"
+            empty_log.write_text("", encoding="utf-8")
+            result2 = subprocess.run(
+                [sys.executable, str(SCRIPTS_DIR / "classify_suite_log.py"), str(empty_log)],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(result2.returncode, 2)
+            self.assertIn("INCONCLUSIVE", result2.stdout)
+
+
+class NormalizeLineEndingsTests(unittest.TestCase):
+    """FAILURE 2 (real incident): redeploy-weft.sh reached the VM with CRLF
+    line endings, so bash read `set -euo pipefail\\r`, treated `pipefail\\r`
+    as an invalid option, and the cutover aborted mid-deploy."""
+
+    def test_crlf_becomes_lf(self):
+        data = b"#!/usr/bin/env bash\r\nset -euo pipefail\r\necho hi\r\n"
+        normalized, changed = normalize(data)
+        self.assertTrue(changed)
+        self.assertNotIn(b"\r", normalized)
+        self.assertEqual(normalized, b"#!/usr/bin/env bash\nset -euo pipefail\necho hi\n")
+
+    def test_already_lf_is_unchanged(self):
+        data = b"#!/usr/bin/env bash\nset -euo pipefail\n"
+        normalized, changed = normalize(data)
+        self.assertFalse(changed)
+        self.assertEqual(normalized, data)
+
+    def test_lone_cr_is_normalized_too(self):
+        normalized, _ = normalize(b"a\rb\rc")
+        self.assertEqual(normalized, b"a\nb\nc")
+
+    def test_idempotent(self):
+        once, _ = normalize(b"a\r\nb\rc\nd")
+        twice, changed_again = normalize(once)
+        self.assertEqual(once, twice)
+        self.assertFalse(changed_again)
+
+    def test_normalize_file_rewrites_in_place(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "script.sh"
+            path.write_bytes(b"#!/usr/bin/env bash\r\nset -euo pipefail\r\n")
+            changed = normalize_file(path)
+            self.assertTrue(changed)
+            self.assertNotIn(b"\r", path.read_bytes())
+
+    def test_crlf_bytes_removed_regardless_of_local_bash_tolerance(self):
+        # Portability note, found while writing this test: literally
+        # reproducing FAILURE 2's "bash: set: pipefail\r: invalid option" in
+        # THIS sandbox does not work — this bash (Git Bash / MSYS; see
+        # `bash --version`) turns out to transparently strip bare CR bytes
+        # before its own tokenizer ever sees them. Confirmed by embedding a
+        # raw CR *inside* a quoted string (not at a line ending, so it can't
+        # be mistaken for a line terminator) and watching it disappear from
+        # `od -c` of the string's expansion. A real Linux bash on the VM has
+        # no such translation layer — raw bytes are raw bytes. That is
+        # exactly why the fix targets the file's on-disk bytes directly,
+        # rather than depending on any particular bash build's tolerance for
+        # a stray CR, which is not portable and not something to rely on.
+        # This test asserts the one thing that IS portable: the byte
+        # sequence that broke production is actually gone afterwards.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "repro.sh"
+            path.write_bytes(b"#!/usr/bin/env bash\r\nset -euo pipefail\r\necho ok\r\n")
+            self.assertIn(b"pipefail\r", path.read_bytes(), "fixture must contain the exact byte sequence that broke production")
+
+            normalize_file(path)
+            normalized = path.read_bytes()
+            self.assertNotIn(b"\r", normalized)
+            self.assertIn(b"set -euo pipefail\n", normalized)
+
+    @unittest.skipUnless(BASH, "bash not on PATH")
+    def test_normalized_script_parses_and_runs_cleanly(self):
+        # Whatever a given bash build tolerates in the un-normalized version
+        # (see the portability note above — it varies), the NORMALIZED
+        # version must parse and run cleanly everywhere.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "repro.sh"
+            path.write_bytes(b"#!/usr/bin/env bash\r\nset -euo pipefail\r\necho ok\r\n")
+            normalize_file(path)
+
+            syntax = subprocess.run([BASH, "-n", str(path)], capture_output=True, text=True)
+            self.assertEqual(syntax.returncode, 0, syntax.stderr)
+
+            run = subprocess.run([BASH, str(path)], capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertEqual(run.stdout.strip(), "ok")
+
+    def test_cli_check_mode_never_writes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "script.sh"
+            original = b"echo hi\r\n"
+            path.write_bytes(original)
+            result = subprocess.run(
+                [sys.executable, str(SCRIPTS_DIR / "normalize_line_endings.py"), "--check", str(path)],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(path.read_bytes(), original, "--check must never write")
+
+    def test_cli_rewrites_and_reports_missing_files_distinctly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "nope.sh"
+            result = subprocess.run(
+                [sys.executable, str(SCRIPTS_DIR / "normalize_line_endings.py"), str(missing)],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("missing", result.stderr)
+
+
+class RestartProofTests(unittest.TestCase):
+    """FAILURE 1 (real incident): after a "successful" deploy, weft-cloud
+    and weft-web had been running 8h06m, serving OLD CODE FROM MEMORY.
+    `systemctl enable --now` returned 0 without restarting anything.
+    Verification came back 6/11; a manual restart then gave 11/11."""
+
+    def test_pid_changed_is_proof_of_restart(self):
+        failures = evaluate_restart(
+            before={"weft-cloud.service": "1234"},
+            after={"weft-cloud.service": "5678"},
+        )
+        self.assertEqual(failures, [])
+
+    def test_unchanged_pid_is_the_real_incident(self):
+        failures = evaluate_restart(
+            before={"weft-cloud.service": "1234", "weft-web.service": "4321"},
+            after={"weft-cloud.service": "1234", "weft-web.service": "9999"},
+        )
+        self.assertEqual(len(failures), 1)
+        self.assertEqual(failures[0].unit, "weft-cloud.service")
+        self.assertIn("unchanged", failures[0].reason)
+
+    def test_zero_pid_after_is_not_running(self):
+        failures = evaluate_restart(before={"a.service": "1"}, after={"a.service": "0"})
+        self.assertEqual(len(failures), 1)
+        self.assertIn("not running", failures[0].reason)
+
+    def test_empty_pid_after_is_not_running(self):
+        failures = evaluate_restart(before={"a.service": "1"}, after={"a.service": ""})
+        self.assertEqual(len(failures), 1)
+
+    def test_first_deploy_zero_before_is_fine(self):
+        # A unit that was not running before (first deploy) only needs a
+        # non-zero PID after -- nothing to "differ from" yet.
+        failures = evaluate_restart(before={"a.service": "0"}, after={"a.service": "42"})
+        self.assertEqual(failures, [])
+
+    def test_missing_from_after_snapshot_is_a_failure(self):
+        failures = evaluate_restart(before={"a.service": "1"}, after={})
+        self.assertTrue(any(f.unit == "a.service" for f in failures))
+
+    def test_multiple_units_independent(self):
+        failures = evaluate_restart(
+            before={"a.service": "1", "b.service": "2", "c.service": "3"},
+            after={"a.service": "9", "b.service": "2", "c.service": "0"},
+        )
+        self.assertEqual({f.unit for f in failures}, {"b.service", "c.service"})
+
+    def test_cli_end_to_end(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            before = Path(tmp) / "before.env"
+            after_bad = Path(tmp) / "after_bad.env"
+            after_good = Path(tmp) / "after_good.env"
+            before.write_text("weft-cloud.service=100\nweft-web.service=200\n", encoding="utf-8")
+            after_bad.write_text("weft-cloud.service=100\nweft-web.service=999\n", encoding="utf-8")
+            after_good.write_text("weft-cloud.service=101\nweft-web.service=999\n", encoding="utf-8")
+
+            bad = subprocess.run(
+                [sys.executable, str(SCRIPTS_DIR / "restart_proof.py"), str(before), str(after_bad)],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(bad.returncode, 1)
+            self.assertIn("FAIL", bad.stdout)
+            self.assertIn("weft-cloud.service", bad.stdout)
+
+            good = subprocess.run(
+                [sys.executable, str(SCRIPTS_DIR / "restart_proof.py"), str(before), str(after_good)],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(good.returncode, 0)
+
+
+class ShippedScriptSanityTests(unittest.TestCase):
+    """A cheap, general safety net directly in the spirit of FAILURE 2: every
+    .sh script this repo ships must at least parse, every .py helper must at
+    least compile, and the line-ending policy that prevents CRLF from
+    reaching the VM in the first place must actually be declared."""
+
+    @unittest.skipUnless(BASH, "bash not on PATH")
+    def test_every_deploy_sh_script_passes_bash_n(self):
+        sh_scripts = sorted(SCRIPTS_DIR.glob("*.sh"))
+        self.assertGreater(len(sh_scripts), 0, "expected at least one .sh script in scripts/")
+        for script in sh_scripts:
+            result = subprocess.run([BASH, "-n", str(script)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, f"{script.name}: {result.stderr}")
+
+    def test_every_deploy_py_helper_compiles(self):
+        py_scripts = [
+            "classify_suite_log.py", "normalize_line_endings.py", "restart_proof.py",
+            "backup_cloud_db.py", "restore_drill.py", "healthcheck.py", "mail_error_detail.py",
+        ]
+        for name in py_scripts:
+            path = SCRIPTS_DIR / name
+            self.assertTrue(path.is_file(), f"missing {name}")
+            result = subprocess.run([sys.executable, "-m", "py_compile", str(path)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, f"{name}: {result.stderr}")
+
+    def test_gitattributes_forces_lf_for_shell_and_python_scripts(self):
+        gitattributes = REPO_ROOT / ".gitattributes"
+        self.assertTrue(gitattributes.is_file(), ".gitattributes must exist to prevent FAILURE 2 from recurring")
+        text = gitattributes.read_text(encoding="utf-8")
+        self.assertRegex(text, r"\*\.sh\s+text\s+eol=lf")
+        self.assertRegex(text, r"\*\.py\s+text\s+eol=lf")
+
+    def test_no_shipped_sh_script_has_crlf_on_disk_right_now(self):
+        # Belt-and-suspenders on the actual working tree: if this ever
+        # fails, .gitattributes normalization did not take for some reason
+        # and a real script is sitting on disk with CRLF right now — the
+        # exact precondition for FAILURE 2.
+        for script in sorted(SCRIPTS_DIR.glob("*.sh")):
+            self.assertNotIn(b"\r\n", script.read_bytes(), f"{script.name} has CRLF on disk")
+
+    def test_deploy_scripts_present_and_executable_bit_not_required_on_windows(self):
+        # The four scripts named explicitly in the ops brief must exist
+        # under version control (that is the whole point of this task).
+        for name in ("push-code-to-vm.sh", "redeploy-weft.sh", "final-verify.sh", "suite-check.sh"):
+            self.assertTrue((SCRIPTS_DIR / name).is_file(), f"missing scripts/{name}")
+
+
+if __name__ == "__main__":
+    unittest.main()
