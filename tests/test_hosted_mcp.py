@@ -607,8 +607,12 @@ class HostedMCPRoomFlowTests(HostedMCPTestBase):
             "room_id": created["room_id"],
             "entry_ids": [entry_id],
         }, request_id=4)
-        self.assertEqual(before["receipts"][0]["status"], "queued")
-        self.assertEqual(before["receipts"][0]["read_status"], "queued")
+        before_receipt = before["receipts"][0]
+        self.assertTrue(before_receipt["found"])
+        self.assertEqual(before_receipt["status"], "queued",
+                         "status is the recipient's read_status (queued/read)")
+        self.assertEqual(before_receipt["outbox_status"], "queued",
+                         "outbox_status is the separate delivery-state field")
 
         recipient_poll = self._assert_ok(b["session_token"], "room_poll", {
             "room_id": created["room_id"],
@@ -624,17 +628,19 @@ class HostedMCPRoomFlowTests(HostedMCPTestBase):
             "room_id": created["room_id"],
             "entry_ids": [entry_id],
         }, request_id=7)
-        self.assertEqual(recipient_view["receipts"][0]["status"], "not_found")
-        self.assertEqual(recipient_view["receipts"][0]["read_status"], "unknown")
+        recipient_receipt = recipient_view["receipts"][0]
+        self.assertFalse(recipient_receipt["found"],
+                         "a recipient must not see the sender's outbox state (sender-scoped)")
 
         after = self._assert_ok(a["session_token"], "room_receipts", {
             "room_id": created["room_id"],
             "entry_ids": [entry_id, "oeb_unknown-receipt"],
         }, request_id=8)
         by_id = {receipt["entry_id"]: receipt for receipt in after["receipts"]}
-        self.assertEqual(by_id[entry_id]["read_status"], "read")
-        self.assertEqual(by_id["oeb_unknown-receipt"]["status"], "not_found")
-        self.assertEqual(by_id["oeb_unknown-receipt"]["read_status"], "unknown")
+        self.assertTrue(by_id[entry_id]["found"])
+        self.assertEqual(by_id[entry_id]["status"], "read",
+                         "recipient ACK transitions the sender's view status queued -> read")
+        self.assertFalse(by_id["oeb_unknown-receipt"]["found"])
 
 
 class HostedMCPIdempotencyTests(HostedMCPTestBase):

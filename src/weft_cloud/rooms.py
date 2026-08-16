@@ -1298,10 +1298,6 @@ class CloudRoomService:
             # between the caller's last ack and their window they are skipping.
             if after_seq < 0:
                 raise RoomError("invalid_cursor", "after_seq cannot be negative", 400)
-            # ``next_seq`` is the first sequence after the current head and is
-            # a valid empty-page cursor. Reject only a cursor beyond that
-            # boundary; otherwise a reconnect that polls from ``next_seq``
-            # would fail instead of returning an empty page.
             if after_seq > int(room["cursor_head"]) + 1:
                 raise RoomError(
                     "invalid_cursor",
@@ -1446,10 +1442,10 @@ class CloudRoomService:
                 "last_ack_seq = MAX(last_ack_seq, excluded.last_ack_seq), updated_at = excluded.updated_at",
                 (tenant_id, room_id, agent_id, int(seq), now),
             )
-            row = tx.execute(
-                "SELECT last_ack_seq FROM cloud_room_cursors WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
-                (tenant_id, room_id, agent_id),
-            ).fetchone()
+            # Read-receipt lifecycle: acking past an event's seq means the
+            # recipient has processed it — its receipt transitions queued ->
+            # read. Scoped to THIS member's receipts only; other recipients'
+            # rows are never touched.
             tx.execute(
                 "UPDATE cloud_room_receipts SET read_status = 'read', updated_at = ? "
                 "WHERE tenant_id = ? AND room_id = ? AND recipient_agent_id = ? "
@@ -1462,32 +1458,34 @@ class CloudRoomService:
                 "AND seq <= ? AND read_status = 'read'",
                 (tenant_id, room_id, agent_id, int(seq)),
             ).fetchone()
+            row = tx.execute(
+                "SELECT last_ack_seq FROM cloud_room_cursors WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
+                (tenant_id, room_id, agent_id),
+            ).fetchone()
             tx.commit()
-        return {
-            "room_id": room_id,
-            "agent_id": agent_id,
-            "last_ack_seq": int(row["last_ack_seq"]),
-            "receipts_read": int(read_row["c"]),
-        }
+        return {"room_id": room_id, "agent_id": agent_id,
+                "last_ack_seq": int(row["last_ack_seq"]),
+                "receipts_read": int(read_row["c"])}
 
     def receipts(self, tenant_id: str, room_id: str, agent_id: str,
                  entry_ids: list[str]) -> dict:
-        """Return delivery/read state for this sender's room envelopes.
+        """Sender-scoped delivery/read state for room message receipts.
 
-        Receipt lookups are deliberately sender-scoped: a room member may
-        inspect delivery for messages it sent, but an arbitrary entry id must
-        not reveal another sender's outbox state. Unknown, foreign, and
-        recipient-owned entry ids therefore share the same ``not_found``
-        result. The room and tenant membership checks happen before the query
-        so cross-tenant/non-member calls retain the room no-oracle boundary.
+        The send response returned a receipt per recipient with its
+        ``entry_id``; this is the query surface for their CURRENT state
+        (receipt status: queued/read, plus the durable outbox entry's
+        lifecycle). Scoped to receipts whose ``sender_agent_id`` is the caller:
+        an arbitrary entry id must not reveal another sender's outbox state, so
+        unknown, foreign, and recipient-owned entry ids all share the same
+        ``not_found`` result. Membership checks run before any query, keeping
+        the cross-tenant / non-member no-oracle boundary.
         """
         if not isinstance(entry_ids, list):
             raise RoomError("invalid_argument", "entry_ids must be a list of strings", 400)
         if len(entry_ids) > 200:
             raise RoomError("invalid_argument", "entry_ids must contain at most 200 items", 400)
-        if any(not isinstance(entry_id, str) or not entry_id.strip() for entry_id in entry_ids):
+        if any(not isinstance(e, str) or not e.strip() for e in entry_ids):
             raise RoomError("invalid_argument", "entry_ids must contain non-empty strings", 400)
-
         with self.backend.transaction() as tx:
             self._require_room(tx, tenant_id, room_id)
             self._require_member(tx, tenant_id, room_id, agent_id)
@@ -1505,30 +1503,23 @@ class CloudRoomService:
                     "AND r.sender_agent_id = ? AND r.entry_id IN (" + placeholders + ")",
                     (tenant_id, room_id, agent_id, *entry_ids),
                 ).fetchall()
-
         by_entry = {row["entry_id"]: row for row in rows}
-        result = []
-        for entry_id in entry_ids:
-            row = by_entry.get(entry_id)
-            if row is None:
-                result.append({
+        return {
+            "room_id": room_id,
+            "receipts": [
+                {
                     "entry_id": entry_id,
-                    "status": "not_found",
-                    "read_status": "unknown",
-                    "attempts": 0,
-                    "next_attempt_at": None,
-                    "last_error": None,
-                })
-                continue
-            result.append({
-                "entry_id": entry_id,
-                "status": row["status"] or "unknown",
-                "read_status": row["read_status"],
-                "attempts": int(row["attempts"] or 0),
-                "next_attempt_at": row["next_attempt_at"],
-                "last_error": row["last_error"],
-            })
-        return {"room_id": room_id, "receipts": result}
+                    "found": True,
+                    "status": by_entry[entry_id]["read_status"],
+                    "outbox_status": by_entry[entry_id]["status"] or "unknown",
+                    "attempts": int(by_entry[entry_id]["attempts"] or 0),
+                    "next_attempt_at": by_entry[entry_id]["next_attempt_at"],
+                    "last_error": by_entry[entry_id]["last_error"],
+                }
+                if entry_id in by_entry else {"entry_id": entry_id, "found": False}
+                for entry_id in entry_ids
+            ],
+        }
 
     def heartbeat(self, tenant_id: str, room_id: str, agent_id: str) -> dict:
         with self.backend.transaction() as tx:
@@ -1662,6 +1653,10 @@ class CloudRoomService:
                                          idempotency_key=idempotency_key)
                 # Build receipts (one per target) — durable via the cloud outbox,
                 # committed IN THE SAME transaction as the event (all-or-nothing).
+                # Each receipt is ALSO persisted as a cloud_room_receipts row so
+                # its lifecycle (queued -> read on the recipient's ack past this
+                # seq) survives restarts — the send response's status is no
+                # longer a hardcoded literal.
                 envelope_id = _new_id("oev")
                 receipts = []
                 now = utc_now_iso()

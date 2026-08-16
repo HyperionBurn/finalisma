@@ -207,14 +207,24 @@ class CloudCursorGuardTests(unittest.TestCase):
         self.assertTrue(resp["isError"], "wait beyond head must be refused")
         self.assertEqual(resp["error"]["code"], "invalid_cursor")
 
-    def test_poll_accepts_next_seq_after_empty_page(self) -> None:
-        owner, member, created = self._pair("cloud-next-seq")
+    def test_end_of_stream_marker_head_plus_one_is_allowed(self) -> None:
+        """The paging contract: next_seq returned by a poll is head+1 at the
+        tail, and passing it back must be accepted (empty page), not refused —
+        the reconnect suite depends on exactly this."""
+        owner, member, created = self._pair("eof")
+        self._assert_ok(owner["session_token"], "room_send",
+                        {"room_id": created["room_id"], "target_spec": "*",
+                         "payload": {"text": "tail"}}, request_id=10)
         first = self._assert_ok(member["session_token"], "room_poll",
-                                {"room_id": created["room_id"], "after_seq": 0}, request_id=10)
+                                {"room_id": created["room_id"], "after_seq": 0}, request_id=11)
+        head = first["cursor_head"]
+        self.assertEqual(first["next_seq"], head + 1)
         second = self._assert_ok(member["session_token"], "room_poll",
-                                 {"room_id": created["room_id"], "after_seq": first["next_seq"]}, request_id=11)
+                                 {"room_id": created["room_id"],
+                                  "after_seq": first["next_seq"]}, request_id=12)
         self.assertEqual(second["events"], [])
-        self.assertEqual(second["next_seq"], first["next_seq"])
+        self.assertEqual(second["next_seq"], head + 1,
+                         "an empty page at the tail must echo the stable end-of-stream marker")
 
 
 class CoordinatorCursorGuardTests(unittest.TestCase):

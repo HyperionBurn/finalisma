@@ -220,6 +220,36 @@ CREATE INDEX IF NOT EXISTS idx_identity_agent_keys_token
     ON cloud_identity_agent_keys(token_hash);
 """
 
+_ROOM_RECEIPTS_SQL = """
+-- Durable per-recipient consumption state. ``cloud_outbox.status`` remains
+-- delivery state (queued/claimed/delivered/dead); ``read_status`` records the
+-- recipient's acknowledgement independently so the two lifecycle dimensions
+-- cannot be conflated.
+--
+-- NOTE (2026-08-14): this body is the DEPLOYED canonical shape (f57a792 on
+-- production uses ``read_status``). An interim branch version of cloud_013
+-- briefly used a ``status`` column under the same migration id; migration ids
+-- are the ledger's primary key, so cloud_013 is NEVER mutated again. The
+-- cloud_014 migration repairs databases created from that interim shape.
+CREATE TABLE IF NOT EXISTS cloud_room_receipts (
+    tenant_id TEXT NOT NULL,
+    room_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    recipient_agent_id TEXT NOT NULL,
+    sender_agent_id TEXT NOT NULL,
+    entry_id TEXT NOT NULL,
+    read_status TEXT NOT NULL DEFAULT 'queued'
+        CHECK(read_status IN ('queued','read')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, room_id, seq, recipient_agent_id)
+);
+CREATE INDEX IF NOT EXISTS idx_cloud_room_receipts_recipient
+    ON cloud_room_receipts(tenant_id, room_id, recipient_agent_id, read_status, seq);
+CREATE INDEX IF NOT EXISTS idx_cloud_room_receipts_sender
+    ON cloud_room_receipts(tenant_id, room_id, sender_agent_id, seq);
+"""
+
 _IDENTITY_INVITES_SQL = """
 CREATE TABLE IF NOT EXISTS cloud_identity_invites (
     invite_id TEXT PRIMARY KEY,
@@ -421,16 +451,22 @@ def _has_room_message_kind(execute: Callable[[str, tuple], Any]) -> bool:
 
 
 def _rename_receipt_status_column(execute: Callable[[str, tuple], Any]) -> None:
-    """Converge interim cloud_013 receipt tables onto ``read_status``.
+    """cloud_014: converge interim-shape receipt tables onto the deployed shape.
 
-    Migration IDs are immutable: databases that already recorded cloud_013
-    must be repaired by a new forward migration rather than by changing the
-    old migration body. SQLite's column rename preserves the existing rows and
-    associated constraints/index references.
+    The deployed canonical column is ``read_status`` (f57a792 on production).
+    A branch-local interim body of cloud_013 briefly created ``status`` under
+    the SAME migration id; ids are the ledger's primary key, so cloud_013 is
+    never mutated — this migration repairs databases that already applied the
+    interim shape. Guarded both ways: with ``read_status`` present it is a
+    no-op; with only ``status`` present the column is renamed in place
+    (SQLite RENAME COLUMN carries data, CHECK constraints, and index
+    references with it).
     """
-    rows = execute("SELECT name FROM pragma_table_info('cloud_room_receipts')").fetchall()
-    columns = {row["name"] for row in rows}
-    if "read_status" in columns or "status" not in columns:
+    rows = execute(
+        "SELECT name FROM pragma_table_info('cloud_room_receipts')"
+    ).fetchall()
+    cols = {row["name"] for row in rows}
+    if "read_status" in cols or "status" not in cols:
         return
     execute("ALTER TABLE cloud_room_receipts RENAME COLUMN status TO read_status")
 
@@ -655,12 +691,16 @@ MIGRATIONS: list[Migration] = [
     ),
     Migration(
         "cloud_013_room_receipts",
-        "durable per-recipient room receipt consumption state",
+        "per-recipient room message receipts with queued->read lifecycle "
+        "(the send response's receipt status is no longer a hardcoded literal; "
+        "a recipient's ack past an event's seq marks its receipt read)",
         _ROOM_RECEIPTS_SQL,
     ),
     Migration(
         "cloud_014_room_receipts_status_rename",
-        "repair interim cloud_013 receipt tables by renaming status to read_status",
+        "repair databases created from the interim cloud_013 body that named "
+        "the consumption column 'status'; the deployed canonical column is "
+        "'read_status'. Guarded both ways: a no-op when read_status exists.",
         up_fn=_rename_receipt_status_column,
     ),
 ]

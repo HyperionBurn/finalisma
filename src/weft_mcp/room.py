@@ -69,14 +69,20 @@ def _validate_message_kind(value: Any, field: str = "message_kind") -> str | Non
     return value
 
 
-# Presence freshness is a display property, not a delivery gate. Routing is
-# membership-based, so an idle member remains deliverable even when shown
-# stale. Keep the threshold in one place so all status surfaces agree.
+# Presence freshness threshold (seconds). A member whose last_seen is older
+# than this is displayed "stale" in room_info. ONE named constant — every
+# presence surface MUST agree, so the literal is never duplicated (the status
+# surface and target routing silently diverged before the staleloss fix).
+# NOTE: this governs DISPLAY and liveness bookkeeping only. Deliverability is
+# keyed on membership, never on this window — an idle member still receives
+# its mail (see Room._route_targets; the P0 staleloss fix).
 ROOM_STALE_AFTER_SECONDS = 1800.0
 
-# Any authenticated room call proves that the caller is using the room. Bound
-# writes so a tight poll loop does not turn SQLite's single writer into a
-# bottleneck.
+# Liveness write throttle (seconds). ANY authenticated room call by a member
+# proves they are using the room, so the read paths refresh last_seen too.
+# The write is bounded to at most one per window so a busy poll loop does not
+# serialize the room behind SQLite's single writer; an active member's age
+# stays <= window, a tiny fraction of ROOM_STALE_AFTER_SECONDS.
 ROOM_LIVENESS_TOUCH_INTERVAL = 5.0
 
 
@@ -459,7 +465,17 @@ class RoomStore:
 
     def _touch_member(self, conn: sqlite3.Connection, room_id: str, agent_id: str,
                       now: float | None = None) -> None:
-        """Refresh only the authenticated caller's own presence row."""
+        """Throttled presence refresh for the CALLER's OWN membership row.
+
+        Liveness describes whether a member IS USING the room, not whether they
+        called one specific bookkeeping tool — so every authenticated room call
+        refreshes last_seen. The write is bounded to at most one per
+        ``ROOM_LIVENESS_TOUCH_INTERVAL`` (readers do not serialize the room
+        behind SQLite's single writer). Only ever touches the row keyed by
+        ``agent_id`` — the caller's authenticated account, never a request
+        argument — and a missing row is a no-op. Callers invoke this AFTER
+        ``_require_authenticated_member``, so auth is established first.
+        """
         if now is None:
             now = _epoch()
         row = conn.execute(

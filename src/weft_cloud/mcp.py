@@ -175,9 +175,9 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
     {
         "name": "room_receipts",
         "description": (
-            "Query delivery status and durable recipient read_status for entry ids "
-            "from messages sent by you in this Room. Unknown or non-owned entry ids "
-            "return not_found without revealing another sender's outbox state."
+            "Query current delivery/read state for entry ids from messages YOU "
+            "sent in this Room. Unknown or non-owned entry ids return found:false "
+            "without revealing another sender's outbox state."
         ),
         "inputSchema": _object_schema({
             "room_id": _STRING,
