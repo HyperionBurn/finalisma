@@ -27,6 +27,7 @@ from weft_cloud.storage import StorageBackend, SqliteWalBackend
 # These imports are the RED line — the package does not exist yet.
 from weft_cloud.identity import (
     accounts,
+    invites,
     sessions,
     orgs,
     context,
@@ -42,6 +43,18 @@ def make_backend() -> StorageBackend:
 def _signup(backend: StorageBackend, tenant_id: str, email: str, password: str):
     """Helper: signup -> (account_id, verification_token)."""
     return accounts.signup(backend, tenant_id, email, password)
+
+
+def _accept_member_invite(
+    backend: StorageBackend,
+    ctx: SessionContext,
+    email: str,
+    password: str,
+    role: str = "member",
+):
+    """Exercise the explicit onboarding handoff returned by orgs.add_member."""
+    _invite_id, invite_token = orgs.add_member(ctx, email, role=role)
+    return invites.accept(backend, invite_token, email, password)
 
 
 def _create_org_and_get_owner_ctx(
@@ -92,7 +105,10 @@ class OrgsRolesStructuralEnforcementTests(unittest.TestCase):
 
     # -- 2. owner adds a member with role "member"; that member can list_members --
     def test_owner_adds_member_and_member_can_list(self) -> None:
-        orgs.add_member(self.owner_ctx, "member-a@example.com", role="member")
+        member_password = "Member-A-Strong-Password!42"
+        acct_id, _member_token = _accept_member_invite(
+            self.backend, self.owner_ctx, "member-a@example.com", member_password
+        )
         # The added member must have an account created and a membership row.
         members = orgs.list_members(self.owner_ctx)
         emails = {m["email"] for m in members}
@@ -100,9 +116,9 @@ class OrgsRolesStructuralEnforcementTests(unittest.TestCase):
         member_row = [m for m in members if m["email"] == "member-a@example.com"]
         self.assertEqual(member_row[0]["role"], "member")
 
-        # Authenticate the member and issue a session so we can exercise list_members.
+        # Authenticate the member with the password chosen during invite acceptance.
         acct_id = accounts.authenticate(
-            self.backend, self.tenant_a, "member-a@example.com", "CorrectHorse-Battery-Staple!42"
+            self.backend, self.tenant_a, "member-a@example.com", member_password
         )
         _, member_token = sessions.create(self.backend, self.tenant_a, acct_id, role="member")
         member_ctx = sessions.validate(self.backend, member_token)
@@ -110,19 +126,75 @@ class OrgsRolesStructuralEnforcementTests(unittest.TestCase):
         visible = orgs.list_members(member_ctx)
         self.assertEqual(len(visible), 2)  # owner + member
 
+    def test_add_member_does_not_provision_known_password_or_verified_account(self) -> None:
+        """Adding a member must hand off to explicit invite acceptance."""
+        invite_id, invite_token = orgs.add_member(
+            self.owner_ctx, "pending@example.com", role="member"
+        )
+        self.assertTrue(invite_id.startswith("inv_"))
+
+        with self.backend.transaction() as tx:
+            self.assertIsNone(
+                tx.execute(
+                    "SELECT account_id FROM cloud_identity_accounts "
+                    "WHERE tenant_id = ? AND email = ?",
+                    (self.tenant_a, "pending@example.com"),
+                ).fetchone()
+            )
+
+        from weft_cloud.identity.tokens import AuthError
+
+        with self.assertRaises(AuthError) as ctx_exc:
+            accounts.authenticate(
+                self.backend,
+                self.tenant_a,
+                "pending@example.com",
+                "CorrectHorse-Battery-Staple!42",
+            )
+        self.assertEqual(ctx_exc.exception.code, "invalid_credentials")
+
+        chosen_password = "Pending-Member-Strong-Password!42"
+        account_id, _session_token = invites.accept(
+            self.backend, invite_token, "pending@example.com", chosen_password
+        )
+        self.assertEqual(
+            accounts.authenticate(
+                self.backend, self.tenant_a, "pending@example.com", chosen_password
+            ),
+            account_id,
+        )
+        with self.assertRaises(AuthError) as ctx_exc:
+            accounts.authenticate(
+                self.backend,
+                self.tenant_a,
+                "pending@example.com",
+                "CorrectHorse-Battery-Staple!42",
+            )
+        self.assertEqual(ctx_exc.exception.code, "invalid_credentials")
+        with self.backend.transaction() as tx:
+            row = tx.execute(
+                "SELECT email_verified FROM cloud_identity_accounts WHERE account_id = ?",
+                (account_id,),
+            ).fetchone()
+        self.assertEqual(row["email_verified"], 1)
+
     # -- 3. member calls remove_member -> RoleError("forbidden") (fires in service) --
     def test_member_remove_member_raises_role_error_forbidden(self) -> None:
-        orgs.add_member(self.owner_ctx, "member-b@example.com", role="member")
-        member_b_id = accounts.authenticate(
-            self.backend, self.tenant_a, "member-b@example.com", "CorrectHorse-Battery-Staple!42"
+        member_b_id, _ = _accept_member_invite(
+            self.backend,
+            self.owner_ctx,
+            "member-b@example.com",
+            "Member-B-Strong-Password!42",
         )
         _, mb_token = sessions.create(self.backend, self.tenant_a, member_b_id, role="member")
         member_b_ctx = sessions.validate(self.backend, mb_token)
 
         # A third account to attempt to remove.
-        orgs.add_member(self.owner_ctx, "victim@example.com", role="member")
-        victim_id = accounts.authenticate(
-            self.backend, self.tenant_a, "victim@example.com", "CorrectHorse-Battery-Staple!42"
+        victim_id, _ = _accept_member_invite(
+            self.backend,
+            self.owner_ctx,
+            "victim@example.com",
+            "Victim-Strong-Password!42",
         )
 
         with self.assertRaises(RoleError) as ctx_exc:
@@ -131,9 +203,11 @@ class OrgsRolesStructuralEnforcementTests(unittest.TestCase):
 
     # -- 4. member calls set_role -> RoleError("forbidden") --
     def test_member_set_role_raises_role_error_forbidden(self) -> None:
-        orgs.add_member(self.owner_ctx, "member-c@example.com", role="member")
-        member_c_id = accounts.authenticate(
-            self.backend, self.tenant_a, "member-c@example.com", "CorrectHorse-Battery-Staple!42"
+        member_c_id, _ = _accept_member_invite(
+            self.backend,
+            self.owner_ctx,
+            "member-c@example.com",
+            "Member-C-Strong-Password!42",
         )
         _, mc_token = sessions.create(self.backend, self.tenant_a, member_c_id, role="member")
         member_c_ctx = sessions.validate(self.backend, mc_token)
@@ -145,9 +219,12 @@ class OrgsRolesStructuralEnforcementTests(unittest.TestCase):
 
     # -- 5. admin calls delete_org -> RoleError("forbidden") (owner-only action) --
     def test_admin_delete_org_raises_role_error_forbidden(self) -> None:
-        orgs.add_member(self.owner_ctx, "admin-a@example.com", role="admin")
-        admin_id = accounts.authenticate(
-            self.backend, self.tenant_a, "admin-a@example.com", "CorrectHorse-Battery-Staple!42"
+        admin_id, _ = _accept_member_invite(
+            self.backend,
+            self.owner_ctx,
+            "admin-a@example.com",
+            "Admin-A-Strong-Password!42",
+            role="admin",
         )
         _, admin_token = sessions.create(self.backend, self.tenant_a, admin_id, role="admin")
         admin_ctx = sessions.validate(self.backend, admin_token)
@@ -158,17 +235,22 @@ class OrgsRolesStructuralEnforcementTests(unittest.TestCase):
 
     # -- 6. admin can add/remove members (allowed per matrix) --
     def test_admin_can_add_and_remove_members(self) -> None:
-        orgs.add_member(self.owner_ctx, "admin-b@example.com", role="admin")
-        admin_b_id = accounts.authenticate(
-            self.backend, self.tenant_a, "admin-b@example.com", "CorrectHorse-Battery-Staple!42"
+        admin_b_id, _ = _accept_member_invite(
+            self.backend,
+            self.owner_ctx,
+            "admin-b@example.com",
+            "Admin-B-Strong-Password!42",
+            role="admin",
         )
         _, admin_b_token = sessions.create(self.backend, self.tenant_a, admin_b_id, role="admin")
         admin_b_ctx = sessions.validate(self.backend, admin_b_token)
 
         # Admin adds a member.
-        orgs.add_member(admin_b_ctx, "added-by-admin@example.com", role="member")
-        new_id = accounts.authenticate(
-            self.backend, self.tenant_a, "added-by-admin@example.com", "CorrectHorse-Battery-Staple!42"
+        new_id, _ = _accept_member_invite(
+            self.backend,
+            admin_b_ctx,
+            "added-by-admin@example.com",
+            "Added-By-Admin-Strong-Password!42",
         )
         members = orgs.list_members(admin_b_ctx)
         self.assertIn(new_id, {m["account_id"] for m in members})
@@ -185,9 +267,11 @@ class OrgsRolesStructuralEnforcementTests(unittest.TestCase):
 
     # -- 7. role change revokes the target's existing sessions (rotation) --
     def test_set_role_revokes_target_sessions(self) -> None:
-        orgs.add_member(self.owner_ctx, "promotee@example.com", role="member")
-        promotee_id = accounts.authenticate(
-            self.backend, self.tenant_a, "promotee@example.com", "CorrectHorse-Battery-Staple!42"
+        promotee_id, _ = _accept_member_invite(
+            self.backend,
+            self.owner_ctx,
+            "promotee@example.com",
+            "Promotee-Strong-Password!42",
         )
         _, old_token = sessions.create(self.backend, self.tenant_a, promotee_id, role="member")
         # Sanity: the old session is valid before the role change.
@@ -230,7 +314,12 @@ class OrgsRolesStructuralEnforcementTests(unittest.TestCase):
         tenant_b, _owner_b_id, owner_b_ctx = _create_org_and_get_owner_ctx(
             self.backend, "owner-b@example.com", "Another-Strong-Password!99", "OrgB"
         )
-        orgs.add_member(owner_b_ctx, "only-in-b@example.com", role="member")
+        _accept_member_invite(
+            self.backend,
+            owner_b_ctx,
+            "only-in-b@example.com",
+            "Only-In-B-Strong-Password!42",
+        )
 
         # Org A's list must not include org B's members.
         members_a = orgs.list_members(self.owner_ctx)

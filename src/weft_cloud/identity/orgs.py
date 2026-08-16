@@ -22,9 +22,7 @@ from __future__ import annotations
 import time as _time
 from typing import Any
 
-from weft_cloud.storage import utc_now_iso
-
-from . import accounts
+from . import invites
 from .agent_keys import (
     revoke_all_for_tenant_account_in_tx as revoke_all_agent_keys_for_tenant_account_in_tx,
 )
@@ -33,13 +31,6 @@ from .schema import ensure_schema
 from .sessions import (
     revoke_all_for_tenant_account_in_tx as revoke_all_sessions_for_tenant_account_in_tx,
 )
-
-# Stage-1 org-bootstrap provisioning password. The Wave G integration contract
-# calls ``add_member(ctx, email, role)`` with NO password parameter, then
-# authenticates the added member against this fixed value. The invites flow
-# (Stage 2) is the real onboarding path where the accepter supplies their own
-# password. Kept as a named constant so the provisioning behaviour is explicit.
-_ORG_BOOTSTRAP_PASSWORD = "CorrectHorse-Battery-Staple!42"
 
 
 def _require_ctx(ctx: Any) -> SessionContext:
@@ -74,26 +65,22 @@ def list_members(ctx: SessionContext) -> list[dict]:
     return _view_members(ctx.backend, ctx.tenant_id)
 
 
-def add_member(ctx: SessionContext, email: str, role: str = "member") -> None:
-    """Add an account to the org with the given role (admin/owner only)."""
+def add_member(ctx: SessionContext, email: str, role: str = "member") -> tuple[str, str]:
+    """Create an explicit invite instead of provisioning credentials.
+
+    The call shape remains compatible for callers that ignored the old
+    ``None`` return value. The returned ``(invite_id, raw_token)`` is the
+    onboarding handoff: only ``invites.accept`` may create the account,
+    establish membership, set a caller-chosen password, and mark the email
+    verified because possession of the single-use invite is proof.
+    """
     ctx = _require_ctx(ctx)
     ensure_schema(ctx.backend)
-    if role not in ROLE_RANK:
-        raise ValueError(f"invalid role: {role}")
+    if role not in ("member", "admin"):
+        raise ValueError("new members must use the invite flow; owner transfer is explicit")
     ctx.require_role("admin")
     require_db_role(ctx.backend, ctx.tenant_id, ctx.account_id, "admin")
-
-    account_id = accounts._create_account(
-        ctx.backend, ctx.tenant_id, email, _ORG_BOOTSTRAP_PASSWORD, email_verified=1
-    )
-    with ctx.backend.transaction() as tx:
-        tx.execute(
-            "INSERT INTO cloud_identity_members(tenant_id, account_id, role, joined_at) "
-            "VALUES (?, ?, ?, ?) ON CONFLICT(tenant_id, account_id) "
-            "DO UPDATE SET role = excluded.role",
-            (ctx.tenant_id, account_id, role, utc_now_iso()),
-        )
-        tx.commit()
+    return invites.create(ctx, email, role)
 
 
 def remove_member(ctx: SessionContext, account_id: str) -> None:
