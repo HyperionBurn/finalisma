@@ -26,9 +26,11 @@ from typing import Any
 from weft_cloud.storage import utc_now_iso
 
 from . import accounts
+from .agent_keys import revoke_all_for_tenant_account_in_tx
 from .context import SessionContext, require_db_role
 from .mailer import LocalOutboxMailer
 from .schema import ensure_schema
+from .sessions import revoke_all_for_tenant_account_in_tx as revoke_all_sessions_for_tenant_account_in_tx
 from .tokens import AuthError, generate_token, hash_token
 
 INVITE_TTL_SECONDS = 7 * 24 * 3600
@@ -102,17 +104,21 @@ def accept(backend: Any, raw_token: str, email: str, password: str) -> tuple[str
         if invite["email"] != email:
             raise AuthError("invite_mismatch")
 
-        # One-org-per-account (design §8/§9.2 #15): an email that already
-        # belongs to any org must not be admitted to a second one, even when
-        # the two orgs are different tenants. The email is the person's
-        # identity across tenants, so refuse before creating an account here.
+        # One-org-per-account: an email that already belongs to another org
+        # must not be admitted to a second one. An existing member of THIS org
+        # may, however, use a same-role invite to migrate off the historical
+        # bootstrap credential. The invite proves control of the address; the
+        # acceptance rotates that account's credentials below.
         existing_member = tx.execute(
-            "SELECT 1 FROM cloud_identity_members m "
+            "SELECT m.tenant_id, m.account_id, m.role FROM cloud_identity_members m "
             "JOIN cloud_identity_accounts a ON a.account_id = m.account_id "
             "WHERE a.email = ? LIMIT 1",
             (email,),
         ).fetchone()
-        if existing_member is not None:
+        if existing_member is not None and (
+            existing_member["tenant_id"] != invite["tenant_id"]
+            or existing_member["role"] != invite["role"]
+        ):
             raise AuthError("already_in_org")
 
         # Consume atomically — single-use guard.
@@ -131,6 +137,17 @@ def accept(backend: Any, raw_token: str, email: str, password: str) -> tuple[str
         ).fetchone()
         if existing is not None:
             account_id = existing["account_id"]
+            salt = os.urandom(32)
+            password_hash = accounts._scrypt(password, salt)
+            tx.execute(
+                "UPDATE cloud_identity_accounts SET salt = ?, password_hash = ?, "
+                "email_verified = 1, verification_token_hash = NULL, "
+                "verification_expires_at = 0, reset_token_hash = NULL, "
+                "reset_expires_at = 0 WHERE tenant_id = ? AND account_id = ?",
+                (salt, password_hash, tenant_id, account_id),
+            )
+            revoke_all_sessions_for_tenant_account_in_tx(tx, tenant_id, account_id)
+            revoke_all_for_tenant_account_in_tx(tx, tenant_id, account_id)
         else:
             account_id = _new_id("acct")
             salt = os.urandom(32)
@@ -144,7 +161,7 @@ def accept(backend: Any, raw_token: str, email: str, password: str) -> tuple[str
         tx.execute(
             "INSERT INTO cloud_identity_members(tenant_id, account_id, role, joined_at) "
             "VALUES (?, ?, ?, ?) ON CONFLICT(tenant_id, account_id) "
-            "DO UPDATE SET role = excluded.role",
+            "DO NOTHING",
             (tenant_id, account_id, invite["role"], utc_now_iso()),
         )
         # Issue a session for the new member with the invite's role — inline in

@@ -473,12 +473,16 @@ class WeftCloudService:
         role = body.get("role", "member")
         if not email:
             raise _ServiceError("invalid_argument", "email is required")
-        invite_id, raw_token = self.invites.create(ctx, email, role)
+        invite_id, _raw_token = self.invites.create(ctx, email, role)
+        # ``invites.create`` has durably handed the message to the configured
+        # outbox before returning.  The raw fiv_ token remains exclusively in
+        # that delivery flow; it is never a bearer credential in this admin
+        # response.
         return _json_response(HTTPStatus.CREATED, {
             "invite_id": invite_id,
-            "invite_token": raw_token,
             "email": email,
             "role": role,
+            "delivery_status": "queued",
         })
 
     def handle_accept_invite(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
