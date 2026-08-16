@@ -336,6 +336,27 @@ class TestIdentityFromSessionNeverBody(ReloginRoomTestBase):
         self.assertEqual(s, 400)
         self.assertEqual(resp["error"]["code"], "invalid_argument")
 
+    def test_hosted_mcp_rejects_unknown_tool_arguments(self) -> None:
+        alice = self._signup("unknown-arg-owner@example.com", "CorrectHorse!1")
+        room = self._create_room(alice["session_token"], cap=8)
+        # The advertised hosted schemas set additionalProperties=false; an
+        # ignored extra field would make the wire contract weaker than declared.
+        s, body = _post_raw(self.base, "/mcp", {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "room_info",
+                "arguments": {"room_id": room["room_id"], "unexpected": "ignored?"},
+            },
+        }, alice["session_token"])
+        self.assertEqual(s, 200)
+        response = json.loads(body.decode("utf-8"))
+        result = response["result"]
+        self.assertTrue(result["isError"])
+        error = json.loads(result["content"][0]["text"])["error"]
+        self.assertEqual(error["code"], "invalid_argument")
+
 
 class TestNoRoomExistenceOracle(ReloginRoomTestBase):
     """Property 3 — a non-member's refusal is identical for a real and a fabricated room."""

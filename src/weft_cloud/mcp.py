@@ -331,7 +331,10 @@ class HostedMCPDispatcher:
             return None
         request_id = request.get("id")
         method = request.get("method")
-        params = request.get("params") or {}
+        # Params are optional, but when present this hosted surface accepts
+        # only the object form used by MCP tool calls. Do not coerce false,
+        # null, or an empty array into a valid empty object.
+        params = request["params"] if "params" in request else {}
         if not isinstance(method, str) or not isinstance(params, dict):
             return None
         is_notification = "id" not in request
@@ -459,6 +462,15 @@ class HostedMCPDispatcher:
         if not isinstance(args, dict):
             raise WeftError("invalid_argument", "Tool arguments must be a JSON object")
         self._reject_identity_args(args)
+        tool = next((item for item in HOSTED_TOOLS if item["name"] == name), None)
+        if tool is not None:
+            allowed = set(tool["inputSchema"].get("properties", {}))
+            unknown = sorted(set(args) - allowed)
+            if unknown:
+                raise WeftError(
+                    "invalid_argument",
+                    f"Unknown argument(s) for {name}: {', '.join(unknown)}",
+                )
         handler = getattr(self, "_tool_" + name, None)
         if handler is None:
             raise WeftError("unknown_tool", f"Unknown tool '{name}'")

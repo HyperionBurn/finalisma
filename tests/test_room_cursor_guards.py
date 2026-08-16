@@ -176,6 +176,17 @@ class CloudCursorGuardTests(unittest.TestCase):
         self.assertTrue(resp["isError"], "negative after_seq must be refused")
         self.assertEqual(resp["error"]["code"], "invalid_cursor")
 
+    def test_ack_negative_seq_refused_without_poisoning_default_cursor(self) -> None:
+        owner, member, created = self._pair("negack")
+        resp = self._mcp_call(member["session_token"], "room_ack",
+                              {"room_id": created["room_id"], "seq": -1}, request_id=10)
+        self.assertTrue(resp["isError"], "negative ack seq must be refused")
+        self.assertEqual(resp["error"]["code"], "invalid_cursor")
+        polled = self._assert_ok(member["session_token"], "room_poll",
+                                 {"room_id": created["room_id"]}, request_id=11)
+        self.assertGreaterEqual(polled["last_ack_seq"], 0,
+                                "a rejected ack must not persist a negative cursor")
+
     def test_behind_by_reports_skipped_window(self) -> None:
         owner, member, created = self._pair("gap")
         # Send three events; the member acks only the first.
@@ -225,6 +236,39 @@ class CloudCursorGuardTests(unittest.TestCase):
         self.assertEqual(second["events"], [])
         self.assertEqual(second["next_seq"], head + 1,
                          "an empty page at the tail must echo the stable end-of-stream marker")
+
+    def test_filtered_empty_page_reports_full_stream_cursor(self) -> None:
+        owner, member, created = self._pair("filtered-empty")
+        status, sent = _post(self.base, "/v1/rooms/send", {
+            "room_id": created["room_id"],
+            "target_spec": member["account_id"],
+            "payload": {"text": "status-only"},
+            "message_kind": "status",
+        }, token=owner["session_token"])
+        self.assertEqual(status, HTTPStatus.OK, sent)
+
+        status, filtered = _post(self.base, "/v1/rooms/poll", {
+            "room_id": created["room_id"],
+            "after_seq": 0,
+            "message_kinds": ["result"],
+        }, token=member["session_token"])
+        self.assertEqual(status, HTTPStatus.OK, filtered)
+        self.assertEqual(filtered["events"], [])
+        self.assertEqual(
+            filtered["next_seq"], filtered["cursor_head"],
+            "a filtered page that scanned the stream must report the full-stream cursor",
+        )
+
+    def test_json_rpc_rejects_non_object_params(self) -> None:
+        account = self._signup("params-shape@example.com")
+        for malformed in (False, []):
+            with self.subTest(params=malformed):
+                status, response = _mcp(
+                    self.base, "initialize", malformed,
+                    token=account["session_token"], request_id=10,
+                )
+                self.assertEqual(status, HTTPStatus.OK, response)
+                self.assertEqual(response["error"]["code"], -32600)
 
 
 class CoordinatorCursorGuardTests(unittest.TestCase):
@@ -278,6 +322,21 @@ class CoordinatorCursorGuardTests(unittest.TestCase):
             })
         self.assertEqual(ctx.exception.code, "invalid_cursor")
 
+    def test_ack_negative_seq_refused_without_poisoning_default_cursor(self) -> None:
+        from weft_mcp.core import WeftError
+        with self.assertRaises(WeftError) as ctx:
+            self.dispatcher.call_tool("room_ack", {
+                "team_id": self.team, "room_id": self.room_id,
+                "agent_id": "A2", "actor_token": self.tokens["A2"], "seq": -1,
+            })
+        self.assertEqual(ctx.exception.code, "invalid_cursor")
+        polled = self.dispatcher.call_tool("room_poll", {
+            "team_id": self.team, "room_id": self.room_id,
+            "agent_id": "A2", "actor_token": self.tokens["A2"],
+        })
+        self.assertGreaterEqual(polled["last_ack_seq"], 0,
+                                "a rejected ack must not persist a negative cursor")
+
     def test_behind_by_reports_skipped_window(self) -> None:
         self.dispatcher.call_tool("room_send", {
             "team_id": self.team, "room_id": self.room_id,
@@ -310,6 +369,24 @@ class CoordinatorCursorGuardTests(unittest.TestCase):
         })
         self.assertEqual(second["events"], [])
         self.assertEqual(second["next_seq"], first["next_seq"])
+
+    def test_filtered_empty_page_reports_full_stream_cursor(self) -> None:
+        self.dispatcher.call_tool("room_send", {
+            "team_id": self.team, "room_id": self.room_id,
+            "sender_agent_id": "OWNER", "target_spec": "A2",
+            "payload": {"text": "status-only"}, "message_kind": "status",
+            "actor_token": self.tokens["OWNER"],
+        })
+        filtered = self.dispatcher.call_tool("room_poll", {
+            "team_id": self.team, "room_id": self.room_id,
+            "agent_id": "A2", "actor_token": self.tokens["A2"],
+            "after_seq": 0, "message_kinds": ["result"],
+        })
+        self.assertEqual(filtered["events"], [])
+        self.assertEqual(
+            filtered["next_seq"], filtered["cursor_head"],
+            "a filtered page that scanned the stream must report the full-stream cursor",
+        )
 
 
 if __name__ == "__main__":

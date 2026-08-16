@@ -267,6 +267,18 @@ class SessionContractTests(unittest.TestCase):
         with self.assertRaises(RoleError):
             admin_ctx.require_role("owner")
 
+    def test_require_role_rejects_unknown_role_without_key_error(self) -> None:
+        forged_ctx = SessionContext(
+            tenant_id=self.tenant_id,
+            account_id=self.account_id,
+            role="not-a-role",
+            backend=self.backend,
+        )
+
+        with self.assertRaises(RoleError) as ctx_exc:
+            forged_ctx.require_role("member")
+        self.assertEqual(ctx_exc.exception.code, "forbidden")
+
     # --- 8. raw token never appears in SessionContext repr ---
     def test_session_context_repr_never_contains_raw_token(self) -> None:
         _, raw_token = sessions.create(

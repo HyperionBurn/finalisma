@@ -17,7 +17,7 @@ import json
 import re
 import shutil
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,6 +25,7 @@ SOURCE = ROOT / "site"
 DEFAULT_OUTPUT = ROOT / "artifacts" / "release-site"
 CONTACT_MARKER = "<!-- WEFT_DEPLOY_CONTACT -->"
 NOINDEX_PATTERN = re.compile(r'<meta\s+name="robots"\s+content="[^"]*noindex', re.I)
+_SOURCE_ORIGIN_HOSTS = {"finalisma.vercel.app"}
 
 
 def normalize_origin(value: str) -> str:
@@ -66,6 +67,76 @@ def _insert_before_title(document: str, markup: str) -> str:
     raise ValueError("HTML page has no title marker")
 
 
+def _meta_tag(document: str, attribute: str, name: str) -> re.Match[str] | None:
+    """Return a matching meta element without depending on attribute order."""
+
+    for match in re.finditer(r"<meta\b[^>]*>", document, flags=re.I):
+        attributes = {
+            key.lower(): value
+            for key, _quote, value in re.findall(
+                r"([:\w-]+)\s*=\s*(['\"])(.*?)\2", match.group(0), flags=re.I | re.S
+            )
+        }
+        if attributes.get(attribute.lower(), "").lower() == name.lower():
+            return match
+    return None
+
+
+def _meta_content(document: str, attribute: str, name: str) -> str | None:
+    match = _meta_tag(document, attribute, name)
+    if match is None:
+        return None
+    content = re.search(r"\bcontent\s*=\s*(['\"])(.*?)\1", match.group(0), flags=re.I | re.S)
+    return content.group(2) if content else None
+
+
+def _ensure_meta(document: str, *, attribute: str, name: str, content: str) -> str:
+    """Insert or replace one canonicalized share meta element."""
+
+    markup = f'<meta {attribute}="{name}" content="{html.escape(content, quote=True)}">'
+    match = _meta_tag(document, attribute, name)
+    if match is None:
+        return _insert_before_title(document, markup)
+    return document[: match.start()] + markup + document[match.end() :]
+
+
+def _title_text(document: str) -> str:
+    match = re.search(r"<title\b[^>]*>(.*?)</title\s*>", document, flags=re.I | re.S)
+    if match is None:
+        raise ValueError("HTML page has no title marker")
+    return html.unescape(re.sub(r"<[^>]+>", "", match.group(1))).strip()
+
+
+def _public_url(value: str, *, page_url: str, origin: str) -> str:
+    """Resolve local asset URLs against the deployment origin.
+
+    Existing source pages intentionally carry the documented marketing origin
+    or page-relative asset paths. Both are local release references and must
+    follow the deployment origin; genuinely external URLs remain untouched.
+    """
+
+    candidate = html.unescape(value.strip())
+    parsed = urlsplit(candidate)
+    origin_parts = urlsplit(origin)
+    allowed_hosts = {origin_parts.netloc.lower(), *_SOURCE_ORIGIN_HOSTS}
+    if parsed.scheme and parsed.scheme not in {"http", "https"}:
+        return candidate
+    if parsed.netloc and parsed.netloc.lower() not in allowed_hosts:
+        return candidate
+    resolved = urlsplit(urljoin(page_url, candidate))
+    if resolved.scheme not in {"http", "https"} or resolved.netloc.lower() not in allowed_hosts:
+        return candidate
+    return urlunsplit(
+        (
+            origin_parts.scheme,
+            origin_parts.netloc,
+            resolved.path or "/",
+            resolved.query,
+            resolved.fragment,
+        )
+    )
+
+
 def _rewrite_page(document: str, *, page_url: str, origin: str, contact_url: str | None) -> str:
     canonical = f'  <link rel="canonical" href="{page_url}">'
     if re.search(r'<link\s+rel="canonical"\s+href="[^"]*">', document, re.I):
@@ -91,18 +162,66 @@ def _rewrite_page(document: str, *, page_url: str, origin: str, contact_url: str
     else:
         document = _insert_before_title(document, og_url)
 
-    if 'property="og:site_name"' not in document:
-        document = _insert_before_title(document, '  <meta property="og:site_name" content="Weft">')
+    title = _title_text(document)
+    description = _meta_content(document, "name", "description") or title
+    og_title = _meta_content(document, "property", "og:title") or title
+    og_description = _meta_content(document, "property", "og:description") or description
+    source_image = (
+        _meta_content(document, "property", "og:image")
+        or _meta_content(document, "name", "twitter:image")
+        or "/assets/og-card.png"
+    )
+    image = _public_url(source_image, page_url=page_url, origin=origin)
+    image_alt = _meta_content(document, "property", "og:image:alt") or (
+        "Weft coordination product surface"
+    )
+    document = _ensure_meta(document, attribute="property", name="og:site_name", content="Weft")
+    document = _ensure_meta(document, attribute="property", name="og:title", content=og_title)
+    document = _ensure_meta(document, attribute="property", name="og:description", content=og_description)
+    document = _ensure_meta(document, attribute="property", name="og:image", content=image)
+    document = _ensure_meta(document, attribute="property", name="og:image:alt", content=image_alt)
+    document = _ensure_meta(document, attribute="name", name="twitter:card", content="summary_large_image")
+    document = _ensure_meta(
+        document,
+        attribute="name",
+        name="twitter:title",
+        content=_meta_content(document, "name", "twitter:title") or og_title,
+    )
+    document = _ensure_meta(
+        document,
+        attribute="name",
+        name="twitter:description",
+        content=_meta_content(document, "name", "twitter:description") or og_description,
+    )
+    document = _ensure_meta(
+        document,
+        attribute="name",
+        name="twitter:image",
+        content=_public_url(
+            _meta_content(document, "name", "twitter:image") or source_image,
+            page_url=page_url,
+            origin=origin,
+        ),
+    )
+    document = _ensure_meta(
+        document,
+        attribute="name",
+        name="twitter:image:alt",
+        content=_meta_content(document, "name", "twitter:image:alt") or image_alt,
+    )
+
+    video = _meta_content(document, "property", "og:video")
+    if video:
+        document = _ensure_meta(
+            document,
+            attribute="property",
+            name="og:video",
+            content=_public_url(video, page_url=page_url, origin=origin),
+        )
 
     document = re.sub(
-        r'(<meta\s+(?:property="og:(?:image|video)"|name="twitter:image")\s+content=")(/[^"]+)(">)',
-        lambda match: f"{match.group(1)}{origin}{match.group(2)}{match.group(3)}",
-        document,
-        flags=re.I,
-    )
-    document = re.sub(
-        r'("(?:thumbnailUrl|contentUrl|embedUrl)"\s*:\s*")(/[^"]+)(")',
-        lambda match: f"{match.group(1)}{origin}{match.group(2)}{match.group(3)}",
+        r'("(?:thumbnailUrl|contentUrl|embedUrl)"\s*:\s*")([^"]+)(")',
+        lambda match: f"{match.group(1)}{_public_url(match.group(2), page_url=page_url, origin=origin)}{match.group(3)}",
         document,
     )
 
@@ -183,6 +302,7 @@ def build_release(*, origin: str, contact_url: str, output: Path, force: bool = 
     media_paths = [
         resolved_output / "assets" / "weft-demo.mp4",
         resolved_output / "assets" / "weft-demo.webm",
+        resolved_output / "assets" / "weft-demo.vtt",
         resolved_output / "assets" / "weft-demo-poster.png",
     ]
     manifest = {

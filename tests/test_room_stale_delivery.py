@@ -248,6 +248,41 @@ class TestUnicastToStaleMemberDelivered(CloudStaleDeliveryTestBase):
         self.assertNotIn("TOP-SECRET-STALE", json.dumps(polled),
                          "a non-addressee must never see the unicast body")
 
+    def test_legacy_non_object_event_fails_closed_for_non_addressee(self) -> None:
+        owner = self._signup("legacy-owner@example.com", "OwnerPass!1")
+        room = self._create_room(owner["session_token"], cap=4)
+        peer = self._signup("legacy-peer@example.com", "PeerPass!1")
+        self._join_room(peer["session_token"], room["room_id"], room["link_token"])
+
+        # A pre-redaction or hand-written row with a scalar payload has no
+        # recipient metadata. Replay must fail closed instead of returning the
+        # scalar to every member.
+        with self.service.backend.transaction() as tx:
+            head = int(tx.execute(
+                "SELECT cursor_head FROM cloud_rooms WHERE tenant_id = ? AND room_id = ?",
+                (owner["tenant_id"], room["room_id"]),
+            ).fetchone()["cursor_head"])
+            seq = head + 1
+            tx.execute(
+                "INSERT INTO cloud_room_event_log(event_id, room_id, tenant_id, seq, origin_agent, "
+                "kind, message_kind, payload_json, idempotency_key, trace_id, created_at) "
+                "VALUES (?, ?, ?, ?, ?, 'room.message', NULL, ?, ?, NULL, ?)",
+                (f"legacy-{seq}", room["room_id"], owner["tenant_id"], seq,
+                 owner["account_id"], json.dumps("legacy-secret"),
+                 f"legacy-idem-{seq}", "2026-08-13T00:00:00Z"),
+            )
+            tx.execute(
+                "UPDATE cloud_rooms SET cursor_head = ? WHERE tenant_id = ? AND room_id = ?",
+                (seq, owner["tenant_id"], room["room_id"]),
+            )
+
+        status, polled = self._poll(peer["session_token"], room["room_id"], after_seq=0)
+        self.assertEqual(status, 200)
+        event = [e for e in self._message_events(polled) if e["seq"] == seq][0]
+        self.assertEqual(event["payload"],
+                         {"redacted": True, "reason": "not_the_addressee"})
+        self.assertNotIn("legacy-secret", json.dumps(polled))
+
 
 class TestBroadcastToStalePeers(CloudStaleDeliveryTestBase):
     """Broadcast ``*`` with every peer stale must still deliver (same root cause)."""
@@ -317,6 +352,18 @@ class TestSendToNonexistentTargetDistinguishable(CloudStaleDeliveryTestBase):
         self.assertEqual(status, 200)
         self.assertEqual([r["agent_id"] for r in ok["receipts"]],
                          [peer["account_id"]])
+
+    def test_malformed_or_empty_target_spec_refused(self) -> None:
+        owner = self._signup("target-owner@example.com", "OwnerPass!1")
+        room = self._create_room(owner["session_token"], cap=4)
+        for target_spec in ([], {}, 7, [7]):
+            with self.subTest(target_spec=target_spec):
+                status, body = self._send(
+                    owner["session_token"], room["room_id"], target_spec,
+                    {"text": "must-not-be-silent"},
+                )
+                self.assertEqual(status, 400)
+                self.assertEqual(body["error"]["code"], "invalid_argument")
 
     def test_unicast_to_left_member_refused(self) -> None:
         """Departure (``left``) is genuinely undeliverable — refused, not silent."""
@@ -614,11 +661,42 @@ class CoordinatorRoomStaleDeliveryTests(unittest.TestCase):
             events = [e for e in self._poll(agent_id)["events"] if e["seq"] == seq]
             self.assertEqual(events[0]["payload"], {"redacted": True, "reason": "not_the_addressee"})
 
+    def test_legacy_non_object_event_fails_closed(self) -> None:
+        with self.store._transaction() as conn:
+            seq = int(conn.execute(
+                "SELECT cursor_head FROM room_rooms WHERE room_id = ?",
+                (self.room_id,),
+            ).fetchone()[0]) + 1
+            conn.execute(
+                "INSERT INTO room_event_log(event_id, room_id, seq, origin_agent, kind, "
+                "message_kind, payload_json, idempotency_key, trace_id, created_at) "
+                "VALUES (?, ?, ?, ?, 'room.message', NULL, ?, ?, NULL, ?)",
+                (f"legacy-scalar-{seq}", self.room_id, seq, "OWNER",
+                 json.dumps("legacy-scalar-secret"), f"legacy-scalar-idem-{seq}",
+                 "2026-08-13T00:00:00Z"),
+            )
+            conn.execute(
+                "UPDATE room_rooms SET cursor_head = ? WHERE room_id = ?",
+                (seq, self.room_id),
+            )
+        for agent_id in ("A2", "A3"):
+            events = [e for e in self._poll(agent_id)["events"] if e["seq"] == seq]
+            self.assertEqual(events[0]["payload"],
+                             {"redacted": True, "reason": "not_the_addressee"})
+            self.assertNotIn("legacy-scalar-secret", json.dumps(events[0]))
+
     def test_unknown_unicast_target_refused(self) -> None:
         from weft_mcp.core import WeftError
         with self.assertRaises(WeftError) as ctx:
             self._send("OWNER", "ghost-coord", {"text": "hi"})
         self.assertEqual(ctx.exception.code, "recipient_not_found")
+
+    def test_malformed_or_empty_target_spec_refused(self) -> None:
+        from weft_mcp.core import WeftError
+        for target_spec in ([], {}, 7, [7]):
+            with self.subTest(target_spec=target_spec), self.assertRaises(WeftError) as ctx:
+                self._send("OWNER", target_spec, {"text": "must-not-be-silent"})
+            self.assertEqual(ctx.exception.code, "invalid_argument")
 
     def test_rejoin_preserves_joined_at_and_reports_cursor(self) -> None:
         r1 = self.dispatcher.call_tool("room_join", {
