@@ -178,7 +178,23 @@
     const readout = document.querySelector('[data-proof-readout]');
     const replayButton = document.querySelector('[data-proof-replay]');
     const rejectButton = document.querySelector('[data-proof-reject]');
-    if (!plate || !canvas || !window.WeftProof) return;
+    const announceStaticFallback = () => {
+      let status = readout;
+      if (!status && plate && typeof document.createElement === 'function') {
+        status = document.createElement('p');
+        status.className = 'plate-readout';
+        plate.appendChild(status);
+      }
+      if (!status) return;
+      status.setAttribute('role', 'status');
+      status.setAttribute('aria-live', 'polite');
+      status.textContent = 'Interactive proof unavailable. Static evidence remains available.';
+    };
+    if (!plate || !canvas) return;
+    if (!window.WeftProof) {
+      announceStaticFallback();
+      return;
+    }
 
     let engine = null;
     try {
@@ -187,9 +203,13 @@
         onPhase: (label) => { if (readout) readout.textContent = label; }
       });
     } catch (error) {
+      announceStaticFallback();
       return; // static sequence stays visible
     }
-    if (!engine) return;
+    if (!engine) {
+      announceStaticFallback();
+      return;
+    }
 
     plate.classList.add('is-ready');
     if (readout) readout.textContent = reduceMotion ? 'Static sequence' : 'Playing';
