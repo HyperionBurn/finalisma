@@ -1414,10 +1414,10 @@ class WeftDispatcher:
         cap = self._required(args, "cap")
         actor_token = args.get("actor_token")
         # actor_token is optional on create in trusted stdio mode, but when the
-        # coordinator requires actor auth (e.g. --actor-auth auto over HTTP) the
-        # owner MUST prove a registered credential — otherwise anyone could
-        # fabricate a room owned by any agent_id. Validate when supplied.
-        if actor_token is not None:
+        # coordinator requires actor auth the owner MUST prove a registered
+        # credential — otherwise anyone could fabricate a room owned by any
+        # agent_id. Reuse the store's actor-bound authorization contract.
+        if self.store.require_actor_auth or actor_token is not None:
             with self.store._transaction() as conn:
                 self.store._authorize_actor(conn, team_id, owner, actor_token)
         actor_hash = self._room_actor_hash(actor_token) if actor_token is not None else ""

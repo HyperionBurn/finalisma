@@ -55,7 +55,12 @@ class RoomPresenceIntegrationTests(unittest.TestCase):
     def _create_room(self, cap: int = 5) -> dict:
         return self.dispatcher.call_tool(
             "room_create",
-            {"team_id": self.team, "owner_agent_id": "A1", "cap": cap},
+            {
+                "team_id": self.team,
+                "owner_agent_id": "A1",
+                "cap": cap,
+                "actor_token": self.token_a1,
+            },
         )
 
     def _join(self, room_id: str, link_token: str, agent_id: str, token: str,

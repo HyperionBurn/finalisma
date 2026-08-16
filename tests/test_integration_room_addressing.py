@@ -59,7 +59,12 @@ class RoomAddressingIntegrationTests(unittest.TestCase):
         # Create a room (owner A1) and join A2, A3.
         created = self.dispatcher.call_tool(
             "room_create",
-            {"team_id": TEAM_ID, "owner_agent_id": OWNER_ID, "cap": ROOM_CAP},
+            {
+                "team_id": TEAM_ID,
+                "owner_agent_id": OWNER_ID,
+                "cap": ROOM_CAP,
+                "actor_token": self.token_a1,
+            },
         )
         self.room_id = created["room_id"]
         self.link_token = created["link_token"]
@@ -397,7 +402,12 @@ class RoomMessageKindTests(unittest.TestCase):
 
         created = self.dispatcher.call_tool(
             "room_create",
-            {"team_id": TEAM_ID, "owner_agent_id": OWNER_ID, "cap": ROOM_CAP},
+            {
+                "team_id": TEAM_ID,
+                "owner_agent_id": OWNER_ID,
+                "cap": ROOM_CAP,
+                "actor_token": self.token_a1,
+            },
         )
         self.room_id = created["room_id"]
         self.link_token = created["link_token"]

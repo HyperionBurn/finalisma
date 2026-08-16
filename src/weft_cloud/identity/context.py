@@ -81,10 +81,15 @@ def require_db_role(backend: Any, tenant_id: str, account_id: str, required: str
     methods call this in addition to ``ctx.require_role``.
     """
     with backend.transaction() as tx:
-        row = tx.execute(
-            "SELECT role FROM cloud_identity_members WHERE tenant_id = ? AND account_id = ?",
-            (tenant_id, account_id),
-        ).fetchone()
+        require_db_role_in_tx(tx, tenant_id, account_id, required)
+
+
+def require_db_role_in_tx(tx: Any, tenant_id: str, account_id: str, required: str) -> None:
+    """Re-derive a role on a caller-owned mutation transaction."""
+    row = tx.execute(
+        "SELECT role FROM cloud_identity_members WHERE tenant_id = ? AND account_id = ?",
+        (tenant_id, account_id),
+    ).fetchone()
     role = row["role"] if row else None
     if role is None or ROLE_RANK.get(role, -1) < ROLE_RANK[required]:
         raise RoleError("forbidden")

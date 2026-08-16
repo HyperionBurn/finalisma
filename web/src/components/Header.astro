@@ -8,8 +8,8 @@
  * Scrolled state via rAF-throttled passive listener.
  * All harness hooks preserved: data-header, .nav-toggle, #mobile-nav,
  * .mobile-close, nav-links (5 anchors), CTA + Log in, inert handling.
- * Funnel lane (2026-08-07): primary CTA is a real app link ("Open a room" →
- * /app/signup), returning users get a quiet "Log in" affordance.
+ * Funnel lane (2026-08-07): primary CTA uses the configured app origin's
+ * /signup route, returning users get a quiet "Log in" affordance.
  */
 import { APP_LOGIN_URL, APP_SIGNUP_URL } from '../lib/app';
 ---

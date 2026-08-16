@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from weft_mcp.core import WeftStore
+from weft_mcp.core import WeftError, WeftStore
 from weft_mcp.server import (
     WeftDispatcher,
     _MCPRequestHandler,
@@ -86,6 +86,42 @@ class TokenBucketTests(unittest.TestCase):
         self.assertEqual(count, 1000)
         # Bucket should now be empty
         self.assertFalse(bucket.consume())
+
+
+class ActorAuthRoomCreateTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        root = Path(self.temp.name)
+        self.store = WeftStore(root / "state.db", root, require_actor_auth=True)
+        self.dispatcher = WeftDispatcher(self.store)
+        registered = self.dispatcher.call_tool(
+            "register_agent", {"team_id": "team-auth", "agent_id": "owner"}
+        )
+        self.actor_token = registered["actor_token"]
+
+    def tearDown(self):
+        self.store.close()
+        self.temp.cleanup()
+
+    def test_room_create_requires_actor_token_in_required_mode(self):
+        with self.assertRaises(WeftError) as missing:
+            self.dispatcher.call_tool(
+                "room_create",
+                {"team_id": "team-auth", "owner_agent_id": "owner", "cap": 2},
+            )
+        self.assertEqual(missing.exception.code, "actor_auth_required")
+
+    def test_room_create_accepts_valid_actor_token_in_required_mode(self):
+        created = self.dispatcher.call_tool(
+            "room_create",
+            {
+                "team_id": "team-auth",
+                "owner_agent_id": "owner",
+                "cap": 2,
+                "actor_token": self.actor_token,
+            },
+        )
+        self.assertTrue(created["room_id"].startswith("room_"))
 
 
 class MultiClientSessionTests(unittest.TestCase):

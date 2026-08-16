@@ -72,7 +72,8 @@ class RoomNonMemberNoOracleTests(unittest.TestCase):
         self.outsider = self._register("outsider-3")
         created = self.dispatcher.call_tool(
             "room_create",
-            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 8},
+            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 8,
+             "actor_token": self.owner},
         )
         self.room_id = created["room_id"]
         self.link_token = created["link_token"]

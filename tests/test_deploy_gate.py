@@ -39,6 +39,26 @@ from restart_proof import evaluate_restart  # noqa: E402
 BASH = shutil.which("bash")
 
 
+def _bash_script_path(script: Path, cwd: Path) -> str:
+    """Return a Bash-safe path relative to the subprocess working directory.
+
+    Windows-hosted Bash implementations can reinterpret a native absolute
+    path before Bash sees it (for example, ``C:\\...`` becomes
+    ``C:...``).  Passing a relative POSIX path avoids that conversion while
+    remaining valid for native Bash on Linux.
+    """
+    return script.resolve().relative_to(cwd.resolve()).as_posix()
+
+
+def _run_bash(script: Path, *args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [BASH, *args, _bash_script_path(script, cwd)],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+    )
+
+
 class ClassifySuiteLogTests(unittest.TestCase):
     """FAILURE 3 (real incident): the old gate piped the suite through
     `| tail -4` and treated an EMPTY capture as failure. A harness problem
@@ -189,10 +209,10 @@ class NormalizeLineEndingsTests(unittest.TestCase):
             path.write_bytes(b"#!/usr/bin/env bash\r\nset -euo pipefail\r\necho ok\r\n")
             normalize_file(path)
 
-            syntax = subprocess.run([BASH, "-n", str(path)], capture_output=True, text=True)
+            syntax = _run_bash(path, "-n", cwd=path.parent)
             self.assertEqual(syntax.returncode, 0, syntax.stderr)
 
-            run = subprocess.run([BASH, str(path)], capture_output=True, text=True)
+            run = _run_bash(path, cwd=path.parent)
             self.assertEqual(run.returncode, 0, run.stderr)
             self.assertEqual(run.stdout.strip(), "ok")
 
@@ -302,7 +322,7 @@ class ShippedScriptSanityTests(unittest.TestCase):
         sh_scripts = sorted(SCRIPTS_DIR.glob("*.sh"))
         self.assertGreater(len(sh_scripts), 0, "expected at least one .sh script in scripts/")
         for script in sh_scripts:
-            result = subprocess.run([BASH, "-n", str(script)], capture_output=True, text=True)
+            result = _run_bash(script, "-n", cwd=SCRIPTS_DIR)
             self.assertEqual(result.returncode, 0, f"{script.name}: {result.stderr}")
 
     def test_every_deploy_py_helper_compiles(self):

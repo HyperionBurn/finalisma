@@ -33,7 +33,7 @@ from typing import Any, Callable
 
 from weft_cloud.storage import StorageBackend, utc_now_iso
 
-from .identity.context import SessionContext, require_db_role
+from .identity.context import SessionContext, require_db_role, require_db_role_in_tx
 from .identity.tokens import AuthError, hash_token
 from .quotas import (
     QuotaError,
@@ -777,7 +777,8 @@ class CloudRoomService:
 
     def create_room(self, tenant_id: str, owner_agent_id: str, actor_token: str,
                     cap: int = 10, name: str | None = None, ttl_seconds: int = 86400,
-                    origin: str | None = None) -> dict:
+                    origin: str | None = None,
+                    actor_account_id: str | None = None) -> dict:
         """Create a room and return its shareable link.
 
         The owner auto-joins as the first active member. ``owner_agent_id``
@@ -816,12 +817,28 @@ class CloudRoomService:
         expires_at = now_epoch + ttl_seconds
         base_origin = public_origin(origin)
 
-        # ONE transaction for full room creation. Tenant-room quota binding,
-        # owner-member quota count, room/link/member/cursor rows, and lifecycle
-        # events commit or roll back together. A late insert failure can never
-        # leave counters ahead of persisted room state.
+        # ONE transaction for full room creation. Revalidate the live bearer
+        # credential and tenant role on this same writer transaction before any
+        # room/quota/member/event mutation, closing the request/leave gap.
         plan_id, plan = resolve_plan(self.backend, tenant_id)
         with self.backend.transaction() as tx:
+            if actor_account_id is not None:
+                credential = tx.execute(
+                    "SELECT account_id FROM cloud_identity_sessions "
+                    "WHERE token_hash = ? AND tenant_id = ? AND account_id = ? "
+                    "AND revoked_at IS NULL AND expires_at > ?",
+                    (_token_hash(actor_token), tenant_id, actor_account_id, _time.time()),
+                ).fetchone()
+                if credential is None:
+                    credential = tx.execute(
+                        "SELECT account_id FROM cloud_identity_agent_keys "
+                        "WHERE token_hash = ? AND tenant_id = ? AND account_id = ? "
+                        "AND key_id = ? AND revoked_at IS NULL",
+                        (_token_hash(actor_token), tenant_id, actor_account_id, owner_agent_id),
+                    ).fetchone()
+                if credential is None:
+                    raise AuthError("invalid_session")
+                require_db_role_in_tx(tx, tenant_id, actor_account_id, "admin")
             bind_room_with_quota_in_tx(
                 tx, tenant_id, room_id, self.backend.state_path, plan_id, plan,
             )

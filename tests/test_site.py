@@ -947,6 +947,14 @@ class VercelDeployMaterializesReleaseTests(unittest.TestCase):
         self.assertEqual(vercel["buildCommand"], "python scripts/vercel-build.py")
         self.assertIsNone(vercel["framework"], "deploy must remain a static (framework-less) build")
 
+    def test_retired_codex_snapshot_cannot_return_to_release_boundary(self) -> None:
+        """The old tracked Codex snapshot is not a deployable release input."""
+        stale_snapshot = ROOT / "artifacts" / "release-site-codex"
+        self.assertFalse(
+            stale_snapshot.exists(),
+            "retired artifacts/release-site-codex must stay absent; Vercel uses the generated release-site output",
+        )
+
     def test_vercel_build_materializes_release_bundle_with_env_values(self) -> None:
         temp_root = ROOT / ".tmp"
         temp_root.mkdir(exist_ok=True)

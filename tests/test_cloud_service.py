@@ -163,6 +163,39 @@ class CloudServiceTestBase(unittest.TestCase):
         self.assertEqual(status, 200, f"join failed: {body}")
         return body
 
+    def _accept_invite(self, inviter_token: str, email: str, role: str,
+                       password: str) -> dict:
+        inviter = self.service.resolve_identity(inviter_token)
+        _invite_id, invite_token = self.service.invites.create(
+            inviter, email, role,
+        )
+        status, body = _post(self.base, "/v1/org/accept_invite", {
+            "invite_token": invite_token,
+            "email": email,
+            "password": password,
+        })
+        self.assertEqual(status, 200, f"invite acceptance failed: {body}")
+        return body
+
+    def _assert_no_room_rows(self, tenant_id: str) -> None:
+        tables = (
+            "cloud_tenant_rooms",
+            "cloud_counters",
+            "cloud_rooms",
+            "cloud_room_links",
+            "cloud_room_members",
+            "cloud_room_cursors",
+            "cloud_room_counters",
+            "cloud_room_event_log",
+        )
+        with self.service.backend.transaction() as tx:
+            for table in tables:
+                row = tx.execute(
+                    f"SELECT COUNT(*) AS n FROM {table} WHERE tenant_id = ?",
+                    (tenant_id,),
+                ).fetchone()
+                self.assertEqual(row["n"], 0, table)
+
 
 class TestAccountAndOrgFlow(CloudServiceTestBase):
     """Sign up, sign in, org membership."""
@@ -242,6 +275,72 @@ class TestAccountAndOrgFlow(CloudServiceTestBase):
 
 class TestRoomLifecycle(CloudServiceTestBase):
     """Create room, join via link, poll, leave, close."""
+
+    def test_member_cannot_create_room_and_leaves_no_rows(self) -> None:
+        owner = self._signup("room-role-owner@example.com", "CorrectHorse!1")
+        member = self._accept_invite(
+            owner["session_token"],
+            "room-role-member@example.com",
+            "member",
+            "MemberPass!1",
+        )
+
+        status, body = _post(
+            self.base, "/v1/rooms/create", {"cap": 4}, member["session_token"],
+        )
+
+        self.assertEqual(status, 403, body)
+        self.assertEqual(body["error"]["code"], "forbidden")
+        self._assert_no_room_rows(owner["tenant_id"])
+
+    def test_create_rechecks_credential_after_membership_leave(self) -> None:
+        owner = self._signup("room-race-owner@example.com", "CorrectHorse!1")
+        admin = self._accept_invite(
+            owner["session_token"],
+            "room-race-admin@example.com",
+            "admin",
+            "AdminPass!1",
+        )
+        original_create = self.service.rooms.create_room
+        validation_complete = threading.Event()
+        release_request = threading.Event()
+        request_result: dict[str, tuple[int, dict]] = {}
+
+        def paused_create(*args, **kwargs):
+            validation_complete.set()
+            if not release_request.wait(10):
+                raise AssertionError("timed out waiting to run the paused create")
+            return original_create(*args, **kwargs)
+
+        self.service.rooms.create_room = paused_create  # type: ignore[method-assign]
+        try:
+            def send_create() -> None:
+                request_result["response"] = _post(
+                    self.base,
+                    "/v1/rooms/create",
+                    {"cap": 4},
+                    admin["session_token"],
+                )
+
+            request = threading.Thread(target=send_create, daemon=True)
+            request.start()
+            self.assertTrue(validation_complete.wait(5))
+
+            from weft_cloud.identity import accounts
+            accounts.leave_membership(
+                self.service.backend, owner["tenant_id"], admin["account_id"],
+            )
+            release_request.set()
+            request.join(10)
+            self.assertFalse(request.is_alive(), "paused create request did not finish")
+        finally:
+            release_request.set()
+            self.service.rooms.create_room = original_create  # type: ignore[method-assign]
+
+        status, body = request_result["response"]
+        self.assertEqual(status, 401, body)
+        self.assertEqual(body["error"]["code"], "invalid_session")
+        self._assert_no_room_rows(owner["tenant_id"])
 
     def test_create_room_returns_shareable_link(self) -> None:
         signup = self._signup("owner@example.com", "CorrectHorse!1")

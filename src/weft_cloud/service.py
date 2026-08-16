@@ -143,6 +143,16 @@ def _read_body(handler: BaseHTTPRequestHandler, max_bytes: int = 1_048_576) -> d
     return data
 
 
+def _reject_json_constant(value: str) -> Any:
+    """Reject Python's non-standard JSON constants at the HTTP boundary."""
+    raise ValueError(f"non-standard JSON constant: {value}")
+
+
+def _strict_json_loads(raw: bytes | str) -> Any:
+    """Decode JSON while rejecting NaN and both Infinity spellings."""
+    return json.loads(raw, parse_constant=_reject_json_constant)
+
+
 def _bearer_token(handler: BaseHTTPRequestHandler) -> str | None:
     auth = handler.headers.get("Authorization", "")
     if auth.startswith("Bearer "):
@@ -558,6 +568,7 @@ class WeftCloudService:
 
     def handle_create_room(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
         ctx = self._authenticate(handler)
+        ctx.require_role("admin")
         body = _read_body(handler)
         self._reject_identity_args(body, allow_self_owner=True)
         owner_agent_id = body.get("owner_agent_id", ctx.agent_id)
@@ -576,6 +587,7 @@ class WeftCloudService:
         result = self.rooms.create_room(
             ctx.tenant_id, owner_agent_id, actor_token, cap=cap,
             name=name, ttl_seconds=ttl_seconds, origin=self.origin,
+            actor_account_id=ctx.account_id,
         )
         # Audit.
         self.backend.append_audit(
@@ -602,6 +614,7 @@ class WeftCloudService:
         and reuses CloudRoomService.create_room; it is not a replacement for it.
         """
         ctx = self._authenticate(handler)
+        ctx.require_role("admin")
         body = _read_body(handler)
         self._reject_identity_args(body, allow_self_owner=True)
         owner_agent_id = body.get("owner_agent_id", ctx.agent_id)
@@ -618,6 +631,7 @@ class WeftCloudService:
         result = self.rooms.create_room(
             ctx.tenant_id, owner_agent_id, actor_token, cap=cap,
             name=name, ttl_seconds=ttl_seconds, origin=self.origin,
+            actor_account_id=ctx.account_id,
         )
         self.backend.append_audit(
             ctx.tenant_id, "room.connect", ctx.account_id, result["room_id"],
@@ -1260,8 +1274,8 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
             self._send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, error)
             return
         try:
-            request = json.loads(self.rfile.read(length))
-        except json.JSONDecodeError:
+            request = _strict_json_loads(self.rfile.read(length))
+        except ValueError:
             self._send_json(HTTPStatus.BAD_REQUEST, _json_rpc_error(None, -32700, "Parse error"))
             return
         method = request.get("method") if isinstance(request, dict) else None
