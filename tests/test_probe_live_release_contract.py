@@ -74,10 +74,12 @@ class _ContractHandler(BaseHTTPRequestHandler):
                 '<meta property="og:title" content="Weft home">'
                 '<meta property="og:description" content="Governed agent rooms.">'
                 '<meta property="og:image" content="/assets/og-card.png">'
+                '<meta property="og:image:alt" content="Weft social card.">'
                 '<meta name="twitter:card" content="summary_large_image">'
                 '<meta name="twitter:title" content="Weft home">'
                 '<meta name="twitter:description" content="Governed agent rooms.">'
                 '<meta name="twitter:image" content="/assets/og-card.png">'
+                '<meta name="twitter:image:alt" content="Weft social card.">'
                 f'<button data-cohort-build>Build</button><a href="{self.api_origin}/signup">Open a room</a>',
             ),
             "/docs": (
@@ -88,10 +90,12 @@ class _ContractHandler(BaseHTTPRequestHandler):
                 '<meta property="og:title" content="Weft docs">'
                 '<meta property="og:description" content="Governed agent room docs.">'
                 '<meta property="og:image" content="/assets/og-card.png">'
+                '<meta property="og:image:alt" content="Weft social card.">'
                 '<meta name="twitter:card" content="summary_large_image">'
                 '<meta name="twitter:title" content="Weft docs">'
                 '<meta name="twitter:description" content="Governed agent room docs.">'
-                '<meta name="twitter:image" content="/assets/og-card.png">',
+                '<meta name="twitter:image" content="/assets/og-card.png">'
+                '<meta name="twitter:image:alt" content="Weft social card.">',
             ),
             "/docs/quickstart": (
                 200,
@@ -101,10 +105,12 @@ class _ContractHandler(BaseHTTPRequestHandler):
                 '<meta property="og:title" content="Weft quickstart">'
                 '<meta property="og:description" content="Open a governed room.">'
                 '<meta property="og:image" content="/assets/og-card.png">'
+                '<meta property="og:image:alt" content="Weft social card.">'
                 '<meta name="twitter:card" content="summary_large_image">'
                 '<meta name="twitter:title" content="Weft quickstart">'
                 '<meta name="twitter:description" content="Open a governed room.">'
-                '<meta name="twitter:image" content="/assets/og-card.png">',
+                '<meta name="twitter:image" content="/assets/og-card.png">'
+                '<meta name="twitter:image:alt" content="Weft social card.">',
             ),
             "/demo": (
                 200,
@@ -114,10 +120,12 @@ class _ContractHandler(BaseHTTPRequestHandler):
                 '<meta property="og:title" content="Weft demo">'
                 '<meta property="og:description" content="Recorded proof.">'
                 '<meta property="og:image" content="/assets/weft-demo-poster.png">'
+                '<meta property="og:image:alt" content="Weft social card.">'
                 '<meta name="twitter:card" content="summary_large_image">'
                 '<meta name="twitter:title" content="Weft demo">'
                 '<meta name="twitter:description" content="Recorded proof.">'
                 '<meta name="twitter:image" content="/assets/weft-demo-poster.png">'
+                '<meta name="twitter:image:alt" content="Weft social card.">'
                 '<video poster="assets/weft-demo-poster.png">'
                 '<source src="assets/weft-demo.mp4" type="video/mp4">'
                 '<source src="assets/weft-demo.webm" type="video/webm">'

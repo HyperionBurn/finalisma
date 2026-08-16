@@ -126,10 +126,12 @@ class _PageFacts(HTMLParser):
         self.og_site_names: list[str] = []
         self.og_titles: list[str] = []
         self.og_descriptions: list[str] = []
+        self.og_image_alts: list[str] = []
         self.twitter_cards: list[str] = []
         self.twitter_titles: list[str] = []
         self.twitter_descriptions: list[str] = []
         self.twitter_images: list[str] = []
+        self.twitter_image_alts: list[str] = []
         self.links: list[str] = []
         self.video_posters: list[str] = []
         self.sources: list[str] = []
@@ -155,6 +157,8 @@ class _PageFacts(HTMLParser):
                 self.og_titles.append(values["content"])
             elif property_name == "og:description" and values.get("content"):
                 self.og_descriptions.append(values["content"])
+            elif property_name == "og:image:alt" and values.get("content"):
+                self.og_image_alts.append(values["content"])
             elif values.get("name", "").lower() == "twitter:card" and values.get("content"):
                 self.twitter_cards.append(values["content"])
             elif values.get("name", "").lower() == "twitter:title" and values.get("content"):
@@ -163,6 +167,8 @@ class _PageFacts(HTMLParser):
                 self.twitter_descriptions.append(values["content"])
             elif values.get("name", "").lower() == "twitter:image" and values.get("content"):
                 self.twitter_images.append(values["content"])
+            elif values.get("name", "").lower() == "twitter:image:alt" and values.get("content"):
+                self.twitter_image_alts.append(values["content"])
         elif tag == "a" and values.get("href"):
             self.links.append(values["href"])
         elif tag == "video":
@@ -187,14 +193,14 @@ def _page_facts(response: dict) -> _PageFacts:
     return facts
 
 
-def _site_asset(value: str) -> bool:
+def _site_asset(value: str, site_origin: str) -> bool:
     parsed = urlsplit(value)
-    return (not parsed.scheme and value.startswith("/")) or (
-        parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+    return (not parsed.scheme and not parsed.netloc and value.startswith("/")) or (
+        value.startswith(f"{site_origin}/")
     )
 
 
-def _metadata_ok(response: dict, expected_url: str) -> bool:
+def _metadata_ok(response: dict, expected_url: str, site_origin: str) -> bool:
     if response.get("status") != 200:
         return False
     facts = _page_facts(response)
@@ -205,12 +211,14 @@ def _metadata_ok(response: dict, expected_url: str) -> bool:
         and bool(facts.og_titles)
         and bool(facts.og_descriptions)
         and bool(facts.og_images)
-        and all(_site_asset(image) for image in facts.og_images)
+        and all(_site_asset(image, site_origin) for image in facts.og_images)
+        and bool(facts.og_image_alts)
         and facts.twitter_cards == ["summary_large_image"]
-        and bool(facts.twitter_titles)
-        and bool(facts.twitter_descriptions)
+        and facts.twitter_titles == facts.og_titles
+        and facts.twitter_descriptions == facts.og_descriptions
         and bool(facts.twitter_images)
-        and all(_site_asset(image) for image in facts.twitter_images)
+        and all(_site_asset(image, site_origin) for image in facts.twitter_images)
+        and bool(facts.twitter_image_alts)
     )
 
 
@@ -357,7 +365,7 @@ def probe(api_origin: str, site_origin: str, timeout: float = 20.0) -> dict:
         "site_demo": f"{site_origin}/demo.html",
     }
     site_metadata_ok = all(
-        _metadata_ok(endpoints[name], expected_url)
+        _metadata_ok(endpoints[name], expected_url, site_origin)
         for name, expected_url in expected_metadata.items()
     )
     site_signup_cta_ok = f"{api_origin}/signup" in _page_facts(endpoints["site_home"]).links

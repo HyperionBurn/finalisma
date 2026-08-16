@@ -66,10 +66,12 @@ class _ProbeHandler(BaseHTTPRequestHandler):
                     '<meta property="og:title" content="Weft home">'
                     '<meta property="og:description" content="Governed agent rooms.">'
                     '<meta property="og:image" content="/assets/weft-demo-poster.png">'
+                    '<meta property="og:image:alt" content="Weft social card.">'
                     '<meta name="twitter:card" content="summary_large_image">'
                     '<meta name="twitter:title" content="Weft home">'
                     '<meta name="twitter:description" content="Governed agent rooms.">'
                     '<meta name="twitter:image" content="/assets/weft-demo-poster.png">'
+                    '<meta name="twitter:image:alt" content="Weft social card.">'
                     f'<a href="{self.api_origin}/signup">Build</a>'
                     '<button data-cohort-build>Build</button>'
                 ).encode(),
@@ -90,10 +92,12 @@ class _ProbeHandler(BaseHTTPRequestHandler):
                 '<meta property="og:title" content="Weft page">'
                 '<meta property="og:description" content="Governed agent rooms.">'
                 '<meta property="og:image" content="/assets/weft-demo-poster.png">'
+                '<meta property="og:image:alt" content="Weft social card.">'
                 '<meta name="twitter:card" content="summary_large_image">'
                 '<meta name="twitter:title" content="Weft page">'
                 '<meta name="twitter:description" content="Governed agent rooms.">'
                 '<meta name="twitter:image" content="/assets/weft-demo-poster.png">'
+                '<meta name="twitter:image:alt" content="Weft social card.">'
             )
             if self.path == "/demo":
                 body += (
