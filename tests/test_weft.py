@@ -156,7 +156,7 @@ class WeftStoreTests(unittest.TestCase):
 
     def test_workspace_containment_and_secret_gate(self) -> None:
         with self.assertRaises(WeftError) as outside:
-            self.store.create_task("demo", "agent-a", "Escape", "No", scope=["..\\outside.txt"])
+            self.store.create_task("demo", "agent-a", "Escape", "No", scope=[str(Path("..") / "outside.txt")])
         self.assertEqual(outside.exception.code, "path_outside_workspace")
         secret = self.root / "secret.txt"
         secret.write_text("-----BEGIN PRIVATE KEY-----\nnot-real\n", encoding="utf-8")
