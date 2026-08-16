@@ -27,5 +27,5 @@ Completion waits for an artifact, SHA-256 hash, secret scan, and passing check.
 00:33.600 --> 00:37.800
 The task closes with eleven audit events and zero raw credentials printed.
 
-00:37.800 --> 00:42.000
+00:37.800 --> 00:43.040
 One incident. Two agents. One account of what happened.

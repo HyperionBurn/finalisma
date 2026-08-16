@@ -1150,6 +1150,11 @@
       Scroll-entry utilities (opt-in, separate from .reveal)
       ============================================================ */
   .scroll-in {
+    /* Progressive enhancement: content must remain readable without JS. */
+    opacity: 1;
+    transform: none;
+  }
+  .js .scroll-in {
     opacity: 0;
     transform: translateY(4rem) blur(6px);
     transition:
@@ -1158,7 +1163,7 @@
       filter 800ms var(--ease-fluid);
     will-change: opacity, transform;
   }
-  .scroll-in.in {
+  .js .scroll-in.in {
     opacity: 1;
     transform: translateY(0) blur(0);
   }

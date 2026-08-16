@@ -3,7 +3,7 @@
   "source": "real local WeftStore protocol run",
   "boundary": "Agent hosts are deterministic fixtures; coordinator, SQLite state, pairing, session, lease, fencing, artifact hashing, secret scan, evidence gate, and completion are real.",
   "credentials_redacted": true,
-  "duration_seconds": 42,
+  "duration_seconds": 43,
   "proof": {
     "pairing_preview_status": "issued",
     "pairing_status": "consumed",

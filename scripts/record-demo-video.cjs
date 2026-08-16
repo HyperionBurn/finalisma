@@ -105,7 +105,7 @@ const encodeMp4 = () => {
   fs.rmSync(tempDir, { recursive: true, force: true });
   const result = {
     status: 'ok',
-    duration_seconds: 42,
+    duration_seconds: 43,
     resolution: '1280x720',
     webm: { path: path.relative(root, webmPath), bytes: fs.statSync(webmPath).size },
     mp4: { path: path.relative(root, mp4Path), bytes: fs.statSync(mp4Path).size },

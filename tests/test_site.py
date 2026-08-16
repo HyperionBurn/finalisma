@@ -194,6 +194,17 @@ class LaunchSurfaceTests(unittest.TestCase):
         self.assertRegex(css, r"\.reveal\{opacity:\s*1[^}]*transform:\s*none")
         self.assertRegex(css, r"\.js \.reveal")
         self.assertRegex(css, r"\.js \.reveal\.in\{opacity:\s*1[^}]*transform:\s*none")
+        # Scroll-entry effects are progressive enhancement too: without JS
+        # all content is visible; JS adds the only hidden/reveal state.
+        self.assertRegex(css, r"\.scroll-in\{opacity:\s*1[^}]*transform:\s*none")
+        self.assertRegex(css, r"\.js \.scroll-in\{opacity:\s*0")
+        self.assertRegex(css, r"\.js \.scroll-in\.in\{opacity:\s*1[^}]*transform:\s*translateY\(0\)")
+        # The transport switcher keeps every panel in the no-JS document and
+        # lets the hydrated script own the interactive hiding.
+        self.assertIn('aria-controls="tier-panel-stdio"', html)
+        self.assertIn('id="tier-panel-stdio"', html)
+        self.assertIn('aria-labelledby="tier-tab-stdio"', html)
+        self.assertNotRegex(html, r'data-tier-panel="stdio"[^>]*\bhidden(?:=|\s|>)')
         # Wave D3 replacement invariant: the JS-gated hero canvas is always
         # mounted server-side and carries a ≥5-row text fallback, so no-JS and
         # screen readers see the full event sequence (old `data-story-next`
@@ -509,6 +520,7 @@ class LaunchSurfaceTests(unittest.TestCase):
         self.assertIn('property="og:site_name" content="Weft"', demo)
         self.assertIn('name="twitter:image" content="/assets/weft-demo-poster.png"', demo)
         self.assertEqual(transcript["schema"], "weft.public-demo/v1")
+        self.assertEqual(transcript["duration_seconds"], 43)
         self.assertEqual(len(transcript["frames"]), 10)
         self.assertTrue(transcript["credentials_redacted"])
         self.assertFalse(transcript["proof"]["raw_credentials_in_output"])
@@ -518,6 +530,7 @@ class LaunchSurfaceTests(unittest.TestCase):
         self.assertEqual(transcript["proof"]["secret_scan"], "passed")
         self.assertEqual(transcript["proof"]["task_status"], "done")
         self.assertEqual(build["status"], "ok")
+        self.assertEqual(build["duration_seconds"], 43)
         self.assertEqual(build["resolution"], "1280x720")
         self.assertTrue(build["credentials_redacted"])
 
