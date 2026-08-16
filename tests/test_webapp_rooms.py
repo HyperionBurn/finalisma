@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import os
 import re
 import sys
 import tempfile
@@ -241,6 +242,28 @@ class TestRoomDetail(unittest.TestCase):
             "owner must see the shareable join link on the detail page",
         )
         self.assertIn("credential", body, "the page must warn the link is a credential")
+
+    def test_room_detail_uses_configured_public_origin_for_join_link(self):
+        previous = os.environ.get("WEFT_PUBLIC_ORIGIN")
+        os.environ["WEFT_PUBLIC_ORIGIN"] = "https://rooms.example.test"
+        try:
+            status, body, _ = self.driver.get(f"/room/{self.room_id}")
+        finally:
+            if previous is None:
+                os.environ.pop("WEFT_PUBLIC_ORIGIN", None)
+            else:
+                os.environ["WEFT_PUBLIC_ORIGIN"] = previous
+        self.assertEqual(status, 200)
+        self.assertIn(
+            f"https://rooms.example.test/j/",
+            body,
+            "web-rendered room links must use the configured public origin",
+        )
+        self.assertNotIn(
+            "http://127.0.0.1:18788/j/",
+            body,
+            "a deployed web page must never advertise the loopback join origin",
+        )
 
 
 class TestEventPoll(unittest.TestCase):

@@ -70,8 +70,9 @@ class _ServerCase(unittest.TestCase):
         self.port = self.server.server_address[1]
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
-        self.addCleanup(self.server.shutdown)
+        self.addCleanup(self.server.server_close)
         self.addCleanup(self.thread.join, 2)
+        self.addCleanup(self.server.shutdown)
 
     @property
     def base_url(self) -> str:

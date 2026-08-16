@@ -55,7 +55,7 @@ import sys
 import threading as _threading
 from typing import Any, Callable
 
-from weft_cloud.identity import AuthError, SessionContext
+from weft_cloud.identity import AuthError, RoleError, SessionContext
 from weft_cloud.quotas import QuotaError
 from weft_cloud.rate_limit import RateLimitedError
 from weft_cloud.rooms import CloudRoomService, RoomError
@@ -440,6 +440,13 @@ class HostedMCPDispatcher:
                         {"error": {"code": exc.code, "message": exc.message}},
                         ensure_ascii=False, allow_nan=False)}],
                 }
+            except RoleError as exc:
+                tool_result = {
+                    "isError": True,
+                    "content": [{"type": "text", "text": json.dumps(
+                        {"error": {"code": exc.code, "message": str(exc)},
+                         }, ensure_ascii=False, allow_nan=False)}],
+                }
             except RateLimitedError as exc:
                 retry_after = float(exc.retry_after or 0.0)
                 tool_result = {
@@ -554,6 +561,11 @@ class HostedMCPDispatcher:
         cap = args.get("cap")
         if not isinstance(cap, int):
             raise WeftError("invalid_argument", "cap must be an integer")
+        # Room creation is an organization-level mutation. Keep the fast
+        # request guard aligned with REST, then pass the account identity into
+        # the domain transaction so a concurrent demotion is rechecked before
+        # any room/quota/member rows are written.
+        ctx.require_role("admin")
         return self._room_call(lambda: self.rooms.create_room(
             tenant_id=ctx.tenant_id,
             owner_agent_id=ctx.agent_id,
@@ -561,6 +573,7 @@ class HostedMCPDispatcher:
             cap=cap,
             name=args.get("name"),
             ttl_seconds=args.get("ttl_seconds", 86400),
+            actor_account_id=ctx.account_id,
         ))
 
     def _tool_room_join(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:

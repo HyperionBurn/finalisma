@@ -544,6 +544,48 @@ class HostedMCPRoomFlowTests(HostedMCPTestBase):
                                     token=a["session_token"])
         self.assertEqual(status, HTTPStatus.CREATED)
 
+    def test_member_cannot_create_room_through_hosted_mcp(self) -> None:
+        """MCP room creation must enforce the same admin boundary as REST."""
+        owner = self._signup("member-create-owner@example.com")
+        member_email = "member-create-member@example.com"
+        member_account_id, _verification_token = self.service.accounts.signup(
+            self.service.backend, owner["tenant_id"], member_email, "member-password-123",
+        )
+        with self.service.backend.transaction() as tx:
+            tx.execute(
+                "INSERT INTO cloud_identity_members(tenant_id, account_id, role, joined_at) "
+                "VALUES (?, ?, 'member', datetime('now'))",
+                (owner["tenant_id"], member_account_id),
+            )
+            tx.commit()
+        _session_id, member_session = self.service.sessions.create(
+            self.service.backend, owner["tenant_id"], member_account_id, "member",
+        )
+        member = {"session_token": member_session}
+        refused = self._assert_is_error(
+            member["session_token"],
+            "room_create",
+            {"cap": 4, "name": "must-not-exist"},
+            "forbidden",
+            request_id=90,
+        )
+        self.assertEqual(refused["error"]["code"], "forbidden")
+        with self.service.backend.transaction() as tx:
+            room_count = tx.execute(
+                "SELECT COUNT(*) AS n FROM cloud_rooms WHERE tenant_id = ?",
+                (owner["tenant_id"],),
+            ).fetchone()["n"]
+            active_room_counter = tx.execute(
+                "SELECT value FROM cloud_counters WHERE tenant_id = ? AND counter = 'rooms'",
+                (owner["tenant_id"],),
+            ).fetchone()
+        self.assertEqual(room_count, 0, "a refused MCP create must not mint a room")
+        self.assertEqual(
+            int(active_room_counter["value"]) if active_room_counter else 0,
+            0,
+            "a refused MCP create must not consume the room quota",
+        )
+
     def test_owner_can_remove_member_and_reclaim_room_seat(self) -> None:
         owner, member = self._two_accounts("remove-member")
         replacement = self._signup(

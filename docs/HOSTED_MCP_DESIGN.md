@@ -83,7 +83,10 @@ on.
 ## Tenant confinement and the no-oracle property
 
 Every tool resolves the effective tenant the same way the `/v1` handlers do.
-`room_create` and `room_join` run in the caller's authenticated cloud tenant; the
+`room_create` is an organization-level mutation and requires an authenticated
+`admin` or `owner`; the live role is revalidated in the room-creation transaction
+before any quota or room row is written. `room_join` runs in the caller's
+authenticated cloud tenant; the
 member-gated tools (`room_info`, `room_poll`, `room_wait`, `room_ack`,
 `room_heartbeat`, `room_send`, `room_receipts`, `room_event_log`,
 `room_leave`, `room_remove_member`) resolve the tenant via the caller's membership

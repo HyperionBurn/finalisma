@@ -512,7 +512,7 @@ class WeftClient:
     ) -> dict[str, Any]:
         """Register (or renew) this agent identity.  Returns the server response
         which includes a one-time actor_token on first registration."""
-        return self._call(
+        result = self._call(
             "register_agent",
             name=name or self.agent_id,
             role=role,
@@ -520,6 +520,15 @@ class WeftClient:
             capabilities=capabilities,
             metadata=metadata,
         )
+        # Registration returns the one-time actor credential. Keep it in this
+        # client so the documented register() -> protected room operation flow
+        # works without reaching into private state. A renewal may omit the
+        # token, so never erase an already-valid credential in that case.
+        if isinstance(result, dict):
+            token = result.get("actor_token")
+            if isinstance(token, str) and token:
+                self._actor_token = token
+        return result
 
     def heartbeat(self, task_ids: list[str] | None = None, fencing_tokens: dict[str, int] | None = None) -> dict[str, Any]:
         return self._call("heartbeat", task_ids=task_ids, fencing_tokens=fencing_tokens)
