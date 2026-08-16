@@ -1554,13 +1554,21 @@ def _request_too_large_error(request_id: Any = None) -> dict[str, Any]:
     )
 
 
+def _reject_json_constant(value: str) -> Any:
+    raise ValueError(f"Non-standard JSON constant: {value}")
+
+
+def _json_loads_strict(raw: str | bytes) -> Any:
+    return json.loads(raw, parse_constant=_reject_json_constant)
+
+
 def handle_json_rpc(dispatcher: WeftDispatcher, request: dict[str, Any]) -> dict[str, Any] | None:
     """Handle one MCP JSON-RPC request; return None for notifications."""
     if not isinstance(request, dict) or request.get("jsonrpc") != "2.0":
         return _json_rpc_error(request.get("id") if isinstance(request, dict) else None, -32600, "Invalid JSON-RPC request")
     request_id = request.get("id")
     method = request.get("method")
-    params = request.get("params") or {}
+    params = request.get("params", {})
     if not isinstance(method, str) or not isinstance(params, dict):
         return _json_rpc_error(request_id, -32600, "Invalid JSON-RPC request")
     is_notification = "id" not in request
@@ -1624,9 +1632,9 @@ def run_stdio(dispatcher: WeftDispatcher, input_stream: Any = None, output_strea
             response = _json_rpc_error(None, -32600, "JSON-RPC message exceeds the size limit")
         else:
             try:
-                request = json.loads(raw_line)
+                request = _json_loads_strict(raw_line)
                 response = handle_json_rpc(dispatcher, request)
-            except json.JSONDecodeError:
+            except (json.JSONDecodeError, ValueError):
                 response = _json_rpc_error(None, -32700, "Parse error")
             except Exception as exc:  # pragma: no cover - defensive transport boundary
                 print(f"Weft transport error: {type(exc).__name__}", file=sys.stderr)
@@ -1871,17 +1879,21 @@ class _MCPRequestHandler(BaseHTTPRequestHandler):
             self._send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, error)
             return
         try:
-            request = json.loads(self.rfile.read(length))
-        except json.JSONDecodeError:
+            request = _json_loads_strict(self.rfile.read(length))
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
             self._send_json(HTTPStatus.BAD_REQUEST, _json_rpc_error(None, -32700, "Parse error"))
             return
+        if not isinstance(request, dict):
+            self._send_json(HTTPStatus.BAD_REQUEST, _json_rpc_error(None, -32600, "Invalid JSON-RPC request"))
+            return
         method = request.get("method") if isinstance(request, dict) else None
+        params = request.get("params", {})
         header_method = self.headers.get("Mcp-Method")
         header_name = self.headers.get("Mcp-Name")
         if header_method and header_method != method:
             self._send_json(HTTPStatus.BAD_REQUEST, _json_rpc_error(request.get("id"), -32600, "Mcp-Method does not match the JSON-RPC method"))
             return
-        if method == "tools/call" and header_name and header_name != ((request.get("params") or {}).get("name")):
+        if method == "tools/call" and header_name and (not isinstance(params, dict) or header_name != params.get("name")):
             self._send_json(HTTPStatus.BAD_REQUEST, _json_rpc_error(request.get("id"), -32600, "Mcp-Name does not match params.name"))
             return
         response = handle_json_rpc(self.dispatcher, request)
@@ -1919,6 +1931,10 @@ class _MCPRequestHandler(BaseHTTPRequestHandler):
 
     def _handle_mcp_post_with_hub_limits(self) -> None:
         """Apply per-team and per-agent token-bucket limits before dispatching."""
+        if not self._authorized():
+            self._discard_request_body()
+            self._send_json(HTTPStatus.FORBIDDEN, _json_rpc_error(None, -32001, "Unauthorized"))
+            return
         hub_state = getattr(self, "hub_state", None)
         if hub_state is None:
             self._handle_mcp_post()
@@ -1939,9 +1955,12 @@ class _MCPRequestHandler(BaseHTTPRequestHandler):
             return
         try:
             raw = self.rfile.read(length)
-            request = json.loads(raw)
-        except json.JSONDecodeError:
+            request = _json_loads_strict(raw)
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
             self._send_json(HTTPStatus.BAD_REQUEST, _json_rpc_error(None, -32700, "Parse error"))
+            return
+        if not isinstance(request, dict):
+            self._send_json(HTTPStatus.BAD_REQUEST, _json_rpc_error(None, -32600, "Invalid JSON-RPC request"))
             return
         team_id, agent_id = self._extract_team_agent(request)
         if team_id and not hub_state.get_team_limiter(team_id).consume():

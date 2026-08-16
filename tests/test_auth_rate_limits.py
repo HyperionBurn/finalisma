@@ -25,11 +25,13 @@ import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from weft_cloud.service import WeftCloudService, _CloudHTTPHandler
 from weft_cloud.storage import SqliteWalBackend
+from weft_cloud.identity import accounts as identity_accounts
 
 # Test-tuned limits. The email tier for signin is lowered so "triggers after
 # N attempts" and "throttled-known == throttled-unknown" are exercised without
@@ -333,6 +335,86 @@ class TestAuthTimingRatio(unittest.TestCase):
             )
         finally:
             harness.close()
+
+
+class TestConcurrentSignupEmailReservation(unittest.TestCase):
+    """Global duplicate-email rejection is linearized on the real HTTP path."""
+
+    def test_barrier_started_http_signups_return_one_success_and_one_email_exists(self):
+        harness = _ServiceHarness(auth_rate_limits=None)
+        email = f"race-{time.time_ns()}@example.com"
+        start = threading.Barrier(3)
+        results = [None, None]
+        errors = []
+
+        original_create_account = identity_accounts._create_account
+
+        def pause_after_the_legacy_check(*args, **kwargs):
+            # The old implementation checked the global email, committed that
+            # read, created a tenant, and only then entered _create_account.
+            # Holding both real HTTP requests here makes that old interleaving
+            # deterministic without replacing the SQLite layer.
+            start_after_check.wait(timeout=10)
+            return original_create_account(*args, **kwargs)
+
+        start_after_check = threading.Barrier(2)
+
+        def send(index):
+            try:
+                start.wait(timeout=10)
+                results[index] = harness.post(
+                    "/v1/auth/signup", {"email": email, "password": PASSWORD}
+                )
+            except Exception as exc:  # surfaced below with the thread index
+                errors.append((index, exc))
+
+        try:
+            # This synchronization wrapper is exercised only by the vulnerable
+            # implementation; the transactional fix no longer calls it.
+            with patch.object(identity_accounts, "_create_account", pause_after_the_legacy_check):
+                threads = [threading.Thread(target=send, args=(i,)) for i in range(2)]
+                for thread in threads:
+                    thread.start()
+                start.wait(timeout=10)
+                for thread in threads:
+                    thread.join(timeout=30)
+            self.assertFalse(errors, errors)
+            self.assertTrue(all(result is not None for result in results), results)
+            statuses = sorted(result[0] for result in results)
+            self.assertEqual(statuses, [201, 400], results)
+            for status, body in results:
+                if status == 400:
+                    self.assertEqual(body["error"]["code"], "email_exists")
+            with harness.service.backend.transaction() as tx:
+                row = tx.execute(
+                    "SELECT COUNT(*) AS n FROM cloud_identity_accounts WHERE email = ?",
+                    (email,),
+                ).fetchone()
+            self.assertEqual(row["n"], 1)
+        finally:
+            harness.close()
+
+
+class TestAuthJsonBoundaryTypes(AuthRateLimitTestBase):
+    """Malformed JSON field types are client errors, never internal errors."""
+
+    def test_auth_fields_with_wrong_types_return_invalid_argument_without_secrets(self):
+        secret = "password-secret-that-must-not-leak"
+        cases = (
+            ("/v1/auth/signup", {"email": 123, "password": secret}),
+            ("/v1/auth/signup", {"email": "typed@example.com", "password": {"secret": secret}}),
+            ("/v1/auth/signin", {"email": ["typed@example.com"], "password": secret}),
+            ("/v1/auth/signin", {"email": "typed@example.com", "password": False}),
+            ("/v1/org/accept_invite", {"invite_token": 123, "email": "typed@example.com", "password": secret}),
+            ("/v1/org/accept_invite", {"invite_token": "fiv_not-real", "email": {"value": "typed@example.com"}, "password": secret}),
+            ("/v1/org/accept_invite", {"invite_token": "fiv_not-real", "email": "typed@example.com", "password": [secret]}),
+        )
+        for path, body in cases:
+            with self.subTest(path=path, body=body):
+                status, response = self.harness.post(path, body)
+                self.assertEqual(status, 400, response)
+                self.assertEqual(response["error"]["code"], "invalid_argument")
+                self.assertNotIn(secret, json.dumps(response))
 
 
 if __name__ == "__main__":

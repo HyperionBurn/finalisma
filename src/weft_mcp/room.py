@@ -969,10 +969,13 @@ class RoomStore:
         def _expand(spec: str) -> set[str]:
             if spec == "*":
                 return set(active_ids)
+            if spec in active_ids:
+                # Agent identities are authoritative. A member may create a
+                # group with the same name as another agent, but that must not
+                # turn an exact unicast into a group send.
+                return {spec}
             if spec in groups:
                 return groups[spec] & active_ids
-            if spec in active_ids:
-                return {spec}
             return set()
 
         specs = _normalize_target_specs(target_spec)

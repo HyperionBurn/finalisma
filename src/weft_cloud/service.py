@@ -311,11 +311,13 @@ class WeftCloudService:
         # existing tenant as 'owner' and then mint sessions inside it. Signup
         # always provisions a fresh tenant for the new account.
         tenant_id = f"tenant_{secrets.token_hex(8)}"
-        if not email or not password:
+        if not isinstance(email, str) or not email:
             raise _ServiceError("invalid_argument", "email and password are required")
-        if not isinstance(email, str) or not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        if not isinstance(password, str) or not password:
+            raise _ServiceError("invalid_argument", "email and password are required")
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
             raise _ServiceError("invalid_argument", "email must be a valid email address")
-        if not isinstance(password, str) or len(password) < 8:
+        if len(password) < 8:
             raise _ServiceError("invalid_argument", "password must be at least 8 characters")
 
         # Public endpoint: signup mints a tenant + writes rows, so it is both a
@@ -370,7 +372,9 @@ class WeftCloudService:
         body = _read_body(handler)
         email = body.get("email")
         password = body.get("password")
-        if not email or not password:
+        if not isinstance(email, str) or not email:
+            raise _ServiceError("invalid_argument", "email and password are required")
+        if not isinstance(password, str) or not password:
             raise _ServiceError("invalid_argument", "email and password are required")
         # Enforce the shared auth limiter BEFORE the tenant lookup. Both tiers
         # (client IP and the email, counted regardless of existence) run before
@@ -471,8 +475,10 @@ class WeftCloudService:
         body = _read_body(handler)
         email = body.get("email")
         role = body.get("role", "member")
-        if not email:
+        if not isinstance(email, str) or not email:
             raise _ServiceError("invalid_argument", "email is required")
+        if not isinstance(role, str):
+            raise _ServiceError("invalid_argument", "role must be a string")
         invite_id, _raw_token = self.invites.create(ctx, email, role)
         # ``invites.create`` has durably handed the message to the configured
         # outbox before returning.  The raw fiv_ token remains exclusively in
@@ -490,7 +496,14 @@ class WeftCloudService:
         token = body.get("invite_token")
         email = body.get("email")
         password = body.get("password")
-        if not token or not email or not password:
+        if (
+            not isinstance(token, str)
+            or not isinstance(email, str)
+            or not isinstance(password, str)
+            or not token
+            or not email
+            or not password
+        ):
             raise _ServiceError("invalid_argument",
                                 "invite_token, email, and password are required")
         account_id, session_token = self.invites.accept(self.backend, token, email, password)

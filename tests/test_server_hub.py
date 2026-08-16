@@ -31,6 +31,7 @@ def _make_handler(dispatcher, token=None, origins=None):
     handler.rate_limiter = _WindowRateLimiter()
     handler.mcp_rate_limiter = _WindowRateLimiter(limit=120, window_seconds=60, max_concurrent=16)
     handler.metrics = _Metrics()
+    handler.hub_state = _ServerHubState()
     return handler
 
 
@@ -442,6 +443,97 @@ class HTTPTransportHardeningTests(unittest.TestCase):
     def tearDown(self):
         self.store.close()
         self.temp.cleanup()
+
+    def test_hub_http_requires_authorization_and_accepts_valid_token(self):
+        handler = _make_handler(self.dispatcher, token="test-token")
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            host, port = server.server_address
+            body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping", "params": {}})
+            outcomes = []
+            for auth in (None, "Bearer wrong-token", "Bearer test-token"):
+                headers = {"Content-Type": "application/json", "Origin": "http://localhost"}
+                if auth is not None:
+                    headers["Authorization"] = auth
+                connection = HTTPConnection(host, port, timeout=5)
+                connection.request("POST", "/mcp", body=body, headers=headers)
+                response = connection.getresponse()
+                payload = json.loads(response.read())
+                connection.close()
+                outcomes.append((response.status, payload))
+
+            self.assertEqual([status for status, _ in outcomes], [403, 403, 200])
+            for _, payload in outcomes[:2]:
+                self.assertEqual(payload["jsonrpc"], "2.0")
+                self.assertEqual(payload["error"]["code"], -32001)
+            self.assertEqual(outcomes[2][1]["result"], {})
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+    def test_hub_http_returns_structured_errors_for_invalid_utf8_and_body_arrays(self):
+        handler = _make_handler(self.dispatcher, token="test-token")
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            host, port = server.server_address
+            headers = {"Content-Type": "application/json", "Authorization": "Bearer test-token"}
+
+            connection = HTTPConnection(host, port, timeout=5)
+            connection.request("POST", "/mcp", body=b'{"jsonrpc":"2.0","id":1,"method":"ping","params":\xff}', headers=headers)
+            response = connection.getresponse()
+            invalid_utf8 = json.loads(response.read())
+            connection.close()
+            self.assertEqual(response.status, 400)
+            self.assertEqual(invalid_utf8["jsonrpc"], "2.0")
+            self.assertIsNone(invalid_utf8["id"])
+            self.assertEqual(invalid_utf8["error"]["code"], -32700)
+
+            connection = HTTPConnection(host, port, timeout=5)
+            connection.request("POST", "/mcp", body=b"[]", headers=headers)
+            response = connection.getresponse()
+            array_body = json.loads(response.read())
+            connection.close()
+            self.assertEqual(response.status, 400)
+            self.assertEqual(array_body["jsonrpc"], "2.0")
+            self.assertIsNone(array_body["id"])
+            self.assertEqual(array_body["error"]["code"], -32600)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+    def test_hub_http_rejects_null_list_params_and_nonstandard_json_constants(self):
+        handler = _make_handler(self.dispatcher, token="test-token")
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            host, port = server.server_address
+            headers = {"Content-Type": "application/json", "Authorization": "Bearer test-token"}
+            bodies = (
+                b'{"jsonrpc":"2.0","id":1,"method":"ping","params":null}',
+                b'{"jsonrpc":"2.0","id":2,"method":"ping","params":[]}',
+                b'{"jsonrpc":"2.0","id":3,"method":"ping","params":{"value":NaN}}',
+            )
+            responses = []
+            for body in bodies:
+                connection = HTTPConnection(host, port, timeout=5)
+                connection.request("POST", "/mcp", body=body, headers=headers)
+                response = connection.getresponse()
+                responses.append((response.status, json.loads(response.read())))
+                connection.close()
+
+            self.assertEqual([status for status, _ in responses], [200, 200, 400])
+            self.assertEqual([payload["error"]["code"] for _, payload in responses], [-32600, -32600, -32700])
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
 
     def test_concurrent_http_clients_session_send_poll_ack(self):
         pairing = _pair(self.dispatcher)

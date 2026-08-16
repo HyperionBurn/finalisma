@@ -228,6 +228,35 @@ class RoomAddressingIntegrationTests(unittest.TestCase):
         for r in receipts:
             self.assertIn(r["status"], ("queued", "in_flight"))
 
+    def test_exact_active_agent_id_wins_over_member_created_group_name(self) -> None:
+        """A member cannot divert an exact unicast by creating a colliding group."""
+        self.dispatcher.call_tool(
+            "room_groups",
+            {
+                "team_id": TEAM_ID,
+                "room_id": self.room_id,
+                "agent_id": AGENT_A3,
+                "group_name": AGENT_A2,
+                "action": "add",
+                "members": [AGENT_A3],
+                "actor_token": self.token_a3,
+            },
+        )
+
+        result = self.dispatcher.call_tool(
+            "room_send",
+            {
+                "team_id": TEAM_ID,
+                "room_id": self.room_id,
+                "sender_agent_id": OWNER_ID,
+                "target_spec": AGENT_A2,
+                "payload": {"type": "test.exact-unicast", "body": "for A2 only"},
+                "actor_token": self.token_a1,
+            },
+        )
+
+        self.assertEqual([receipt["agent_id"] for receipt in result["receipts"]], [AGENT_A2])
+
     # ------------------------------------------------------------------
     #  3. broadcast "*" with exclude_sender default true
     # ------------------------------------------------------------------

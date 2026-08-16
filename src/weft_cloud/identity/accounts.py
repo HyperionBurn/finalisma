@@ -103,29 +103,98 @@ def signup(backend: Any, tenant_id: str, email: str, password: str) -> tuple[str
     (org/invite flows), never this path.
     """
     ensure_schema(backend)
+    raw_token = generate_token("fvt")
+    token_hash = hash_token(raw_token)
+    expires_at = _time.time() + VERIFY_TTL_SECONDS
+    account_id = _new_id("acct")
+    salt = os.urandom(32)
+    password_hash = _scrypt(password, salt)
+    now_iso = utc_now_iso()
     with backend.transaction() as tx:
+        # The global-email read and every signup write share one SQLite writer
+        # transaction. At transaction entry, no competing signup can pass the
+        # check until this transaction commits or rolls back.
         row = tx.execute(
             "SELECT 1 FROM cloud_identity_accounts WHERE email = ?",
             (email,),
         ).fetchone()
-    if row is not None:
-        raise AuthError("email_exists")
-    backend.create_tenant(tenant_id, email, "free")
-    account_id = _create_account(backend, tenant_id, email, password, email_verified=0)
-    raw_token = generate_token("fvt")
-    token_hash = hash_token(raw_token)
-    expires_at = _time.time() + VERIFY_TTL_SECONDS
-    with backend.transaction() as tx:
+        if row is not None:
+            raise AuthError("email_exists")
         tx.execute(
-            "UPDATE cloud_identity_accounts SET verification_token_hash = ?, verification_expires_at = ? "
-            "WHERE account_id = ?",
-            (token_hash, expires_at, account_id),
+            "INSERT OR IGNORE INTO cloud_tenants(tenant_id, name, plan_id, created_at) "
+            "VALUES (?, ?, 'free', ?)",
+            (tenant_id, email, now_iso),
+        )
+        tx.execute(
+            "INSERT INTO cloud_identity_accounts("
+            " account_id, tenant_id, email, salt, password_hash, created_at, "
+            " email_verified, verification_token_hash, verification_expires_at"
+            ") VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)",
+            (account_id, tenant_id, email, salt, password_hash, now_iso,
+             token_hash, expires_at),
+        )
+        tx.execute(
+            "INSERT INTO cloud_identity_outbox(entry_id, tenant_id, to_email, subject, body, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (_new_id("idem"), tenant_id, email, "Verify your email",
+             f"Verify your email: {raw_token}", now_iso),
         )
         tx.commit()
-    LocalOutboxMailer(backend).send(
-        tenant_id, email, "Verify your email", f"Verify your email: {raw_token}"
-    )
     return account_id, raw_token
+
+
+def leave_membership(backend: Any, tenant_id: str, account_id: str) -> None:
+    """Remove a non-owner membership and revoke only its tenant credentials.
+
+    The operation is atomic with room offboarding. Owners are refused because
+    leaving would violate the existing ownership contract; callers must use an
+    explicit ownership transfer or org deletion flow instead.
+    """
+    ensure_schema(backend)
+    from .agent_keys import (
+        revoke_all_for_tenant_account_in_tx as revoke_all_agent_keys_for_tenant_account_in_tx,
+    )
+    from .context import RoleError
+    from .sessions import (
+        revoke_all_for_tenant_account_in_tx as revoke_all_sessions_for_tenant_account_in_tx,
+    )
+
+    with backend.transaction() as tx:
+        membership = tx.execute(
+            "SELECT role FROM cloud_identity_members "
+            "WHERE tenant_id = ? AND account_id = ?",
+            (tenant_id, account_id),
+        ).fetchone()
+        if membership is None:
+            raise AuthError("invalid_session")
+        if membership["role"] == "owner":
+            raise RoleError("owner_cannot_leave")
+
+        key_rows = tx.execute(
+            "SELECT key_id FROM cloud_identity_agent_keys "
+            "WHERE tenant_id = ? AND account_id = ?",
+            (tenant_id, account_id),
+        ).fetchall()
+        owner_ids = [account_id, *[row["key_id"] for row in key_rows]]
+        placeholders = ",".join("?" for _ in owner_ids)
+        active_room = tx.execute(
+            "SELECT 1 FROM cloud_rooms WHERE tenant_id = ? "
+            "AND owner_agent_id IN (" + placeholders + ") "
+            "AND state != 'closed' LIMIT 1",
+            (tenant_id, *owner_ids),
+        ).fetchone()
+        if active_room is not None:
+            raise RoleError("active_room_cannot_leave")
+
+        tx.execute(
+            "DELETE FROM cloud_identity_members WHERE tenant_id = ? AND account_id = ?",
+            (tenant_id, account_id),
+        )
+        revoke_all_agent_keys_for_tenant_account_in_tx(tx, tenant_id, account_id)
+        revoke_all_sessions_for_tenant_account_in_tx(tx, tenant_id, account_id)
+        from weft_cloud.rooms import offboard_account_memberships_in_tx
+        offboard_account_memberships_in_tx(tx, tenant_id, account_id)
+        tx.commit()
 
 
 def verify_email(backend: Any, verification_token: str) -> None:

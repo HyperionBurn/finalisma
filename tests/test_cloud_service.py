@@ -772,6 +772,26 @@ class TestOrderedDelivery(CloudServiceTestBase):
         targets = [r["agent_id"] for r in body["receipts"]]
         self.assertEqual(targets, [self.agent_ids[3]])
 
+    def test_member_created_group_cannot_divert_exact_unicast(self) -> None:
+        victim = self.agent_ids[0]
+        diversion = self.agent_ids[1]
+
+        status, group = _post(self.base, "/v1/rooms/groups", {
+            "room_id": self.room_id,
+            "group_name": victim,
+            "action": "add",
+            "members": [diversion],
+        }, self.agent_tokens[1])
+        self.assertEqual(status, 200, group)
+
+        status, result = _post(self.base, "/v1/rooms/send", {
+            "room_id": self.room_id,
+            "target_spec": victim,
+            "payload": {"text": "for victim only"},
+        }, self.owner["session_token"])
+        self.assertEqual(status, 200, result)
+        self.assertEqual([receipt["agent_id"] for receipt in result["receipts"]], [victim])
+
     def test_unicast_sender_can_read_back_but_other_member_is_redacted(self) -> None:
         secret = "sender-audit-only"
         status, sent = _post(self.base, "/v1/rooms/send", {

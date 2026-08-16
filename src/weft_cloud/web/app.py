@@ -40,6 +40,7 @@ from weft_cloud.identity import (
     SessionStore,
 )
 from weft_cloud.identity.accounts import signup as _identity_signup
+from weft_cloud.identity.accounts import leave_membership as _identity_leave_membership
 from weft_cloud.identity.accounts import verify_email as _identity_verify
 from weft_cloud.identity.accounts import request_password_reset as _identity_reset_request
 from weft_cloud.identity.accounts import reset_password as _identity_reset_password
@@ -1370,13 +1371,34 @@ class WeftWebApp:
                             _page("Forbidden", '<p>CSRF validation failed.</p>'))
             return
         if ctx.role == "owner":
-            members = self._list_members(ctx)
-            if len(members) > 1:
-                self._send_html(handler, HTTPStatus.BAD_REQUEST,
-                                _page("Cannot leave",
-                                      '<p>Owner cannot leave while other members exist.</p>'))
-                return
-        self._redirect(handler, "/org")
+            self._send_html(
+                handler,
+                HTTPStatus.BAD_REQUEST,
+                _page(
+                    "Cannot leave",
+                    "<p>Owners cannot leave an organization. Transfer ownership "
+                    "or delete the organization instead.</p>",
+                ),
+            )
+            return
+        try:
+            _identity_leave_membership(self.backend, ctx.tenant_id, ctx.account_id)
+        except RoleError as exc:
+            if str(exc) == "active_room_cannot_leave":
+                message = "You cannot leave while you own an active room. Close it first."
+            else:
+                message = "You cannot leave this organization."
+            self._send_html(handler, HTTPStatus.BAD_REQUEST, _page("Cannot leave", f"<p>{_esc(message)}</p>"))
+            return
+        # The leave transaction revokes the current session as well as every
+        # other session/key for this tenant, so redirect with a cleared cookie.
+        handler.send_response(HTTPStatus.SEE_OTHER)
+        handler.send_header("Location", "/login")
+        self._clear_session_cookie(handler)
+        handler.send_header("Content-Length", "0")
+        handler.send_header("Cache-Control", "no-store")
+        self._send_security_headers(handler)
+        handler.end_headers()
 
     # ------------------------------------------------------------------
     # Agent-key routes — session-cookie-gated (the interactive identity plane;

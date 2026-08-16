@@ -24,6 +24,8 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from weft_cloud.storage import SqliteWalBackend
 from weft_cloud.identity.schema import ensure_schema
+from weft_cloud.identity.agent_keys import create as create_agent_key, validate as validate_agent_key
+from weft_cloud.identity.sessions import AuthError, create as create_session, validate as validate_session
 from weft_cloud.web.app import WeftWebApp  # RED: package absent
 
 SITE_DIR = str(ROOT / "site")
@@ -401,10 +403,122 @@ class TestOwnerLeave(unittest.TestCase):
 
     def test_owner_leave_refused_while_other_members_exist(self):
         csrf = self.driver.csrf()
-        status, _, _ = self.driver.post("/org/leave", {"_csrf": csrf})
+        status, body, _ = self.driver.post("/org/leave", {"_csrf": csrf})
         self.assertIn(status, (400, 403))
+        self.assertIn("Owners cannot leave", body)
         # Org still exists.
         self.assertIsNotNone(self.driver.backend.get_tenant(self.tenant_id))
+
+
+class TestOwnerLeaveAlone(unittest.TestCase):
+    """Owner leave is a truthful refusal even when no other member exists."""
+
+    def setUp(self):
+        self.driver = WebAppDriver()
+        self.owner_email = f"owner{time.time_ns()}@example.com"
+        self.driver.login(self.owner_email, "owner-password-ok")
+        self.tenant_id = self.driver.tenant_for_email(self.owner_email)
+        self.owner_acct = self.driver.account_id_for_email(self.tenant_id, self.owner_email)
+
+    def tearDown(self):
+        self.driver.close()
+
+    def test_owner_leave_refused_truthfully_and_membership_remains(self):
+        csrf = self.driver.csrf()
+        status, body, _ = self.driver.post("/org/leave", {"_csrf": csrf})
+        self.assertEqual(status, 400)
+        self.assertIn("Owners cannot leave", body)
+        self.assertEqual(self.driver.membership_count(self.owner_acct), 1)
+        self.assertIsNotNone(self.driver.backend.get_tenant(self.tenant_id))
+
+
+class TestMemberLeave(unittest.TestCase):
+    """A non-owner leave removes membership and tenant-scoped credentials."""
+
+    def setUp(self):
+        self.driver = WebAppDriver()
+        self.owner_email = f"owner{time.time_ns()}@example.com"
+        self.driver.login(self.owner_email, "owner-password-ok")
+        self.tenant_id = self.driver.tenant_for_email(self.owner_email)
+        self.member_email = f"member{time.time_ns()}@example.com"
+        self.member_password = "member-password-ok"
+        csrf = self.driver.csrf()
+        self.driver.post(
+            "/org/invite",
+            {"email": self.member_email, "role": "member", "_csrf": csrf},
+        )
+        token = re.search(
+            r"(fiv_[A-Za-z0-9_-]+)", self.driver.last_outbox_body(self.member_email)
+        ).group(1)
+        self.driver.post(
+            f"/invite/{token}",
+            {"email": self.member_email, "password": self.member_password},
+        )
+        self.member_cookies = dict(self.driver.cookies)
+        self.member_token = self.member_cookies["fss_session"]
+        self.member_acct = self.driver.account_id_for_email(self.tenant_id, self.member_email)
+        self.key_id, self.agent_key = create_agent_key(
+            self.driver.backend, self.tenant_id, self.member_acct, "member-laptop"
+        )
+        _, self.second_session = create_session(
+            self.driver.backend, self.tenant_id, self.member_acct, "member"
+        )
+
+    def tearDown(self):
+        self.driver.close()
+
+    def test_member_leave_removes_membership_revokes_credentials_and_redirects(self):
+        self.driver.cookies.clear()
+        self.driver.cookies.update(self.member_cookies)
+        csrf = self.driver.csrf("/org")
+        status, _, headers = self.driver.post("/org/leave", {"_csrf": csrf})
+        self.assertEqual(status, 303)
+        self.assertEqual(headers["Location"], "/login")
+        self.assertNotIn("fss_session", self.driver.cookies)
+
+        with self.driver.backend.transaction() as tx:
+            membership = tx.execute(
+                "SELECT 1 FROM cloud_identity_members WHERE tenant_id = ? AND account_id = ?",
+                (self.tenant_id, self.member_acct),
+            ).fetchone()
+            key = tx.execute(
+                "SELECT revoked_at FROM cloud_identity_agent_keys WHERE tenant_id = ? AND key_id = ?",
+                (self.tenant_id, self.key_id),
+            ).fetchone()
+            sessions = tx.execute(
+                "SELECT COUNT(*) AS n FROM cloud_identity_sessions "
+                "WHERE tenant_id = ? AND account_id = ? AND revoked_at IS NULL",
+                (self.tenant_id, self.member_acct),
+            ).fetchone()
+        self.assertIsNone(membership)
+        self.assertIsNotNone(key["revoked_at"])
+        self.assertEqual(sessions["n"], 0)
+        with self.assertRaises(AuthError):
+            validate_session(self.driver.backend, self.member_token)
+        with self.assertRaises(AuthError):
+            validate_session(self.driver.backend, self.second_session)
+        with self.assertRaises(AuthError):
+            validate_agent_key(self.driver.backend, self.agent_key)
+
+    def test_non_owner_with_active_room_cannot_leave(self):
+        self.driver.app.rooms.create_room(
+            self.tenant_id,
+            self.member_acct,
+            "member-room-actor-token-1234",
+            name="member-owned-room",
+        )
+        self.driver.cookies.clear()
+        self.driver.cookies.update(self.member_cookies)
+        csrf = self.driver.csrf("/org")
+        status, body, _ = self.driver.post("/org/leave", {"_csrf": csrf})
+        self.assertEqual(status, 400)
+        self.assertIn("active room", body)
+        with self.driver.backend.transaction() as tx:
+            membership = tx.execute(
+                "SELECT 1 FROM cloud_identity_members WHERE tenant_id = ? AND account_id = ?",
+                (self.tenant_id, self.member_acct),
+            ).fetchone()
+        self.assertIsNotNone(membership)
 
 
 class TestMemberCannotAdmin(unittest.TestCase):

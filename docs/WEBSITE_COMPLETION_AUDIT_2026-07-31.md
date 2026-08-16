@@ -25,7 +25,7 @@ be inferred or fabricated.
 | YC and Product Hunt launch package | `docs/YC_APPLICATION.md`, `docs/PRODUCT_HUNT.md`, `docs/DEMO_VIDEO.md`, `docs/LAUNCH_ASSETS.md`, `docs/GO_LIVE.md` | Proven locally; founder facts still require filling |
 | Conversion without a fake backend | Local application builder validates and exports through share, clipboard, or download; explicitly transmits nothing | Proven locally |
 | Public-domain metadata and direct founder contact | `scripts/build-site-release.py` materializes absolute metadata, contact CTA, sitemap, robots declaration, and media manifest from supplied values | Implementation proven; real values missing |
- | Static/runtime correctness | 973 repository tests pass; deterministic website critic passes; browser QA has zero console errors, failed requests, or bad responses | Proven locally |
+ | Static/runtime correctness | 984 repository tests pass; deterministic website critic passes; browser QA has zero console errors, failed requests, or bad responses | Proven locally |
  | Performance regression gate | Reference file is ~72.2ms weighted median; the latest recorded performance artifact (2026-08-14; historical 929-test run) measured 72.433ms / 95.985ms p95. Quality, semantic-digest, smoke, and credential checks passed; weighted-median, routing-fanout, and session-relay timing guards were red while OpenCode was active. See docs/PERFORMANCE.md. | Incomplete: controlled idle-host rerun required |
 | Independent production-web review | Native MiMo v2.5 review returned PASS with no local P0/P1 defect; its domain-independent share findings were implemented | Proven locally |
 
