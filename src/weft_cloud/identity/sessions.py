@@ -33,18 +33,57 @@ def _new_id(prefix: str) -> str:
 
 def create(backend: Any, tenant_id: str, account_id: str, role: str,
            ttl_seconds: int = DEFAULT_TTL_SECONDS) -> tuple[str, str]:
-    """Issue a session; return (session_id, raw_token). Raw token returned once."""
+    """Issue a session for an exact tenant membership.
+
+    The signup service mints its first owner session immediately after creating
+    an unverified account and before its follow-up membership insert. Preserve
+    that narrow bootstrap window by creating the owner membership atomically;
+    all other callers must already have a matching membership and role.
+    """
     ensure_schema(backend)
     session_id = _new_id("ses")
     raw_token = generate_token("fss")
     token_hash = hash_token(raw_token)
     now = _time.time()
     with backend.transaction() as tx:
+        account = tx.execute(
+            "SELECT tenant_id, email_verified, verification_token_hash "
+            "FROM cloud_identity_accounts WHERE account_id = ?",
+            (account_id,),
+        ).fetchone()
+        membership = tx.execute(
+            "SELECT role FROM cloud_identity_members "
+            "WHERE tenant_id = ? AND account_id = ?",
+            (tenant_id, account_id),
+        ).fetchone()
+
+        if account is None or account["tenant_id"] != tenant_id:
+            raise AuthError("invalid_session")
+        if membership is None:
+            is_signup_bootstrap = (
+                role == "owner"
+                and account["email_verified"] == 0
+                and account["verification_token_hash"] is not None
+            )
+            if not is_signup_bootstrap:
+                raise AuthError("invalid_session")
+            tx.execute(
+                "INSERT INTO cloud_identity_members(tenant_id, account_id, role, joined_at) "
+                "VALUES (?, ?, 'owner', ?)",
+                (tenant_id, account_id, utc_now_iso()),
+            )
+            snapshot_role = "owner"
+        elif membership["role"] != role:
+            raise AuthError("invalid_session")
+        else:
+            snapshot_role = membership["role"]
+
         tx.execute(
             "INSERT INTO cloud_identity_sessions("
             " session_id, tenant_id, account_id, token_hash, created_at, expires_at, role_snapshot"
             ") VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (session_id, tenant_id, account_id, token_hash, utc_now_iso(), now + ttl_seconds, role),
+            (session_id, tenant_id, account_id, token_hash, utc_now_iso(), now + ttl_seconds,
+             snapshot_role),
         )
         tx.commit()
     return session_id, raw_token
