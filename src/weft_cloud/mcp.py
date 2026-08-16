@@ -18,7 +18,8 @@ nothing about which tenants, rooms, or agents exist.
 Tools exposed (the room set the product promise depends on):
 
     room_create, room_join, room_send, room_receipts, room_poll, room_wait,
-    room_info, room_ack, room_heartbeat, room_event_log
+    room_info, room_ack, room_heartbeat, room_leave, room_remove_member,
+    room_event_log
 
 The full self-hosted 58-tool surface (``register_agent``, pairing, task,
 roster, outbox, bridge, metrics, tenancy, …) is intentionally NOT exposed
@@ -244,6 +245,14 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
     {
         "name": "room_heartbeat",
         "description": "Refresh your presence (last_seen) in a Room.",
+        "inputSchema": _object_schema({"room_id": _STRING}, ["room_id"]),
+    },
+    {
+        "name": "room_leave",
+        "description": (
+            "Leave a Room you are a member of: your seat is freed immediately "
+            "and you lose room access. History and attribution are preserved."
+        ),
         "inputSchema": _object_schema({"room_id": _STRING}, ["room_id"]),
     },
     {
@@ -639,6 +648,14 @@ class HostedMCPDispatcher:
     def _tool_room_heartbeat(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:
         room_id = self._required(args, "room_id")
         return self._room_call(lambda: self.rooms.heartbeat(
+            tenant_id=self._room_tenant(room_id, ctx.agent_id),
+            room_id=room_id,
+            agent_id=ctx.agent_id,
+        ))
+
+    def _tool_room_leave(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:
+        room_id = self._required(args, "room_id")
+        return self._room_call(lambda: self.rooms.leave_room(
             tenant_id=self._room_tenant(room_id, ctx.agent_id),
             room_id=room_id,
             agent_id=ctx.agent_id,

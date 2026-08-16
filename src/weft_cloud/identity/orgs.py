@@ -73,9 +73,20 @@ def add_member(ctx: SessionContext, email: str, role: str = "member") -> tuple[s
     onboarding handoff: only ``invites.accept`` may create the account,
     establish membership, set a caller-chosen password, and mark the email
     verified because possession of the single-use invite is proof.
+
+    ``role="owner"`` additionally requires an owner caller — the
+    transfer-ownership rule, mirroring ``set_role`` — so an admin can never
+    mint a new owner this way. Even for an owner caller it is then refused
+    outright: ownership transfer always goes through ``set_role`` on an
+    existing member, never through a brand-new invited account (the invite
+    role vocabulary itself excludes ``owner``).
     """
     ctx = _require_ctx(ctx)
     ensure_schema(ctx.backend)
+    if role == "owner":
+        ctx.require_role("owner")
+        require_db_role(ctx.backend, ctx.tenant_id, ctx.account_id, "owner")
+        raise ValueError("owner transfer is explicit; use set_role")
     if role not in ("member", "admin"):
         raise ValueError("new members must use the invite flow; owner transfer is explicit")
     ctx.require_role("admin")

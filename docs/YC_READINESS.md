@@ -20,27 +20,24 @@ blocked implementation that needs a second agent.
 
 ## Current diligence proof
 
-The repository currently demonstrates 1057 passing standard-library tests,
+ The repository currently demonstrates 929 passing standard-library tests,
 including concurrent one-use pairing, member-bound session credentials,
 ordered replay, restart durability, cross-team boundaries, workspace scope
 checks, secret detection, HTTP origin/rate-limit behavior, tenancy isolation,
 roster routing, durable outbox, bridge adapters, SDK flows, MCP handshake,
 and the stdio-to-hosted bridge (docs/STDIO_BRIDGE.md).
-compatibility. A real launcher-level socket smoke test also passed health,
+A real launcher-level socket smoke test also passed health,
 MCP initialization, metrics, CORS preflight, and coordinator team scoping. The
 repository also contains a static marketing site (Astro-built from `web/`) and a dependency-free coordinator. A deterministic browser demo,
 real protocol smoke runner, three focused articles, and launch drafts.
 
 A locked same-machine performance gate also exercises 32-agent routing,
 session relay, and full evidence-gated handoff scenarios. Its current reference
-artifact is 72.221 ms; the latest recorded local gate (2026-08-14; historical
-929-test artifact) measured 72.433 ms weighted median / 95.985 ms p95. Quality,
-semantic-digest, smoke, and
-credential checks passed; weighted-median, routing-fanout, and session-relay
-timing guards were red while OpenCode was active. A previous 928-test run
-passed all timing guards at 65.473 ms / 70.630 ms. The earlier
-~77.5 ms and 95.31% figures are historical provenance preserved in
-docs/PERFORMANCE.md and the baseline `history` array.
+artifact is 72.221 ms; the latest complete local gate measured 137.404 ms weighted
+median / 155.381 ms p95 and failed its timing guards while its quality sub-gates
+passed. A controlled idle-host rerun remains required before attributing that
+regression to code. The earlier ~77.5 ms and 95.31% figures are historical
+provenance preserved in docs/PERFORMANCE.md and the baseline `history` array.
 This is strong single-node engineering evidence, not a hosted-service latency claim.
 
 That is credible technical proof for a single-node prototype. It is not proof
@@ -94,9 +91,10 @@ not a signup funnel.
 
 Keep the first experiment simple:
 
-- free: one workspace, two agents, low event retention;
-- team: a monthly workspace fee with more agents, audit retention, and policy
-  controls;
+- free: up to 10 members per room, 60 messages/min per room, 20 signups per IP
+  per 15 minutes;
+- pro: $39/seat/month, up to 50 members per room, same 60 messages/min per
+  room;
 - business: SSO, retention controls, shared storage, and deployment support.
 
 Do not price by raw model tokens until the product owns a measurable outcome.

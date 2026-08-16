@@ -8,7 +8,7 @@
 // (playwright resolved from the pinned cache path used elsewhere in this repo)
 const { chromium } = require('C:/Users/Wasif/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
 
-const INDEX = 'file:///C:/Users/Wasif/Documents/Multiplayer-AI-film/video/index.html';
+const INDEX = 'file:///C:/Users/Wasif/Documents/Multiplayer-AI-perfect/video/index.html';
 
 const times = [];
 for (let t = 26.5; t <= 30.0 + 1e-9; t += 0.25) times.push(Math.round(t * 100) / 100);

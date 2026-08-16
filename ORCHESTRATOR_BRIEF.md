@@ -4,8 +4,44 @@
 **Branch:** `isolated` · **Worktree:** `C:\Users\Wasif\Documents\Multiplayer-AI-isolated`
 **Status at brief time:** Wave A (8 LongCat-2.0 lanes) dispatched 12:19, in flight. 180 tests, 6 failures + 14 errors.
 
+---
+
+## PART 0.0 — CURRENT STATE (2026-08-15, supersedes the header for this worktree)
+
+This worktree is **`C:\Users\Wasif\Documents\Multiplayer-AI-perfect`** on branch
+**`feature/product-perfect`**. Everything below PART 0.0 is the original
+isolated-worktree brief and remains historical record; PART 1's "stale
+sections" list described the isolated tree, NOT this one. In this tree:
+`AGENT_HANDOVER.md` §2.1/§2.2 already document FIELD NOTES and §5 already
+describes opencode's `task` tool; only §9 named the wrong worktree (fixed
+2026-08-15). `AGENTS.md` here is itself a stale copy of the isolated rules
+file and must not be treated as ground truth.
+
+**Known-good baseline (measured this session):** `python -B -m unittest
+discover -s tests` → **Ran 960 tests, OK**. Merge-gate PASS. Branch carries
+`b1645d6..a572db3`; the five newest commits are `67c30ae` (seven-scene
+hard-cut film), `c9f4e0e` (SDK drives all 12 hosted room tools, 429
+structured errors, hosted-mode identity-arg stripping), `1e0aa5a` (REST
+`/v1/rooms/receipts` + `/v1/rooms/remove_member`; 400 `invalid_argument` /
+`invalid_cursor` on bad cursors), `d344ebe` (truthful agent-key signout;
+admin cannot mint owner), `a572db3` (film S7 camera docs).
+
+**Lane state:**
+
+| Lane | Scope | State |
+|---|---|---|
+| L1 | Scale proof at 10/50 agents | In flight, separate worktree — no numbers claimed here until it lands with evidence |
+| L2 | Performance gate; owns `docs/PERFORMANCE.md` | Gate red under host-load noise; controlled idle-host rerun pending. Do not restate perf numbers anywhere else |
+| L3 | Interop breadth; writing `docs/INTEROP_VALIDATION_2026-08-15.md` | In flight. Tier transcripts exist: `docs/INTEROP_{HTTP,BRIDGE,SDK}_2026-08-05.md` |
+| L10 | ROADMAP + OPS DOCS (this lane) | Done — see report |
+
+**Do not let any lane claim as done:** scale numbers (L1), perf figures (L2),
+interop breadth (L3), or the Docker image build (untested where Docker
+exists, per `docs/DEPLOY.md`).
+
 Read PART 0 and PART 1 before you touch anything or dispatch another lane. PART 1 contains
-five facts the repository itself asserts that are **false**. If you or a lane trusts them, you
+five facts the repository itself asserts that are **false** for the isolated worktree it
+was written against. If you or a lane trusts them, you
 will destroy correct work.
 
 ---

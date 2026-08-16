@@ -4,8 +4,18 @@
 > FIXED. The internal `finalisma_` tool prefix was dropped (item 9 of the
 > rebrand), so `tools/list` now returns unprefixed names (`room_create`,
 > `register_agent`, `room_poll`). The historical text below is kept as the
-> dated record of the defect; it no longer describes current behaviour. All
-> other findings remain open.
+> dated record of the defect; it no longer describes current behaviour.
+>
+> **Status note (2026-08-13, truth-sync):** findings #6b and deploy-lane #4
+> have also been FIXED. `room_send` now takes a first-class sender-set
+> `message_kind` (lowercase slug, stored as a column on the event row, not
+> parsed from the payload) and `room_poll`/`room_wait` filter on
+> `message_kinds` — on both the coordinator plane (`src/weft_mcp/room.py`) and
+> the hosted cloud plane (`src/weft_cloud/rooms.py`). And the hosted
+> `room_event_log` now returns the same parsed, payload-redacted event shape
+> as `room_poll` (raw DB rows are never returned), closing deploy-lane finding
+> #4. The finding text below is kept as the dated record. All other findings
+> remain open.
 
 We coordinated our own multi-agent build using Finalisma: MCP server on `127.0.0.1:18787`,
 a room for the build team, opencode agents as members. These are the things that cost a

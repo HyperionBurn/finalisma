@@ -121,10 +121,10 @@ class LaunchSurfaceTests(unittest.TestCase):
         # Site-truth lane (2026-08-08): the demo is a simulation, so nothing on
         # the landing page may label it "live"; the outdated "we have not run
         # this in production" clause is replaced by the truthful deployed +
-        # own-test statement (40-agent run, our own traffic).
+        # own-test statement (50-agent run, our own traffic).
         self.assertNotIn("Live demo", html)
         self.assertNotIn("we have not run this in production", html)
-        self.assertIn("40 independent agents", html)
+        self.assertIn("50 agents", html)
         self.assertIn("not customer traffic", html)
 
     def test_site_never_overclaims_liveness_or_enforcement(self) -> None:

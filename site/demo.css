@@ -40,7 +40,8 @@ html, body { margin: 0; min-height: 100%; background: var(--demo-ground); color:
 .demo-stage-body {
   width: 100vw;
   height: 100vh;
-  overflow: hidden;
+  overflow-x: clip;
+  overflow-y: hidden;
   font-family: var(--demo-mono);
   background:
     linear-gradient(90deg, var(--demo-ground) 0 37%, var(--demo-credit) 37% 100%);
@@ -193,7 +194,7 @@ html, body { margin: 0; min-height: 100%; background: var(--demo-ground); color:
 .demo-watch-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 12px; margin-top: 48px; }
 
 @media (max-width: 900px) {
-  .demo-watch-main { grid-template-columns: 1fr; }
+  .demo-watch-main { grid-template-columns: minmax(0, 1fr); }
   .demo-watch h1,
   .demo-watch-dek,
   .demo-video-frame { grid-column: 1; }
@@ -202,10 +203,10 @@ html, body { margin: 0; min-height: 100%; background: var(--demo-ground); color:
 }
 
 @media (max-width: 760px) {
-  .demo-proof-grid { grid-template-columns: 1fr 1fr; }
+  .demo-proof-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .demo-proof-grid > div:nth-child(2) { border-right: 0; }
   .demo-proof-grid > div:nth-child(-n+2) { border-bottom: 1px solid var(--demo-rule); }
-  .demo-transcript { grid-template-columns: 1fr; gap: 28px; }
+  .demo-transcript { grid-template-columns: minmax(0, 1fr); gap: 28px; }
   .demo-video-note { flex-direction: column; }
 }
 

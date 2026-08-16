@@ -291,6 +291,40 @@ class OrgsRolesStructuralEnforcementTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(owner_row["role"], "owner")
 
+    # -- 6b. transfer-ownership rule: an admin cannot mint an owner member --
+    def test_admin_cannot_add_member_with_owner_role(self) -> None:
+        """Only an owner can transfer/mint ownership. ``add_member`` gates the
+        CALLER at admin, but unlike ``set_role`` it never gates the TARGET
+        role — an admin can call ``add_member(ctx, email, role="owner")`` and
+        mint a new owner (who can then delete the org, remove the admin, etc.).
+
+        The transfer-ownership rule (see ``set_role``, WEBAPP_DESIGN.md #16)
+        must hold here too: owner-minting requires an owner caller.
+        """
+        admin_id, _ = _accept_member_invite(
+            self.backend,
+            self.owner_ctx,
+            "admin-c@example.com",
+            "CorrectHorse-Battery-Staple!42",
+            role="admin",
+        )
+        _, admin_token = sessions.create(self.backend, self.tenant_a, admin_id, role="admin")
+        admin_ctx = sessions.validate(self.backend, admin_token)
+
+        with self.assertRaises(RoleError) as ctx_exc:
+            orgs.add_member(admin_ctx, "puppet-owner@example.com", role="owner")
+        self.assertEqual(ctx_exc.exception.code, "forbidden")
+
+        # Defence: the owner membership must not exist either way.
+        with self.backend.transaction() as tx:
+            row = tx.execute(
+                "SELECT 1 FROM cloud_identity_members m "
+                "JOIN cloud_identity_accounts a ON a.account_id = m.account_id "
+                "WHERE m.tenant_id = ? AND a.email = ? AND m.role = 'owner'",
+                (self.tenant_a, "puppet-owner@example.com"),
+            ).fetchone()
+        self.assertIsNone(row, "an admin-minted owner membership must never exist")
+
     # -- 7. role change revokes the target's existing sessions (rotation) --
     def test_set_role_revokes_target_sessions(self) -> None:
         promotee_id, _ = _accept_member_invite(

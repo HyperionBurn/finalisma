@@ -493,9 +493,23 @@ class RoomStore:
         ``agent_id`` — the caller's authenticated account, never a request
         argument — and a missing row is a no-op. Callers invoke this AFTER
         ``_require_authenticated_member``, so auth is established first.
+        Performance contract: the throttle check happens IN MEMORY first, so
+        the common case (a busy caller inside the touch window) does ZERO
+        database work — a naive per-call SELECT in this hot path cost ~50% on
+        the coordinator envelope benchmark (locked perf gate regression). The
+        memo is a throttle only, never an authorization or correctness input.
         """
         if now is None:
             now = _epoch()
+        memo = getattr(self, "_touch_memo", None)
+        if memo is None:
+            memo = {}
+            self._touch_memo = memo
+        key = (room_id, agent_id)
+        last = memo.get(key)
+        if last is not None and now - last < ROOM_LIVENESS_TOUCH_INTERVAL:
+            return
+        memo[key] = now
         row = conn.execute(
             "SELECT last_seen FROM room_members WHERE room_id = ? AND agent_id = ?",
             (room_id, agent_id),
@@ -633,6 +647,47 @@ class RoomStore:
             )
             self._append_event(conn, room_id, agent_id, "room.left", {"agent_id": agent_id})
             return {"room_id": room_id, "agent_id": agent_id, "status": "left"}
+
+    def remove_member(self, team_id: str, room_id: str, owner_agent_id: str,
+                      target_agent_id: str, actor_token: str) -> dict[str, Any]:
+        """Remove one active member from a room (owner only, NOT a ban).
+
+        Mirrors the cloud-plane remove_member: the membership row flips to
+        ``left`` (history and attribution preserved), group membership and the
+        member's cursor row are cleaned up, and a ``room.left`` event records
+        the removal with ``reason: removed_by_owner``. A removed member who
+        still holds a valid link can rejoin.
+        """
+        _validate_id(owner_agent_id, "owner_agent_id")
+        _validate_id(target_agent_id, "target_agent_id")
+        with self._transaction() as conn:
+            room = self._require_authenticated_member(conn, team_id, room_id,
+                                                      owner_agent_id, actor_token)
+            if room["owner_agent_id"] != owner_agent_id:
+                raise RoomError("owner_required", "Only the room owner can remove a member")
+            if target_agent_id == room["owner_agent_id"]:
+                raise RoomError("owner_required", "The room owner cannot be removed")
+            target = conn.execute(
+                "SELECT 1 FROM room_members WHERE room_id = ? AND agent_id = ? AND status = 'active'",
+                (room_id, target_agent_id),
+            ).fetchone()
+            if target is None:
+                raise RoomError("member_not_found", "Member not found in this room")
+            conn.execute(
+                "UPDATE room_members SET status = 'left' WHERE room_id = ? AND agent_id = ?",
+                (room_id, target_agent_id),
+            )
+            conn.execute(
+                "DELETE FROM room_group_members WHERE room_id = ? AND agent_id = ?",
+                (room_id, target_agent_id),
+            )
+            conn.execute(
+                "DELETE FROM room_cursors WHERE room_id = ? AND agent_id = ?",
+                (room_id, target_agent_id),
+            )
+            self._append_event(conn, room_id, owner_agent_id, "room.left",
+                               {"agent_id": target_agent_id, "reason": "removed_by_owner"})
+            return {"room_id": room_id, "agent_id": target_agent_id, "status": "left"}
 
     def close_room(self, team_id: str, room_id: str, caller_agent_id: str, actor_token: str) -> dict[str, Any]:
         _validate_id(caller_agent_id, "caller_agent_id")
@@ -886,6 +941,20 @@ class RoomStore:
         with self._transaction() as conn:
             room = self._require_authenticated_member(conn, team_id, room_id, sender_agent_id, actor_token)
             self._touch_member(conn, room_id, sender_agent_id)
+            # Lazy TTL close. Auth precedes this check, so a bad token still
+            # gets actor_auth_invalid for real and fake rooms alike (the
+            # no-oracle contract). The close COMMITS before the refusal raise
+            # so it cannot roll back with it.
+            if room["state"] != "closed" and float(room["expires_at"] or 0.0) > 0 \
+                    and float(room["expires_at"]) < _epoch():
+                conn.execute(
+                    "UPDATE room_rooms SET state = 'closed' WHERE room_id = ?",
+                    (room_id,),
+                )
+                self._append_event(conn, room_id, room["owner_agent_id"],
+                                   "room.closed", {"reason": "ttl_expired"})
+                conn.commit()
+                raise RoomError("room_closed", "Room is closed")
             if room["state"] == "closed":
                 raise RoomError("room_closed", "Room is closed")
             targets = self._route_targets(conn, room_id, target_spec)
