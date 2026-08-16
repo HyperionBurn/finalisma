@@ -11,9 +11,9 @@ functions:
 
 ## Current verified suite
 
-The current repository suite is **953 tests**. The performance measurements below
+The current repository suite is **973 tests**. The performance measurements below
 are dated historical captures from the earlier **929-test** suite; they are not
-current 953-test performance results.
+current 973-test performance results.
 
 ## Historical performance result (latest recorded 929-test run)
 
@@ -48,7 +48,7 @@ contract.
 An earlier complete run measured 71.349 ms / 79.400 ms p95, but failed a
 single session-relay p95 guard (+20.15%) and initially exposed a stale published
 test count. The historical benchmark-run count is 894; the current repository
-suite is 953 tests after subsequent security and lifecycle coverage. Three isolated seven-trial
+suite is 973 tests after subsequent security and lifecycle coverage. Three isolated seven-trial
 captures on the same host produced weighted medians of 73.981 ms, 87.975 ms,
 and 101.820 ms while the machine was under its normal background workload.
 That spread is evidence of measurement variance, not a stable optimization or
