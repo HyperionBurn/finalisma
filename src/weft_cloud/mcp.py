@@ -163,11 +163,12 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "room_send",
-        "description": "Address one member, a named group, or the whole room with a payload, returning durable per-recipient receipts. Each receipt separates delivery status from recipient read_status; the sender may audit its own targeted message while other non-addressees receive a redacted envelope. Pass the same idempotency_key when retrying a send that may have succeeded but lost its response — the retry returns the original event's seq and receipts instead of duplicating.",
+        "description": "Address one member, a named group, or the whole room with a payload, returning durable per-recipient receipts. Each receipt separates delivery status from recipient read_status; the sender may audit its own targeted message while other non-addressees receive a redacted envelope. Optional message_kind labels the event for filtered polling. Pass the same idempotency_key when retrying a send that may have succeeded but lost its response — the retry returns the original event's seq and receipts instead of duplicating.",
         "inputSchema": _object_schema({
             "room_id": _STRING,
             "target_spec": _JSON_VALUE,
             "payload": _JSON_VALUE,
+            "message_kind": _STRING,
             "exclude_sender": _BOOLEAN,
             "idempotency_key": _STRING,
         }, ["room_id", "target_spec", "payload"]),
@@ -186,11 +187,12 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "room_poll",
-        "description": "Replay ordered Room events from your per-member cursor. At-least-once; ack to advance your own cursor.",
+        "description": "Replay ordered Room events from your per-member cursor. At-least-once; ack to advance your own cursor. Optional message_kinds filters sender-labeled events while preserving the full-stream cursor.",
         "inputSchema": _object_schema({
             "room_id": _STRING,
             "after_seq": _INTEGER,
             "limit": _INTEGER,
+            "message_kinds": _STRING_LIST,
         }, ["room_id"]),
     },
     {
@@ -553,6 +555,7 @@ class HostedMCPDispatcher:
             payload=self._required(args, "payload"),
             exclude_sender=bool(args.get("exclude_sender", True)),
             idempotency_key=args.get("idempotency_key"),
+            message_kind=args.get("message_kind"),
         ))
 
     def _tool_room_receipts(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:
@@ -572,6 +575,7 @@ class HostedMCPDispatcher:
             agent_id=ctx.agent_id,
             after_seq=args.get("after_seq"),
             limit=args.get("limit", 100),
+            message_kinds=args.get("message_kinds"),
         ))
 
     def _tool_room_wait(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:

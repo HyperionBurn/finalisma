@@ -259,6 +259,30 @@ class CloudCursorGuardTests(unittest.TestCase):
             "a filtered page that scanned the stream must report the full-stream cursor",
         )
 
+    def test_hosted_mcp_message_kind_filter_round_trip(self) -> None:
+        owner, member, created = self._pair("mcp-filter")
+        sent = self._assert_ok(owner["session_token"], "room_send", {
+            "room_id": created["room_id"],
+            "target_spec": member["account_id"],
+            "payload": {"text": "status-only"},
+            "message_kind": "status",
+        }, request_id=10)
+
+        filtered = self._assert_ok(member["session_token"], "room_poll", {
+            "room_id": created["room_id"],
+            "after_seq": 0,
+            "message_kinds": ["result"],
+        }, request_id=11)
+        self.assertEqual(filtered["events"], [])
+        self.assertEqual(filtered["next_seq"], filtered["cursor_head"])
+
+        matching = self._assert_ok(member["session_token"], "room_poll", {
+            "room_id": created["room_id"],
+            "after_seq": 0,
+            "message_kinds": ["status"],
+        }, request_id=12)
+        self.assertIn(sent["seq"], [event["seq"] for event in matching["events"]])
+
     def test_json_rpc_rejects_non_object_params(self) -> None:
         account = self._signup("params-shape@example.com")
         for malformed in (False, []):
