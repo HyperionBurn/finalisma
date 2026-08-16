@@ -138,7 +138,9 @@ source pages carry the documented marketing origin in `rel="canonical"` and
 `og:url`, a real `robots.txt` policy, and a committed `sitemap.xml`, so even a
 raw `site/` deploy is SEO-correct. The Vercel deploy runs the materializer as
 its build command (`scripts/vercel-build.py` → `scripts/build-site-release.py`),
-so a push to the connected branch is already a materialized release. The
+so an authorized push to the connected branch is configured to produce a
+materialized release; the currently reachable Vercel deployment must still be
+re-probed after that push. The
 materializer rewrites the baked canonical/OG URLs to the deployment origin
 (`WEFT_SITE_ORIGIN`, default `https://finalisma.vercel.app`), so a non-default
 origin stays correct too. `WEFT_CONTACT_URL` — a founder-owned HTTPS contact

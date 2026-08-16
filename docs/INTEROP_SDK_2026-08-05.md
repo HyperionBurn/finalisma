@@ -16,9 +16,11 @@
 - Addressing: unicast (receipt for exactly the target), group (create via `room_groups` add, send to group name, receipts for the two members), broadcast `*` (receipts for the other two, sender excluded).
 - Ordered event log + per-member cursors: each member polls from `after_seq=0`, events ascend by `seq`, no duplicate seqs, ack advances a monotonic cursor.
 - Reconnect: a fresh `WeftClient` reusing agent-b's `agent_id`+`actor_token` polls from `after_seq=0` → full ordered log with no loss/duplicates; polls from `last_ack_seq` → zero already-acked events replayed.
-- Negative cases: non-member `room_poll` and `room_info` refused with `member_required`; existing-member identity reuse with a **different** actor token refused with `actor_auth_invalid`.
+- Negative cases: non-member `room_poll` and `room_info` refused with the
+  non-enumerating `room_not_found`; existing-member identity reuse with a
+  **different** actor token refused with `actor_auth_invalid`.
 
-> **Superseded 2026-08-08 (enumeration fix):** a non-member is now refused with `room_not_found`
+> **Superseded 2026-08-08 (enumeration fix):** a non-member is now refused with `room_not_found`.
 > on every member-only room tool — identical to a fabricated `room_id` (no existence oracle).
 > `member_required` is retained only for entitled members (e.g. a member adding a non-active
 > *target* to a group). See `docs/ROOMS_DESIGN.md` §8/§9.
@@ -182,7 +184,7 @@ python -B scripts/weft-smoke.py
 | Unicast / group / broadcast receipts | PROVEN |
 | Ordered replay, per-member cursors | PROVEN |
 | Reconnect: no loss, no duplicates | PROVEN |
-| Non-member refused (`member_required`) | PROVEN |
+| Non-member refused (`room_not_found`, non-enumerating) | PROVEN |
 | Actor-overwrite refused (`actor_auth_invalid`) | PROVEN |
 | Non-Python third-party client via SDK | **NOT PROVEN** (SDK is Python-only) |
 | Rooms via SDK dedicated API (not `_call`) | **NOT PROVEN** (SDK has no `room_*` methods) |

@@ -26,7 +26,11 @@ Do not present the legacy `fst_*` credentials as aliases for hosted `agk_` keys.
   account no longer has valid membership in the key's tenant.
 - Validation re-derives the current tenant membership and role on every
   request. Demotion therefore takes effect on the next request.
-- Password reset revokes the account's active sessions and agent keys.
+- Password reset revokes the account's active sessions and agent keys, and
+  releases those keys' active room seats in the same transaction.
+- Bulk key revocation follows the same seat-release rule; historical room
+  events remain attributed to the revoked identity, while a replacement key
+  can take the freed capacity.
 - Admin membership removal revokes the account's keys for that tenant in the
   same transaction as membership deletion. Re-adding the account does not
   resurrect those keys; a new key is required. Keys in another tenant are not

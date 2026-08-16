@@ -294,16 +294,16 @@ The current SQLite runtime is a durable single-node coordinator. Read
 multi-instance or untrusted public traffic; shared storage, OAuth/OIDC,
 distributed rate limiting, and an outbox are required for that deployment tier.
 
-The single-node runtime uses bounded, thread-safe idle SQLite connection pools
-to avoid reopening the database for every handoff operation. Long-lived library
-callers should use `with WeftStore(...) as store:` or call `store.close()`
-during shutdown. The performance reference file records a ~72.2ms weighted
-median, but the latest full gate run is not green: it measured 137.404ms weighted
-median / 155.381ms p95 and rejected the weighted-median and scenario-p95 guards.
-That run passed all 894 tests, protocol smoke, and credential redaction, but it
-was executed while an OpenCode process was consuming substantial host resources;
-the timing regression is therefore an unresolved release blocker, not a stable
-product-latency claim. The baseline was not rewritten to make the gate pass.
+ The single-node runtime uses bounded, thread-safe idle SQLite connection pools
+ to avoid reopening the database for every handoff operation. Long-lived library
+ callers should use `with WeftStore(...) as store:` or call `store.close()`
+ during shutdown. The performance reference file records a ~72.2ms weighted
+median, and the latest full gate run measured 72.433ms weighted median /
+95.985ms p95 across 929 tests. Quality, smoke, credential redaction, and
+semantic digests passed; weighted-median, routing-fanout, and session-relay
+timing guards were red while OpenCode was active. A previous 928-test run
+passed all timing guards at 65.473ms / 70.630ms. The baseline was not
+rewritten; an idle controlled-host rerun is required for a stable timing claim.
 Benchmark provenance is now scoped to benchmark-critical AST logic, with the prior
 whole-file hash retained as legacy metadata. Do not treat this as a universal
 latency claim; see

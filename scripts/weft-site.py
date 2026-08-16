@@ -19,6 +19,13 @@ from weft_cloud.web.security_headers import security_headers
 class QuietSiteHandler(SimpleHTTPRequestHandler):
     server_version = "WeftSite/0.1"
 
+    def copyfile(self, source, outputfile) -> None:
+        """Treat a browser closing a download as a normal request outcome."""
+        try:
+            super().copyfile(source, outputfile)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            return
+
     def translate_path(self, path: str) -> str:
         """Mount the self-contained static launch site at /."""
         root = Path(self.directory or os.curdir).resolve()

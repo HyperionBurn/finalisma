@@ -17,6 +17,8 @@ import tempfile
 import time
 from pathlib import Path
 
+from _transcript_safety import redact_transcript_line
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
@@ -61,14 +63,15 @@ def main() -> int:
         payload = {"jsonrpc": "2.0", "id": request_id, "method": method}
         if params is not None:
             payload["params"] = params
-        transcript.append(f"> {json.dumps(payload, separators=(",", ":"))}")
+        encoded_payload = json.dumps(payload, separators=(",", ":"))
+        transcript.append(f"> {redact_transcript_line(encoded_payload)}")
         assert proc.stdin is not None and proc.stdout is not None
-        proc.stdin.write(json.dumps(payload, separators=(",", ":")) + "\n")
+        proc.stdin.write(encoded_payload + "\n")
         proc.stdin.flush()
         line = proc.stdout.readline()
         if not line:
             raise InteropError("server closed stdin without a reply")
-        transcript.append(f"< {line.strip()}")
+        transcript.append(f"< {redact_transcript_line(line.strip())}")
         reply = json.loads(line)
         if "error" in reply:
             raise InteropError(f"JSON-RPC error {reply['error']}")
@@ -181,12 +184,27 @@ def main() -> int:
         print(json.dumps({"status": "failed", "error": str(exc), "transcript": transcript}, indent=2))
         return 1
     finally:
-        proc.terminate()
+        # Let the stdio reader observe EOF so __main__.finally can close the
+        # store cleanly. TerminateProcess on Windows skips Python finally
+        # blocks and can leave SQLite handles open long enough to make
+        # TemporaryDirectory.cleanup raise WinError 32.
+        if proc.stdin is not None:
+            try:
+                proc.stdin.close()
+            except OSError:
+                pass
         try:
             proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait(timeout=10)
+            proc.terminate()
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=10)
+        for stream in (proc.stdout, proc.stderr):
+            if stream is not None:
+                stream.close()
         scratch.cleanup()
 
 

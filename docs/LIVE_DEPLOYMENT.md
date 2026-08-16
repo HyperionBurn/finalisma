@@ -1,35 +1,37 @@
 # Live deployment — what is running, where, and how to fix it
 
-**Status: reachable, but current release synchronization and behavior are not verified.**
+**Status: reachable, with current release drift confirmed.**
 
-## Current read-only verification (2026-08-13)
+## Current read-only verification (2026-08-14)
 
 The fresh read-only probe completed without changing the hosted service. Azure
-`/health` and `/healthz` returned HTTP 200; `/` returned 303 to `/login`,
-`/login` and `/signup` returned 200, HTTP redirected 301 to HTTPS, and the
-unauthenticated REST room-create and MCP calls were refused (401 / JSON-RPC
-Unauthorized). The live Azure web/API responses carried HSTS, CSP where
-applicable, `X-Frame-Options: DENY`, and `Referrer-Policy: no-referrer`.
-`/.well-known/agent-card.json` returned 200. The Azure origin's `/robots.txt`
-and `/sitemap.xml` returned 200 but still carried the old Finalisma metadata;
-the Vercel origin returned 200 for `/`, but its `robots.txt` had no Sitemap
-line, `/sitemap.xml` returned 404, and `/release-manifest.json` returned 404.
+`/healthz` returned HTTP 200; `/` returned 303 to `/login`, and `/login`
+returned 200 with CSP, HSTS, `X-Frame-Options: DENY`, and
+`Referrer-Policy: no-referrer`. Azure `/robots.txt` and `/sitemap.xml` returned
+200 but still point at the old Finalisma metadata. Vercel `/` returned 200, but
+its `robots.txt` is only `User-agent: * / Allow: /`, `/sitemap.xml` and
+`/release-manifest.json` returned 404, and the homepage has no canonical or
+`og:url` metadata. The live browser QA harness also timed out because the
+deployed homepage lacks the documented `data-cohort-build` button.
+
 That is deployment drift, not proof that the current Weft marketing bundle is
 deployed there. The local Vercel materializer was separately verified in an
-isolated output (16 pages, manifest/sitemap/robots/canonical/contact checks
-green), but no deployment was performed. A fresh authenticated multi-agent
-proof is not claimed here; it requires authorized credentials and a disposable
-room.
+isolated output, but no deployment was performed. A fresh authenticated
+multi-agent proof is not claimed here; it requires authorized credentials and a
+disposable room.
 
-The current Weft customer probe used OpenCode with the exact model
-`opencode-go/deepseek-v4-pro`. It confirmed hosted room membership, ordered
-replay, redaction of lifecycle/private payloads for a non-addressee, and queued
-outbox receipts. It did **not** verify that the latest local lifecycle-visibility,
-coordinator-liveness, or durable `read_status` receipt changes are deployed:
-the hosted event log still showed redacted lifecycle envelopes, and the live
-send receipts remained `queued` rather than delivered/read. No Claude member or
-Claude-authored message was observed in the current room, so no three-agent
-acceptance claim is made.
+The source `vercel.json` now applies the same wildcard security-header contract
+as the coordinator (CSP, HSTS, `nosniff`, `Referrer-Policy`, frame protection,
+and `Permissions-Policy`). `tests/test_vercel_config.py` locks the two
+surfaces together; the live probe will remain `DRIFT` until an authorized
+Vercel deployment materializes this configuration.
+
+The attached OpenCode transcript is historical and belongs to a different room.
+It displayed the model label **DeepSeek V4 Pro (New)**, joined successfully, and
+reached `room_wait`, but the transcript ends before the wait result and
+idempotency checks. It is not evidence of current production behavior or of
+the active release room. No Claude member or Claude-authored message was
+observed in the current room, so no three-agent acceptance claim is made.
 
 | Surface | URL | Hosted on |
 |---|---|---|
@@ -132,6 +134,19 @@ slash. A path, bare hostname, or `http` scheme fails the build loudly rather tha
 broken CTAs.
 
 ## Verifying the whole thing works
+
+Run the credential-free, read-only release probe before making a hosted
+release claim:
+
+```powershell
+python -B .\scripts\probe_live_release.py --pretty
+```
+
+Exit `0` means the API, site bundle, indexing files, manifest, and expected
+security headers align. Exit `2` (`DRIFT`) means the surfaces are reachable
+but the deployed bundle is not the documented release; exit `3` means the
+required surfaces are not reachable. The probe never authenticates or mutates
+rooms and never prints response bodies.
 
 ```bash
 curl -s https://finalisma.vercel.app | grep -oE 'href="https://[a-z0-9.-]+/signup"'   # CTA target

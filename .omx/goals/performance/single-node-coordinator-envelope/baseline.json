@@ -97,7 +97,7 @@
     "sqlite": "3.50.4"
   },
   "harness_digest_scope": "benchmark-critical-ast-v1",
-  "harness_sha256": "080ea8824e2636c2e12db1e575e3ceaa839e61e95080c4e5e829c88a959bbc36",
+  "harness_sha256": "73a78cc34ec54847af33e7598add73ef20056332bde4039dfafc116de4ba09ea",
   "harness_version": 1,
   "history": [
     {

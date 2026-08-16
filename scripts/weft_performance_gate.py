@@ -91,6 +91,32 @@ class _DocstringStripper(ast.NodeTransformer):
     visit_AsyncFunctionDef = _strip
 
 
+def _canonical_ast(value: object) -> Any:
+    """Serialize benchmark AST structure without Python-version-only empties."""
+    if isinstance(value, ast.AST):
+        fields: dict[str, Any] = {}
+        for name in value._fields:
+            child = getattr(value, name, None)
+            if child is None:
+                # These None values carry syntax meaning; other optional AST
+                # fields are omitted so 3.11 and 3.14 hash the same structure.
+                if not (
+                    (isinstance(value, ast.Constant) and name == "value")
+                    or (isinstance(value, ast.keyword) and name == "arg")
+                    or (isinstance(value, ast.ImportFrom) and name == "module")
+                ):
+                    continue
+            elif child == []:
+                continue
+            fields[name] = _canonical_ast(child)
+        return {"type": type(value).__name__, "fields": fields}
+    if isinstance(value, list):
+        return [_canonical_ast(item) for item in value]
+    if isinstance(value, tuple):
+        return [_canonical_ast(item) for item in value]
+    return value
+
+
 def _digest(value: Any) -> str:
     payload = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
@@ -124,7 +150,7 @@ def _benchmark_digest(source: str) -> str:
     selected = [_DocstringStripper().visit(node) for node in selected]
     payload = {
         "scope": BENCHMARK_DIGEST_SCOPE,
-        "nodes": [ast.dump(node, annotate_fields=True, include_attributes=False) for node in selected],
+        "nodes": [_canonical_ast(node) for node in selected],
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()

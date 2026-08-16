@@ -431,7 +431,7 @@ class EndToEndLocalCloudTests(StdioBridgeHostedTestBase):
         try:
             init, names = self._init_and_list(proc)
             self.assertEqual(init["result"]["serverInfo"]["name"], "weft-cloud")
-            self.assertEqual(len(names), 10)
+            self.assertEqual(len(names), 11)
 
             created = _rpc(
                 proc,
@@ -468,7 +468,8 @@ class EndToEndLocalCloudTests(StdioBridgeHostedTestBase):
             # while still not catching the failure that matters — a tool going MISSING.
             # Subset containment catches removal and tolerates growth.
             expected = {"room_create", "room_join", "room_send", "room_poll",
-                        "room_info", "room_ack", "room_heartbeat", "room_event_log"}
+                        "room_info", "room_ack", "room_heartbeat", "room_remove_member",
+                        "room_event_log"}
             missing = expected - set(names)
             self.assertEqual(missing, set(),
                              f"tools missing from the bridged surface: {sorted(missing)}")

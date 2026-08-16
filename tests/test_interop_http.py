@@ -26,6 +26,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 
 import importlib.util
+from tests._process_cleanup import cleanup_tempdir, stop_subprocess
 
 _SPEC = importlib.util.spec_from_file_location(
     "_interop_validate_http",
@@ -180,13 +181,8 @@ class TestInteropHTTP(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls) -> None:
-        cls.proc.terminate()
-        try:
-            cls.proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            cls.proc.kill()
-            cls.proc.wait(timeout=10)
-        cls.scratch.cleanup()
+        stop_subprocess(cls.proc)
+        cleanup_tempdir(cls.scratch)
 
     def test_http_handoff_lifecycle(self) -> None:
         result = _run_http_handoff(self.port, self.workspace)

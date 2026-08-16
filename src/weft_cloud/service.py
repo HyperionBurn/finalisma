@@ -912,6 +912,22 @@ class WeftCloudService:
         result = self.rooms.revoke_link(tenant_id, room_id, ctx.agent_id, link_id)
         return _json_response(HTTPStatus.OK, result)
 
+    def handle_remove_member(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
+        ctx = self._authenticate(handler)
+        body = _read_body(handler)
+        self._reject_identity_args(body)
+        room_id = body.get("room_id")
+        member_id = body.get("member_id")
+        if not room_id or not member_id:
+            raise _ServiceError("invalid_argument", "room_id and member_id are required")
+        tenant_id = self._room_tenant(room_id, ctx.agent_id)
+        result = self.rooms.remove_member(tenant_id, room_id, ctx.agent_id, member_id)
+        self.backend.append_audit(
+            tenant_id, "room.remove_member", ctx.account_id, room_id,
+            json.dumps({"member_id": member_id}),
+        )
+        return _json_response(HTTPStatus.OK, result)
+
     def handle_list_rooms(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
         ctx = self._authenticate(handler)
         # The listing is scoped to the CALLER's own identity, never to a
@@ -1415,6 +1431,7 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
             "/v1/rooms/ack": self.service.handle_room_ack,
             "/v1/rooms/heartbeat": self.service.handle_room_heartbeat,
             "/v1/rooms/revoke_link": self.service.handle_revoke_link,
+            "/v1/rooms/remove_member": self.service.handle_remove_member,
             "/v1/rooms/event_log": self.service.handle_event_log,
             "/v1/rooms/groups": self.service.handle_groups,
             "/v1/org/invite": self.service.handle_invite,

@@ -228,10 +228,19 @@ def reset_password(backend: Any, reset_token: str, new_password: str) -> None:
             "UPDATE cloud_identity_sessions SET revoked_at = ? WHERE account_id = ? AND revoked_at IS NULL",
             (now, row["account_id"]),
         )
+        key_rows = tx.execute(
+            "SELECT tenant_id, key_id FROM cloud_identity_agent_keys "
+            "WHERE account_id = ? AND revoked_at IS NULL",
+            (row["account_id"],),
+        ).fetchall()
         tx.execute(
             "UPDATE cloud_identity_agent_keys SET revoked_at = ? WHERE account_id = ? AND revoked_at IS NULL",
             (now, row["account_id"]),
         )
+        if key_rows:
+            from weft_cloud.rooms import release_agent_key_seats_in_tx
+            for key_row in key_rows:
+                release_agent_key_seats_in_tx(tx, key_row["tenant_id"], key_row["key_id"])
         tx.commit()
 
 

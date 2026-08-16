@@ -31,6 +31,7 @@ from weft_mcp.bridge import (
     ClipboardBridge,
     BridgeAuthError,
 )
+from tests._process_cleanup import cleanup_tempdir, stop_subprocess
 
 
 TEAM_ID = "demo"
@@ -156,14 +157,9 @@ class BridgeInteropTests(unittest.TestCase):
             except Exception:
                 pass
         if cls.proc is not None:
-            cls.proc.terminate()
-            try:
-                cls.proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                cls.proc.kill()
-                cls.proc.wait(timeout=10)
+            stop_subprocess(cls.proc, close_stdin=True)
         if cls._scratch is not None:
-            cls._scratch.cleanup()
+            cleanup_tempdir(cls._scratch)
 
     def setUp(self) -> None:
         # fresh webhook receiver per test that needs one

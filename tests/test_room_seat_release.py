@@ -34,6 +34,7 @@ an internal function.
 from __future__ import annotations
 
 import json
+import re
 import sys
 import tempfile
 import threading
@@ -284,6 +285,70 @@ class RoomSeatReleaseTests(RoomSeatReleaseBase):
         status, resp = _get(self.base, "/v1/me", token=key1["agent_key"])
         self.assertEqual(status, 401)
         self.assertEqual(resp["error"]["code"], "invalid_session")
+
+    def test_password_reset_releases_agent_key_room_seat(self) -> None:
+        email = "reset-seat@example.com"
+        account = self._signup(email)
+        session = account["session_token"]
+        key = self._mint_key(session, "reset-key")
+        room = self._create_room(session, name="reset-seat", cap=2)
+        status, joined = self._join_room(key["agent_key"], room["room_id"], room["link_token"])
+        self.assertEqual(status, 200, joined)
+
+        accounts.request_password_reset(self.service.backend, account["tenant_id"], email)
+        with self.service.backend.transaction() as tx:
+            row = tx.execute(
+                "SELECT body FROM cloud_identity_outbox WHERE to_email = ? "
+                "ORDER BY created_at DESC LIMIT 1",
+                (email,),
+            ).fetchone()
+        self.assertIsNotNone(row)
+        match = re.search(r"(frt_[A-Za-z0-9_-]+)", row["body"])
+        self.assertIsNotNone(match)
+        accounts.reset_password(self.service.backend, match.group(1), "reset-password-99")
+
+        status, refused = self._poll(key["agent_key"], room["room_id"])
+        self.assertEqual(status, 401, refused)
+        status, signed_in = _post(
+            self.base, "/v1/auth/signin",
+            {"email": email, "password": "reset-password-99"},
+        )
+        self.assertEqual(status, 200, signed_in)
+        replacement = self._mint_key(signed_in["session_token"], "replacement")
+        status, joined = self._join_room(
+            replacement["agent_key"], room["room_id"], room["link_token"]
+        )
+        self.assertEqual(status, 200, joined)
+
+    def test_bulk_account_key_revocation_releases_room_seat(self) -> None:
+        account = self._signup("bulk-account-seat@example.com")
+        session = account["session_token"]
+        key = self._mint_key(session, "bulk-account-key")
+        room = self._create_room(session, name="bulk-account-seat", cap=2)
+        status, joined = self._join_room(key["agent_key"], room["room_id"], room["link_token"])
+        self.assertEqual(status, 200, joined)
+
+        agent_keys.revoke_all_for_account(self.service.backend, account["account_id"])
+        replacement = self._mint_key(session, "bulk-account-replacement")
+        status, joined = self._join_room(
+            replacement["agent_key"], room["room_id"], room["link_token"]
+        )
+        self.assertEqual(status, 200, joined)
+
+    def test_bulk_tenant_key_revocation_releases_room_seat(self) -> None:
+        account = self._signup("bulk-tenant-seat@example.com")
+        session = account["session_token"]
+        key = self._mint_key(session, "bulk-tenant-key")
+        room = self._create_room(session, name="bulk-tenant-seat", cap=2)
+        status, joined = self._join_room(key["agent_key"], room["room_id"], room["link_token"])
+        self.assertEqual(status, 200, joined)
+
+        agent_keys.revoke_all_for_tenant(self.service.backend, account["tenant_id"])
+        replacement = self._mint_key(session, "bulk-tenant-replacement")
+        status, joined = self._join_room(
+            replacement["agent_key"], room["room_id"], room["link_token"]
+        )
+        self.assertEqual(status, 200, joined)
 
 
 class CrossTenantSeatReleaseTests(RoomSeatReleaseBase):

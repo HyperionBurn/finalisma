@@ -21,6 +21,9 @@ import time
 import http.client
 from pathlib import Path
 
+from _process_cleanup import cleanup_tempdir, stop_subprocess
+from _transcript_safety import redact_text, redact_transcript_line
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
@@ -81,7 +84,7 @@ class HTTPClient:
         if params is not None:
             payload["params"] = params
         body = json.dumps(payload, separators=(",", ":"))
-        transcript.append(f"> {body}")
+        transcript.append(f"> {redact_transcript_line(body)}")
         conn = self._connection()
         try:
             conn.request(
@@ -94,9 +97,9 @@ class HTTPClient:
             resp_body = resp.read().decode("utf-8", errors="replace")
         except (OSError, http.client.HTTPException) as exc:
             raise InteropError(f"HTTP transport error on {method}: {exc}") from exc
-        transcript.append(f"< HTTP {resp.status} {resp.reason}: {resp_body}")
+        transcript.append(f"< HTTP {resp.status} {resp.reason}: {redact_transcript_line(resp_body)}")
         if resp.status != 200:
-            raise InteropError(f"HTTP {resp.status} on {method}: {resp_body}")
+            raise InteropError(f"HTTP {resp.status} on {method}: {redact_text(resp_body)}")
         reply = json.loads(resp_body)
         if "error" in reply:
             raise InteropError(f"JSON-RPC error {reply['error']}")
@@ -278,13 +281,8 @@ def main() -> int:
     finally:
         if client is not None:
             client.close()
-        proc.terminate()
-        try:
-            proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait(timeout=10)
-        scratch.cleanup()
+        stop_subprocess(proc)
+        cleanup_tempdir(scratch)
 
 
 if __name__ == "__main__":

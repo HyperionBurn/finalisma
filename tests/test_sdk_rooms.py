@@ -38,6 +38,7 @@ from weft_sdk import (  # noqa: E402  (expected AttributeError/ImportError)
     RoomPoll,
     RoomEvent,
 )
+from tests._process_cleanup import cleanup_tempdir, stop_subprocess
 
 # Names that MUST be exported from weft_sdk for the tests to even load.
 _REQUIRED_EXPORTS = [
@@ -130,26 +131,14 @@ class _RoomHarness:
         for c in self.clients.values():
             c.close()
         if self.proc is not None:
-            self.proc.terminate()
-            try:
-                self.proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                self.proc.kill()
-                self.proc.wait(timeout=10)
-        self.scratch.cleanup()
+            stop_subprocess(self.proc)
+        cleanup_tempdir(self.scratch)
 
 
 def _kill_orphaned_coordinators() -> None:
     for h in list(_RoomHarness._live):
         if h.proc is not None and h.proc.poll() is None:
-            try:
-                h.proc.terminate()
-                h.proc.wait(timeout=5)
-            except Exception:
-                try:
-                    h.proc.kill()
-                except Exception:
-                    pass
+            stop_subprocess(h.proc)
         h.proc = None
     _RoomHarness._live.clear()
 

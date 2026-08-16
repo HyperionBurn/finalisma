@@ -49,6 +49,7 @@ HOSTED_TOOL_NAMES = [
     "room_info",
     "room_ack",
     "room_heartbeat",
+    "room_remove_member",
     "room_event_log",
 ]
 
@@ -257,7 +258,7 @@ class HostedMCPHandshakeTests(HostedMCPTestBase):
         token = acct["session_token"]
         _, listing = _mcp(self.base, "tools/list", None, token=token, request_id=1)
         names = [t["name"] for t in listing["result"]["tools"]]
-        self.assertEqual(len(names), 10)
+        self.assertEqual(len(names), 11)
         for forbidden in ("register_agent", "create_pairing", "join_pairing",
                           "create_task", "claim_task", "verify_task",
                           "complete_task", "org_create", "roster_create"):
@@ -473,6 +474,37 @@ class HostedMCPRoomFlowTests(HostedMCPTestBase):
         status, within_rest = _post(self.base, "/v1/rooms/create", {"cap": 8},
                                     token=a["session_token"])
         self.assertEqual(status, HTTPStatus.CREATED)
+
+    def test_owner_can_remove_member_and_reclaim_room_seat(self) -> None:
+        owner, member = self._two_accounts("remove-member")
+        replacement = self._signup(
+            "remove-member-replacement@example.com", tenant_id=owner["tenant_id"]
+        )
+        created = self._assert_ok(owner["session_token"], "room_create", {"cap": 2}, request_id=1)
+        self._assert_ok(member["session_token"], "room_join", {
+            "room_id": created["room_id"],
+            "link_token": created["link_token"],
+            "consent": True,
+        }, request_id=2)
+
+        removed = self._assert_ok(owner["session_token"], "room_remove_member", {
+            "room_id": created["room_id"],
+            "member_id": member["account_id"],
+        }, request_id=3)
+        self.assertEqual(removed["status"], "left")
+        self._assert_is_error(member["session_token"], "room_info", {
+            "room_id": created["room_id"],
+        }, "room_not_found", request_id=4)
+
+        self._assert_ok(replacement["session_token"], "room_join", {
+            "room_id": created["room_id"],
+            "link_token": created["link_token"],
+            "consent": True,
+        }, request_id=5)
+        info = self._assert_ok(owner["session_token"], "room_info", {
+            "room_id": created["room_id"],
+        }, request_id=6)
+        self.assertEqual(info["member_count"], 2)
 
     def test_cross_tenant_link_join_grants_membership_not_privilege(self) -> None:
         """A link is the cross-tenant capability (as on /v1): tenant B may

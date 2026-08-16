@@ -30,6 +30,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from weft_sdk import WeftClient, WeftError
+from tests._process_cleanup import cleanup_tempdir, stop_subprocess
 
 
 def _pick_free_port() -> int:
@@ -154,14 +155,9 @@ class SdkAuthInjectionContract(unittest.TestCase):
             if c:
                 c.close()
         if cls.proc is not None:
-            cls.proc.terminate()
-            try:
-                cls.proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                cls.proc.kill()
-                cls.proc.wait(timeout=10)
+            stop_subprocess(cls.proc)
         if cls.scratch is not None:
-            cls.scratch.cleanup()
+            cleanup_tempdir(cls.scratch)
 
     # ---- 1. join_pairing injects actor_token (the original bug) -----------
 

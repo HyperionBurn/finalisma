@@ -24,6 +24,8 @@ import tempfile
 import time
 from pathlib import Path
 
+from _process_cleanup import cleanup_tempdir, stop_subprocess
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
@@ -277,7 +279,9 @@ def main() -> int:
         # ==================================================================
         log("=== NEGATIVE cases ===")
 
-        # (N1) Non-member (agent-outsider) calls room_poll → member_required.
+        # (N1) Non-member (agent-outsider) calls room_poll. The coordinator
+        # deliberately returns room_not_found so room existence is not an
+        # oracle to outsiders.
         neg1_refused = False
         neg1_code = ""
         try:
@@ -288,9 +292,9 @@ def main() -> int:
             neg1_code = exc.code
             log(f"  PASS  outsider poll refused: code={exc.code} msg={exc.message}")
         check(neg1_refused, "outsider room_poll refused")
-        check(neg1_code == "member_required", f"outsider poll error code == member_required (got {neg1_code})")
+        check(neg1_code == "room_not_found", f"outsider poll error code == room_not_found (got {neg1_code})")
 
-        # (N1b) Non-member calls room_info → member_required.
+        # (N1b) Non-member calls room_info → the same non-oracle refusal.
         neg1b_refused = False
         neg1b_code = ""
         try:
@@ -301,7 +305,7 @@ def main() -> int:
             neg1b_code = exc.code
             log(f"  PASS  outsider room_info refused: code={exc.code}")
         check(neg1b_refused, "outsider room_info refused")
-        check(neg1b_code == "member_required", f"outsider room_info error code == member_required (got {neg1b_code})")
+        check(neg1b_code == "room_not_found", f"outsider room_info error code == room_not_found (got {neg1b_code})")
 
         # (N2) Reuse room link under existing member agent-b with DIFFERENT actor_token → actor_auth_invalid.
         bogus_token = "rm_" + secrets.token_urlsafe(32)
@@ -371,13 +375,8 @@ def main() -> int:
     finally:
         for c in clients.values():
             c.close()
-        proc.terminate()
-        try:
-            proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait(timeout=10)
-        scratch.cleanup()
+        stop_subprocess(proc)
+        cleanup_tempdir(scratch)
 
 
 if __name__ == "__main__":

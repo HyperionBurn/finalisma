@@ -13,14 +13,16 @@ functions:
 
 On the Windows development host, the reference file records a seven-trial
 weighted median of **72.221 ms** (weighted p95 81.899 ms). The latest complete
-gate run on 2026-08-13 measured **137.404 ms** (weighted p95 **155.381 ms**)
-and therefore **failed**: weighted median improvement was -90.25%, and scenario
-p95 changed by +82.59% (`routing_fanout`), +98.81% (`session_relay`), and
-+81.84% (`authenticated_core`). The quality sub-gates did pass for that
-historical **894-test snapshot**, along with protocol smoke and credential-output checks. A long-running OpenCode process
-was consuming substantial CPU and memory during this capture. That is a
-diagnostic confounder, not proof that host load caused the entire regression;
-the gate remains red until a controlled idle-host rerun explains or clears it.
+gate run on 2026-08-14 measured **72.433 ms** (weighted p95
+**95.985 ms**). Its full **929-test** quality gate, protocol smoke,
+credential-output checks, and semantic digests passed, but the weighted-median
+improvement was **-0.29%**, `routing_fanout` p95 regressed **21.49%**, and
+`session_relay` p95 regressed **27.00%** while OpenCode was active. A preceding
+same-day 929-test run measured **63.741 ms** / **95.031 ms** and also failed
+timing tails. A previous 928-test run passed all timing guards at **65.473 ms**
+/ **70.630 ms**; the earlier 923-test run passed at **61.987 ms** / **69.332
+ms**. The baseline was not rewritten; an actually idle, controlled-host rerun
+is required before treating the timing tails as a stable release result.
 
 The preceding complete run measured **90.158 ms** (weighted p95 104.705 ms),
 also failed the weighted-median and scenario-p95 guards, and passed the then-current
@@ -29,7 +31,8 @@ protocol smoke, and credential-output checks. It remains historical evidence,
 not the current result.
 
 The reference metadata now uses the explicit `benchmark-critical-ast-v1`
-digest scope. Its prior whole-file hash (`bed1…`) is retained as
+digest scope with a version-stable canonical AST representation. Its prior
+whole-file hash (`bed1…`) is retained as
 `legacy_harness_sha256` because it was captured from a transient source state;
 the scoped digest matches the committed benchmark logic and is unaffected by
 quality-runner timeout/comment changes. This repairs provenance without
@@ -39,7 +42,7 @@ contract.
 An earlier complete run measured 71.349 ms / 79.400 ms p95, but failed a
 single session-relay p95 guard (+20.15%) and initially exposed a stale published
 test count. The historical benchmark-run count is 894; the current repository
-suite is 915 tests after subsequent security and lifecycle coverage. Three isolated seven-trial
+suite is 929 tests after subsequent security and lifecycle coverage. Three isolated seven-trial
 captures on the same host produced weighted medians of 73.981 ms, 87.975 ms,
 and 101.820 ms while the machine was under its normal background workload.
 That spread is evidence of measurement variance, not a stable optimization or
@@ -52,7 +55,7 @@ rerun on a controlled host before publishing a current performance number.
 | --- | --- | --- | --- |
 | Original pre-optimization reference (initial commit `b4f3026`) | 1,265.771 ms | 3-scenario harness | Historical — the 95.31% improvement was claimed against this |
 | Re-captured baseline (2026-08-05) | 68.844 ms | Extended harness (roster/tenancy scenarios added) | Superseded by the 2026-08-10 re-baseline |
-| Reference file (current artifact) | 72.221 ms | Benchmark-critical AST v1 | Timing guards currently reject the run |
+| Reference file (current artifact) | 72.221 ms | Benchmark-critical AST v1 | Latest two 929-test gates have timing-tail failures under active host load |
 
 The published "95.31% faster (1,265.771 ms → 59.314 ms)" figure was measured
 against a 3-scenario harness that no longer exists — the harness was extended
@@ -64,10 +67,10 @@ about current performance must use the re-baselined measurement above.
 
 This is a same-machine baseline comparison, not a universal latency promise.
 Filesystem, antivirus, CPU, Python, and SQLite differences can materially
-change absolute timings. The 2026-08-13 capture ran while an OpenCode process
-was active and is therefore useful as a red gate result but insufficient to
-attribute the regression to product code or host load alone. Re-run on an idle,
-documented host before treating the timing as a stable release characteristic.
+change absolute timings. The 2026-08-14 capture ran while an OpenCode process
+was active and failed timing guards as described above. Re-run on an idle,
+documented host before treating the timing as a stable release characteristic
+or attributing any future variance to product code alone.
 
 ## Run the locked gate
 

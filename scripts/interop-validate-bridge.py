@@ -23,6 +23,9 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from _process_cleanup import cleanup_tempdir, stop_subprocess
+from _transcript_safety import redact_transcript_line
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
@@ -156,14 +159,14 @@ def main() -> int:
         if params is not None:
             payload["params"] = params
         line_out = json.dumps(payload, separators=(",", ":"))
-        transcript.append(f"> {line_out}")
+        transcript.append(f"> {redact_transcript_line(line_out)}")
         assert proc.stdin is not None and proc.stdout is not None
         proc.stdin.write(line_out + "\n")
         proc.stdin.flush()
         line = proc.stdout.readline()
         if not line:
             raise InteropError("server closed stdin without a reply")
-        transcript.append(f"< {line.strip()}")
+        transcript.append(f"< {redact_transcript_line(line.strip())}")
         reply = json.loads(line)
         if "error" in reply:
             raise InteropError(f"JSON-RPC error {reply['error']}")
@@ -209,7 +212,7 @@ def main() -> int:
             {"team_id": TEAM_ID, "agent_id": "bridge-agent", "role": "generalist", "name": "Bridge Agent"},
         )
         actor_token = reg["actor_token"]
-        transcript.append(f"# register_agent: agent_id=bridge-agent token={actor_token[:8]}...")
+        transcript.append("# register_agent: agent_id=bridge-agent token=***")
 
         # ---- open bridge store against the coordinator's DB -----------
         bridge_store = WeftStore(
@@ -483,13 +486,8 @@ def main() -> int:
                 bridge_store.close()
             except Exception:
                 pass
-        proc.terminate()
-        try:
-            proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait(timeout=10)
-        scratch.cleanup()
+        stop_subprocess(proc, close_stdin=True)
+        cleanup_tempdir(scratch)
 
 
 if __name__ == "__main__":

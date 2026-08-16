@@ -25,6 +25,8 @@ import time
 import unittest
 from pathlib import Path
 
+from tests._process_cleanup import cleanup_tempdir
+
 # src/ on the path so we can import the coordinator and (eventually) the cloud plane.
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
@@ -177,7 +179,7 @@ class TestCrashDurability(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.driver.close()
-        self.scratch.cleanup()
+        cleanup_tempdir(self.scratch)
 
     def _register_agent(self, agent_id: str, role: str = "tester") -> str:
         result = self.driver.call_tool("register_agent", {

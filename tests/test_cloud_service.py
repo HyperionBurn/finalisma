@@ -412,6 +412,36 @@ class TestRoomLifecycle(CloudServiceTestBase):
         self.assertEqual(status, 410)
         self.assertEqual(body["error"]["code"], "link_revoked")
 
+    def test_owner_can_remove_member_and_reclaim_room_seat(self) -> None:
+        owner = self._signup("remove-owner@example.com", "CorrectHorse!1")
+        member = self._signup("remove-member@example.com", "AgentPass!1")
+        replacement = self._signup("remove-replacement@example.com", "AgentPass!1")
+        room = self._create_room(owner["session_token"], cap=2)
+        self._join_room(member["session_token"], room["room_id"], room["link_token"])
+
+        status, removed = _post(self.base, "/v1/rooms/remove_member", {
+            "room_id": room["room_id"], "member_id": member["account_id"],
+        }, owner["session_token"])
+        self.assertEqual(status, 200, removed)
+        self.assertEqual(removed["status"], "left")
+
+        status, refused = _get(
+            self.base,
+            f"/v1/rooms/info?room_id={room['room_id']}",
+            member["session_token"],
+        )
+        self.assertEqual(status, 404)
+        self.assertEqual(refused["error"]["code"], "room_not_found")
+
+        self._join_room(replacement["session_token"], room["room_id"], room["link_token"])
+        status, info = _get(
+            self.base,
+            f"/v1/rooms/info?room_id={room['room_id']}",
+            owner["session_token"],
+        )
+        self.assertEqual(status, 200, info)
+        self.assertEqual(info["member_count"], 2)
+
     def test_revoke_link_rejects_unknown_cross_room_and_repeated_ids(self) -> None:
         owner = self._signup("revoke-errors-owner@example.com", "CorrectHorse!1")
         other_owner = self._signup("revoke-errors-other@example.com", "CorrectHorse!1")

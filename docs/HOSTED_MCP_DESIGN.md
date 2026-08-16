@@ -61,7 +61,7 @@ Exposed — the room set the product promise depends on, one MCP tool per
 `CloudRoomService` method (tenant = authenticated cloud tenant, agent = authenticated identity):
 
 `room_create` `room_join` `room_send` `room_receipts` `room_poll` `room_wait`
-`room_info` `room_ack` `room_heartbeat` `room_event_log`
+`room_info` `room_ack` `room_heartbeat` `room_remove_member` `room_event_log`
 
 Withheld — the other ~50 self-hosted tools (`register_agent`, pairing, task,
 roster, outbox, bridge, metrics, tenancy, …). They assume the self-hosted
@@ -76,7 +76,7 @@ on. The tool set is pinned by a test
 Every tool resolves the effective tenant the same way the `/v1` handlers do.
 `room_create` and `room_join` run in the caller's authenticated cloud tenant; the
 member-gated tools (`room_info`, `room_poll`, `room_ack`, `room_heartbeat`,
-`room_send`, `room_receipts`, `room_event_log`) resolve the tenant via the caller's membership
+`room_send`, `room_receipts`, `room_remove_member`, `room_event_log`) resolve the tenant via the caller's membership
 row (`CloudRoomService._resolve_room_tenant`, exactly as
 `WeftCloudService._room_tenant` does), so a member who joined through a link
 in another tenant can operate in the room's tenant. Because resolution goes

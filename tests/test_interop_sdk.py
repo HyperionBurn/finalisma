@@ -24,6 +24,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from weft_sdk import WeftClient, WeftError
+from tests._process_cleanup import cleanup_tempdir, stop_subprocess
 
 
 def _pick_free_port() -> int:
@@ -112,13 +113,8 @@ class SdkInteropTest(unittest.TestCase):
         for c in cls.clients.values():
             c.close()
         if cls.proc is not None:
-            cls.proc.terminate()
-            try:
-                cls.proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                cls.proc.kill()
-                cls.proc.wait(timeout=10)
-        cls.scratch.cleanup()
+            stop_subprocess(cls.proc)
+        cleanup_tempdir(cls.scratch)
 
     # ---- helpers ----------------------------------------------------------
 

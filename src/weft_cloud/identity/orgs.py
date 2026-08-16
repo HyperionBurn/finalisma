@@ -168,18 +168,55 @@ def set_role(ctx: SessionContext, account_id: str, new_role: str) -> None:
 
 
 def delete_org(ctx: SessionContext) -> None:
-    """Delete the org (owner only): identity rows + the tenant row itself."""
+    """Delete the org (owner only) and all tenant-scoped state atomically.
+
+    The cloud tables intentionally do not rely on database-wide cascading
+    foreign keys: room/event/quota tables are additive and several legacy
+    tables have no FK declarations.  Tenant deletion therefore owns an
+    explicit, ordered teardown.  Credentials and room state must disappear in
+    the same transaction as the tenant row, otherwise a deleted org can leave
+    usable keys, occupied seats, or orphaned events behind.
+    """
     ctx = _require_ctx(ctx)
     ensure_schema(ctx.backend)
     ctx.require_role("owner")
     require_db_role(ctx.backend, ctx.tenant_id, ctx.account_id, "owner")
     tenant_id = ctx.tenant_id
     with ctx.backend.transaction() as tx:
-        tx.execute("DELETE FROM cloud_identity_invites WHERE tenant_id = ?", (tenant_id,))
-        tx.execute("DELETE FROM cloud_identity_sessions WHERE tenant_id = ?", (tenant_id,))
-        tx.execute("DELETE FROM cloud_identity_members WHERE tenant_id = ?", (tenant_id,))
-        tx.execute("DELETE FROM cloud_identity_accounts WHERE tenant_id = ?", (tenant_id,))
-        tx.execute("DELETE FROM cloud_identity_outbox WHERE tenant_id = ?", (tenant_id,))
+        # Room descendants have no FK cascade, so remove them explicitly
+        # before deleting the tenant's room bindings and quota counters.
+        for table in (
+            "cloud_room_receipts",
+            "cloud_room_group_members",
+            "cloud_room_groups",
+            "cloud_room_cursors",
+            "cloud_room_event_log",
+            "cloud_room_links",
+            "cloud_room_members",
+            "cloud_rooms",
+            "cloud_room_counters",
+            "cloud_tenant_rooms",
+            "cloud_rate_windows",
+            "cloud_event_mirror",
+            "cloud_outbox",
+            "cloud_audit",
+            "cloud_counters",
+        ):
+            tx.execute(f"DELETE FROM {table} WHERE tenant_id = ?", (tenant_id,))
+
+        # Identity FKs are enabled on SQLite.  Remove dependants before
+        # accounts; agent keys must be removed (not merely revoked) because
+        # the org itself no longer exists and the raw bearer credentials must
+        # never survive its deletion.
+        for table in (
+            "cloud_identity_invites",
+            "cloud_identity_sessions",
+            "cloud_identity_members",
+            "cloud_identity_agent_keys",
+            "cloud_identity_accounts",
+            "cloud_identity_outbox",
+        ):
+            tx.execute(f"DELETE FROM {table} WHERE tenant_id = ?", (tenant_id,))
         tx.execute("DELETE FROM cloud_tenants WHERE tenant_id = ?", (tenant_id,))
         tx.commit()
 

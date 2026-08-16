@@ -187,11 +187,20 @@ def revoke_all_for_account(backend: Any, account_id: str) -> None:
     ensure_schema(backend)
     now = _time.time()
     with backend.transaction() as tx:
+        key_rows = tx.execute(
+            "SELECT tenant_id, key_id FROM cloud_identity_agent_keys "
+            "WHERE account_id = ? AND revoked_at IS NULL",
+            (account_id,),
+        ).fetchall()
         tx.execute(
             "UPDATE cloud_identity_agent_keys SET revoked_at = ? "
             "WHERE account_id = ? AND revoked_at IS NULL",
             (now, account_id),
         )
+        if key_rows:
+            from weft_cloud.rooms import release_agent_key_seats_in_tx
+            for key_row in key_rows:
+                release_agent_key_seats_in_tx(tx, key_row["tenant_id"], key_row["key_id"])
         tx.commit()
 
 
@@ -207,11 +216,20 @@ def revoke_all_for_tenant_account_in_tx(
     """
     if now is None:
         now = _time.time()
+    key_rows = tx.execute(
+        "SELECT tenant_id, key_id FROM cloud_identity_agent_keys "
+        "WHERE tenant_id = ? AND account_id = ? AND revoked_at IS NULL",
+        (tenant_id, account_id),
+    ).fetchall()
     tx.execute(
         "UPDATE cloud_identity_agent_keys SET revoked_at = ? "
         "WHERE tenant_id = ? AND account_id = ? AND revoked_at IS NULL",
         (now, tenant_id, account_id),
     )
+    if key_rows:
+        from weft_cloud.rooms import release_agent_key_seats_in_tx
+        for key_row in key_rows:
+            release_agent_key_seats_in_tx(tx, key_row["tenant_id"], key_row["key_id"])
 
 
 def revoke_all_for_tenant(backend: Any, tenant_id: str) -> None:
@@ -219,11 +237,20 @@ def revoke_all_for_tenant(backend: Any, tenant_id: str) -> None:
     ensure_schema(backend)
     now = _time.time()
     with backend.transaction() as tx:
+        key_rows = tx.execute(
+            "SELECT key_id FROM cloud_identity_agent_keys "
+            "WHERE tenant_id = ? AND revoked_at IS NULL",
+            (tenant_id,),
+        ).fetchall()
         tx.execute(
             "UPDATE cloud_identity_agent_keys SET revoked_at = ? "
             "WHERE tenant_id = ? AND revoked_at IS NULL",
             (now, tenant_id),
         )
+        if key_rows:
+            from weft_cloud.rooms import release_agent_key_seats_in_tx
+            for key_row in key_rows:
+                release_agent_key_seats_in_tx(tx, tenant_id, key_row["key_id"])
         tx.commit()
 
 
