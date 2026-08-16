@@ -9,16 +9,22 @@ functions:
 - authenticated task creation, claim, update, message, evidence verification,
   and completion.
 
-## Current verified result (latest local run)
+## Current verified suite
+
+The current repository suite is **953 tests**. The performance measurements below
+are dated historical captures from the earlier **929-test** suite; they are not
+current 953-test performance results.
+
+## Historical performance result (latest recorded 929-test run)
 
 On the Windows development host, the reference file records a seven-trial
-weighted median of **72.221 ms** (weighted p95 81.899 ms). The latest complete
-gate run on 2026-08-14 measured **72.433 ms** (weighted p95
-**95.985 ms**). Its full **929-test** quality gate, protocol smoke,
+weighted median of **72.221 ms** (weighted p95 81.899 ms). The historical gate
+run recorded on 2026-08-14 measured **72.433 ms** (weighted p95
+**95.985 ms**). Its full **historical 929-test** quality gate, protocol smoke,
 credential-output checks, and semantic digests passed, but the weighted-median
 improvement was **-0.29%**, `routing_fanout` p95 regressed **21.49%**, and
 `session_relay` p95 regressed **27.00%** while OpenCode was active. A preceding
-same-day 929-test run measured **63.741 ms** / **95.031 ms** and also failed
+same-day historical 929-test run measured **63.741 ms** / **95.031 ms** and also failed
 timing tails. A previous 928-test run passed all timing guards at **65.473 ms**
 / **70.630 ms**; the earlier 923-test run passed at **61.987 ms** / **69.332
 ms**. The baseline was not rewritten; an actually idle, controlled-host rerun
@@ -42,7 +48,7 @@ contract.
 An earlier complete run measured 71.349 ms / 79.400 ms p95, but failed a
 single session-relay p95 guard (+20.15%) and initially exposed a stale published
 test count. The historical benchmark-run count is 894; the current repository
-suite is 929 tests after subsequent security and lifecycle coverage. Three isolated seven-trial
+suite is 953 tests after subsequent security and lifecycle coverage. Three isolated seven-trial
 captures on the same host produced weighted medians of 73.981 ms, 87.975 ms,
 and 101.820 ms while the machine was under its normal background workload.
 That spread is evidence of measurement variance, not a stable optimization or
@@ -55,7 +61,7 @@ rerun on a controlled host before publishing a current performance number.
 | --- | --- | --- | --- |
 | Original pre-optimization reference (initial commit `b4f3026`) | 1,265.771 ms | 3-scenario harness | Historical — the 95.31% improvement was claimed against this |
 | Re-captured baseline (2026-08-05) | 68.844 ms | Extended harness (roster/tenancy scenarios added) | Superseded by the 2026-08-10 re-baseline |
-| Reference file (current artifact) | 72.221 ms | Benchmark-critical AST v1 | Latest two 929-test gates have timing-tail failures under active host load |
+| Reference file (current artifact) | 72.221 ms | Benchmark-critical AST v1 | Latest two historical 929-test gates have timing-tail failures under active host load |
 
 The published "95.31% faster (1,265.771 ms → 59.314 ms)" figure was measured
 against a 3-scenario harness that no longer exists — the harness was extended

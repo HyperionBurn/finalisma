@@ -29,13 +29,13 @@ conversation or sharing provider credentials.
 - One-use pairing links with preview-before-consent.
 - Member-bound session credentials and replayable ordered events.
 - Scoped tasks, leases, fencing tokens, artifact hashes, and evidence gates.
- - 929 passing standard-library tests, including concurrency, restart, HTTP,
+ - 953 passing standard-library tests, including concurrency, restart, HTTP,
   tenancy isolation, roster routing, durable outbox, bridge adapters, SDK
   flows, room lifecycle, cloud storage, cross-team boundary cases, identity,
   and the stdio-to-hosted bridge (docs/STDIO_BRIDGE.md).
 - A locked same-machine coordinator benchmark with a 72.221 ms reference artifact.
-  The latest complete local gate measured 72.433 ms weighted median / 95.985 ms
-  p95 across 929 tests. Quality, semantic-digest, smoke, and credential checks
+  The latest recorded local gate (2026-08-14; historical 929-test artifact)
+  measured 72.433 ms weighted median / 95.985 ms p95. Quality, semantic-digest, smoke, and credential checks
   passed; weighted-median, routing-fanout, and session-relay timing guards were
   red while OpenCode was active. A previous 928-test run passed all timing
   guards at 65.473 ms / 70.630 ms.
