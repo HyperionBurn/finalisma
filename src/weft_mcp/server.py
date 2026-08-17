@@ -735,6 +735,17 @@ TOOLS: list[dict[str, Any]] = [
         }, ["team_id", "room_id", "agent_id", "actor_token"]),
     },
     {
+        "name": "room_remove_member",
+        "description": "Owner-only: remove a member from the Room. The removed member is refused on its next request and can rejoin while the link remains valid — removal is NOT a ban.",
+        "inputSchema": _object_schema({
+            "team_id": STRING,
+            "room_id": STRING,
+            "owner_agent_id": STRING,
+            "target_agent_id": STRING,
+            "actor_token": STRING,
+        }, ["team_id", "room_id", "owner_agent_id", "target_agent_id", "actor_token"]),
+    },
+    {
         "name": "room_close",
         "description": "Owner-only: close the Room, refuse joins and new sends, and invalidate all links.",
         "inputSchema": _object_schema({
@@ -1163,6 +1174,8 @@ class WeftDispatcher:
             return self._room_info(args)
         if name == "room_leave":
             return self._room_leave(args)
+        if name == "room_remove_member":
+            return self._room_remove_member(args)
         if name == "room_close":
             return self._room_close(args)
         if name == "room_send":
@@ -1414,10 +1427,10 @@ class WeftDispatcher:
         cap = self._required(args, "cap")
         actor_token = args.get("actor_token")
         # actor_token is optional on create in trusted stdio mode, but when the
-        # coordinator requires actor auth (e.g. --actor-auth auto over HTTP) the
-        # owner MUST prove a registered credential — otherwise anyone could
-        # fabricate a room owned by any agent_id. Validate when supplied.
-        if actor_token is not None:
+        # coordinator requires actor auth the owner MUST prove a registered
+        # credential — otherwise anyone could fabricate a room owned by any
+        # agent_id. Reuse the store's actor-bound authorization contract.
+        if self.store.require_actor_auth or actor_token is not None:
             with self.store._transaction() as conn:
                 self.store._authorize_actor(conn, team_id, owner, actor_token)
         actor_hash = self._room_actor_hash(actor_token) if actor_token is not None else ""
@@ -1465,6 +1478,15 @@ class WeftDispatcher:
             team_id=self._required(args, "team_id"),
             room_id=self._required(args, "room_id"),
             caller_agent_id=self._required(args, "owner_agent_id"),
+            actor_token=self._required(args, "actor_token"),
+        ))
+
+    def _room_remove_member(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self._room_call(lambda: self.rooms.remove_member(
+            team_id=self._required(args, "team_id"),
+            room_id=self._required(args, "room_id"),
+            owner_agent_id=self._required(args, "owner_agent_id"),
+            target_agent_id=self._required(args, "target_agent_id"),
             actor_token=self._required(args, "actor_token"),
         ))
 

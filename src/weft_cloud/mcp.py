@@ -18,7 +18,8 @@ nothing about which tenants, rooms, or agents exist.
 Tools exposed (the room set the product promise depends on):
 
     room_create, room_join, room_send, room_receipts, room_poll, room_wait,
-    room_info, room_ack, room_heartbeat, room_event_log
+    room_info, room_ack, room_heartbeat, room_leave, room_remove_member,
+    room_event_log
 
 The full self-hosted 58-tool surface (``register_agent``, pairing, task,
 roster, outbox, bridge, metrics, tenancy, …) is intentionally NOT exposed
@@ -127,6 +128,21 @@ def _request_too_large_error(request_id: Any = None) -> dict[str, Any]:
     )
 
 
+def _is_strict_json_value(value: Any) -> bool:
+    """Return whether a decoded request contains only standard JSON values.
+
+    Python's JSON decoder accepts NaN and infinities even though RFC 8259 does
+    not. The hosted HTTP layer hands the decoded object to this module, so the
+    dispatcher must enforce the same boundary before authentication or tool
+    dispatch can persist one of those values.
+    """
+    try:
+        json.dumps(value, allow_nan=False)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
 # ---------------------------------------------------------------------------
 # The hosted tool set. ``additionalProperties: False`` and the identity
 # argument rejection in ``HostedMCPDispatcher.call_tool`` are both load-bearing:
@@ -232,6 +248,14 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
         "inputSchema": _object_schema({"room_id": _STRING}, ["room_id"]),
     },
     {
+        "name": "room_leave",
+        "description": (
+            "Leave a Room you are a member of: your seat is freed immediately "
+            "and you lose room access. History and attribution are preserved."
+        ),
+        "inputSchema": _object_schema({"room_id": _STRING}, ["room_id"]),
+    },
+    {
         "name": "room_remove_member",
         "description": (
             "Owner-only: remove a member from a Room. The removed member is refused "
@@ -329,7 +353,8 @@ class HostedMCPDispatcher:
         success. ``ctx`` may be supplied when the caller already
         authenticated, to avoid a second credential lookup.
         """
-        if not isinstance(request, dict) or request.get("jsonrpc") != "2.0":
+        if not isinstance(request, dict) or not _is_strict_json_value(request) \
+                or request.get("jsonrpc") != "2.0":
             return None
         request_id = request.get("id")
         method = request.get("method")
@@ -398,19 +423,22 @@ class HostedMCPDispatcher:
             try:
                 result = self.call_tool(ctx, name, params.get("arguments") or {}, bearer_token)
                 tool_result = {
-                    "content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, indent=2)}],
+                    "content": [{"type": "text", "text": json.dumps(
+                        result, ensure_ascii=False, indent=2, allow_nan=False)}],
                     "structuredContent": result,
                 }
             except WeftError as exc:
                 tool_result = {
                     "isError": True,
-                    "content": [{"type": "text", "text": json.dumps({"error": exc.as_dict()}, ensure_ascii=False)}],
+                    "content": [{"type": "text", "text": json.dumps(
+                        {"error": exc.as_dict()}, ensure_ascii=False, allow_nan=False)}],
                 }
             except RoomError as exc:
                 tool_result = {
                     "isError": True,
                     "content": [{"type": "text", "text": json.dumps(
-                        {"error": {"code": exc.code, "message": exc.message}}, ensure_ascii=False)}],
+                        {"error": {"code": exc.code, "message": exc.message}},
+                        ensure_ascii=False, allow_nan=False)}],
                 }
             except RateLimitedError as exc:
                 retry_after = float(exc.retry_after or 0.0)
@@ -423,7 +451,7 @@ class HostedMCPDispatcher:
                             "retry_after": retry_after,
                             "details": {"retry_after": retry_after},
                         }
-                    }, ensure_ascii=False)}],
+                    }, ensure_ascii=False, allow_nan=False)}],
                 }
             except QuotaError as exc:
                 # Plan limit hit — the SAME code + message shape the /v1 REST
@@ -441,14 +469,15 @@ class HostedMCPDispatcher:
                 tool_result = {
                     "isError": True,
                     "content": [{"type": "text", "text": json.dumps(
-                        {"error": error}, ensure_ascii=False)}],
+                        {"error": error}, ensure_ascii=False, allow_nan=False)}],
                 }
             except Exception as exc:  # pragma: no cover - defensive last-resort boundary
                 print(f"weft-cloud MCP internal error: {type(exc).__name__}", file=sys.stderr)
                 tool_result = {
                     "isError": True,
                     "content": [{"type": "text", "text": json.dumps(
-                        {"error": {"code": "internal_error", "message": "The server could not complete the tool call"}})}],
+                        {"error": {"code": "internal_error", "message": "The server could not complete the tool call"}},
+                        allow_nan=False)}],
                 }
             return None if is_notification else {"jsonrpc": "2.0", "id": request_id, "result": tool_result}
         if method in {"resources/list", "prompts/list"}:
@@ -619,6 +648,14 @@ class HostedMCPDispatcher:
     def _tool_room_heartbeat(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:
         room_id = self._required(args, "room_id")
         return self._room_call(lambda: self.rooms.heartbeat(
+            tenant_id=self._room_tenant(room_id, ctx.agent_id),
+            room_id=room_id,
+            agent_id=ctx.agent_id,
+        ))
+
+    def _tool_room_leave(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:
+        room_id = self._required(args, "room_id")
+        return self._room_call(lambda: self.rooms.leave_room(
             tenant_id=self._room_tenant(room_id, ctx.agent_id),
             room_id=room_id,
             agent_id=ctx.agent_id,

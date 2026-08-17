@@ -13,7 +13,7 @@ import tempfile
 import threading
 import unittest
 from http.client import HTTPConnection
-from http.server import ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -421,6 +421,184 @@ class SDKRetryTests(unittest.TestCase):
             result = client.connect()
             self.assertEqual(result["protocol"], "weft.a2a")
             self.assertGreaterEqual(call_count["n"], 3)
+        finally:
+            client.close()
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+
+class SdkHostedSurfaceAuditTests(unittest.TestCase):
+    """Regression guards for the HOSTED Weft MCP surface (12 room tools).
+
+    The hosted /mcp endpoint (weft_cloud/mcp.py) exposes exactly twelve room
+    tools: room_create, room_join, room_send, room_receipts, room_poll,
+    room_wait, room_info, room_ack, room_heartbeat, room_leave,
+    room_remove_member, room_event_log. The SDK must be able to drive all of
+    them and must not lose the structured error / cursor information that
+    surface emits. Tests in this class are RED on purpose where the SDK has
+    not caught up — they are the TDD contract for the implementer.
+    """
+
+    _HOSTED_TOOL_TO_SDK_METHOD = {
+        "room_create": "create_room",
+        "room_join": "join_room",
+        "room_send": "send",
+        "room_receipts": "room_receipts",
+        "room_poll": "room_poll",
+        "room_wait": "room_wait",
+        "room_info": "room_info",
+        "room_ack": "room_ack",
+        "room_heartbeat": "room_heartbeat",
+        "room_leave": "leave_room",
+        "room_remove_member": "room_remove_member",
+        "room_event_log": "room_event_log",
+    }
+
+    @staticmethod
+    def _serve_stub(handler) -> tuple[ThreadingHTTPServer, threading.Thread, str]:
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        host, port = server.server_address
+        return server, thread, f"http://{host}:{port}/mcp"
+
+    def test_client_exposes_all_twelve_hosted_room_tools(self) -> None:
+        """Every tool the hosted /mcp surface exposes must have an SDK method.
+
+        RED: WeftClient has no room_wait, room_remove_member or
+        room_event_log methods, so an SDK caller cannot drive the hosted
+        surface fully and must fall back to the private _call.
+        """
+        client = WeftClient("http://127.0.0.1:1/mcp", "agent-a", "demo")
+        try:
+            missing = [
+                f"{tool} (needs method '{method}')"
+                for tool, method in self._HOSTED_TOOL_TO_SDK_METHOD.items()
+                if not callable(getattr(client, method, None))
+            ]
+            self.assertEqual(
+                missing,
+                [],
+                "WeftClient is missing methods for hosted room tools: "
+                + "; ".join(missing),
+            )
+        finally:
+            client.close()
+
+    def test_http_429_rate_limited_code_and_retry_after_survive(self) -> None:
+        """A 429 with a structured rate_limited body must surface its code and
+        retry_after — not be flattened into a generic http_error.
+
+        The hosted service refuses with HTTP 429 + {"error":{"code":
+        "rate_limited", ..., "retry_after": N}} + a Retry-After header
+        (weft_cloud/service.py _send_rate_limited). The SDK currently
+        flattens every non-200 into WeftError("http_error", ...), losing both
+        the code and the retry_after an agent needs to back off.
+
+        RED: exc.code == "http_error" and details carry no retry_after.
+        """
+        RETRY_AFTER = 7
+
+        class RateLimitedHandler(BaseHTTPRequestHandler):
+            def log_message(self, *args: object) -> None:
+                return
+
+            def do_POST(self) -> None:  # noqa: N802
+                length = int(self.headers.get("Content-Length", "0"))
+                self.rfile.read(length)
+                body = json.dumps({
+                    "error": {
+                        "code": "rate_limited",
+                        "message": "Rate limit exceeded. Retry after 7 seconds.",
+                        "retry_after": RETRY_AFTER,
+                    }
+                }).encode()
+                self.send_response(429)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Retry-After", str(RETRY_AFTER))
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        server, thread, url = self._serve_stub(RateLimitedHandler)
+        client = WeftClient(url, "agent-a", "demo")
+        try:
+            with self.assertRaises(WeftError) as ctx:
+                # room_poll is a room tool and is not retried, so the 429 is
+                # raised on the first attempt — exactly the hosted-surface path.
+                client._call("room_poll", room_id="room_abc")
+            exc = ctx.exception
+            self.assertEqual(
+                exc.code,
+                "rate_limited",
+                "the structured code must reach the caller; "
+                f"got {exc.code!r} instead (flattened to http_error)",
+            )
+            retry_after = None
+            if isinstance(exc.details, dict):
+                retry_after = exc.details.get("retry_after")
+            self.assertIn(
+                retry_after,
+                (RETRY_AFTER, float(RETRY_AFTER), str(RETRY_AFTER)),
+                "the retry_after must reach the caller so an agent can back off",
+            )
+            # The fix must not regress the redaction contract: the server
+            # message must never be echoed verbatim into the exception.
+            self.assertNotIn("Retry after 7 seconds", str(exc))
+            self.assertNotIn("Rate limit exceeded", str(exc))
+        finally:
+            client.close()
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+    def test_room_poll_surfaces_behind_by(self) -> None:
+        """RoomPoll must expose behind_by — the hosted poll reports how many
+        events the caller is skipping between its last ack and its window
+        (weft_cloud/rooms.py poll), so a caller can detect a silently skipped
+        window. The SDK parses poll results but drops the field.
+
+        RED: RoomPoll has no behind_by attribute (AttributeError).
+        """
+        poll_result = {
+            "room_id": "room_abc",
+            "state": "active",
+            "events": [],
+            "next_seq": 5,
+            "cursor_head": 5,
+            "last_ack_seq": 1,
+            "behind_by": 4,
+            "has_more": False,
+        }
+
+        class PollHandler(BaseHTTPRequestHandler):
+            def log_message(self, *args: object) -> None:
+                return
+
+            def do_POST(self) -> None:  # noqa: N802
+                length = int(self.headers.get("Content-Length", "0"))
+                self.rfile.read(length)
+                payload = json.dumps({
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "result": {
+                        "content": [{"type": "text", "text": json.dumps(poll_result)}],
+                        "structuredContent": poll_result,
+                    },
+                }).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+        server, thread, url = self._serve_stub(PollHandler)
+        client = WeftClient(url, "agent-a", "demo")
+        try:
+            poll = client.room_poll("room_abc", after_seq=1)
+            self.assertEqual(poll.behind_by, 4,
+                             "behind_by must surface on RoomPoll")
         finally:
             client.close()
             server.shutdown()

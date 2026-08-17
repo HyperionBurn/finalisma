@@ -1,0 +1,16 @@
+# Deploy scripts are written on Windows (core.autocrlf=true here) and executed
+# by /bin/bash on a Linux VM. A CRLF that survives into scripts/redeploy-weft.sh
+# makes bash read `set -euo pipefail\r`, which bash treats as an invalid option
+# name and the cutover aborts mid-deploy — this really happened once. Force LF
+# on disk for every format that ends up interpreted by bash or systemd on the
+# VM, regardless of the committer's local core.autocrlf setting.
+#
+# This is belt #1. Belt #2 is scripts/normalize_line_endings.py, run on the VM
+# right after scp lands a file and before it is executed (see
+# scripts/push-code-to-vm.sh). Belt #3 is `bash -n` on the normalized copy
+# before it is ever run. All three must be defeated at once to reintroduce
+# this failure.
+*.sh          text eol=lf
+*.py          text eol=lf
+*.service     text eol=lf
+*.timer       text eol=lf

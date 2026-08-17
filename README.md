@@ -25,8 +25,9 @@ or API key in the repository.
   whole room up to the configured `cap`.
 - **Ordered delivery with one shared sequence.** `room_poll` replays an ordered
   event log from a per-member cursor; every member sees the same sequence
-  numbers in the same order. Measured 2026-08-07: 199 agents joined one link
-  with a single identical event ordering (0 diverged members).
+  numbers in the same order. Measured on the local harness against the pro
+  plan (not live production traffic): 50 agents, 2,500 deliveries, 0 losses,
+  0 leaks, wake p50 156 ms.
 - **Addressing with receipts.** `room_send` broadcasts to the whole room
   (`target_spec="*"`), sends to one agent (unicast), or to a named group, and
   returns durable per-recipient delivery receipts. `room_ack`, `room_heartbeat`,
@@ -59,6 +60,19 @@ or API key in the repository.
   separate hosts can join without sharing conversation history or provider
   credentials.
 
+### Hosted service
+
+The hosted cloud plane (`src/weft_cloud/`) exposes exactly **12 room tools**
+over MCP — `room_create`, `room_join`, `room_send`, `room_receipts`,
+`room_poll`, `room_wait`, `room_info`, `room_ack`, `room_heartbeat`,
+`room_leave`, `room_remove_member`, `room_event_log` — pinned by
+`test_hosted_surface_is_a_small_correct_set`. The REST `/v1` surface keeps
+parity: `/v1/rooms/receipts` and `/v1/rooms/remove_member` exist now. The
+stdlib-only SDK (`src/weft_sdk/`) drives all 12 hosted room tools. Identity
+signout is truthful: presenting an `agk_` agent key to signout revokes that
+key in the same transaction. See [docs/HOSTED_MCP_DESIGN.md](docs/HOSTED_MCP_DESIGN.md)
+and [docs/SDK.md](docs/SDK.md).
+
 Weft coordinates agents; it does not run arbitrary shell commands from
 message payloads and it does not silently start or substitute model providers.
 
@@ -86,12 +100,10 @@ python -B .\scripts\weft-smoke.py
 
 ## Quickstart — one link, many agents, one ordered log
 
-**Measured 2026-08-07:** 199 agents joined one link with a single identical
-event ordering. Reproduced against the running coordinator: register 199, join
-198 through the same `link_token`, one broadcast, then 199 polls — every member
-returned the same sequence (0 diverged). Join wall-clock 1.2s, poll-verify 0.5s,
-plus 0.2s to register. A non-member's send or poll is refused and the refused
-action does not leak into the ordered log.
+**Measured on the local harness (pro plan, not live production traffic):** 50
+agents, 2,500 deliveries, 0 losses, 0 leaks, wake p50 156 ms. A non-member's
+send or poll is refused and the refused action does not leak into the ordered
+log.
 
 ### Prerequisites
 
@@ -294,20 +306,21 @@ The current SQLite runtime is a durable single-node coordinator. Read
 multi-instance or untrusted public traffic; shared storage, OAuth/OIDC,
 distributed rate limiting, and an outbox are required for that deployment tier.
 
- The single-node runtime uses bounded, thread-safe idle SQLite connection pools
- to avoid reopening the database for every handoff operation. Long-lived library
- callers should use `with WeftStore(...) as store:` or call `store.close()`
- during shutdown. The performance reference file records a ~72.2ms weighted
-median. The current verified suite is 984 tests. The latest recorded performance
-gate (2026-08-14; historical 929-test artifact) measured 72.433ms weighted median /
-95.985ms p95. Its quality, smoke, credential redaction, and
-semantic digests passed; weighted-median, routing-fanout, and session-relay
-timing guards were red while OpenCode was active. A previous 928-test run
-passed all timing guards at 65.473ms / 70.630ms. The baseline was not
-rewritten; an idle controlled-host rerun is required for a stable timing claim.
-Benchmark provenance is now scoped to benchmark-critical AST logic, with the prior
-whole-file hash retained as legacy metadata. Do not treat this as a universal
-latency claim; see
+The single-node runtime uses bounded, thread-safe idle SQLite connection pools
+to avoid reopening the database for every handoff operation. Long-lived library
+callers should use `with WeftStore(...) as store:` or call `store.close()`
+during shutdown. The performance reference file records a ~72.2ms weighted
+median, and the gate remains red pending a controlled idle-host rerun: the
+2026-08-13 complete run measured 137.404ms weighted median / 155.381ms p95
+while an OpenCode process was consuming substantial host resources, and
+2026-08-14 single-trial runs on the same tree swung between ~68.8ms and
+~145.0ms — a run-to-run spread that is host load, not code. The one coordinator
+hot-path change in that window, the presence touch, is now an in-memory
+throttle (zero DB work inside the window); the run immediately after that fix
+moved from -50.6% to +4.5% weighted median. The baseline was not rewritten to
+make the gate pass. The full test suite (960 tests) is green, and the
+published count is guarded by `tests/test_site.py::TestCountSyncTests` — it is
+not hand-maintained. Do not treat any of this as a universal latency claim; see
 [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for the evidence boundary and rerun
 instructions.
 

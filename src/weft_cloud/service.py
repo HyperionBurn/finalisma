@@ -143,6 +143,16 @@ def _read_body(handler: BaseHTTPRequestHandler, max_bytes: int = 1_048_576) -> d
     return data
 
 
+def _reject_json_constant(value: str) -> Any:
+    """Reject Python's non-standard JSON constants at the HTTP boundary."""
+    raise ValueError(f"non-standard JSON constant: {value}")
+
+
+def _strict_json_loads(raw: bytes | str) -> Any:
+    """Decode JSON while rejecting NaN and both Infinity spellings."""
+    return json.loads(raw, parse_constant=_reject_json_constant)
+
+
 def _bearer_token(handler: BaseHTTPRequestHandler) -> str | None:
     auth = handler.headers.get("Authorization", "")
     if auth.startswith("Bearer "):
@@ -441,13 +451,20 @@ class WeftCloudService:
         if token:
             from weft_cloud.identity.tokens import hash_token
             token_hash = hash_token(token)
-            # One transaction: revoke_by_token_hash does the lookup and the
-            # UPDATE under a single writer lock. Calling sessions.revoke from
-            # inside a nested transaction would BEGIN IMMEDIATE on a SECOND
-            # connection — SQLite has one writer, so that inner BEGIN blocks
-            # until this one commits, and this one cannot commit until the
-            # inner returns: a 15s self-deadlock surfacing as a 500.
-            self.sessions.revoke_by_token_hash(self.backend, token_hash)
+            if token.startswith("agk_"):
+                # An agent-key bearer IS the key: signout must kill the key
+                # itself, or it would answer signed_out:true while the
+                # presented credential stays live (the silent-failure form of
+                # the signout regression). One transaction: revoke_by_token_hash
+                # does the lookup, the UPDATE, and the room-seat release under a
+                # single writer lock. Calling it from inside a nested transaction
+                # would BEGIN IMMEDIATE on a SECOND connection — SQLite has one
+                # writer, so that inner BEGIN blocks until this one commits, and
+                # this one cannot commit until the inner returns: a 15s
+                # self-deadlock surfacing as a 500.
+                self.agent_keys.revoke_by_token_hash(self.backend, token_hash)
+            else:
+                self.sessions.revoke_by_token_hash(self.backend, token_hash)
         return _json_response(HTTPStatus.OK, {"signed_out": True})
 
     def handle_me(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
@@ -549,7 +566,12 @@ class WeftCloudService:
         a caller can only ever resolve a room they are an active member of.
         Anything else yields the uniform ``room_not_found`` — identical to a
         fabricated room_id, so the endpoint is not a room-existence oracle.
+        A non-string container ``room_id`` (list/dict) is refused here as the
+        caller's ``invalid_argument`` 400 BEFORE any DB bind — it previously
+        raised ``sqlite3.ProgrammingError`` on the bind and escaped as a 500.
         """
+        if not isinstance(room_id, str) or not room_id.strip():
+            raise _ServiceError("invalid_argument", "room_id must be a non-empty string")
         try:
             with self.backend.transaction() as tx:
                 return self.rooms._resolve_room_tenant(tx, room_id, agent_id)
@@ -558,6 +580,7 @@ class WeftCloudService:
 
     def handle_create_room(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
         ctx = self._authenticate(handler)
+        ctx.require_role("admin")
         body = _read_body(handler)
         self._reject_identity_args(body, allow_self_owner=True)
         owner_agent_id = body.get("owner_agent_id", ctx.agent_id)
@@ -576,6 +599,7 @@ class WeftCloudService:
         result = self.rooms.create_room(
             ctx.tenant_id, owner_agent_id, actor_token, cap=cap,
             name=name, ttl_seconds=ttl_seconds, origin=self.origin,
+            actor_account_id=ctx.account_id,
         )
         # Audit.
         self.backend.append_audit(
@@ -602,6 +626,7 @@ class WeftCloudService:
         and reuses CloudRoomService.create_room; it is not a replacement for it.
         """
         ctx = self._authenticate(handler)
+        ctx.require_role("admin")
         body = _read_body(handler)
         self._reject_identity_args(body, allow_self_owner=True)
         owner_agent_id = body.get("owner_agent_id", ctx.agent_id)
@@ -618,6 +643,7 @@ class WeftCloudService:
         result = self.rooms.create_room(
             ctx.tenant_id, owner_agent_id, actor_token, cap=cap,
             name=name, ttl_seconds=ttl_seconds, origin=self.origin,
+            actor_account_id=ctx.account_id,
         )
         self.backend.append_audit(
             ctx.tenant_id, "room.connect", ctx.account_id, result["room_id"],
@@ -895,6 +921,28 @@ class WeftCloudService:
         )
         return _json_response(HTTPStatus.OK, result)
 
+    def handle_room_receipts(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
+        """Query delivery/read state for the caller's own sends (POST /v1/rooms/receipts).
+
+        REST parity with the hosted MCP tool ``room_receipts``: same
+        CloudRoomService.receipts call, same tenant resolution via the
+        caller's membership, and the same sender-scoped result — unknown or
+        non-owned entry ids return ``not_found`` inside the receipts list
+        without revealing another sender's outbox state.
+        """
+        ctx = self._authenticate(handler)
+        body = _read_body(handler)
+        self._reject_identity_args(body)
+        room_id = body.get("room_id")
+        entry_ids = body.get("entry_ids")
+        if not room_id:
+            raise _ServiceError("invalid_argument", "room_id is required")
+        if entry_ids is None:
+            raise _ServiceError("invalid_argument", "entry_ids is required")
+        tenant_id = self._room_tenant(room_id, ctx.agent_id)
+        result = self.rooms.receipts(tenant_id, room_id, ctx.agent_id, entry_ids)
+        return _json_response(HTTPStatus.OK, result)
+
     def handle_room_leave(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
         ctx = self._authenticate(handler)
         body = _read_body(handler)
@@ -904,6 +952,25 @@ class WeftCloudService:
             raise _ServiceError("invalid_argument", "room_id is required")
         tenant_id = self._room_tenant(room_id, ctx.agent_id)
         result = self.rooms.leave_room(tenant_id, room_id, ctx.agent_id)
+        return _json_response(HTTPStatus.OK, result)
+
+    def handle_room_remove_member(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
+        """Owner-only removal of a member (POST /v1/rooms/remove_member).
+
+        REST parity with the hosted MCP tool ``room_remove_member``: the
+        owner frees a member's seat exactly as over MCP. The removed member is
+        refused on its very next request; removal is NOT a ban — a removed
+        member who still holds a valid link can rejoin.
+        """
+        ctx = self._authenticate(handler)
+        body = _read_body(handler)
+        self._reject_identity_args(body)
+        room_id = body.get("room_id")
+        member_id = body.get("member_id")
+        if not room_id or not member_id:
+            raise _ServiceError("invalid_argument", "room_id and member_id are required")
+        tenant_id = self._room_tenant(room_id, ctx.agent_id)
+        result = self.rooms.remove_member(tenant_id, room_id, ctx.agent_id, member_id)
         return _json_response(HTTPStatus.OK, result)
 
     def handle_room_close(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
@@ -1260,8 +1327,8 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
             self._send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, error)
             return
         try:
-            request = json.loads(self.rfile.read(length))
-        except json.JSONDecodeError:
+            request = _strict_json_loads(self.rfile.read(length))
+        except ValueError:
             self._send_json(HTTPStatus.BAD_REQUEST, _json_rpc_error(None, -32700, "Parse error"))
             return
         method = request.get("method") if isinstance(request, dict) else None
@@ -1441,8 +1508,10 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
             "/v1/rooms/connect": self.service.handle_connect_room,
             "/v1/rooms/join": self.service.handle_join_room,
             "/v1/rooms/leave": self.service.handle_room_leave,
+            "/v1/rooms/remove_member": self.service.handle_room_remove_member,
             "/v1/rooms/close": self.service.handle_room_close,
             "/v1/rooms/send": self.service.handle_room_send,
+            "/v1/rooms/receipts": self.service.handle_room_receipts,
             "/v1/rooms/poll": self.service.handle_room_poll,
             "/v1/rooms/wait": self.service.handle_room_wait,
             "/v1/rooms/ack": self.service.handle_room_ack,

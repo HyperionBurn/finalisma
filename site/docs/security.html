@@ -41,13 +41,13 @@
           <li>Idempotent, ordered events; workspace containment; artifact hashing; secret-pattern scanning.</li>
         </ul>
         <h2>Still not claimed</h2>
-        <p>No SLA, uptime, SSO, SOC/ISO certification, billing, or A2A Protocol conformance exists. There is no production operating history beyond our own test traffic. The monthly event cap (10,000 free / 100,000 pro) is a plan limit, not yet an enforced counter, so events-per-month is described as a limit, never as enforced.</p>
+        <p>No SLA, uptime, SSO, SOC/ISO certification, billing, or A2A Protocol conformance exists. There is no production operating history beyond our own test traffic. The monthly event cap (10,000 free / 100,000 pro) is enforced by the committed hosted send path — the budget check and the event append commit in the same transaction, under the same plan-driven seam as the other quotas — while current public-host behavior still requires a fresh production probe.</p>
         <div class="article-callout"><strong>Where the self-hosted coordinator differs</strong><p>Running <code>weft-mcp</code> on your own machine uses a shared bearer or trusted-actor model and a SQLite-WAL store on your own disk. It is durable local infrastructure, not a multi-tenant control plane — keep it on a trusted network. The hosted service is the multi-tenant surface; the self-hosted coordinator is the single-node alternative (<a href="quickstart.html#self-hosted">quickstart</a>).</p></div>
         <div class="article-next"><span>Evidence</span><a href="compatibility.html">See which host paths are documented and which are live →</a></div>
       </article>
       <aside class="article-aside">
         <div class="aside-card"><span class="resource-tag">Hosted claim</span><p>Public multi-tenant service with bearer auth, structural tenancy, enforced quotas, and role re-derivation.</p></div>
-        <div class="aside-card aside-card-dark"><span class="resource-tag">Not claimed</span><p>SLA, uptime, SSO, SOC/ISO, billing, A2A conformance, or enforced monthly-event counter.</p></div>
+        <div class="aside-card aside-card-dark"><span class="resource-tag">Not claimed</span><p>SLA, uptime, SSO, SOC/ISO, billing, or A2A conformance.</p></div>
       </aside>
     </div>
   </main>

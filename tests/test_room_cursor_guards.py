@@ -313,7 +313,8 @@ class CoordinatorCursorGuardTests(unittest.TestCase):
             )
             self.tokens[agent_id] = reg["actor_token"]
         created = self.dispatcher.call_tool(
-            "room_create", {"team_id": self.team, "owner_agent_id": "OWNER", "cap": 5},
+            "room_create", {"team_id": self.team, "owner_agent_id": "OWNER", "cap": 5,
+                             "actor_token": self.tokens["OWNER"]},
         )
         self.room_id = created["room_id"]
         self.link_token = created["link_token"]

@@ -260,7 +260,8 @@ class CoordinatorRevokeLinkTruthTests(RevokeLinkTruthMixin, unittest.TestCase):
         caller = caller or self._owner()
         return self._call(
             "room_create",
-            {"team_id": "team-1", "owner_agent_id": caller, "cap": cap},
+            {"team_id": "team-1", "owner_agent_id": caller, "cap": cap,
+             "actor_token": self.tokens[caller]},
         )
 
     def _info(self, caller, room_id: str) -> dict:

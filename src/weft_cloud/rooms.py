@@ -33,7 +33,7 @@ from typing import Any, Callable
 
 from weft_cloud.storage import StorageBackend, utc_now_iso
 
-from .identity.context import SessionContext, require_db_role
+from .identity.context import SessionContext, require_db_role, require_db_role_in_tx
 from .identity.tokens import AuthError, hash_token
 from .quotas import (
     QuotaError,
@@ -128,25 +128,6 @@ def _validate_message_kind(value: Any, field: str = "message_kind") -> str | Non
     return value
 
 
-def _normalize_target_specs(value: Any) -> list[str]:
-    """Validate and normalize a room-send target specification.
-
-    JSON callers may address one member/group (a string) or several (a list of
-    strings). Treating arbitrary iterables as a target list would let dicts
-    become keys, let scalars raise internal errors, and let an empty list
-    create an event with no delivery receipts.
-    """
-    if isinstance(value, str):
-        specs = [value]
-    elif isinstance(value, (list, tuple)):
-        specs = list(value)
-    else:
-        raise RoomError("invalid_argument", "target_spec must be a string or a list of strings", 400)
-    if not specs or any(not isinstance(spec, str) or not spec.strip() for spec in specs):
-        raise RoomError("invalid_argument", "target_spec must contain non-empty strings", 400)
-    return specs
-
-
 # Idempotency keys are validated at the request boundary, BEFORE they are used
 # as a database key anywhere. Max 256 characters: room for namespaced keys
 # (e.g. ``dispatch:<task_id>``) and a full UUID, while bounding the stored
@@ -187,12 +168,90 @@ def _validate_message_kinds(value: Any) -> list[str] | None:
             "invalid_argument",
             "message_kinds must be an optional list of message_kind strings",
         )
+    if len(value) > _MESSAGE_KINDS_MAX_ITEMS:
+        raise RoomError(
+            "invalid_argument",
+            f"message_kinds must contain at most {_MESSAGE_KINDS_MAX_ITEMS} entries",
+        )
     validated: list[str] = []
     for entry in value:
         v = _validate_message_kind(entry, "message_kinds")
         if v is not None:
             validated.append(v)
     return validated
+
+
+# Poll filter bound: one IN() placeholder is built per entry (rooms.poll), and
+# SQLite rejects more than SQLITE_MAX_VARIABLE_NUMBER (32 766) variables. An
+# unbounded list therefore turned a big filter into an OperationalError -> 500.
+# 64 is the documented cap, mirroring the entry_ids <= 200 precedent.
+_MESSAGE_KINDS_MAX_ITEMS = 64
+
+# Send addressing bounds: one unroutable spec per entry is reflected into the
+# recipient_not_found message, so the list length and per-entry length are
+# capped BEFORE any routing/reflection happens (LOW-4, 2026-08-15 audit).
+_TARGET_SPEC_MAX_ITEMS = 64
+_TARGET_SPEC_MAX_LEN = 128
+
+# Receipts echo each requested entry_id back verbatim in not_found entries;
+# a 1 MB entry_id was reflected as a 1 MB response body (LOW-4). Bounded at
+# the same validation boundary that already refuses non-string entries.
+_ENTRY_ID_MAX_LEN = 512
+
+
+def _validate_room_id(room_id: Any) -> str:
+    """Validate a caller-supplied ``room_id`` is a non-empty string.
+
+    A non-string container (list/dict) previously reached the SQLite bind in
+    the room resolution queries and raised ``sqlite3.ProgrammingError``, which
+    escaped as an HTTP 500 / MCP internal_error. Only the TYPE is checked
+    here — a well-formed but fabricated id still resolves to the uniform
+    ``room_not_found`` 404, so the no-oracle behaviour is unchanged.
+    """
+    if not isinstance(room_id, str) or not room_id.strip():
+        raise RoomError("invalid_argument", "room_id must be a non-empty string", 400)
+    return room_id
+
+
+def _normalize_target_spec(target_spec: Any) -> list[str]:
+    """Normalize a send's ``target_spec`` into a bounded list of strings.
+
+    ``target_spec`` must be a string or a list/tuple of strings, with at most
+    ``_TARGET_SPEC_MAX_ITEMS`` non-empty entries of at most
+    ``_TARGET_SPEC_MAX_LEN`` characters each. Anything else (int/bool/float
+    previously raised ``TypeError`` inside ``list(...)`` -> 500; dicts were
+    silently type-confused into their keys) is the caller's
+    ``invalid_argument`` 400. An empty list previously slipped through to
+    routing and produced a ``200`` with zero receipts — a silent no-op send
+    indistinguishable from success — so it is rejected here too, before
+    routing ever runs. The bounds keep the ``recipient_not_found`` reflection
+    small (LOW-4).
+    """
+    if isinstance(target_spec, str):
+        specs = [target_spec]
+    elif isinstance(target_spec, (list, tuple)):
+        specs = list(target_spec)
+    else:
+        raise RoomError(
+            "invalid_argument", "target_spec must be a string or a list of strings", 400,
+        )
+    if not specs:
+        raise RoomError("invalid_argument", "target_spec must contain non-empty strings", 400)
+    if len(specs) > _TARGET_SPEC_MAX_ITEMS:
+        raise RoomError(
+            "invalid_argument",
+            f"target_spec must contain at most {_TARGET_SPEC_MAX_ITEMS} entries",
+            400,
+        )
+    for spec in specs:
+        if not isinstance(spec, str) or not spec.strip() or len(spec) > _TARGET_SPEC_MAX_LEN:
+            raise RoomError(
+                "invalid_argument",
+                f"target_spec must contain non-empty strings of at most "
+                f"{_TARGET_SPEC_MAX_LEN} characters",
+                400,
+            )
+    return specs
 
 
 def _validate_room_name(value: Any) -> str | None:
@@ -573,6 +632,43 @@ class CloudRoomService:
             raise RoomError("room_not_found", "Room not found", 404)
         return row
 
+    def _close_expired_room(self, tenant_id: str, room_id: str) -> None:
+        """Lazy TTL close, committed in its OWN short transaction.
+
+        ``ttl_seconds`` is a room-lifetime promise, not a link-only limit.
+        Reads stay available on closed rooms (history is immutable, like
+        explicitly-closed rooms today), but the first write after expiry
+        marks the room closed exactly once — with a ``room.closed`` event
+        carrying ``reason: ttl_expired`` — so the caller's own transaction
+        then sees ``closed`` and refuses. The close must COMMIT independently:
+        raising inside the caller's transaction would roll the close back with
+        the refusal, which is how the first implementation failed its test.
+        """
+        with self.backend.transaction() as tx:
+            room = self._require_room(tx, tenant_id, room_id)
+            if room["state"] == "closed":
+                tx.commit()
+                return
+            expires = float(room["expires_at"] or 0.0)
+            if expires <= 0 or expires >= _time.time():
+                tx.commit()
+                return
+            tx.execute(
+                "UPDATE cloud_rooms SET state = 'closed' WHERE tenant_id = ? AND room_id = ?",
+                (tenant_id, room_id),
+            )
+            # Mirror close_room: closing releases the tenant's active-room
+            # quota slot. Clamped at zero so a drifted counter can never go
+            # negative.
+            tx.execute(
+                "UPDATE cloud_counters SET value = MAX(0, value - 1), updated_at = ? "
+                "WHERE tenant_id = ? AND counter = 'rooms'",
+                (utc_now_iso(), tenant_id),
+            )
+            self._append_event(tx, tenant_id, room_id, room["owner_agent_id"],
+                               "room.closed", {"reason": "ttl_expired"})
+            tx.commit()
+
     def _resolve_room_tenant(self, tx: Any, room_id: str, agent_id: str | None = None) -> str:
         """Find the tenant_id for a room, optionally scoped to a member.
 
@@ -588,6 +684,7 @@ class CloudRoomService:
         room resolves the same uniform ``room_not_found`` as a room that never
         existed (no existence oracle).
         """
+        _validate_room_id(room_id)
         if agent_id:
             row = tx.execute(
                 "SELECT tenant_id FROM cloud_room_members "
@@ -615,20 +712,34 @@ class CloudRoomService:
 
     def _touch_member(self, tx: Any, tenant_id: str, room_id: str, agent_id: str,
                       now: float | None = None) -> None:
-        """Throttled presence refresh for the CALLER's OWN membership row.
+        """Throttled presence refresh for the CALLER'S OWN membership row.
 
         Liveness describes whether a member IS USING the room, not whether they
-        called one specific bookkeeping tool — so every authenticated room call
+        called one specific bookkeeping tool - so every authenticated room call
         refreshes last_seen. The write is bounded to at most one per
         ``ROOM_LIVENESS_TOUCH_INTERVAL`` (readers do not serialize the room
         behind SQLite's single writer). Only ever touches the row keyed by
-        ``agent_id`` — the caller's authenticated account, never a request
-        argument — and a missing row is a no-op, so a non-member call can
+        ``agent_id`` - the caller's authenticated account, never a request
+        argument - and a missing row is a no-op, so a non-member call can
         neither create nor touch a membership row. Callers invoke this AFTER
         ``_require_member``, so auth is established before any write.
+
+        Performance contract: the throttle check happens IN MEMORY first, so
+        the common case does ZERO database work (the same optimization that
+        fixed the coordinator envelope perf-gate regression). The memo is a
+        throttle only, never an authorization or correctness input.
         """
         if now is None:
             now = _time.time()
+        memo = getattr(self, "_touch_memo", None)
+        if memo is None:
+            memo = {}
+            self._touch_memo = memo
+        key = (tenant_id, room_id, agent_id)
+        last = memo.get(key)
+        if last is not None and now - last < ROOM_LIVENESS_TOUCH_INTERVAL:
+            return
+        memo[key] = now
         row = tx.execute(
             "SELECT last_seen FROM cloud_room_members "
             "WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
@@ -735,7 +846,7 @@ class CloudRoomService:
                 return groups[spec] & active_ids
             return set()
 
-        specs = _normalize_target_specs(target_spec)
+        specs = _normalize_target_spec(target_spec)
 
         result: set[str] = set()
         for spec in specs:
@@ -755,7 +866,7 @@ class CloudRoomService:
         The caller is a member, so naming a non-member of THIS room leaks
         nothing the caller could not already read from the room's roster.
         """
-        specs = _normalize_target_specs(target_spec)
+        specs = _normalize_target_spec(target_spec)
         group_rows = tx.execute(
             "SELECT group_name FROM cloud_room_groups WHERE tenant_id = ? AND room_id = ?",
             (tenant_id, room_id),
@@ -777,7 +888,8 @@ class CloudRoomService:
 
     def create_room(self, tenant_id: str, owner_agent_id: str, actor_token: str,
                     cap: int = 10, name: str | None = None, ttl_seconds: int = 86400,
-                    origin: str | None = None) -> dict:
+                    origin: str | None = None,
+                    actor_account_id: str | None = None) -> dict:
         """Create a room and return its shareable link.
 
         The owner auto-joins as the first active member. ``owner_agent_id``
@@ -816,12 +928,28 @@ class CloudRoomService:
         expires_at = now_epoch + ttl_seconds
         base_origin = public_origin(origin)
 
-        # ONE transaction for full room creation. Tenant-room quota binding,
-        # owner-member quota count, room/link/member/cursor rows, and lifecycle
-        # events commit or roll back together. A late insert failure can never
-        # leave counters ahead of persisted room state.
+        # ONE transaction for full room creation. Revalidate the live bearer
+        # credential and tenant role on this same writer transaction before any
+        # room/quota/member/event mutation, closing the request/leave gap.
         plan_id, plan = resolve_plan(self.backend, tenant_id)
         with self.backend.transaction() as tx:
+            if actor_account_id is not None:
+                credential = tx.execute(
+                    "SELECT account_id FROM cloud_identity_sessions "
+                    "WHERE token_hash = ? AND tenant_id = ? AND account_id = ? "
+                    "AND revoked_at IS NULL AND expires_at > ?",
+                    (_token_hash(actor_token), tenant_id, actor_account_id, _time.time()),
+                ).fetchone()
+                if credential is None:
+                    credential = tx.execute(
+                        "SELECT account_id FROM cloud_identity_agent_keys "
+                        "WHERE token_hash = ? AND tenant_id = ? AND account_id = ? "
+                        "AND key_id = ? AND revoked_at IS NULL",
+                        (_token_hash(actor_token), tenant_id, actor_account_id, owner_agent_id),
+                    ).fetchone()
+                if credential is None:
+                    raise AuthError("invalid_session")
+                require_db_role_in_tx(tx, tenant_id, actor_account_id, "admin")
             bind_room_with_quota_in_tx(
                 tx, tenant_id, room_id, self.backend.state_path, plan_id, plan,
             )
@@ -875,6 +1003,7 @@ class CloudRoomService:
         scoped. An invalid link yields invalid_link (no oracle on which rooms
         exist).
         """
+        _validate_room_id(room_id)
         try:
             link_hash = _token_hash(link_token)
         except ValueError:
@@ -943,6 +1072,24 @@ class CloudRoomService:
         # and concurrent joins cannot oversubscribe a room.
         with self.backend.transaction() as tx:
             real_tenant_id, room, link_row = self._resolve_room_for_link(tx, room_id, link_token)
+            if room["state"] != "closed" and float(room["expires_at"] or 0.0) > 0 \
+                    and float(room["expires_at"]) < now_epoch:
+                # Close commits BEFORE the refusal raise, so the close is not
+                # rolled back with it. The tenant's active-room quota slot is
+                # released too (mirror close_room).
+                tx.execute(
+                    "UPDATE cloud_rooms SET state = 'closed' WHERE tenant_id = ? AND room_id = ?",
+                    (real_tenant_id, room_id),
+                )
+                tx.execute(
+                    "UPDATE cloud_counters SET value = MAX(0, value - 1), updated_at = ? "
+                    "WHERE tenant_id = ? AND counter = 'rooms'",
+                    (utc_now_iso(), real_tenant_id),
+                )
+                self._append_event(tx, real_tenant_id, room_id, room["owner_agent_id"],
+                                   "room.closed", {"reason": "ttl_expired"})
+                tx.commit()
+                raise RoomError("room_expired", "Room has expired", 410)
             if room["state"] == "closed":
                 raise RoomError("room_closed", "Room is closed", 409)
             if link_row["revoked"]:
@@ -1138,17 +1285,23 @@ class CloudRoomService:
                       target_agent_id: str) -> dict:
         """Remove one active member from a room, releasing its seat atomically.
 
-        Removal is owner-only and is not a ban: a removed member can rejoin
-        while the room link remains valid. The membership, cursor/group rows,
-        counter, and lifecycle event change in one transaction.
+        Owner-only. Removal is NOT a ban: a removed member who still holds a
+        valid link can rejoin. The membership row flips to ``left`` (history
+        and attribution preserved), group membership and the member's cursor
+        row are cleaned up, the member counter is decremented, and a
+        ``room.left`` event records the removal with ``reason:
+        removed_by_owner`` — all in one transaction.
         """
         with self.backend.transaction() as tx:
             room = self._require_room(tx, tenant_id, room_id)
             self._require_member(tx, tenant_id, room_id, owner_agent_id)
+            self._touch_member(tx, tenant_id, room_id, owner_agent_id)
             if room["owner_agent_id"] != owner_agent_id:
                 raise RoomError("owner_required", "Only the room owner can remove a member", 403)
             if target_agent_id == room["owner_agent_id"]:
                 raise RoomError("owner_required", "The room owner cannot be removed", 403)
+            if not isinstance(target_agent_id, str) or not target_agent_id.strip():
+                raise RoomError("invalid_argument", "member_id must be a non-empty string", 400)
             target = tx.execute(
                 "SELECT 1 FROM cloud_room_members "
                 "WHERE tenant_id = ? AND room_id = ? AND agent_id = ? AND status = 'active'",
@@ -1307,7 +1460,10 @@ class CloudRoomService:
             last_ack = int(cursor_row["last_ack_seq"]) if cursor_row else 0
             if after_seq is None:
                 after_seq = last_ack
-            after_seq = int(after_seq)
+            if isinstance(after_seq, bool) or not isinstance(after_seq, int):
+                # A non-integer cursor is the CALLER's error and must come
+                # back as a clean 400, not escape as a ValueError -> 500.
+                raise RoomError("invalid_argument", "after_seq must be an integer", 400)
             # Cursor guards (F14 / P1): silence must never mean success for
             # READS either. A window beyond the room head used to be silently
             # echoed back as ``next_seq`` — the caller could not tell their
@@ -1323,7 +1479,9 @@ class CloudRoomService:
                     400,
                 )
             behind_by = max(0, after_seq - last_ack)
-            limit = max(1, min(int(limit), 200))
+            if isinstance(limit, bool) or not isinstance(limit, int):
+                raise RoomError("invalid_argument", "limit must be an integer", 400)
+            limit = max(1, min(limit, 200))
             kind_filter = _validate_message_kinds(message_kinds)
             if kind_filter:
                 placeholders = ", ".join("?" for _ in kind_filter)
@@ -1457,8 +1615,13 @@ class CloudRoomService:
             room = self._require_room(tx, tenant_id, room_id)
             self._require_member(tx, tenant_id, room_id, agent_id)
             self._touch_member(tx, tenant_id, room_id, agent_id)
-            if isinstance(seq, bool) or not isinstance(seq, int) or seq < 0:
-                raise RoomError("invalid_cursor", "seq must be a non-negative integer", 400)
+            if isinstance(seq, bool) or not isinstance(seq, int):
+                raise RoomError("invalid_argument", "seq must be an integer", 400)
+            if seq < 0:
+                # Symmetric with poll: a negative cursor is refused with
+                # invalid_cursor, never silently accepted (MAX semantics used
+                # to let a negative ack look like a successful no-op).
+                raise RoomError("invalid_cursor", "seq cannot be negative", 400)
             if seq > int(room["cursor_head"]):
                 raise RoomError("invalid_cursor", "Cannot acknowledge an event beyond the room head", 400)
             now = utc_now_iso()
@@ -1513,6 +1676,13 @@ class CloudRoomService:
             raise RoomError("invalid_argument", "entry_ids must contain at most 200 items", 400)
         if any(not isinstance(e, str) or not e.strip() for e in entry_ids):
             raise RoomError("invalid_argument", "entry_ids must contain non-empty strings", 400)
+        if any(len(entry_id) > _ENTRY_ID_MAX_LEN for entry_id in entry_ids):
+            raise RoomError(
+                "invalid_argument",
+                f"entry_ids must contain strings of at most {_ENTRY_ID_MAX_LEN} characters",
+                400,
+            )
+
         with self.backend.transaction() as tx:
             self._require_room(tx, tenant_id, room_id)
             self._require_member(tx, tenant_id, room_id, agent_id)
@@ -1538,12 +1708,18 @@ class CloudRoomService:
                     "entry_id": entry_id,
                     "found": True,
                     "status": by_entry[entry_id]["read_status"],
+                    "read_status": by_entry[entry_id]["read_status"],
                     "outbox_status": by_entry[entry_id]["status"] or "unknown",
                     "attempts": int(by_entry[entry_id]["attempts"] or 0),
                     "next_attempt_at": by_entry[entry_id]["next_attempt_at"],
                     "last_error": by_entry[entry_id]["last_error"],
                 }
-                if entry_id in by_entry else {"entry_id": entry_id, "found": False}
+                if entry_id in by_entry else {
+                    "entry_id": entry_id,
+                    "found": False,
+                    "status": "not_found",
+                    "read_status": "not_found",
+                }
                 for entry_id in entry_ids
             ],
         }
@@ -1594,6 +1770,9 @@ class CloudRoomService:
         message_kind = _validate_message_kind(message_kind)
         lock_context = self._idempotency_lock if idempotency_key else nullcontext()
         with lock_context:
+            # Lazy TTL close commits in its own transaction, so a refusal in
+            # the delivery transaction can never roll the close back.
+            self._close_expired_room(tenant_id, room_id)
             with self.backend.transaction() as tx:
                 room = self._require_room(tx, tenant_id, room_id)
                 self._require_member(tx, tenant_id, room_id, sender_agent_id)

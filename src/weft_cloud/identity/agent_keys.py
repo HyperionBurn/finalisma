@@ -160,6 +160,38 @@ def revoke(backend: Any, tenant_id: str, account_id: str, key_id: str) -> None:
         tx.commit()
 
 
+def revoke_by_token_hash(backend: Any, token_hash: str) -> None:
+    """Revoke the key whose stored SHA-256 token hash matches.
+
+    Used by the shared signout funnel: for an ``agk_`` bearer the presented
+    credential IS the key, so signout must kill the key itself or report
+    success for a still-live credential. Single transaction — the lookup, the
+    conditional UPDATE, and the room-seat release run under ONE writer lock
+    (mirrors ``sessions.revoke_by_token_hash``; never call from inside another
+    ``backend.transaction()``).
+    """
+    ensure_schema(backend)
+    now = _time.time()
+    with backend.transaction() as tx:
+        row = tx.execute(
+            "SELECT key_id, tenant_id FROM cloud_identity_agent_keys "
+            "WHERE token_hash = ? AND revoked_at IS NULL",
+            (token_hash,),
+        ).fetchone()
+        if row is None:
+            tx.commit()
+            return
+        cursor = tx.execute(
+            "UPDATE cloud_identity_agent_keys SET revoked_at = ? "
+            "WHERE key_id = ? AND revoked_at IS NULL",
+            (now, row["key_id"]),
+        )
+        if cursor.rowcount == 1:
+            from weft_cloud.rooms import release_agent_key_seats_in_tx
+            release_agent_key_seats_in_tx(tx, row["tenant_id"], row["key_id"])
+        tx.commit()
+
+
 def list_for_account(backend: Any, tenant_id: str, account_id: str) -> list[dict[str, Any]]:
     """List an account's keys in this tenant: id, label, created, last-used.
 
@@ -268,6 +300,9 @@ class AgentKeyStore:
 
     def revoke(self, backend, tenant_id, account_id, key_id):
         return revoke(backend, tenant_id, account_id, key_id)
+
+    def revoke_by_token_hash(self, backend, token_hash):
+        return revoke_by_token_hash(backend, token_hash)
 
     def list_for_account(self, backend, tenant_id, account_id):
         return list_for_account(backend, tenant_id, account_id)

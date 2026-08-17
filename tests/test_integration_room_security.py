@@ -75,7 +75,7 @@ class RoomSecurityIntegrationTests(unittest.TestCase):
         # Create cap=2 room. Owner auto-joins (1 member). One more join fills cap.
         created = self.dispatcher.call_tool(
             "room_create",
-            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 2},
+            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 2, "actor_token": self.owner_token},
         )
         room_id = created["room_id"]
         link_token = created["link_token"]
@@ -112,7 +112,7 @@ class RoomSecurityIntegrationTests(unittest.TestCase):
     def test_revoked_link_cannot_join(self) -> None:
         created = self.dispatcher.call_tool(
             "room_create",
-            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 4},
+            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 4, "actor_token": self.owner_token},
         )
         room_id = created["room_id"]
         link_token = created["link_token"]
@@ -153,7 +153,7 @@ class RoomSecurityIntegrationTests(unittest.TestCase):
         import time
         created = self.dispatcher.call_tool(
             "room_create",
-            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 4, "ttl_seconds": 1},
+            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 4, "ttl_seconds": 1, "actor_token": self.owner_token},
         )
         room_id = created["room_id"]
         link_token = created["link_token"]
@@ -180,7 +180,7 @@ class RoomSecurityIntegrationTests(unittest.TestCase):
     def test_non_member_cannot_read_room(self) -> None:
         created = self.dispatcher.call_tool(
             "room_create",
-            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 4},
+            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 4, "actor_token": self.owner_token},
         )
         room_id = created["room_id"]
         # agent-2 is registered but never joined — room_poll must refuse.
@@ -217,7 +217,7 @@ class RoomSecurityIntegrationTests(unittest.TestCase):
         # Room A — owner + agent-2 join.
         room_a = self.dispatcher.call_tool(
             "room_create",
-            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 4},
+            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 4, "actor_token": self.owner_token},
         )
         room_a_id = room_a["room_id"]
         self.dispatcher.call_tool(
@@ -234,7 +234,7 @@ class RoomSecurityIntegrationTests(unittest.TestCase):
         # Room B — owner only.
         room_b = self.dispatcher.call_tool(
             "room_create",
-            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 4},
+            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 4, "actor_token": self.owner_token},
         )
         room_b_id = room_b["room_id"]
         # agent-2 (member of A) attempts to poll room B — must be refused.
@@ -286,7 +286,7 @@ class RoomSecurityIntegrationTests(unittest.TestCase):
         # Create a room first.
         created = self.dispatcher.call_tool(
             "room_create",
-            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 4},
+            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 4, "actor_token": self.owner_token},
         )
         room_id = created["room_id"]
         # Create a task bound to the room via metadata.
@@ -336,7 +336,7 @@ class RoomSecurityIntegrationTests(unittest.TestCase):
     def test_link_replay_cannot_impersonate_existing_member(self) -> None:
         created = self.dispatcher.call_tool(
             "room_create",
-            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 4},
+            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 4, "actor_token": self.owner_token},
         )
         room_id = created["room_id"]
         link_token = created["link_token"]
@@ -387,7 +387,7 @@ class RoomSecurityIntegrationTests(unittest.TestCase):
     def test_consent_not_literal_boolean_refused(self) -> None:
         created = self.dispatcher.call_tool(
             "room_create",
-            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 4},
+            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 4, "actor_token": self.owner_token},
         )
         room_id = created["room_id"]
         link_token = created["link_token"]
@@ -412,7 +412,7 @@ class RoomSecurityIntegrationTests(unittest.TestCase):
     def test_close_by_non_owner_refused(self) -> None:
         created = self.dispatcher.call_tool(
             "room_create",
-            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 4},
+            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 4, "actor_token": self.owner_token},
         )
         room_id = created["room_id"]
         link_token = created["link_token"]

@@ -30,15 +30,23 @@ src/weft_cloud/
   __init__.py          # package marker
   storage.py           # StorageBackend ABC + SqliteWalBackend (THE interface)
   tenancy.py           # TenantContext guard + storage-boundary tenancy enforcement
-  migrations.py        # versioned migration registry, v3→cloud path
+  migrations.py        # versioned migration registry (cloud_001..cloud_014), v3→cloud path
   quotas.py            # PlanLimits, per-tenant/per-room counters, enforcement seam
   rate_limit.py        # RateLimiter seam (token-bucket / window), per tenant+room
-  server.py            # HTTP handlers (FastAPI or stdlib http.server for v1)
-  config.py            # plan resolution, dependency wiring
+  service.py           # WeftCloudService: the /v1 REST handlers + _CloudHTTPHandler
+  mcp.py               # hosted MCP endpoint (POST /mcp, Streamable HTTP + SSE)
+  delivery_worker.py   # cloud_outbox delivery worker (claim/deliver/retry/DLQ)
+  identity/            # Wave G: accounts, sessions, orgs, invites, agent_keys, tokens, context, mailer, outbox_worker
 ```
 
-For **v1**, `server.py` uses `http.server` (stdlib) to honor the zero-dep aim. A FastAPI swap is
-allowed in a later wave but must be pinned and justified.
+> **Naming delta from the original design (recorded honestly):** the Wave F
+> sketch named the HTTP module `server.py` and a `config.py` for "plan
+> resolution, dependency wiring". The implementation is `service.py` (handlers
+> + `runtime_config()`, which owns plan/dependency wiring — argv → env →
+> defaults) and `mcp.py` (hosted MCP). There is no `config.py`. The v1
+> HTTP surface is stdlib `http.server` (`_CloudHTTPHandler` in `service.py`),
+> honouring the zero-dep aim; a FastAPI swap is still allowed in a later wave
+> but must be pinned and justified.
 
 ### 1.3 Dependency justification
 
@@ -166,6 +174,14 @@ class StorageBackend(ABC):
     @abstractmethod
     def apply_migration(self, migration_id: str, up_sql: str) -> None: ...
 ```
+
+> **The canonical interface lives in `src/weft_cloud/storage.py`.** The sketch
+> above was the Wave-F proposal; the shipped ABC has grown beyond it. Extra
+> methods implemented in production but not in this sketch: `executescript`
+> (StorageTransaction), `enqueue_outbox_in_tx`, `mark_outbox_delivered`,
+> `mark_outbox_retry`, `mark_outbox_dead` (the hosted delivery lifecycle), and
+> `claim_due_outbox` gained a keyword-only cursor parameter. See §10 for the
+> authoritative count.
 
 ### 2.2 Connection / transaction semantics
 
@@ -308,8 +324,9 @@ class Migration:
 
 MIGRATIONS: list[Migration] = [
     Migration("cloud_001_init", "cloud plane bootstrap", CLOUD_INIT_SQL),
-    Migration("cloud_002_quotas", "quota counters", QUOTAS_SQL),
-    # ...
+    Migration("cloud_002_identity_accounts", "identity accounts", ACCOUNTS_SQL),
+    # ... (canonical registry lives in src/weft_cloud/migrations.py —
+    # currently cloud_001_init through cloud_014_room_receipts_status_rename)
 ]
 
 def apply_migrations(backend: StorageBackend) -> None:
@@ -329,6 +346,10 @@ def apply_migrations(backend: StorageBackend) -> None:
 - **Tracked:** `schema_migrations(migration_id TEXT PRIMARY KEY, applied_at TEXT NOT NULL)`
   records what has run. `get_schema_version()` returns `SELECT COUNT(*) FROM schema_migrations`.
 - **Ordered:** Migrations are a list, applied in index order. No gaps, no out-of-order.
+- **Ids are immutable.** `migration_id` is the ledger's primary key and is never
+  mutated once recorded; a repair to an already-applied migration ships as a new
+  forward migration under a fresh id (e.g. `cloud_014_room_receipts_status_rename`
+  repairs interim `cloud_013` tables rather than editing `cloud_013`).
 
 ### 4.2 The v3→cloud upgrade path
 
@@ -722,29 +743,25 @@ sequenceDiagram
 
 ## 10. Interface method count
 
-The `StorageBackend` ABC exposes **21 methods** (including `initialize` and `transaction`):
+The shipped `StorageBackend` ABC (counted from `src/weft_cloud/storage.py`
+`@abstractmethod` decorators) exposes **26 abstract methods**:
 
-1. `initialize`
-2. `transaction` (context manager)
-3. `create_tenant`
-4. `get_tenant`
-5. `bind_room`
-6. `list_rooms`
-7. `mirror_event`
-8. `poll_events`
-9. `increment_counter`
-10. `get_counter`
-11. `increment_room_counter`
-12. `get_room_counter`
-13. `check_rate_limit`
-14. `enqueue_outbox`
-15. `claim_due_outbox`
-16. `append_audit`
-17. `list_audit`
-18. `get_schema_version`
-19. `apply_migration`
+StorageTransaction: `execute`, `commit`, `rollback`, `executescript` (4).
 
-Plus `StorageTransaction` (3 methods: `execute`, `commit`, `rollback`) = **22 total surface methods**.
+StorageBackend: `initialize`, `transaction`, `create_tenant`, `get_tenant`,
+`bind_room`, `list_rooms`, `mirror_event`, `poll_events`, `increment_counter`,
+`get_counter`, `increment_room_counter`, `get_room_counter`,
+`check_rate_limit`, `enqueue_outbox`, `enqueue_outbox_in_tx`,
+`claim_due_outbox`, `mark_outbox_delivered`, `mark_outbox_retry`,
+`mark_outbox_dead`, `append_audit`, `list_audit`, `get_schema_version`,
+`apply_migration` (22).
+
+> The original Wave-F count below was 21/22 and is superseded — the outbox
+> lifecycle methods (`mark_outbox_delivered` / `mark_outbox_retry` /
+> `mark_outbox_dead`), `enqueue_outbox_in_tx` (atomic event+receipt writes in
+> `rooms.py`), and `executescript` (idempotent schema bootstrap) were added
+> after the design locked. This section is kept current against the code, not
+> the proposal.
 
 ---
 

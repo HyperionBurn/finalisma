@@ -21,11 +21,17 @@ Authoritative spec: docs/AGENT_KEYS.md.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
+import shutil
 import sys
 import tempfile
+import threading
 import time
 import unittest
+import urllib.error
+import urllib.request
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -37,6 +43,7 @@ from weft_cloud.identity import accounts, agent_keys, orgs, sessions
 from weft_cloud.identity.context import SessionContext, RoleError
 from weft_cloud.identity.schema import ensure_schema
 from weft_cloud.identity.tokens import AuthError
+from weft_cloud.service import WeftCloudService, _CloudHTTPHandler
 
 
 def _sha256(text: str) -> str:
@@ -311,6 +318,108 @@ class AgentKeyContractTests(unittest.TestCase):
         _key_id, raw_token = agent_keys.create(self.backend, self.tenant_id, self.account_id, "ci")
         ctx = agent_keys.validate(self.backend, raw_token)
         self.assertNotIn("agk_", repr(ctx))
+
+
+class _SignoutHTTPHarness:
+    """Real HTTP server + WeftCloudService for the signout regression."""
+
+    def __init__(self) -> None:
+        self._tmp = tempfile.mkdtemp(prefix="agk-signout-")
+        self._httpd = ThreadingHTTPServer(("127.0.0.1", 0), _CloudHTTPHandler)
+        port = self._httpd.server_address[1]
+        self.base = f"http://127.0.0.1:{port}"
+        self.service = WeftCloudService(
+            SqliteWalBackend(str(Path(self._tmp) / "srv.db")), origin=self.base
+        )
+        _CloudHTTPHandler.service = self.service
+        self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
+        self._thread.start()
+
+    def request(self, method: str, path: str, body=None, token: str | None = None):
+        data = json.dumps(body).encode("utf-8") if body is not None else None
+        req = urllib.request.Request(self.base + path, data=data, method=method)
+        req.add_header("Content-Type", "application/json")
+        if token:
+            req.add_header("Authorization", f"Bearer {token}")
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                raw = resp.read()
+                return resp.status, json.loads(raw.decode("utf-8")) if raw else {}
+        except urllib.error.HTTPError as exc:
+            try:
+                raw = exc.read()
+                return exc.code, json.loads(raw.decode("utf-8")) if raw else {}
+            finally:
+                exc.close()
+
+    def close(self) -> None:
+        try:
+            self._httpd.shutdown()
+        finally:
+            self._httpd.server_close()
+        try:
+            self.service.backend.close()
+        except Exception:
+            pass
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+
+class SignoutWithAgentKeyRegressionTests(unittest.TestCase):
+    """POST /v1/auth/signout accepts BOTH credential types through the shared
+    auth funnel (``_authenticate``), but revokes only
+    ``cloud_identity_sessions``. For an ``agk_`` bearer the endpoint therefore
+    answers ``{"signed_out": true}`` while the presented credential stays fully
+    live — a silent failure of the revocation surface.
+
+    Invariant under test: when signout answers success, the presented
+    credential must no longer authenticate; otherwise the request must be
+    refused. Either behaviour is safe; silent success is not.
+    """
+
+    def setUp(self) -> None:
+        self.harness = _SignoutHTTPHarness()
+
+    def tearDown(self) -> None:
+        self.harness.close()
+
+    def test_signout_with_agent_key_never_claims_success_while_key_lives(self) -> None:
+        status, body = self.harness.request(
+            "POST", "/v1/auth/signup",
+            {"email": f"sig{time.time_ns()}@example.com", "password": "CorrectHorse!1"},
+        )
+        self.assertEqual(status, 201, f"signup failed: {body}")
+        session = body["session_token"]
+
+        status, created = self.harness.request(
+            "POST", "/v1/agent-keys", {"label": "signout-probe"}, token=session
+        )
+        self.assertEqual(status, 201, f"agent-key create failed: {created}")
+        agent_key = created["agent_key"]
+
+        # Sanity: the key authenticates before signout.
+        status, me = self.harness.request("GET", "/v1/me", token=agent_key)
+        self.assertEqual(status, 200, f"key must authenticate before signout: {me}")
+
+        status, out = self.harness.request("POST", "/v1/auth/signout", {}, token=agent_key)
+
+        if status == 200 and out.get("signed_out"):
+            # Success was claimed — the credential MUST be dead.
+            status_after, me_after = self.harness.request("GET", "/v1/me", token=agent_key)
+            self.assertEqual(
+                status_after,
+                401,
+                "signout reported signed_out: true but the agent key still "
+                f"authenticates (/v1/me returned {status_after}: {me_after}) — "
+                "a silently-live credential",
+            )
+        else:
+            # The alternative safe behaviour: refuse agent keys at signout.
+            self.assertEqual(
+                status,
+                401,
+                "refusing agent keys at signout must be a 401, not a silent "
+                f"non-success (got {status})",
+            )
 
 
 if __name__ == "__main__":

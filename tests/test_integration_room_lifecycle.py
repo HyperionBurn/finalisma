@@ -56,7 +56,7 @@ class RoomLifecycleIntegrationTests(unittest.TestCase):
     def test_room_create_returns_forming_room_with_link_and_owner_is_member(self) -> None:
         created = self.dispatcher.call_tool(
             "room_create",
-            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 4},
+            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 4, "actor_token": self.owner_token},
         )
         self.assertTrue(created["room_id"].startswith("room_"))
         self.assertEqual(created["state"], "forming")
@@ -82,7 +82,7 @@ class RoomLifecycleIntegrationTests(unittest.TestCase):
     def test_room_create_returns_absolute_shareable_link(self) -> None:
         created = self.dispatcher.call_tool(
             "room_create",
-            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 4},
+            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 4, "actor_token": self.owner_token},
         )
         self.assertIn("shareable_link", created)
         self.assertTrue(created["shareable_link"].startswith(("http://", "https://")),
@@ -97,7 +97,7 @@ class RoomLifecycleIntegrationTests(unittest.TestCase):
     def test_room_join_admits_second_agent_and_transitions_to_active(self) -> None:
         created = self.dispatcher.call_tool(
             "room_create",
-            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 4},
+            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 4, "actor_token": self.owner_token},
         )
         room_id = created["room_id"]
         link_token = created["link_token"]
@@ -131,7 +131,7 @@ class RoomLifecycleIntegrationTests(unittest.TestCase):
     def test_room_join_past_cap_is_refused_with_room_full(self) -> None:
         created = self.dispatcher.call_tool(
             "room_create",
-            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 3},
+            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 3, "actor_token": self.owner_token},
         )
         room_id = created["room_id"]
         link_token = created["link_token"]
@@ -187,7 +187,7 @@ class RoomLifecycleIntegrationTests(unittest.TestCase):
     def test_room_leave_then_idempotent_rejoin(self) -> None:
         created = self.dispatcher.call_tool(
             "room_create",
-            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 4},
+            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 4, "actor_token": self.owner_token},
         )
         room_id = created["room_id"]
         link_token = created["link_token"]
@@ -250,7 +250,7 @@ class RoomLifecycleIntegrationTests(unittest.TestCase):
     def test_room_close_by_owner_blocks_joins_and_preserves_readable_state(self) -> None:
         created = self.dispatcher.call_tool(
             "room_create",
-            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 4},
+            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 4, "actor_token": self.owner_token},
         )
         room_id = created["room_id"]
         link_token = created["link_token"]
@@ -300,7 +300,7 @@ class RoomLifecycleIntegrationTests(unittest.TestCase):
     def test_room_close_by_non_owner_is_refused(self) -> None:
         created = self.dispatcher.call_tool(
             "room_create",
-            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 4},
+            {"team_id": "team-1", "owner_agent_id": "owner-1", "cap": 4, "actor_token": self.owner_token},
         )
         room_id = created["room_id"]
         link_token = created["link_token"]

@@ -1,8 +1,10 @@
 # Hosted MCP endpoint — authenticated, tenant-confined
 
 **Status:** implemented (`src/weft_cloud/mcp.py`), endpoint at `POST /mcp` on
-the hosted `weft-cloud` service, 18 integration tests
-(`tests/test_hosted_mcp.py`) driving the real HTTP surface.
+the hosted `weft-cloud` service, 27 integration tests
+(`tests/test_hosted_mcp.py`) driving the real HTTP surface, plus 8 SSE
+framing tests (`tests/test_hosted_mcp_sse.py`) and 1 agent-key auth test
+(`tests/test_hosted_mcp_agent_keys.py`).
 
 ## The gap this closes
 
@@ -61,22 +63,30 @@ Exposed — the room set the product promise depends on, one MCP tool per
 `CloudRoomService` method (tenant = authenticated cloud tenant, agent = authenticated identity):
 
 `room_create` `room_join` `room_send` `room_receipts` `room_poll` `room_wait`
-`room_info` `room_ack` `room_heartbeat` `room_remove_member` `room_event_log`
+`room_info` `room_ack` `room_heartbeat` `room_leave` `room_remove_member`
+`room_event_log`
 
-Withheld — the other ~50 self-hosted tools (`register_agent`, pairing, task,
+The member lifecycle is complete: `room_leave` frees a member's seat
+immediately (`room.left` event, history and attribution preserved), and the
+owner-only `room_remove_member` frees a target member's seat — removal is NOT
+a ban (a removed member who still holds a valid link can rejoin). The tool set
+is pinned by a test (`test_hosted_surface_is_a_small_correct_set`), which
+asserts exactly 12 tools.
+
+Withheld — the other ~46 self-hosted tools (`register_agent`, pairing, task,
 roster, outbox, bridge, metrics, tenancy, …). They assume the self-hosted
 team/actor-token model and each would need a per-tenant reimplementation to be
 safe to serve. A smaller correct surface beats a large unsafe one; the room
 tools are the surface the product's "one link, many agents" promise depends
-on. The tool set is pinned by a test
-(`test_hosted_surface_is_a_small_correct_set`).
+on.
 
 ## Tenant confinement and the no-oracle property
 
 Every tool resolves the effective tenant the same way the `/v1` handlers do.
 `room_create` and `room_join` run in the caller's authenticated cloud tenant; the
-member-gated tools (`room_info`, `room_poll`, `room_ack`, `room_heartbeat`,
-`room_send`, `room_receipts`, `room_remove_member`, `room_event_log`) resolve the tenant via the caller's membership
+member-gated tools (`room_info`, `room_poll`, `room_wait`, `room_ack`,
+`room_heartbeat`, `room_send`, `room_receipts`, `room_event_log`,
+`room_leave`, `room_remove_member`) resolve the tenant via the caller's membership
 row (`CloudRoomService._resolve_room_tenant`, exactly as
 `WeftCloudService._room_tenant` does), so a member who joined through a link
 in another tenant can operate in the room's tenant. Because resolution goes
@@ -109,11 +119,22 @@ adds no enumeration surface relative to the existing API.
 There is exactly one room store: `CloudRoomService` over the cloud SQLite-WAL
 database. The hosted MCP tools call the identical methods the `/v1` handlers
 call, with the same tenant binding and the same plan-quota enforcement
-(room member cap, enforced atomically inside `CloudRoomService.join_room`).
+(room count at create, member cap enforced atomically inside
+`CloudRoomService.join_room`, and the per-minute message + monthly event
+budgets at send).
 `test_room_created_via_mcp_is_the_same_room_as_v1` proves it in both
 directions: create over `/v1`, join + message over MCP; create over MCP,
 join + message over `/v1`. `test_plan_room_member_cap_enforced_through_hosted_mcp`
 shows the cap refusal (`room_full`) through the MCP path.
+
+**REST parity for receipts and removal.** Every room tool has a `/v1` twin;
+the two newest are `POST /v1/rooms/receipts` (sender-scoped delivery/read
+state, `service.py::handle_room_receipts`) and
+`POST /v1/rooms/remove_member` (owner-only seat release,
+`service.py::handle_room_remove_member`). Both call the same
+`CloudRoomService.receipts` / `CloudRoomService.remove_member` methods the MCP
+tools call, with the same tenant resolution via the caller's membership and
+the same refusal codes — nothing on one surface is weaker than the other.
 
 ## `room_wait` — the blocking long-poll
 
@@ -151,10 +172,32 @@ never become a way around confidentiality.
   identity-argument rejection, 4-concurrent-waiters ordering agreement, and
   blocked-waiter-does-not-block-writers).
 
+## Cursor validation (`room_poll` / `room_wait` / `room_ack`)
+
+Silence must never mean success for reads OR acks. The cursor arguments are
+validated inside `CloudRoomService` (`src/weft_cloud/rooms.py`), so the
+behaviour is byte-identical on both surfaces — the MCP tools and the `/v1`
+REST handlers call the same methods:
+
+- `after_seq` / `limit` that are not integers (including booleans) →
+  `invalid_argument` (HTTP 400). A malformed cursor previously escaped as a
+  `ValueError` → 500.
+- `after_seq < 0` → `invalid_cursor` (HTTP 400) — never silently clamped.
+- `after_seq > cursor_head + 1` → `invalid_cursor` — an impossible read window
+  is refused, never silently echoed back as `next_seq`.
+- `room_ack` `seq` not an integer → `invalid_argument`; `seq < 0` →
+  `invalid_cursor`; `seq > cursor_head` → `invalid_cursor` (an ack of an event
+  that does not exist is the caller's error).
+- `room_wait` inherits the same guards through its internal `poll` loop;
+  `timeout_seconds` is coerced and clamped (0..30) rather than refused.
+
+The SDK maps `invalid_cursor` to `ConflictError` (`src/weft_sdk/client.py`
+`_ERROR_MAP`).
+
 ## MCP protocol details
 
 - `POST /mcp`, Streamable-HTTP JSON-RPC framing identical to the coordinator:
-  `initialize` negotiates the protocol version, `tools/list` returns the 9
+  `initialize` negotiates the protocol version, `tools/list` returns the 12
   tools, `tools/call` returns `structuredContent` (or an `isError` result with
   a structured `{"error": {code, message}}`), notifications
   (`notifications/initialized`, `notifications/cancelled`) return 202 with no
@@ -237,13 +280,16 @@ Config is unchanged: `WEFT_HOST=127.0.0.1`, `WEFT_PORT=18788`,
 
 1. **Cloud-credential-only auth.** No new actor-token type; both `fss_`
    sessions and `agk_` agent keys use the existing cloud identity funnel.
-2. **Room tools only.** The remaining ~50 self-hosted tools are withheld until
+2. **Room tools only.** The remaining ~46 self-hosted tools are withheld until
    each has a tenant-confined reimplementation; a negative claim is recorded in
    the report rather than shipped as unsafe surface.
-3. **Plan-level `max_rooms` / `max_events` / `max_messages` are NOT wired into
-   this path** — because they are not wired into `/v1` or the web app either
-   (the `quotas.py` helpers are unit-tested but orphaned). The hosted MCP path
-   enforces exactly the same plan limits the REST surface enforces (the room
-   member cap). Wiring the plan helpers into the room lifecycle is a separate
-   product decision affecting all surfaces; it is noted as a follow-up rather
-   than done inconsistently on one surface only.
+3. **Plan-level limits are enforced by `CloudRoomService` — the same code the
+   `/v1` REST surface and the web app drive.** `max_rooms` is checked at
+   `room_create` (`bind_room_with_quota_in_tx`), `max_members_per_room` at
+   create and join (`validate_room_cap` / `increment_room_member_counter`),
+   and `max_messages_per_minute` plus `max_events_per_month` at `room_send`
+   (`RateLimiter().enforce` / `enforce_events_per_month`). Refusals carry the
+   caller's own plan and limit (`quota_exceeded`, `rate_limited` +
+   `Retry-After`) with the same code + message shape as `/v1`. Nothing on this
+   surface is weaker than REST, and no limit is enforced inconsistently on one
+   surface only.

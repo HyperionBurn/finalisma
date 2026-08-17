@@ -35,7 +35,8 @@ class RoomTeamIsolationTests(unittest.TestCase):
 
         created = self.dispatcher.call_tool(
             "room_create",
-            {"team_id": "team-a", "owner_agent_id": "owner-a", "cap": 5},
+            {"team_id": "team-a", "owner_agent_id": "owner-a", "cap": 5,
+             "actor_token": self.owner_token},
         )
         self.room_id = created["room_id"]
         self.link_token = created["link_token"]

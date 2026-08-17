@@ -17,7 +17,12 @@ agents behave like a governed team. The product promise is:
 > Weft is designed for two MCP-capable hosts with compatible stdio or
 > Streamable HTTP integration. They can share a scoped task, messages, leases,
 > ordered events, and evidence without sharing provider credentials or conversation
-> history. Real host interoperability validation is still pending.
+> history. Interoperability status: one real host verified (OpenCode 1.18.13,
+> `docs/INTEROP_VALIDATION_2026-08-05.md`); the HTTP, bridge, and SDK tiers have
+> committed protocol-tier transcripts (`docs/INTEROP_HTTP_2026-08-05.md`,
+> `docs/INTEROP_BRIDGE_2026-08-05.md`, `docs/INTEROP_SDK_2026-08-05.md`);
+> host-product breadth for those tiers is still being consolidated
+> (`docs/INTEROP_VALIDATION_2026-08-15.md`, in flight).
 
 The first startup wedge is evidence-backed handoffs for AI-native engineering teams:
 incident triage and pull-request review. One agent opens a narrowly scoped task;
@@ -157,10 +162,10 @@ Rules that must survive future edits:
   real v3 coordinator DB in place (additive only, never touches agent_credentials).
   `quotas.py`/`rate_limit.py` are plan-driven seams (Wave I adds billing). `mcp.py` is the
   hosted MCP endpoint at `POST /mcp` — authenticated with cloud sessions, tenant-confined,
-  exposing the 11 room tools over `CloudRoomService`; `service.py` routes `/mcp` to it
+  exposing the 12 room tools over `CloudRoomService`; `service.py` routes `/mcp` to it
    (Design: `docs/CLOUD_SPINE_DESIGN.md`, `docs/HOSTED_MCP_DESIGN.md`).
    `cloud_outbox` (the HOSTED delivery outbox — distinct from the email
-   `cloud_identity_outbox`) has a full completion lifecycle: migration `cloud_010`
+   `cloud_identity_outbox`) has a full completion lifecycle: migration `cloud_011`
    adds `claimed_at`/`claimed_by`/`last_error`/`dispatched_at`, the backend exposes
    lease-aware `claim_due_outbox` + `mark_outbox_delivered/retry/dead`, and
    `delivery_worker.py` drains it with a pluggable `Deliverer` (lease reclaim,
@@ -179,12 +184,6 @@ Rules that must survive future edits:
   Design: `docs/IDENTITY_DESIGN.md`.
 - `scripts/weft-mcp.py` — no-install launcher that adds `src/` to the import
   path and starts the MCP server.
-- `scripts/prove-two-bridge.py` — process-level proof that two independent
-  remote stdio bridges can join one hosted room and exchange a real message;
-  it uses a project-local disposable `.tmp/` workspace and cleans it up.
-- `scripts/probe_live_release.py` — credential-free, read-only production
-  probe that distinguishes reachable old releases from a current aligned
-  site/API bundle without printing response bodies.
 - `scripts/weft-smoke.py` — real in-process protocol smoke: pairing preview,
   join, task claim, evidence verification, and completion.
 - `scripts/weft_performance_gate.py` — locked same-machine evaluator. Re-baselined
@@ -409,23 +408,28 @@ To regenerate the social card after editing `site/assets/og-card.svg`:
 node .\scripts\render-og-card.cjs
 ```
 
-**Verified for the current launch pass:** 984/984 Python tests and
-`evidence_passed: true` on the smoke. The last recorded DOUBLE ENTRY harness run had
-`consoleErrors: []` and all 13 harness boolean checks true — `allPinned` with the five
-checkpoints at exactly 64px
-(`--header-h`), `reachesDone`, `startsOutOfBalance`, `rulesTrackPosting`,
-`ledgerRuleAligned` (max column drift 0.003px), `redIsNeverTheOnlyMarker` (11
-unposted rows, all worded), `reducedMotionStatic`, `mobileNoHorizontalOverflow`
-(390 = 390) and `mobileStoryNoHorizontalOverflow`. The scroll-driven layer was also
-verified with the `@supports` branch forced off (§4.1): checkpoints still pin and the
-account still reaches `7 / balanced`. Blog index, article, mobile article and 404 were
-captured clean with zero console errors and zero serif declarations.
+**Verified for the current launch pass:** 960/960 Python tests and
+`evidence_passed: true` on the smoke. The last recorded `capture-site-qa.cjs`
+run on file (with `consoleErrors: []` and all harness booleans true —
+`allPinned` with the five checkpoints at exactly 64px (`--header-h`),
+`reachesDone`, `startsOutOfBalance`, `rulesTrackPosting`, `ledgerRuleAligned`
+(max column drift 0.003px), `redIsNeverTheOnlyMarker` (11 unposted rows, all
+worded), `reducedMotionStatic`, `mobileNoHorizontalOverflow` (390 = 390) and
+`mobileStoryNoHorizontalOverflow`) predates the FIELD NOTES rebuild and is
+kept as historical evidence, not a current pass. A fresh harness capture
+against the current FIELD NOTES tree is required before those booleans can
+be re-claimed. The scroll-driven layer's `@supports`-forced-off check (§4.1)
+belongs to the same historical run.
 
-The site copy and audit total now state 984 tests, with the same assertion in
-`tests/test_site.py`. **That number is a measured fact stated on the page** — if you
-add or remove a test, update `site/index.html` (the microcopy in folio 00 and the total
-in folio 04) and the assertion in `tests/test_site.py`. Do not confuse this test count
-with the permanent 37/63 visual split.
+The published test count is guarded automatically by
+`tests/test_site.py::TestCountSyncTests`: it discovers the live count with the
+same loader and pattern as `unittest discover -s tests` and fails if any
+published instance in `docs/` or `site/` claims a count ABOVE the live count
+(the guard protects against deleted tests; adding tests never invalidates a
+published number). The live count this pass: **960 tests, OK** — measured
+2026-08-15 on `feature/product-perfect`. If you delete tests, that guard will
+tell you what to update. Do not hand-maintain the number, and do not confuse
+the test count with the permanent 37/63 visual split.
 
 The old `pointerTiltChanged` / `pointerTiltReset` checks are gone: the hero 3D tilt
 object they measured was deleted with the mockups.
@@ -438,17 +442,17 @@ Codex runtime. Do not install browsers or add a Node package just to run the har
 The locked single-node evaluator is `scripts/weft_performance_gate.py`; its
 baseline and OMX ledger live under
 `.omx/goals/performance/single-node-coordinator-envelope/`. The current reference
-artifact is 72.221 ms; the latest complete local gate measured 72.433 ms /
-95.985 ms p95 (latest recorded gate on 2026-08-14; historical 929-test artifact). Its quality, smoke, semantic-digest, and
-credential-output checks passed; weighted-median, routing-fanout, and
-session-relay timing guards were red while OpenCode was active. A previous
-928-test run passed all timing guards at 65.473 ms / 70.630 ms. An idle
-controlled-host rerun is required.
-The older ~68.8 ms and 1,265.771 ms -> 59.314 ms (95.31%) results are historical
-evidence preserved in the baseline `history` array. The gate requires the current
-984-test suite to pass, smoke passing, and no raw credential in evaluator output.
-Read `docs/PERFORMANCE.md` before changing the
-harness, baseline, connection pooling, routing query, or session cursor path.
+artifact is 72.221 ms; the latest complete local gate measured 137.404 ms /
+155.381 ms p95 and failed its timing guards while its quality sub-gates passed.
+The 2026-08-14 single-trial captures (~144.8 ms, ~68.8 ms, ~145.0 ms weighted
+medians against the same reference) show run-to-run variance of a size that is
+host load, not code; the gate remains red pending a controlled idle-host
+rerun. The older ~68.8 ms and 1,265.771 ms -> 59.314 ms (95.31%) results are
+historical evidence preserved in the baseline `history` array. The gate
+requires the current 960-test suite to pass, smoke passing, and no raw
+credential in evaluator output. Read `docs/PERFORMANCE.md` (the owner of
+every performance number and its provenance) before changing the harness,
+baseline, connection pooling, routing query, or session cursor path.
 
 `WeftStore` now owns bounded read/write connection pools. Long-lived callers
 must call `close()` or use the store as a context manager. The CLI and operator
@@ -542,6 +546,24 @@ will keep temporary SQLite files locked while pooled connections remain open.
   supplies a role. Wrong email → `invite_mismatch`, double redeem → `invite_consumed` (atomic
   conditional UPDATE), expired/unknown → `invite_expired` (uniform, not a token oracle). The
   membership lands in the invite's own tenant — no cross-org redirect.
+- **Admin can never mint an owner (2026-08-15, `d344ebe`).** `add_member` with
+  `role: "owner"` requires an owner caller — `ctx.require_role("owner")` (layer 1)
+  AND `require_db_role(..., "owner")` (layer 2) — mirroring `set_role`; an admin
+  cannot create an owner who could then delete the org or remove the admin.
+- **Agent-key signout revokes truthfully (2026-08-15, `d344ebe`).** The shared
+  signout funnel checks the presented credential type: for an `agk_` bearer the
+  credential IS the key, so signout revokes the key itself (and frees its room
+  seats via `release_agent_key_seats_in_tx`) instead of reporting a no-op.
+- **Hosted REST refuses malformed cursors with 400s, not 500s (2026-08-15, `1e0aa5a`).**
+  Non-integer / negative / beyond-head `after_seq` → 400 `invalid_argument` /
+  `invalid_cursor`; negative `seq` on ack → 400 `invalid_cursor`. Caller error
+  is never surfaced as a server fault.
+- **The SDK drives all 12 hosted room tools in hosted mode without identity
+  arguments (2026-08-15, `c9f4e0e`).** When an `agk_`/`fss_` bearer is supplied,
+  the client strips `team_id`/`agent_id`/`actor_token` from every tool call —
+  the hosted dispatcher derives identity from the credential and rejects
+  client-supplied identity — and surfaces HTTP 429 as a structured
+  `rate_limited` error carrying `retry_after`.
 - **Coordinator (`weft_mcp`) stays dependency-free forever.** The cloud plane is the only
   place pinned dependencies may land, and v1 adds none (stdlib SQLite-WAL).
 - The current storage model is durable SQLite single-node preview. It is not yet a
@@ -583,15 +605,21 @@ Priority order for the next agent:
    Making it a real multi-node service is a storage-layer change.
 9. A hosted MCP endpoint now exists at `POST /mcp` on `weft-cloud`
    (`src/weft_cloud/mcp.py`, `docs/HOSTED_MCP_DESIGN.md`): authenticated with
-   cloud sessions, tenant-confined, exposing the 11 room tools over
-   `CloudRoomService` (the same store `/v1` uses). The remaining validation is
-   breadth: the stdio tier is host-verified (OpenCode 1.18.13) and stdio hosts
-   can reach the hosted `/mcp` endpoint through the `weft-mcp --remote`
-   bridge (verified end to end 2026-08-09), but the
-   Streamable-HTTP tier still needs a **committed transcript from a real host
-   pointing at the hosted `/mcp` endpoint** before it counts as "supported"
-   per `docs/PRODUCT_ROADMAP.md` §3. A simulated driver (the integration tests
-   in `tests/test_hosted_mcp.py`) is not that evidence.
+   cloud sessions, tenant-confined, exposing the 12 room tools over
+   `CloudRoomService` (the same store `/v1` uses). The **SDK now drives all
+   12 hosted tools** (`c9f4e0e` — `room_wait`, `room_event_log`,
+   `room_remove_member` added) and REST has `/v1/rooms/receipts` +
+   `/v1/rooms/remove_member` parity with 400-not-500 cursor errors
+   (`1e0aa5a`). What remains, in priority order:
+   a. the consolidated host-product breadth transcript
+      (`docs/INTEROP_VALIDATION_2026-08-15.md`, in flight) — the stdio tier
+      is host-verified (OpenCode 1.18.13), and HTTP/bridge/SDK protocol-tier
+      transcripts are committed, but host-product breadth for those tiers is
+      the open item per `docs/PRODUCT_ROADMAP.md` §3;
+   b. scale proof at 10/50 agents (in flight in a separate worktree — do not
+      claim numbers until it lands with evidence);
+   c. a controlled idle-host rerun of the performance gate, which is red
+      under host-load noise (`docs/PERFORMANCE.md` owns the numbers).
 
 Current mobile QA is clean: document width equals the 390px viewport, no horizontal
 page scroll is exposed, and the overflow-offender scan reports no offenders. Keep
@@ -599,16 +627,23 @@ the rendered width and offender checks in future visual regression passes.
 
 ## 9. Workspace hygiene rules
 
-- Work only inside `C:\Users\Wasif\Documents\Multiplayer-AI-isolated` (branch `isolated`).
-  `C:\Users\Wasif\Documents\Multiplayer-AI` is a **separate worktree** on `master` with its
-  own uncommitted work; never read from or write to it.
+- Work only inside `C:\Users\Wasif\Documents\Multiplayer-AI-perfect` (branch
+  `feature/product-perfect`, merge-gate PASS, 960/960 green).
+  `C:\Users\Wasif\Documents\Multiplayer-AI-isolated` (branch `isolated`) and
+  `C:\Users\Wasif\Documents\Multiplayer-AI` (branch `master`) are **separate
+  worktrees** with their own work; never read from or write to them from a
+  lane in this one.
 - Use the opencode `read`/`write`/`edit` tools for source changes. There is no `apply_patch`
   tool in this environment (that is Codex). Do not use shell redirection or ad hoc file
   writers for code/doc changes.
 - If your shell cwd is `C:\Users\Wasif`, every `bash` call must pass
-  `workdir = C:\Users\Wasif\Documents\Multiplayer-AI-isolated` and every file path must be
+  `workdir = C:\Users\Wasif\Documents\Multiplayer-AI-perfect` and every file path must be
   absolute under that worktree. Restarting opencode from inside the worktree fixes this
   permanently.
+- The `AGENTS.md` in this worktree is a stale copy of the isolated worktree's
+  rules (it names branch `isolated`); its product facts pre-date the
+  2026-08-15 closes. Verify any of its claims against this tree before
+  acting on them.
 - Do not install globally, modify PATH/profile/registry, create services, or add startup
   entries.
 - Do not add secrets to `.env`, shell profiles, logs, task payloads, MCP JSON, or git.

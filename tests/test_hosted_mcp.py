@@ -49,6 +49,7 @@ HOSTED_TOOL_NAMES = [
     "room_info",
     "room_ack",
     "room_heartbeat",
+    "room_leave",
     "room_remove_member",
     "room_event_log",
 ]
@@ -105,6 +106,22 @@ def _mcp(base: str, method: str, params: dict | None, token: str | None = None,
         return exc.code, payload
 
 
+def _raw_mcp(base: str, data: bytes, token: str | None = None,
+             timeout: int = 10) -> tuple[int, bytes]:
+    req = urllib.request.Request(base + "/mcp", data=data, method="POST")
+    req.add_header("Content-Type", "application/json")
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, resp.read()
+    except urllib.error.HTTPError as exc:
+        try:
+            return exc.code, exc.read()
+        finally:
+            exc.close()
+
+
 def _tool_error_text(result: dict) -> dict:
     """Pull the structured {'error': {...}} out of an isError tool result."""
     content = result.get("content") or []
@@ -138,7 +155,13 @@ class HostedMCPTestBase(unittest.TestCase):
         cls._httpd = ThreadingHTTPServer(("127.0.0.1", 0), _CloudHTTPHandler)
         cls.port = cls._httpd.server_address[1]
         cls.base = f"http://127.0.0.1:{cls.port}"
-        cls.service = WeftCloudService(SqliteWalBackend(cls.db_path))
+        # The hosted MCP suite provisions many isolated accounts against one
+        # temporary service. Keep that fixture from tripping the production
+        # signup burst limit; auth-limit behavior is covered separately.
+        cls.service = WeftCloudService(
+            SqliteWalBackend(cls.db_path),
+            auth_rate_limits={"signup": {"ip": 1_000, "email": 1_000}},
+        )
         _CloudHTTPHandler.service = cls.service
         cls.server_thread = threading.Thread(
             target=cls._httpd.serve_forever, daemon=True,
@@ -258,7 +281,7 @@ class HostedMCPHandshakeTests(HostedMCPTestBase):
         token = acct["session_token"]
         _, listing = _mcp(self.base, "tools/list", None, token=token, request_id=1)
         names = [t["name"] for t in listing["result"]["tools"]]
-        self.assertEqual(len(names), 11)
+        self.assertEqual(len(names), 12)
         for forbidden in ("register_agent", "create_pairing", "join_pairing",
                           "create_task", "claim_task", "verify_task",
                           "complete_task", "org_create", "roster_create"):
@@ -414,6 +437,52 @@ class HostedMCPRoomFlowTests(HostedMCPTestBase):
         texts = [e["payload"]["payload"]["text"] for e in polled["events"]
                  if e["kind"] == "room.message"]
         self.assertIn("hello via v1", texts)
+
+    def test_raw_mcp_rejects_non_standard_constants_and_preserves_valid_json(self) -> None:
+        acct = self._signup("strict-json@example.com")
+        token = acct["session_token"]
+        created = self._assert_ok(token, "room_create", {"cap": 2}, request_id=1)
+        room_id = created["room_id"]
+
+        for constant in (b"NaN", b"Infinity", b"-Infinity"):
+            raw = (
+                b'{"jsonrpc":"2.0","id":2,"method":"tools/call",'
+                b'"params":{"name":"room_send","arguments":{"room_id":"'
+                + room_id.encode("ascii")
+                + b'","target_spec":"*","payload":{"value":'
+                + constant
+                + b'}}}}'
+            )
+            status, response_bytes = _raw_mcp(self.base, raw, token)
+            response = json.loads(response_bytes.decode("utf-8"))
+            self.assertEqual(status, HTTPStatus.BAD_REQUEST)
+            self.assertEqual(response, {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {"code": -32700, "message": "Parse error"},
+            })
+            self.assertNotIn(constant.decode("ascii"), response_bytes.decode("utf-8"))
+
+        polled = self._assert_ok(token, "room_poll", {"room_id": room_id}, request_id=3)
+        self.assertEqual(
+            [event for event in polled["events"] if event["kind"] == "room.message"],
+            [],
+        )
+
+        valid = (
+            b'{"jsonrpc":"2.0","id":4,"method":"tools/call",'
+            b'"params":{"name":"room_send","arguments":{"room_id":"'
+            + room_id.encode("ascii")
+            + b'","target_spec":"*","payload":{"value":1.5,"none":null,"enabled":true}}}}'
+        )
+        status, response_bytes = _raw_mcp(self.base, valid, token)
+        response = json.loads(response_bytes.decode("utf-8"))
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertIn("structuredContent", response["result"])
+
+        polled = self._assert_ok(token, "room_poll", {"room_id": room_id}, request_id=5)
+        message = next(event for event in polled["events"] if event["kind"] == "room.message")
+        self.assertEqual(message["payload"]["payload"], {"value": 1.5, "none": None, "enabled": True})
 
     def test_plan_room_member_cap_enforced_through_hosted_mcp(self) -> None:
         a, b = self._two_accounts("cap")

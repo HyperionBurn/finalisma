@@ -1,0 +1,14 @@
+# Template for review/installation by the VM owner. See weft-backup.service.
+
+[Unit]
+Description=Run weft-backup.service every 30 minutes
+
+[Timer]
+OnCalendar=*-*-* *:00,30:00
+# Persistent=true: if the VM was off/rebooting when a backup was due, run it
+# as soon as the timer is next active instead of silently skipping it —
+# a missed backup should never be a silent gap.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

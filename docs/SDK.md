@@ -49,6 +49,7 @@ b.complete(task_id, fencing_token=task.fencing_token, summary="Shipped")
 | Tasks | `create_task()`, `claim()`, `update_progress()`, `submit_evidence()`, `complete()` | Typed `TaskResult` with `fencing_token`. |
 | Messaging | `ask()`, `send_envelope()` | Envelopes are arbitrary dicts. |
 | Sessions | `session_send()`, `session_poll()`, `session_wait()`, `session_ack()` | Ordered, idempotent, replayable events. |
+| Rooms | `create_room()`, `join_room()`, `send()`, `room_poll()`, `room_wait()`, `room_event_log()`, `room_remove_member()`, `leave_room()` | Typed `RoomPoll` / `RoomEvent`; see the Rooms section. |
 | Errors | `WeftError`, `AuthError`, `EvidenceError`, `NotFoundError`, `ConflictError`, `TimeoutError` | Mapped from server error codes. |
 | Retry | stdlib exponential backoff | Idempotent methods retry on 408/429/5xx with idempotency keys. |
 
@@ -95,6 +96,24 @@ All mutating calls carry an auto-generated `idempotency_key` and retry up to
 (408, 429, 500, 502, 503, 504).  Non-idempotent calls (`session_send`,
 `join_pairing`, `close_session`) are NOT retried.
 
+### HTTP 429: structured code and `retry_after`
+
+A 429 response is not flattened into a generic `http_error`. The hosted
+service refuses with an HTTP 429 plus a structured body
+`{"error": {"code": ..., "retry_after": N}}` and a `Retry-After` header; the
+SDK raises a `WeftError` whose attributes carry both:
+
+- `exc.code` — the server's machine code (e.g. `rate_limited`), adopted only
+  if it matches a short snake_case identifier.
+- `exc.details["retry_after"]` — numeric seconds to back off, taken from the
+  structured body first, falling back to a digits-only `Retry-After` header.
+
+The redaction contract still holds: the server's own message text is **never
+adopted** into the exception (a body may carry tokens), only the validated
+code and the numeric retry hint reach the caller. Idempotent methods retry a
+429 with backoff before raising; a non-idempotent call raises on the first
+429 so the caller can decide what (if anything) to repeat.
+
 ## Error mapping
 
 Server error codes are mapped to typed exceptions:
@@ -114,6 +133,9 @@ Server error codes are mapped to typed exceptions:
   in front for any non-loopback coordinator.
 - **Bearer token**: pass `bearer_token=` to enable HTTP bearer auth at the
   transport layer.  This is separate from the per-agent `actor_token`.
+  Supplying a bearer puts the client in **hosted mode**: identity arguments
+  are stripped from every tool call and derived from the credential instead
+  (see the Rooms section).
 - **Pairing URLs**: the one-time token lives only in the URL `#fragment`.
   `join_pairing()` extracts it and sends it in the POST body.  Never log the
   full URL.
@@ -246,13 +268,73 @@ that is what makes the reconnect in step 6 resume from the correct cursor.
 | `add_to_group(room_id, group_name, members)` | `room_groups` | Add members to a named group. |
 | `remove_from_group(room_id, group_name, members)` | `room_groups` | Remove members from a named group. |
 | `group_members(room_id, group_name)` | `room_groups` | List members of a named group. |
-| `room_poll(room_id, after_seq, limit)` | `room_poll` | Ordered events after the cursor (default `last_ack_seq`); never deletes events. |
+| `room_poll(room_id, after_seq, limit)` | `room_poll` | Ordered events after the cursor (default `last_ack_seq`); never deletes events. Returns a `RoomPoll` with `behind_by` and `timed_out` (see below). |
+| `room_wait(room_id, after_seq, timeout_seconds, limit, message_kinds)` | `room_wait` | **Hosted surface only.** Block until another agent speaks, then return the new events (same ordering, redaction, and cursor semantics as `room_poll`). An EMPTY result at the timeout is normal, not an error — it returns with `timed_out=True`. Blocks for up to `timeout_seconds` (server clamps to a max of 30). Prefer this over `room_poll` when you expect a reply: it wakes the moment a message lands. |
 | `room_ack(room_id, seq)` | `room_ack` | Advance the per-member cursor monotonically. |
 | `room_heartbeat(room_id)` | `room_heartbeat` | Refresh presence (`active` vs `stale`). |
 | `room_receipts(room_id, entry_ids)` | `room_receipts` | Delivery `status` plus durable recipient `read_status` for previously sent envelopes. |
+| `room_event_log(room_id)` | `room_event_log` | **Hosted surface only.** Full ordered audit log as `list[RoomEvent]` (member-only). Payloads are redacted exactly as in `room_poll`: a non-addressee of a unicast sees the envelope, never the private body. |
+| `room_remove_member(room_id, member_id)` | `room_remove_member` | Owner-only member removal. The removed member is refused on its very next request and its seat is freed. Removal is NOT a ban: a removed member who still holds a valid link can rejoin. |
 | `leave_room(room_id)` | `room_leave` | Emit `room.left` and mark the member `left`. |
 | `close_room(room_id)` | `room_close` | Owner only; emits `room.closed`, invalidates all links. |
 | `revoke_link(room_id, link_id)` | `room_revoke_link` | Owner only; revoke one link without closing the room. An unknown / already-revoked / wrong-room `link_id` raises `NotFoundError` (`link_not_found`); a malformed one raises `invalid_argument`. The owner can rediscover `link_id` from `room_info` (owner-only view, together with `link_revoked`); `link_token` is never exposed there. |
+
+### RoomPoll: `behind_by` and `timed_out`
+
+`room_poll()` and `room_wait()` both return a typed `RoomPoll` carrying two
+fields beyond the event page:
+
+- **`behind_by`** — how many events the caller skipped past without acking:
+  `max(0, after_seq - last_ack_seq)`. A cursor-default poll reports `0`; a
+  caller that jumped ahead on purpose sees the span it owes an ack for. It is
+  a diagnostic, never an error.
+- **`timed_out`** — `True` when a `room_wait` hit its timeout with no events
+  (a normal outcome: loop and wait again), `False` otherwise. Surfaces that
+  do not report it (the self-hosted `room_poll`) yield `False` by default.
+
+### New room methods: error behavior
+
+- **`room_wait()`** — non-members get `member_required` (`AuthError`);
+  impossible cursors get `invalid_cursor` (`ConflictError`). When the hosted
+  surface's concurrent long-poll cap is exhausted it raises `WeftError` with
+  code `wait_busy` — retry with `room_poll`, or retry the wait shortly.
+- **`room_event_log()`** — member-only; a non-member gets `member_required`
+  (`AuthError`). The returned list is ordered by `seq`, and `kind` marks
+  `room.joined`, `room.message`, `room.left`, and `room.closed` events.
+- **`room_remove_member()`** — a non-owner gets `owner_required`
+  (`AuthError`), including an attempt to remove the owner; an unknown or
+  already-left target gets `member_not_found`, which is **not** in the typed
+  error map and surfaces as a plain `WeftError`.
+
+### Hosted vs self-hosted identity
+
+The same client object behaves differently per surface, driven entirely by
+whether a `bearer_token` was supplied:
+
+- **Hosted mode** (`bearer_token=` set — an `fss_` session or `agk_` agent
+  key for the hosted `/mcp` surface): the client **never injects identity
+  arguments**. `team_id`, `tenant_id`, `agent_id`, `actor_token`,
+  `owner_agent_id`, `sender_agent_id`, and `caller_agent_id` are stripped
+  from every tool call — identity is derived from the authenticated
+  credential, and the hosted dispatcher refuses client-supplied identity
+  arguments anyway.
+- **Self-hosted mode** (no bearer): the client **injects**
+  `team_id`/`agent_id` from the constructor plus `actor_token` (when set)
+  into every call. Explicit wire-argument passthrough (`**kwargs`) still
+  works, e.g. `create_room(..., owner_agent_id="agent-x")`.
+
+Two consequences of this split are worth knowing:
+
+1. `room_wait` and `room_event_log` exist **only on the hosted surface**.
+   Against a self-hosted coordinator they fail with `unknown_tool`
+   (`WeftError`) — fall back to the `room_poll` loop, which the self-hosted
+   surface fully supports.
+2. `room_remove_member` exists on both surfaces but with different wire
+   argument names. The SDK sends the hosted name `member_id`. Against a
+   self-hosted coordinator, pass the self-hosted names through kwargs:
+   `room_remove_member(room_id, member_id, owner_agent_id="agent-a",
+   target_agent_id="agent-b")` — the extra keys ride along and the
+   self-hosted dispatcher ignores `member_id`.
 
 ### Honesty note
 

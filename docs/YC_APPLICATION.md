@@ -29,16 +29,14 @@ conversation or sharing provider credentials.
 - One-use pairing links with preview-before-consent.
 - Member-bound session credentials and replayable ordered events.
 - Scoped tasks, leases, fencing tokens, artifact hashes, and evidence gates.
- - 984 passing standard-library tests, including concurrency, restart, HTTP,
+ - 1119 passing standard-library tests, including concurrency, restart, HTTP,
   tenancy isolation, roster routing, durable outbox, bridge adapters, SDK
   flows, room lifecycle, cloud storage, cross-team boundary cases, identity,
   and the stdio-to-hosted bridge (docs/STDIO_BRIDGE.md).
 - A locked same-machine coordinator benchmark with a 72.221 ms reference artifact.
-  The latest recorded local gate (2026-08-14; historical 929-test artifact)
-  measured 72.433 ms weighted median / 95.985 ms p95. Quality, semantic-digest, smoke, and credential checks
-  passed; weighted-median, routing-fanout, and session-relay timing guards were
-  red while OpenCode was active. A previous 928-test run passed all timing
-  guards at 65.473 ms / 70.630 ms.
+  The latest complete local gate measured 137.404 ms weighted median / 155.381 ms
+  p95 and failed its timing guards while its quality sub-gates passed; this remains
+  an unresolved local performance blocker pending a controlled idle-host rerun.
 - A static marketing site (Astro-built) and a dependency-free coordinator. The coordinator is Python stdlib-only, SQLite, no CDN. An interactive product simulation, quickstart, and
   reproducible 42-second MP4/WebM demo generated from a real local coordinator run.
 
@@ -94,7 +92,8 @@ do not return, narrow or kill the wedge before building hosted scale.
 
 ## What is not built yet?
 
-The current release is not a hosted multi-tenant service. Before untrusted
-public traffic we need shared transactional storage, OAuth/OIDC audience
-binding, distributed rate limits, durable delivery/retry, data retention and
-deletion, load tests, and operational alerting.
+The hosted multi-tenant preview is live (signup works end-to-end) but carries
+documented deployment drift — it is not yet a hardened production service.
+Before untrusted public traffic we need shared transactional storage, OAuth/OIDC
+audience binding, distributed rate limits, durable delivery/retry, data
+retention and deletion, load tests, and operational alerting.
