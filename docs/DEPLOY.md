@@ -82,6 +82,27 @@ container overrides the default command to run `python -B -m
 weft_cloud.web`. Both mount the same named volume and open the same
 database file.
 
+Email delivery is deliberately opt-in. The default stack queues verification,
+reset, and organization-invite messages without sending them. To enable the
+bundled SMTP worker, provide the SMTP settings through the shell or an ignored
+local `.env`, then start the delivery profile:
+
+```bash
+export WEFT_SMTP_HOST=smtp.example.com
+export WEFT_SMTP_PORT=587
+export WEFT_SMTP_USERNAME=apikey
+export WEFT_SMTP_PASSWORD='use-your-secret-store'
+export WEFT_SMTP_FROM=no-reply@example.com
+export WEFT_WEB_PUBLIC_ORIGIN=http://127.0.0.1:18789
+docker compose --profile delivery up -d --build
+```
+
+The `weft-outbox` container uses the same `/data/weft-cloud.db` volume and
+only the delivery profile starts it. Without SMTP configuration it exits
+without sending; no credential is committed in this repository. Invite mail
+contains a clickable `/invite/fiv_...` URL, while the authenticated REST
+response continues to return metadata only—not the bearer token.
+
 ## 2. Verify
 
 Health probe from the host for the agent API:
@@ -123,6 +144,7 @@ and the image contains no secrets.
 | `WEFT_HOST` | `127.0.0.1` | Bind address. `0.0.0.0` inside a container. |
 | `WEFT_PORT` | `18788` | HTTP port. |
 | `WEFT_DB_PATH` | `./data/weft-cloud.db` | SQLite path. In the container this is the `/data` mount point. |
+| `WEFT_PUBLIC_ORIGIN` | `http://127.0.0.1:18788` | Origin used for agent-facing room join links. Set this to the public nginx origin in a hosted deployment. |
 
 The web front-end is configured the same way, with `WEFT_WEB_*` variables:
 
@@ -132,6 +154,7 @@ The web front-end is configured the same way, with `WEFT_WEB_*` variables:
 | `WEFT_WEB_PORT` | `18789` | HTTP port. |
 | `WEFT_WEB_DB_PATH` | `./data/weft-web.db` | **Must equal the agent API's `WEFT_DB_PATH`** — both processes share one store. In the container: `/data/weft-cloud.db`. |
 | `WEFT_WEB_STATE_DIR` | `./data` | Scratch/state directory (unused by the current web code, kept for parity). |
+| `WEFT_WEB_PUBLIC_ORIGIN` | `http://127.0.0.1:18789` | Origin used for human invite acceptance URLs. In a shared nginx deployment, set it to the same public origin as `WEFT_PUBLIC_ORIGIN`. |
 | `WEFT_WEB_STATIC_DIR` | `./site` | Built marketing site, if any. The image does **not** carry the site, so compose leaves this unset; the web container serves no static files and unmatched GETs return 404. |
 
 Precedence is argv > env > default, so the legacy launch form

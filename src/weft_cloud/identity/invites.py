@@ -23,6 +23,7 @@ import time as _time
 import uuid
 from typing import Any
 
+from weft_cloud.origin import configured_origin
 from weft_cloud.storage import utc_now_iso
 
 from . import accounts
@@ -36,6 +37,20 @@ from .tokens import AuthError, generate_token, hash_token
 INVITE_TTL_SECONDS = 7 * 24 * 3600
 
 _INVITE_ROLES = ("admin", "member")
+_DEFAULT_WEB_PUBLIC_ORIGIN = "http://127.0.0.1:18789"
+
+
+def _invite_web_origin() -> str:
+    """Resolve the origin used for human invite acceptance links.
+
+    Direct Compose runs the cloud API and web app on different ports, so the
+    invite URL has its own optional override. Hosted deployments set the
+    shared ``WEFT_PUBLIC_ORIGIN`` instead; neither setting is a secret.
+    """
+    return configured_origin(
+        env_names=("WEFT_WEB_PUBLIC_ORIGIN", "WEFT_PUBLIC_ORIGIN"),
+        default=_DEFAULT_WEB_PUBLIC_ORIGIN,
+    )
 
 
 def _new_id(prefix: str) -> str:
@@ -63,6 +78,7 @@ def create(ctx: SessionContext, email: str, role: str) -> tuple[str, str]:
 
     invite_id = _new_id("inv")
     raw_token = generate_token("fiv")
+    invite_url = f"{_invite_web_origin()}/invite/{raw_token}"
     token_hash = hash_token(raw_token)
     expires_at = _time.time() + INVITE_TTL_SECONDS
     with ctx.backend.transaction() as tx:
@@ -75,7 +91,10 @@ def create(ctx: SessionContext, email: str, role: str) -> tuple[str, str]:
         )
         tx.commit()
     LocalOutboxMailer(ctx.backend).send(
-        ctx.tenant_id, email, "You're invited", f"You're invited to join: {raw_token}"
+        ctx.tenant_id,
+        email,
+        "You're invited",
+        f"You're invited to join Weft. Open this link to accept: {invite_url}",
     )
     return invite_id, raw_token
 

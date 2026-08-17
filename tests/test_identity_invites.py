@@ -29,6 +29,7 @@ No mocks: make_backend() returns a real SqliteWalBackend on a temp file.
 from __future__ import annotations
 
 import hashlib
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -395,6 +396,92 @@ class IdentityInvitesContractTests(unittest.TestCase):
             ).fetchone()
         self.assertIsNotNone(row)
         self.assertIn(raw_token, row["body"])
+
+    def test_invite_email_contains_configured_clickable_web_url(self) -> None:
+        previous = os.environ.get("WEFT_WEB_PUBLIC_ORIGIN")
+        os.environ["WEFT_WEB_PUBLIC_ORIGIN"] = "https://app.example.test/"
+        try:
+            _, raw_token = invites.create(self.owner_ctx, "clickable@example.com", role="member")
+        finally:
+            if previous is None:
+                os.environ.pop("WEFT_WEB_PUBLIC_ORIGIN", None)
+            else:
+                os.environ["WEFT_WEB_PUBLIC_ORIGIN"] = previous
+
+        with self.backend.transaction() as tx:
+            row = tx.execute(
+                "SELECT body FROM cloud_identity_outbox WHERE to_email = ? "
+                "ORDER BY created_at DESC LIMIT 1",
+                ("clickable@example.com",),
+            ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertIn(
+            f"https://app.example.test/invite/{raw_token}",
+            row["body"],
+        )
+
+    def test_invalid_web_origin_refuses_before_writing_invite(self) -> None:
+        previous = os.environ.get("WEFT_WEB_PUBLIC_ORIGIN")
+        invalid_values = (
+            "javascript:alert(1)",
+            "https://user:pass@example.test",
+            "https://example.test/path",
+            "https://example.test/?next=evil",
+            "https://example.test/#fragment",
+            "https://example.test\r\nX-Leak: yes",
+        )
+        try:
+            for index, value in enumerate(invalid_values):
+                with self.subTest(value=value), self.assertRaises(ValueError):
+                    os.environ["WEFT_WEB_PUBLIC_ORIGIN"] = value
+                    invites.create(
+                        self.owner_ctx,
+                        f"invalid-origin-{index}@example.com",
+                        role="member",
+                    )
+        finally:
+            if previous is None:
+                os.environ.pop("WEFT_WEB_PUBLIC_ORIGIN", None)
+            else:
+                os.environ["WEFT_WEB_PUBLIC_ORIGIN"] = previous
+
+        with self.backend.transaction() as tx:
+            count = tx.execute(
+                "SELECT COUNT(*) AS n FROM cloud_identity_outbox "
+                "WHERE tenant_id = ? AND to_email LIKE 'invalid-origin-%'",
+                (self.tenant_id,),
+            ).fetchone()["n"]
+        self.assertEqual(count, 0)
+
+    def test_blank_web_origin_falls_back_to_public_origin(self) -> None:
+        previous_web = os.environ.get("WEFT_WEB_PUBLIC_ORIGIN")
+        previous_public = os.environ.get("WEFT_PUBLIC_ORIGIN")
+        os.environ["WEFT_WEB_PUBLIC_ORIGIN"] = "   "
+        os.environ["WEFT_PUBLIC_ORIGIN"] = "https://fallback.example.test/"
+        try:
+            _, raw_token = invites.create(
+                self.owner_ctx, "fallback-origin@example.com", role="member"
+            )
+        finally:
+            if previous_web is None:
+                os.environ.pop("WEFT_WEB_PUBLIC_ORIGIN", None)
+            else:
+                os.environ["WEFT_WEB_PUBLIC_ORIGIN"] = previous_web
+            if previous_public is None:
+                os.environ.pop("WEFT_PUBLIC_ORIGIN", None)
+            else:
+                os.environ["WEFT_PUBLIC_ORIGIN"] = previous_public
+
+        with self.backend.transaction() as tx:
+            row = tx.execute(
+                "SELECT body FROM cloud_identity_outbox WHERE to_email = ? "
+                "ORDER BY created_at DESC LIMIT 1",
+                ("fallback-origin@example.com",),
+            ).fetchone()
+        self.assertIn(
+            f"https://fallback.example.test/invite/{raw_token}",
+            row["body"],
+        )
 
     # -- 13. migration cloud_005_identity_invites is recorded --
 

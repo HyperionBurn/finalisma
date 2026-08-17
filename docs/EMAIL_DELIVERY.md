@@ -11,6 +11,9 @@ disabled — it exits cleanly instead, and every row remains `queued`. That is
 the deliberate default so local development and the test suite never need a
 mail server. The moment real SMTP values are set in the environment, delivery
 works with no code change.
+Organization-invite messages contain a clickable `/invite/fiv_...` URL. The
+origin comes from `WEFT_WEB_PUBLIC_ORIGIN` when set, then
+`WEFT_PUBLIC_ORIGIN`; the authenticated invite API never returns the raw token.
 
 ## How it fits together
 
@@ -35,6 +38,7 @@ works with no code change.
 | `WEFT_SMTP_USERNAME` | — | Auth username (required once the host is set). |
 | `WEFT_SMTP_PASSWORD` | — | Auth password (required once the host is set). |
 | `WEFT_SMTP_FROM` | — | From address, e.g. `no-reply@example.com` (required once the host is set). |
+| `WEFT_WEB_PUBLIC_ORIGIN` | `http://127.0.0.1:18789` | Origin used for clickable human invite acceptance URLs. Set it to the public nginx origin in a hosted deployment. |
 | `WEFT_DB_PATH` | `./data/weft-cloud.db` | The **same** SQLite file the web/service processes write to, so the worker drains the file the service writes to — never an empty one. |
 | `WEFT_DRAIN_INTERVAL` | `5` | Seconds between passes. |
 | `WEFT_DRAIN_BATCH` | `50` | Max rows claimed per pass. |
@@ -93,6 +97,13 @@ PYTHONPATH=src python -B -m weft_cloud.identity.outbox_worker --once
 
 Without SMTP configured the worker prints a note and exits `0`; every row stays
 `queued`.
+
+The Docker Compose stack exposes the same worker as an opt-in `delivery`
+profile. After setting the SMTP variables above, run:
+
+```bash
+docker compose --profile delivery up -d --build
+```
 
 ## Delivery contract
 

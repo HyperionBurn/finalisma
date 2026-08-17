@@ -32,6 +32,7 @@ from contextlib import nullcontext
 from typing import Any, Callable
 
 from weft_cloud.storage import StorageBackend, utc_now_iso
+from weft_cloud.origin import DEFAULT_PUBLIC_ORIGIN, configured_origin
 
 from .identity.context import SessionContext, require_db_role, require_db_role_in_tx
 from .identity.tokens import AuthError, hash_token
@@ -46,12 +47,6 @@ from .quotas import (
 )
 from .rate_limit import RateLimiter
 
-# The public origin used to build self-describing shareable links. Configurable
-# via WEFT_PUBLIC_ORIGIN; defaults to the local dev origin so the product
-# works offline. No deployment URL is hardcoded.
-DEFAULT_PUBLIC_ORIGIN = "http://127.0.0.1:18788"
-
-
 def public_origin(origin: str | None = None) -> str:
     """Resolve the configured public origin for shareable-link URLs.
 
@@ -59,12 +54,7 @@ def public_origin(origin: str | None = None) -> str:
     the local dev default. A trailing slash is stripped so callers can build
     ``{origin}/j/{token}`` directly.
     """
-    if origin is not None:
-        resolved = origin
-    else:
-        resolved = os.environ.get("WEFT_PUBLIC_ORIGIN", DEFAULT_PUBLIC_ORIGIN)
-    resolved = str(resolved).strip().rstrip("/")
-    return resolved or DEFAULT_PUBLIC_ORIGIN
+    return configured_origin(origin, default=DEFAULT_PUBLIC_ORIGIN)
 
 
 def _new_id(prefix: str) -> str:

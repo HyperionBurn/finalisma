@@ -2,7 +2,7 @@
 
 **Status:** Authoritative spec for identity in the `src/weft_cloud/` plane.
 **Source of truth:** `docs/PRODUCT_ROADMAP.md` §4 (ship gate), §5 (Wave G — Identity).
-**Scope:** Email + password auth, local sessions, orgs, membership, roles, invites — all behind the Wave F storage interface. Stage 1 (THIS WAVE): tokens generated properly but written to a local outbox (no external email). Stage 2 (later): real transactional email + OIDC behind a `Mailer` interface swap.
+**Scope:** Email + password auth, local sessions, orgs, membership, roles, invites — all behind the Wave F storage interface. Identity mail is durable by default and can be drained through the implemented Stage-2 SMTP worker; see `docs/EMAIL_DELIVERY.md`. OIDC remains future work behind the same `Mailer` boundary.
 **Hard boundary:** `src/weft_mcp/` stays stdlib-only, untouched. No direct `sqlite3` in identity business logic — everything goes through `StorageBackend`.
 
 ---
@@ -24,7 +24,7 @@ src/weft_cloud/
     invites.py         # InviteStore: email-addressed, expiring, single-use invites
     tokens.py          # Token generation + hashing (secrets.token_urlsafe, SHA-256)
     context.py         # SessionContext (auth analog of TenantContext), require_role()
-    mailer.py          # Mailer ABC + LocalOutboxMailer (Stage 1: writes to cloud_outbox, no send)
+    mailer.py          # Mailer ABC + LocalOutboxMailer + SmtpMailer
 ```
 
 | Module | Ownership |
@@ -36,7 +36,7 @@ src/weft_cloud/
 | `invites.py` | Invite create/accept. Single-use, expiring, role-scoped, email-locked. |
 | `tokens.py` | Opaque token generation (`secrets.token_urlsafe`) + SHA-256 hashing. Shared by sessions, verification, reset, invites. |
 | `context.py` | `SessionContext` dataclass (analogous to `TenantContext`). `require_role()` guard. |
-| `mailer.py` | `Mailer` ABC: `send(tenant_id, to_email, subject, body)`. `LocalOutboxMailer` for Stage 1. |
+| `mailer.py` | `Mailer` ABC: `send(tenant_id, to_email, subject, body)`. Local outbox by default; SMTP when configured. |
 
 ### 1.2 Dependency justification
 
@@ -281,8 +281,7 @@ in, so it needs a credential with no expiry clock: the agent key.
 from abc import ABC, abstractmethod
 
 class Mailer(ABC):
-    """Pluggable mailer. Stage 1: LocalOutboxMailer (no send).
-    Stage 2: TransactionalEmailMailer (e.g., Postmark, SES) behind the same interface."""
+    """Pluggable mailer. Local outbox is the safe default; SMTP is optional."""
 
     @abstractmethod
     def send(self, tenant_id: str, to_email: str, subject: str, body: str) -> None:
@@ -290,9 +289,7 @@ class Mailer(ABC):
 
 
 class LocalOutboxMailer(Mailer):
-    """Stage 1 mailer: writes the email to cloud_identity_outbox instead of sending.
-    The outbox row contains the full email (to, subject, body). A future worker
-    (Stage 2) drains the same outbox via the real provider."""
+    """Write the email to cloud_identity_outbox for the SMTP worker to drain."""
 
     def __init__(self, backend: StorageBackend):
         self.backend = backend
@@ -471,7 +468,7 @@ CREATE INDEX IF NOT EXISTS idx_identity_invites_tenant
 
 | Operation | Method | Behavior |
 | --- | --- | --- |
-| Create invite | `invites.create(ctx, email, role) -> (invite_id, raw_token)` | Requires `admin` or `owner`. Token generated, email enqueued via `Mailer`. |
+| Create invite | `invites.create(ctx, email, role) -> (invite_id, raw_token)` | Requires `admin` or `owner`. Token generated, an absolute `/invite/{token}` URL is placed in the email body, and the message is enqueued via `Mailer`. |
 | Accept invite | `invites.accept(backend, raw_token, email, password) -> (account_id, session)` | Creates account IF new, adds membership with EXACTLY the invite's role, consumes token. |
 
 ### 7.3 Accept flow invariants
@@ -842,7 +839,7 @@ Identity migrations extend the existing `MIGRATIONS` list in `migrations.py`. Th
 
 9. **The identity plane must not touch coordinator tables.** No migration or query may reference `agent_credentials`, `tasks`, `sessions` (coordinator), `session_events`, `room_*`, etc. The orchestrator must verify: all identity SQL references only `cloud_*` tables.
 
-10. **The `Mailer` interface must be swappable without touching callers.** Stage 1 uses `LocalOutboxMailer`; Stage 2 swaps in a real provider. The orchestrator must verify: callers depend only on the `Mailer` ABC, never on `LocalOutboxMailer` directly.
+10. **The `Mailer` interface must be swappable without touching callers.** The default local outbox and optional SMTP worker share the same interface. The orchestrator must verify: callers depend only on the `Mailer` ABC, never on a concrete provider.
 
 11. **`agent_keys.revoke_by_token_hash` (and the `agk_` branch of the signout funnel) must never run inside another `backend.transaction()`.** SQLite has one writer; the nested `BEGIN IMMEDIATE` opens a second connection that blocks on the outer writer while the outer transaction waits for the inner to return — a 15s self-deadlock surfacing as a 500. The orchestrator must verify: signout calls it outside any transaction, and any future caller does the same.
 

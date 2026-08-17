@@ -18,8 +18,8 @@
 # backend. The image does NOT carry the built site, so the web container leaves
 # WEFT_WEB_STATIC_DIR unset and serves no static files.
 #
-# No secrets live here. All configuration comes from the environment, and the
-# defaults in this file contain nothing secret.
+# No secrets live here. All configuration comes from the environment (or an
+# ignored local .env), and the defaults in this file contain nothing secret.
 
 services:
   weft-cloud:
@@ -33,6 +33,7 @@ services:
       WEFT_HOST: "0.0.0.0"
       WEFT_PORT: "18788"
       WEFT_DB_PATH: "/data/weft-cloud.db"
+      WEFT_WEB_PUBLIC_ORIGIN: "${WEFT_WEB_PUBLIC_ORIGIN:-http://127.0.0.1:18789}"
     volumes:
       - weft-cloud-data:/data
     restart: unless-stopped
@@ -55,6 +56,7 @@ services:
       WEFT_WEB_PORT: "18789"
       WEFT_WEB_DB_PATH: "/data/weft-cloud.db"
       WEFT_WEB_STATE_DIR: "/data"
+      WEFT_WEB_PUBLIC_ORIGIN: "${WEFT_WEB_PUBLIC_ORIGIN:-http://127.0.0.1:18789}"
     volumes:
       - weft-cloud-data:/data
     healthcheck:
@@ -64,6 +66,29 @@ services:
       start_period: 10s
       retries: 3
     restart: unless-stopped
+
+  # Opt-in SMTP delivery worker. It shares the exact database volume with the
+  # API/web processes and is not started by the default local stack. Enable it
+  # only after supplying WEFT_SMTP_* values in the shell or ignored .env.
+  weft-outbox:
+    profiles: ["delivery"]
+    image: weft-cloud:local
+    command: ["python", "-B", "-m", "weft_cloud.identity.outbox_worker"]
+    environment:
+      WEFT_DB_PATH: "/data/weft-cloud.db"
+      WEFT_SMTP_HOST: "${WEFT_SMTP_HOST:-}"
+      WEFT_SMTP_PORT: "${WEFT_SMTP_PORT:-587}"
+      WEFT_SMTP_USERNAME: "${WEFT_SMTP_USERNAME:-}"
+      WEFT_SMTP_PASSWORD: "${WEFT_SMTP_PASSWORD:-}"
+      WEFT_SMTP_FROM: "${WEFT_SMTP_FROM:-}"
+    volumes:
+      - weft-cloud-data:/data
+    depends_on:
+      weft-cloud:
+        condition: service_healthy
+      weft-web:
+        condition: service_healthy
+    restart: on-failure
 
 volumes:
   # State survives container rebuilds and `docker compose down`. Only

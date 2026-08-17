@@ -400,6 +400,20 @@ class RedeployBackupSafetyTests(unittest.TestCase):
         self.assertIn("--base-url http://127.0.0.1:18788", unit)
         self.assertIn("--edge-url ${WEFT_EDGE_URL}", unit)
 
+    def test_compose_delivery_profile_shares_store_without_committing_secrets(self):
+        compose = (REPO_ROOT / "compose.yaml").read_text(encoding="utf-8")
+        start = compose.index("  weft-outbox:")
+        block = compose[start:compose.index("\nvolumes:", start)]
+        self.assertIn('profiles: ["delivery"]', block)
+        self.assertIn("weft_cloud.identity.outbox_worker", block)
+        self.assertIn('WEFT_DB_PATH: "/data/weft-cloud.db"', block)
+        self.assertIn("weft-cloud-data:/data", block)
+        self.assertIn("WEFT_SMTP_HOST", block)
+        self.assertIn("WEFT_SMTP_PASSWORD", block)
+        self.assertIn("restart: on-failure", block)
+        self.assertIn("condition: service_healthy", block)
+        self.assertIn("WEFT_WEB_PUBLIC_ORIGIN", compose)
+
 
 if __name__ == "__main__":
     unittest.main()
