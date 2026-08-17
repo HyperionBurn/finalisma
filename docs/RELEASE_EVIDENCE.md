@@ -6,23 +6,20 @@ compatibility claim.
 
 ## Latest regression evidence
 
-Measured locally on PR #35's current source/test stack (branch
-`codex/weft-live-outbox-lease-heartbeat-2026-08-17`):
+Measured locally on the current source/test stack (branch
+`codex/weft-sdk-transport-hardening-2026-08-17`):
 
 - Command: `python -B -m unittest discover -s tests -p "test_*.py"`
-- Result: **1142 tests discovered; 1141 passed; 1 skipped**
-- Duration: 487.830 seconds on the local Windows runner
-- Focused SDK/interop/count-guard suite: 29 tests passed locally
+- Result: **1144 tests discovered; 1143 passed; 1 skipped**
+- Duration: 456.610 seconds on the local Windows runner
+- Focused SDK/interop/count-guard suite: 33 tests passed locally
 - Site build: not rerun in this SDK-only local command; prior site evidence
   remains on the earlier stacked PRs
 - `git diff --check`: passed
 
-At capture time, stacked PRs #24–#35 were open; PR #35's hosted CI and merge
-status must be read from GitHub rather than inferred from this ledger.
-
-The suite result is hosted CI evidence for this checkout. Hosted CI, review,
-merge, and deployment status must be read from the linked pull requests rather
-than inferred from this document. The focused result is local evidence.
+Hosted CI, review, merge, and deployment status must be read from the linked
+pull requests rather than inferred from this local ledger. The focused result
+is local evidence.
 
 ## Explicitly unverified here
 

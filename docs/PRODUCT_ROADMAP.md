@@ -191,8 +191,8 @@ The goal is complete only when **every** line is true and independently verified
 - [ ] `AGENTS.md` and `AGENT_HANDOVER.md` current with the code in the same commit.
 
 > **Current local evidence (2026-08-17):** the integration hardening stack is
-> documented in [`docs/RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1142 tests
-> discovered, 1141 passed, and 1 skipped. This is local evidence only; Docker,
+> documented in [`docs/RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1144 tests
+> discovered, 1143 passed, and 1 skipped. This is local evidence only; Docker,
 > hosted deployment, and third-party host-product proof remain open.
 
 ---

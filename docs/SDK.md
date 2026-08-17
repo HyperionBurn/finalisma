@@ -125,11 +125,12 @@ code and the numeric retry hint reach the caller. Idempotent methods retry a
 ### HTTP 200 tool errors
 
 The SDK validates the JSON-RPC tool-error envelope before raising a
-`WeftError`. A correctly structured `{"error": {"code", "message", "details"}}`
-payload preserves its structured fields and typed error mapping.
-Malformed content, non-text content, invalid JSON, or invalid error fields use
-the fixed `tool_error` / `Tool call failed` fallback; the raw tool content is
-never copied into the exception or its details.
+`WeftError`. A valid machine-readable `code` preserves the typed error mapping;
+the exception always uses a fixed safe message. Only a bounded numeric
+`retry_after` hint is retained in `exc.details`.
+Malformed content, non-text content, invalid JSON, invalid error fields, and
+top-level JSON-RPC errors use fixed safe fallbacks; raw remote messages, data,
+and tool content are never copied into the exception or its details.
 
 ## Error mapping
 

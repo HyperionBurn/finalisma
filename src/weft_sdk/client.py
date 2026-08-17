@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import math
 import os
 import re
 import secrets
@@ -117,6 +118,25 @@ _HOSTED_FORBIDDEN_IDENTITY_ARGS = frozenset({
 # arbitrary body (which may carry tokens) can never be echoed into the
 # exception, only a well-formed machine code is.
 _SAFE_HTTP_ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+
+
+def _safe_retry_after(value: Any) -> int | float | None:
+    """Return bounded numeric retry metadata, never arbitrary remote data."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if not math.isfinite(value) or value < 0 or value > 86400:
+        return None
+    return value
+
+
+def _safe_retry_details(error: dict[str, Any]) -> dict[str, int | float] | None:
+    """Keep only the bounded retry hint from a remote error envelope."""
+    nested = error.get("details")
+    value = nested.get("retry_after") if isinstance(nested, dict) else None
+    if value is None:
+        value = error.get("retry_after")
+    retry_after = _safe_retry_after(value)
+    return {"retry_after": retry_after} if retry_after is not None else None
 
 
 # ---------------------------------------------------------------------------
@@ -372,8 +392,8 @@ class _JsonRpcTransport:
                 ra = err.get("retry_after")
                 if isinstance(ra, bool):
                     pass
-                elif isinstance(ra, (int, float)):
-                    retry_after = ra
+                elif (safe_retry_after := _safe_retry_after(ra)) is not None:
+                    retry_after = safe_retry_after
                 elif isinstance(ra, str) and ra.strip().isdigit():
                     retry_after = float(ra.strip())
         if retry_after is None and isinstance(retry_after_header, str) and retry_after_header.strip().isdigit():
@@ -437,7 +457,12 @@ class _JsonRpcTransport:
                 envelope = json.loads(body.decode("utf-8"))
                 if "error" in envelope and envelope["error"]:
                     err = envelope["error"]
-                    _raise_structured(err.get("code", "remote_error"), err.get("message", "Remote JSON-RPC error"), err.get("data"))
+                    if not isinstance(err, dict):
+                        raise WeftError("remote_error", "Remote JSON-RPC error")
+                    code = err.get("code")
+                    if not isinstance(code, str) or not _SAFE_HTTP_ERROR_CODE.fullmatch(code):
+                        code = "remote_error"
+                    _raise_structured(code, "Remote JSON-RPC error", _safe_retry_details(err))
                 result = envelope.get("result", {})
                 if isinstance(result, dict) and result.get("isError"):
                     # WeftError returned as tool error content.  The content
@@ -465,16 +490,12 @@ class _JsonRpcTransport:
                         raise WeftError("tool_error", "Tool call failed")
                     err = inner["error"]
                     code = err.get("code")
-                    message = err.get("message")
-                    details = err.get("details")
                     if (
                         not isinstance(code, str)
                         or not _SAFE_HTTP_ERROR_CODE.fullmatch(code)
-                        or not isinstance(message, str)
-                        or (details is not None and not isinstance(details, dict))
                     ):
                         raise WeftError("tool_error", "Tool call failed")
-                    _raise_structured(code, message, details)
+                    _raise_structured(code, "Tool call failed", _safe_retry_details(err))
                 return result.get("structuredContent") if isinstance(result, dict) and "structuredContent" in result else result
             except (http.client.HTTPException, ConnectionError, TimeoutError, OSError) as exc:
                 last_exc = exc
