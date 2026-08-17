@@ -1395,6 +1395,55 @@ class CloudRoomService:
             tx.commit()
         return {"link_id": link_id, "revoked": True}
 
+    def regenerate_link(self, tenant_id: str, room_id: str, owner_agent_id: str) -> dict:
+        """Replace a room's raw link after the web process lost its cache.
+
+        The database stores only the hash, so regeneration is deliberately an
+        owner-only action that returns one fresh raw token to the current web
+        process. Updating the single link row atomically invalidates the old
+        token without persisting a bearer secret. A revoked, closed, or expired
+        link cannot be silently re-enabled by this recovery path.
+        """
+        now = utc_now_iso()
+        now_epoch = _time.time()
+        raw_token = f"rm_{secrets.token_urlsafe(32)}"
+        with self.backend.transaction() as tx:
+            room = self._require_room(tx, tenant_id, room_id)
+            self._require_member(tx, tenant_id, room_id, owner_agent_id)
+            if room["owner_agent_id"] != owner_agent_id:
+                raise RoomError("owner_required", "Only the room owner can regenerate links", 403)
+            if room["state"] == "closed":
+                raise RoomError("room_closed", "Room is closed", 409)
+            link = tx.execute(
+                "SELECT link_id, expires_at, revoked FROM cloud_room_links "
+                "WHERE tenant_id = ? AND room_id = ? LIMIT 1",
+                (tenant_id, room_id),
+            ).fetchone()
+            if link is None:
+                raise RoomError("link_not_found", "Link not found for this room", 404)
+            if link["revoked"]:
+                raise RoomError("link_revoked", "Link has been permanently revoked", 410)
+            if float(link["expires_at"]) < now_epoch:
+                raise RoomError("link_expired", "Link has expired", 410)
+            cursor = tx.execute(
+                "UPDATE cloud_room_links SET token_hash = ?, created_at = ? "
+                "WHERE link_id = ? AND tenant_id = ? AND room_id = ? AND revoked = 0",
+                (_token_hash(raw_token), now, link["link_id"], tenant_id, room_id),
+            )
+            if cursor.rowcount != 1:
+                raise RoomError("link_not_found", "Link not found for this room", 404)
+            self._append_event(
+                tx, tenant_id, room_id, owner_agent_id, "room.link_regenerated",
+                {"link_id": link["link_id"]},
+            )
+            tx.commit()
+        return {
+            "room_id": room_id,
+            "link_id": link["link_id"],
+            "link_token": raw_token,
+            "expires_at": float(link["expires_at"]),
+        }
+
     def list_rooms_for_member(self, tenant_id: str, agent_id: str) -> list[dict]:
         """List all rooms where the agent is an active member."""
         with self.backend.transaction() as tx:

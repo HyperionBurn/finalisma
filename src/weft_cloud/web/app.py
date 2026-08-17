@@ -67,6 +67,7 @@ _ROOM_AUDIT_RE = re.compile(r"^/room/([A-Za-z0-9_-]+)/audit$")
 _ROOM_CONNECT_RE = re.compile(r"^/room/([A-Za-z0-9_-]+)/connect$")
 _ROOM_CLOSE_RE = re.compile(r"^/room/([A-Za-z0-9_-]+)/close$")
 _ROOM_REVOKE_LINK_RE = re.compile(r"^/room/([A-Za-z0-9_-]+)/revoke-link$")
+_ROOM_REGENERATE_LINK_RE = re.compile(r"^/room/([A-Za-z0-9_-]+)/regenerate-link$")
 
 # Exact paths served to UNAUTHENTICATED callers. This is a fixed allowlist of
 # specific strings — deliberately never a prefix or wildcard rule — so a typo
@@ -1828,13 +1829,20 @@ class WeftWebApp:
                     )
                 else:
                     link_section = (
-                        '<div class="flash"><strong>Join link.</strong> The raw '
-                        'link token is held only in the session that created the '
-                        'room (it is stored as a hash, never raw). It is shown on '
-                        'this page immediately after creation, and on the '
-                        '<a href="'
-                        f'/room/{_esc(room_id)}/connect">connect</a> page.</div>'
+                        '<div class="flash"><strong>Join link unavailable after '
+                        'a web restart.</strong> The raw token is stored only in '
+                        'the creating process (the database keeps only its hash). '
+                        'The room is still intact; the owner can safely generate '
+                        'a replacement link below.</div>'
                     )
+                    if is_owner:
+                        link_section += (
+                            '<form method="post" '
+                            f'action="/room/{_esc(room_id)}/regenerate-link">'
+                            f'{_csrf_input(csrf)}'
+                            '<button type="submit">Generate replacement join link</button>'
+                            '</form>'
+                        )
             if is_owner and info.get("link_id"):
                 revoke_form = (
                     '<form method="post" '
@@ -2017,12 +2025,55 @@ class WeftWebApp:
                             _page("Not found", '<p>Room not found.</p>'))
             return
         link_token = self._get_room_link_token(room_id) or ""
-        body_html = (
-            connect_page_body(room_id, link_token)
-            + f'<p><a href="/room/{_esc(room_id)}">Back to room</a></p>'
-        )
-        body = _page("Connect an agent", body_html)
+        if link_token:
+            body_html = connect_page_body(room_id, link_token)
+            csrf_token = None
+        else:
+            info = self._room_info_for_member(ctx.tenant_id, room_id, ctx.account_id)
+            csrf_token = _new_csrf()
+            body_html = (
+                '<h1>Connect an agent</h1>'
+                '<div class="warn"><strong>Join link unavailable after a web '
+                'restart.</strong> The owner can generate a replacement link; '
+                'no blank or unusable join request is shown.</div>'
+            )
+            if info.get("owner_agent_id") == ctx.account_id:
+                body_html += (
+                    '<form method="post" '
+                    f'action="/room/{_esc(room_id)}/regenerate-link">'
+                    f'{_csrf_input(csrf_token)}'
+                    '<button type="submit">Generate replacement join link</button>'
+                    '</form>'
+                )
+        body_html = body_html + f'<p><a href="/room/{_esc(room_id)}">Back to room</a></p>'
+        body = _page("Connect an agent", body_html, csrf_token=csrf_token)
         self._send_html(handler, HTTPStatus.OK, body)
+
+    def handle_post_room_regenerate_link(self, handler: BaseHTTPRequestHandler,
+                                         room_id: str) -> None:
+        """POST /room/{room_id}/regenerate-link — replace an unavailable link."""
+        ctx = self._require_auth(handler)
+        if ctx is None:
+            return
+        if not self._room_belongs_to_tenant(room_id, ctx.tenant_id):
+            self._send_html(handler, HTTPStatus.NOT_FOUND,
+                            _page("Not found", '<p>Room not found.</p>'))
+            return
+        form = self._read_form(handler)
+        try:
+            self._validate_csrf(handler, form)
+        except _WebError:
+            self._send_html(handler, HTTPStatus.FORBIDDEN,
+                            _page("Forbidden", '<p>CSRF validation failed.</p>'))
+            return
+        try:
+            result = self.rooms.regenerate_link(ctx.tenant_id, room_id, ctx.account_id)
+        except RoomError as exc:
+            self._send_html(handler, exc.status,
+                            _page("Regenerate link failed", f'<p>{_esc(exc.message)}</p>'))
+            return
+        self._store_link_token(room_id, result["link_token"])
+        self._redirect(handler, f"/room/{room_id}")
 
     def handle_post_room_close(self, handler: BaseHTTPRequestHandler, room_id: str) -> None:
         ctx = self._require_auth(handler)
@@ -2276,6 +2327,13 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
                 room_id = revoke_match.group(1)
                 if method == "POST":
                     app.handle_post_room_revoke_link(self, room_id)
+                return
+
+            regenerate_match = _ROOM_REGENERATE_LINK_RE.match(path)
+            if regenerate_match:
+                room_id = regenerate_match.group(1)
+                if method == "POST":
+                    app.handle_post_room_regenerate_link(self, room_id)
                 return
 
             # Static files

@@ -168,6 +168,23 @@ class WebAppDriver:
             self.backend.close()
             self._tmp.cleanup()
 
+    def restart(self):
+        """Restart only the HTTP app while preserving the test database."""
+        import http.server
+
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=5)
+        self.app = WeftWebApp(
+            self.backend,
+            static_dir=SITE_DIR,
+            state_dir=str(Path(self._tmp.name) / "state"),
+        )
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), self.app.handler)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.host, self.port = self.server.server_address
+
 
 class TestCreateRoom(unittest.TestCase):
     """§3.3 + §6.1: owner (admin+) can create a room → 303 to /room/{room_id}."""
@@ -377,6 +394,32 @@ class TestConnectPage(unittest.TestCase):
         self.driver.close()
 
     def test_connect_page_renders_raw_link_token_and_four_tiers(self):
+        status, initial_body, _ = self.driver.get(f"/room/{self.room_id}/connect")
+        self.assertEqual(status, 200)
+        initial_token = re.search(r"rm_[A-Za-z0-9_-]+", initial_body).group(0)
+
+        # The raw bearer token is intentionally not persisted. A restart must
+        # expose a recoverable owner action, never a blank join request.
+        self.driver.restart()
+        status, connect_body, _ = self.driver.get(f"/room/{self.room_id}/connect")
+        self.assertEqual(status, 200)
+        self.assertIn("Join link unavailable after a web restart", connect_body)
+        self.assertNotIn('link_token": ""', connect_body)
+        status, detail_body, _ = self.driver.get(f"/room/{self.room_id}")
+        self.assertEqual(status, 200)
+        self.assertIn("Join link unavailable after a web restart", detail_body)
+        self.assertNotIn('link_token": ""', detail_body)
+        csrf = self.driver.extract_csrf(detail_body)
+        status, _, headers = self.driver.post(
+            f"/room/{self.room_id}/regenerate-link", {"_csrf": csrf}
+        )
+        self.assertEqual(status, 303)
+        self.assertTrue(headers["Location"].endswith(f"/room/{self.room_id}"))
+        regenerated_body = self.driver.get(f"/room/{self.room_id}/connect")[1]
+        regenerated_token = re.search(r"rm_[A-Za-z0-9_-]+", regenerated_body).group(0)
+        self.assertNotEqual(regenerated_token, initial_token)
+        self.assertIsNone(self.driver.app.rooms.resolve_room_by_link_token(initial_token))
+
         status, body, _ = self.driver.get(f"/room/{self.room_id}/connect")
         self.assertEqual(status, 200)
         # The raw link token IS rendered on the connect page (copy-link UX).
