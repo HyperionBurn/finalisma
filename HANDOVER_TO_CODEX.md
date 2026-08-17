@@ -20,9 +20,11 @@ HEAD `a572db3`; each has `file:line` evidence in the tree.
   `c9f4e0e` (SDK drives all 12 hosted room tools, structured errors preserved),
   `1e0aa5a` (REST `/v1` parity for receipts + remove_member, 400s on bad cursors),
   `d344ebe` (truthful agent-key signout, admin cannot mint owner), `a572db3` (film brief).
-- **Test count:** the full suite is **960 tests, green** (verified 2026-08-15). The published
-  count is guarded by `tests/test_site.py::TestCountSyncTests` — that guard is the authority; do
-  not hand-edit any count. Every "721 / 716 / 894" number in this file is historical.
+- **Test count:** the latest local evidence is recorded in
+  `docs/RELEASE_EVIDENCE.md` (1136 discovered, 1135 passed, 1 skipped,
+  measured 2026-08-17). The published count is guarded by
+  `tests/test_site.py::TestCountSyncTests`; hosted deployment and merge proof
+  are separate claims. Every "721 / 716 / 894" number in this file is historical.
 - **§3 defects 1, 2 and 5 are fixed in this tree**, and §7 items 2 and 3 are done in this tree
   (inline notes below). §3 defect 4 (24h session expiry) is still true in code, but agent keys
   (`agk_`) now exist and are the durable credential path.
@@ -75,10 +77,11 @@ available to you, more valuable than writing anything new.
 | `Multiplayer-AI-docs` | `feature/docs-hosted` | 2 commits |
 | `Multiplayer-AI-nojs` | `feature/nojs` | 1 commit, no-JS pricing form |
 
-**Reality (2026-08-15):** the product branch is now `feature/product-perfect` (worktree
-`Multiplayer-AI-perfect`), 17 commits ahead of `integration` (merge-base `7c74e27`). The test
-counts in the table above are historical. Current suite: **960 tests green**. `interop` remains
-never-merge.
+**Historical reality (2026-08-15):** the product branch was
+`feature/product-perfect` (worktree `Multiplayer-AI-perfect`), 17 commits ahead
+of `integration`. The test counts in the table above are historical. The
+current integration hardening checkout is documented in
+`docs/RELEASE_EVIDENCE.md`; `interop` remains never-merge.
 
 **`interop` — NEVER MERGE.** It reverts security fixes and the build guard. Cherry-pick `video/`
 only if you ever need anything from it.

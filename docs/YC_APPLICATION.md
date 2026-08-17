@@ -29,7 +29,8 @@ conversation or sharing provider credentials.
 - One-use pairing links with preview-before-consent.
 - Member-bound session credentials and replayable ordered events.
 - Scoped tasks, leases, fencing tokens, artifact hashes, and evidence gates.
- - 1134 passing standard-library tests, including concurrency, restart, HTTP,
+ - 1135 passing standard-library tests (1136 discovered, 1 skipped; measured
+  locally on 2026-08-17), including concurrency, restart, HTTP,
   tenancy isolation, roster routing, durable outbox, bridge adapters, SDK
   flows, room lifecycle, cloud storage, cross-team boundary cases, identity,
   and the stdio-to-hosted bridge (docs/STDIO_BRIDGE.md).
@@ -92,8 +93,12 @@ do not return, narrow or kill the wedge before building hosted scale.
 
 ## What is not built yet?
 
-The hosted multi-tenant preview is live (signup works end-to-end) but carries
-documented deployment drift — it is not yet a hardened production service.
+The checkout contains a hosted multi-tenant preview implementation, but this
+checkout does not establish that an external preview is live or that signup
+works on the current deployment. Fresh authenticated deployment evidence is
+required before making that claim. The local evidence and remaining gaps are
+tracked in [`docs/RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md) and
+`docs/LIVE_DEPLOYMENT.md`.
 Before untrusted public traffic we need shared transactional storage, OAuth/OIDC
 audience binding, distributed rate limits, durable delivery/retry, data
 retention and deletion, load tests, and operational alerting.

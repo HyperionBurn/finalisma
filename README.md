@@ -318,9 +318,11 @@ while an OpenCode process was consuming substantial host resources, and
 hot-path change in that window, the presence touch, is now an in-memory
 throttle (zero DB work inside the window); the run immediately after that fix
 moved from -50.6% to +4.5% weighted median. The baseline was not rewritten to
-make the gate pass. The full test suite (960 tests) is green, and the
-published count is guarded by `tests/test_site.py::TestCountSyncTests` — it is
-not hand-maintained. Do not treat any of this as a universal latency claim; see
+make the gate pass. The latest local regression is recorded in
+[`docs/RELEASE_EVIDENCE.md`](docs/RELEASE_EVIDENCE.md): 1136 tests discovered,
+1135 passed, and 1 skipped. The published count is guarded by
+`tests/test_site.py::TestCountSyncTests`; this is local evidence, not a hosted
+release or universal latency claim. See
 [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for the evidence boundary and rerun
 instructions.
 

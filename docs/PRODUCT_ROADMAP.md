@@ -107,7 +107,8 @@ The goal is complete only when **every** line is true and independently verified
 >   1.18.13), but host-product transcripts for the remaining tiers are still
 >   required before "any agent" is claimed (§3).
 >
-> **2026-08-15 addendum (feature/product-perfect, merge-gate PASS, 960/960 green):**
+> **Historical 2026-08-15 addendum (`feature/product-perfect`, merge-gate PASS,
+> 960/960 green):**
 > the last four closes against this line:
 >
 > - **SDK drives all 12 hosted room tools** (`c9f4e0e`). `WeftClient` grew
@@ -189,11 +190,10 @@ The goal is complete only when **every** line is true and independently verified
 - [ ] No claim of customers, traction, or verified hosts without a committed artifact.
 - [ ] `AGENTS.md` and `AGENT_HANDOVER.md` current with the code in the same commit.
 
-> **Current branch state (2026-08-15):** `feature/product-perfect` carries
-> `b1645d6..a572db3` (latest five: `67c30ae` film restructure, `c9f4e0e` SDK
-> 12-tool drive, `1e0aa5a` REST parity, `d344ebe` identity, `a572db3` film
-> S7 docs). Measured this session: `unittest discover -s tests` → **Ran 960
-> tests, OK**. Merge-gate PASS.
+> **Current local evidence (2026-08-17):** the integration hardening stack is
+> documented in [`docs/RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1136 tests
+> discovered, 1135 passed, and 1 skipped. This is local evidence only; Docker,
+> hosted deployment, and third-party host-product proof remain open.
 
 ---
 

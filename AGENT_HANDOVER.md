@@ -408,7 +408,7 @@ To regenerate the social card after editing `site/assets/og-card.svg`:
 node .\scripts\render-og-card.cjs
 ```
 
-**Verified for the current launch pass:** 960/960 Python tests and
+**Historical launch snapshot (2026-08-15, `feature/product-perfect`):** 960/960 Python tests and
 `evidence_passed: true` on the smoke. The last recorded `capture-site-qa.cjs`
 run on file (with `consoleErrors: []` and all harness booleans true —
 `allPinned` with the five checkpoints at exactly 64px (`--header-h`),
@@ -426,10 +426,11 @@ The published test count is guarded automatically by
 same loader and pattern as `unittest discover -s tests` and fails if any
 published instance in `docs/` or `site/` claims a count ABOVE the live count
 (the guard protects against deleted tests; adding tests never invalidates a
-published number). The live count this pass: **960 tests, OK** — measured
-2026-08-15 on `feature/product-perfect`. If you delete tests, that guard will
-tell you what to update. Do not hand-maintain the number, and do not confuse
-the test count with the permanent 37/63 visual split.
+published number). The latest local count is **1136 discovered, 1135 passed,
+1 skipped**, measured 2026-08-17 and recorded in `docs/RELEASE_EVIDENCE.md`.
+If you delete tests, that guard will tell you what to update. Do not
+hand-maintain the number, and do not confuse the test count with the permanent
+37/63 visual split.
 
 The old `pointerTiltChanged` / `pointerTiltReset` checks are gone: the hero 3D tilt
 object they measured was deleted with the mockups.
@@ -449,8 +450,9 @@ medians against the same reference) show run-to-run variance of a size that is
 host load, not code; the gate remains red pending a controlled idle-host
 rerun. The older ~68.8 ms and 1,265.771 ms -> 59.314 ms (95.31%) results are
 historical evidence preserved in the baseline `history` array. The gate
-requires the current 960-test suite to pass, smoke passing, and no raw
-credential in evaluator output. Read `docs/PERFORMANCE.md` (the owner of
+requires the current suite recorded in `docs/RELEASE_EVIDENCE.md` to pass,
+smoke passing, and no raw credential in evaluator output. Read
+`docs/PERFORMANCE.md` (the owner of
 every performance number and its provenance) before changing the harness,
 baseline, connection pooling, routing query, or session cursor path.
 
@@ -627,8 +629,10 @@ the rendered width and offender checks in future visual regression passes.
 
 ## 9. Workspace hygiene rules
 
-- Work only inside `C:\Users\Wasif\Documents\Multiplayer-AI-perfect` (branch
-  `feature/product-perfect`, merge-gate PASS, 960/960 green).
+- Work only inside the current checkout `C:\Users\Wasif\Documents\Multiplayer-AI-integration`
+  (branch `codex/weft-release-truth-2026-08-17`). The latest local test
+  evidence is in `docs/RELEASE_EVIDENCE.md`; do not infer merge or deployment
+  status from it.
   `C:\Users\Wasif\Documents\Multiplayer-AI-isolated` (branch `isolated`) and
   `C:\Users\Wasif\Documents\Multiplayer-AI` (branch `master`) are **separate
   worktrees** with their own work; never read from or write to them from a
