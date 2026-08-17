@@ -28,10 +28,6 @@ Do not present the legacy `fst_*` credentials as aliases for hosted `agk_` keys.
   request. Demotion therefore takes effect on the next request.
 - Password reset revokes the account's active sessions and agent keys, and
   releases those keys' active room seats in the same transaction.
-- If a revoked key owned a room, that room is closed and its share link is
-  revoked in the same transaction. This fail-closed rule prevents an ownerless
-  room from retaining tenant quota or an active join capability; other members'
-  credentials remain valid, but they must start a new room.
 - Bulk key revocation follows the same seat-release rule; historical room
   events remain attributed to the revoked identity, while a replacement key
   can take the freed capacity.

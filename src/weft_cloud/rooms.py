@@ -403,43 +403,6 @@ def offboard_account_memberships_in_tx(tx: Any, tenant_id: str,
     return len(rows)
 
 
-def close_agent_key_owned_rooms_in_tx(tx: Any, key_id: str) -> int:
-    """Close every open room whose owner identity is a revoked agent key."""
-    exists = tx.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='cloud_rooms'"
-    ).fetchone()
-    if exists is None:
-        return 0
-    rows = tx.execute(
-        "SELECT tenant_id, room_id FROM cloud_rooms "
-        "WHERE owner_agent_id = ? AND state != 'closed'",
-        (key_id,),
-    ).fetchall()
-    for row in rows:
-        room_tenant_id = row["tenant_id"]
-        room_id = row["room_id"]
-        tx.execute(
-            "UPDATE cloud_rooms SET state = 'closed' "
-            "WHERE tenant_id = ? AND room_id = ? AND state != 'closed'",
-            (room_tenant_id, room_id),
-        )
-        tx.execute(
-            "UPDATE cloud_room_links SET revoked = 1 "
-            "WHERE tenant_id = ? AND room_id = ?",
-            (room_tenant_id, room_id),
-        )
-        tx.execute(
-            "UPDATE cloud_counters SET value = MAX(0, value - 1), updated_at = ? "
-            "WHERE tenant_id = ? AND counter = 'rooms'",
-            (utc_now_iso(), room_tenant_id),
-        )
-        _append_event_tx(
-            tx, room_tenant_id, room_id, key_id, "room.closed",
-            {"room_id": room_id, "reason": "agent_key_revoked"},
-        )
-    return len(rows)
-
-
 def release_agent_key_seats_in_tx(tx: Any, tenant_id: str, key_id: str) -> int:
     """Release every active room seat held by ONE agent-key identity.
 
@@ -476,11 +439,6 @@ def release_agent_key_seats_in_tx(tx: Any, tenant_id: str, key_id: str) -> int:
     ``leave_room`` does, so the plan-level member quota stays in step with the
     ACTIVE membership set.
     """
-    # If this key owned a room, close it before releasing the key's membership
-    # seats. Otherwise the room would remain open with a dead owner identity,
-    # its link usable, and its tenant room quota permanently occupied.
-    close_agent_key_owned_rooms_in_tx(tx, key_id)
-
     # The room plane may not be initialized on a bare identity backend
     # (revoke is a valid identity operation with no rooms). A missing table
     # simply means there are no seats to release.
