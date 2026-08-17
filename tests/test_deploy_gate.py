@@ -402,6 +402,14 @@ class RedeployBackupSafetyTests(unittest.TestCase):
 
     def test_compose_delivery_profile_shares_store_without_committing_secrets(self):
         compose = (REPO_ROOT / "compose.yaml").read_text(encoding="utf-8")
+        cloud_start = compose.index("  weft-cloud:")
+        cloud_end = compose.index("\n  # Browser front-end", cloud_start)
+        cloud_block = compose[cloud_start:cloud_end]
+        self.assertIn(
+            'WEFT_PUBLIC_ORIGIN: "${WEFT_PUBLIC_ORIGIN:-http://127.0.0.1:18788}"',
+            cloud_block,
+        )
+        self.assertNotIn("WEFT_WEB_PUBLIC_ORIGIN", cloud_block)
         start = compose.index("  weft-outbox:")
         block = compose[start:compose.index("\nvolumes:", start)]
         self.assertIn('profiles: ["delivery"]', block)

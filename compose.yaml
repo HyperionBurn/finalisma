@@ -33,7 +33,7 @@ services:
       WEFT_HOST: "0.0.0.0"
       WEFT_PORT: "18788"
       WEFT_DB_PATH: "/data/weft-cloud.db"
-      WEFT_WEB_PUBLIC_ORIGIN: "${WEFT_WEB_PUBLIC_ORIGIN:-http://127.0.0.1:18789}"
+      WEFT_PUBLIC_ORIGIN: "${WEFT_PUBLIC_ORIGIN:-http://127.0.0.1:18788}"
     volumes:
       - weft-cloud-data:/data
     restart: unless-stopped
