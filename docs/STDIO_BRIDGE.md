@@ -88,7 +88,8 @@ deployment you are connecting to.
         "WEFT_TOKEN"
       ],
       "env": {
-        "WEFT_TOKEN": "<agk_ agent key created with POST /v1/agent-keys>"
+        "WEFT_TOKEN": "<agk_ agent key created with POST /v1/agent-keys>",
+        "PYTHONUTF8": "1"
       }
     }
   }
@@ -97,7 +98,9 @@ deployment you are connecting to.
 
 Some hosts only allow `env` to reference existing environment variables rather
 than define new ones; in that case export `WEFT_TOKEN` in the shell before
-launching the client and drop the `env` block. For MCP, prefer the agent key
+launching the client and drop the `env` block. On Windows, also set
+`PYTHONUTF8=1` as a compatibility safeguard for hosts that initialize Python
+with a legacy codepage. For MCP, prefer the agent key
 (`agk_`) rather than the interactive session (`fss_`). Agent keys have no
 expiry clock but remain revocable; password resets or membership removal
 invalidate them, while role changes are re-derived on future requests. Use the

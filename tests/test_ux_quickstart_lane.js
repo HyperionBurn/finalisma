@@ -17,7 +17,12 @@ test('quickstart states the hosted/self-hosted tool boundary and bridge prerequi
   assert.match(html, /verify-package-install\.py/);
   assert.match(html, /absolute interpreter path/);
   assert.match(html, /"-B",\s*"-m",\s*"weft_mcp"/);
+  assert.match(html, /"PYTHONUTF8":\s*"1"/);
   assert.match(html, /full <strong>59-tool<\/strong> surface/);
+
+  const example = JSON.parse(read('site/examples/mcp.json'));
+  assert.equal(example.mcpServers.weft.env.PYTHONUTF8, '1');
+  assert.match(read('site/index.html'), /PYTHONUTF8/);
 
   const hostedTools = [
     'room_create', 'room_join', 'room_send', 'room_receipts', 'room_poll',
