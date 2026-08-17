@@ -84,7 +84,7 @@ polling model — an architecture change, not a deploy setting.
 Four systemd units, all `enabled` (survive reboot) and `active`:
 
 ```
-weft-cloud    agent API   127.0.0.1:18788   /var/lib/weft/cloud.db
+weft-cloud    agent API   127.0.0.1:18788   /var/lib/finalisma/cloud.db
 weft-web      web app     127.0.0.1:18789   same database (shared state)
 nginx              reverse proxy on :80/:443 — / → web app, /j/, /v1/, /healthz, and /mcp → agent API
 certbot.timer      Let's Encrypt renewal timer (see TLS below)
