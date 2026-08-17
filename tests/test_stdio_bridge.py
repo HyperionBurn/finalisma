@@ -271,6 +271,39 @@ class UnwrapTests(unittest.TestCase):
     def test_empty_body_returns_none(self) -> None:
         self.assertIsNone(unwrap_response_body(b"", "application/json"))
 
+    def test_non_standard_json_constants_are_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            unwrap_response_body(
+                b'{"jsonrpc":"2.0","id":1,"result":{"value":NaN}}',
+                "application/json",
+            )
+
+
+class StrictJsonInputTests(unittest.TestCase):
+    def test_non_standard_json_constant_is_parse_error_and_not_forwarded(self) -> None:
+        class RecordingBridge:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def has_token(self) -> bool:
+                return True
+
+            def exchange(self, request: dict) -> dict:
+                self.calls += 1
+                return {"jsonrpc": "2.0", "id": request.get("id"), "result": {}}
+
+        bridge = RecordingBridge()
+        output = io.StringIO()
+        rc = run_stdio_bridge(
+            bridge,
+            io.StringIO('{"jsonrpc":"2.0","id":1,"method":"echo","params":{"value":NaN}}\n'),
+            output,
+        )
+        self.assertEqual(rc, 0)
+        response = json.loads(output.getvalue())
+        self.assertEqual(response["error"]["code"], -32700)
+        self.assertEqual(bridge.calls, 0)
+
 
 class UpstreamRateLimitTests(unittest.TestCase):
     """Structured hosted rate-limit errors survive the stdio transport."""

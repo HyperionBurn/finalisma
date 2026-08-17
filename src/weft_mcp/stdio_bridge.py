@@ -55,6 +55,11 @@ DEFAULT_TIMEOUT_SECONDS = 30.0
 _SAFE_RETRY_AFTER_MAX = 86400
 
 
+def _reject_json_constant(value: str) -> None:
+    """Reject JavaScript-style numeric constants outside JSON RFC 8259."""
+    raise ValueError(f"non-standard JSON constant: {value}")
+
+
 # ---------------------------------------------------------------------------
 # Response unwrapping
 # ---------------------------------------------------------------------------
@@ -80,7 +85,7 @@ def unwrap_response_body(body: bytes, content_type: str) -> dict[str, Any] | Non
         if not data_lines:
             return None
         text = "\n".join(data_lines)
-    return json.loads(text)
+    return json.loads(text, parse_constant=_reject_json_constant)
 
 
 def _json_rpc_error(
@@ -299,8 +304,8 @@ def run_stdio_bridge(
             response = _json_rpc_error(None, -32600, "JSON-RPC message exceeds the size limit")
         else:
             try:
-                request = json.loads(raw_line)
-            except json.JSONDecodeError:
+                request = json.loads(raw_line, parse_constant=_reject_json_constant)
+            except (json.JSONDecodeError, ValueError):
                 response = _json_rpc_error(None, -32700, "Parse error")
             else:
                 if not isinstance(request, dict) or request.get("jsonrpc") != "2.0":
