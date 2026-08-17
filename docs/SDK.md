@@ -177,11 +177,9 @@ reg_a = a.register(name="A", role="coordinator", capabilities=["planning"])
 reg_b = b.register(name="B", role="builder", capabilities=["coding"])
 reg_c = c.register(name="C", role="builder", capabilities=["coding"])
 
-# actor_token is returned once on registration — persist it and feed it back
-# into the constructor on every future run (or via WEFT_ACTOR_TOKEN).
-a._actor_token = reg_a["actor_token"]
-b._actor_token = reg_b["actor_token"]
-c._actor_token = reg_c["actor_token"]
+# register() stores the returned actor_token on each client for this process.
+# For a later process, persist it outside the repository and pass it through
+# the constructor or WEFT_ACTOR_TOKEN; never put it in source control.
 
 # --- 2. agent-a creates a room with cap=4 -----------------------------------
 room = a.create_room(cap=4, name="planning", ttl_seconds=3600)

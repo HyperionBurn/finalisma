@@ -98,9 +98,14 @@ class SDKFullFlowTests(unittest.TestCase):
         self.assertIn("actor_token", result)
         token = result["actor_token"]
         self.assertTrue(token.startswith("fst_actor_"))
-        # Store token on the client for subsequent calls
-        self.client_a._actor_token = token
-        self.assertTrue(self.client_a._actor_token.startswith("fst_actor_"))
+        self.assertEqual(self.client_a._actor_token, token,
+                         "register() must persist the returned actor token")
+
+    def test_register_token_authenticates_followup_room_create(self) -> None:
+        result = self.client_a.register(name="Room owner", role="coordinator")
+        self.assertTrue(result["actor_token"].startswith("fst_actor_"))
+        room = self.client_a.create_room(cap=2, name="register-follow-up")
+        self.assertTrue(room.room_id.startswith("room_"))
 
     def test_repr_never_leaks_token(self) -> None:
         self.client_a._actor_token = "fst_actor_super_secret_value_here_1234567890"

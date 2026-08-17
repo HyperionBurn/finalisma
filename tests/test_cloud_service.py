@@ -523,6 +523,14 @@ class TestRoomLifecycle(CloudServiceTestBase):
         }, owner["session_token"])
         self.assertEqual(status, 200, removed)
         self.assertEqual(removed["status"], "left")
+        audit = self.service.backend.list_audit(owner["tenant_id"])
+        removal_audits = [entry for entry in audit
+                          if entry["action"] == "room.remove_member"
+                          and entry["object_id"] == room["room_id"]]
+        self.assertEqual(len(removal_audits), 1,
+                         "REST member removal must leave one auditable action")
+        self.assertEqual(json.loads(removal_audits[0]["payload_json"]),
+                         {"member_id": member["account_id"]})
 
         status, refused = _get(
             self.base,

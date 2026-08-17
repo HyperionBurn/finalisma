@@ -35,6 +35,7 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 from classify_suite_log import classify, INCONCLUSIVE, PASS, REAL_FAILURE  # noqa: E402
 from normalize_line_endings import normalize, normalize_file  # noqa: E402
 from restart_proof import evaluate_restart  # noqa: E402
+from tests._process_cleanup import cleanup_tempdir  # noqa: E402
 
 BASH = shutil.which("bash")
 
@@ -204,7 +205,9 @@ class NormalizeLineEndingsTests(unittest.TestCase):
         # Whatever a given bash build tolerates in the un-normalized version
         # (see the portability note above — it varies), the NORMALIZED
         # version must parse and run cleanly everywhere.
-        with tempfile.TemporaryDirectory() as tmp:
+        temporary = tempfile.TemporaryDirectory()
+        try:
+            tmp = temporary.name
             path = Path(tmp) / "repro.sh"
             path.write_bytes(b"#!/usr/bin/env bash\r\nset -euo pipefail\r\necho ok\r\n")
             normalize_file(path)
@@ -215,6 +218,8 @@ class NormalizeLineEndingsTests(unittest.TestCase):
             run = _run_bash(path, cwd=path.parent)
             self.assertEqual(run.returncode, 0, run.stderr)
             self.assertEqual(run.stdout.strip(), "ok")
+        finally:
+            cleanup_tempdir(temporary)
 
     def test_cli_check_mode_never_writes(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -356,6 +361,38 @@ class ShippedScriptSanityTests(unittest.TestCase):
         # under version control (that is the whole point of this task).
         for name in ("push-code-to-vm.sh", "redeploy-weft.sh", "final-verify.sh", "suite-check.sh"):
             self.assertTrue((SCRIPTS_DIR / name).is_file(), f"missing scripts/{name}")
+
+
+class RedeployBackupSafetyTests(unittest.TestCase):
+    """A cutover must fail closed until the database is recoverably backed up."""
+
+    def test_redeploy_requires_backup_and_restore_proof_before_promotion(self):
+        script = (SCRIPTS_DIR / "redeploy-weft.sh").read_text(encoding="utf-8")
+        backup = script.index('echo "== WAL-safe backup')
+        retention = script.index('echo "== release retention')
+        promotion = script.index('echo "== promote staged code')
+        safety_window = script[backup:retention]
+
+        self.assertLess(backup, retention)
+        self.assertLess(retention, promotion)
+        self.assertIn("backup_cloud_db.py failed; refusing to promote", safety_window)
+        self.assertIn("unavailable; refusing an unsafe raw-copy fallback", safety_window)
+        self.assertIn("restore_drill.py is unavailable; refusing promotion", safety_window)
+        self.assertIn("FAILED the restore drill; refusing promotion", safety_window)
+        self.assertNotIn("deploy below still proceeds", safety_window)
+        self.assertNotIn("Falling back to a raw copy", safety_window)
+
+        # Every failure branch in the pre-promotion safety window must terminate
+        # the shell process; a warning without an exit is the original defect.
+        self.assertGreaterEqual(safety_window.count("exit 1"), 5)
+
+    def test_redeploy_propagates_public_origin_and_join_route(self):
+        script = (SCRIPTS_DIR / "redeploy-weft.sh").read_text(encoding="utf-8")
+        self.assertIn("Environment=WEFT_PUBLIC_ORIGIN=$PUBLIC_ORIGIN", script)
+        self.assertIn("location ^~ /j/", script,
+                      "nginx must forward generated public join links to weft-cloud")
+        self.assertIn("location /mcp", script,
+                      "nginx must continue forwarding hosted MCP to weft-cloud")
 
 
 if __name__ == "__main__":

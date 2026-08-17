@@ -59,27 +59,35 @@ print(found if found else '', end='')
       echo "  WAL-safe backup located: $BACKUP_PATH"
       BACKUP_OK=1
     else
-      echo "  !! WARNING: backup_cloud_db.py exited 0 but no backup file could be located afterward."
+      echo "FATAL: backup_cloud_db.py exited 0 but no backup file could be located afterward." >&2
+      exit 1
     fi
   else
-    echo "  !! WARNING: backup_cloud_db.py exited non-zero — deploy continues, but you"
-    echo "  !! do NOT have a fresh pre-deploy backup. Investigate before the next deploy."
+    echo "FATAL: backup_cloud_db.py failed; refusing to promote code without a fresh WAL-safe backup." >&2
+    exit 1
   fi
 else
-  echo "  !! WARNING: scripts/backup_cloud_db.py not found next to this script."
-  echo "  !! Falling back to a raw copy — this is NOT WAL-safe and may be corrupt."
-  sudo cp -a "$DB" "${DB}.bak.$(date +%s)" || true
+  echo "FATAL: scripts/backup_cloud_db.py is unavailable; refusing an unsafe raw-copy fallback." >&2
+  exit 1
 fi
 
-if [ "$BACKUP_OK" = "1" ] && [ -f "$SCRIPT_DIR/restore_drill.py" ]; then
+if [ "$BACKUP_OK" != "1" ]; then
+  echo "FATAL: no verified WAL-safe backup path was produced; refusing promotion." >&2
+  exit 1
+fi
+
+if [ ! -f "$SCRIPT_DIR/restore_drill.py" ]; then
+  echo "FATAL: restore_drill.py is unavailable; refusing promotion without a restore proof." >&2
+  exit 1
+fi
+
+if [ "$BACKUP_OK" = "1" ]; then
   echo "== restore drill on the backup just taken (an untested backup is not a backup) =="
   if python3 "$SCRIPT_DIR/restore_drill.py" --backup-file "$BACKUP_PATH" --min-accounts 1; then
     echo "  backup verified restorable."
   else
-    echo "  !! WARNING: the backup just taken FAILED the restore drill. The code"
-    echo "  !! deploy below still proceeds (this is a backup-quality signal, not a"
-    echo "  !! code-quality one) but treat this as an active incident: you do not"
-    echo "  !! currently have a verified-good backup. Investigate immediately."
+    echo "FATAL: the backup just taken FAILED the restore drill; refusing promotion." >&2
+    exit 1
   fi
 fi
 
@@ -150,6 +158,7 @@ Environment=WEFT_WEB_HOST=127.0.0.1
 Environment=WEFT_WEB_PORT=18789
 Environment=WEFT_WEB_DB_PATH=$DB
 Environment=WEFT_WEB_STATE_DIR=$STATE
+Environment=WEFT_PUBLIC_ORIGIN=$PUBLIC_ORIGIN
 ExecStart=/usr/bin/python3 -B -m weft_cloud.web
 Restart=always
 RestartSec=3
@@ -157,7 +166,7 @@ RestartSec=3
 WantedBy=multi-user.target
 UNIT
 
-echo "== nginx: route /mcp to the cloud service =="
+echo "== nginx: route public join links and MCP to the cloud service =="
 # WITHOUT THIS, POST /mcp falls through to `location /` (the web app) and
 # returns a 303 login redirect instead of speaking MCP — exactly the bug
 # that made the hosted service unreachable from Claude Code / Cursor / Zed.
@@ -165,21 +174,33 @@ if [ -f "$APP/src/weft_cloud/mcp.py" ]; then
   CONF=$(ls /etc/nginx/sites-enabled/ | head -1)
   if [ -z "$CONF" ]; then
     echo "  WARNING: no site in /etc/nginx/sites-enabled — skipping /mcp route"
-  elif ! sudo grep -q 'location /mcp' "/etc/nginx/sites-enabled/$CONF"; then
+  elif ! sudo grep -qE 'location (\^~ )?/j/|location /mcp' "/etc/nginx/sites-enabled/$CONF" \
+      || ! sudo grep -q 'location /mcp' "/etc/nginx/sites-enabled/$CONF"; then
     sudo python3 - "/etc/nginx/sites-enabled/$CONF" <<'PYEOF'
 import re, sys
 p = sys.argv[1]
 s = open(p).read()
-block = ("    location /mcp {\n"
-         "        proxy_pass http://127.0.0.1:18788;\n"
-         "        proxy_set_header Host $host;\n"
-         "        proxy_set_header X-Forwarded-Proto $scheme;\n"
-         "        proxy_read_timeout 300s;\n"
-         "        proxy_buffering off;\n"
-         "    }\n")
-s = re.sub(r"(\n\s*location / \{)", "\n" + block + r"\1", s, count=1)
+blocks = [
+    (r"location\s+\^~\s+/j/\s*\{", "    location ^~ /j/ {\n"
+     "        proxy_pass http://127.0.0.1:18788;\n"
+     "        proxy_set_header Host $host;\n"
+     "        proxy_set_header X-Forwarded-Proto $scheme;\n"
+     "        proxy_read_timeout 60s;\n"
+     "        proxy_buffering off;\n"
+     "    }\n"),
+    (r"location\s+/mcp\s*\{", "    location /mcp {\n"
+     "        proxy_pass http://127.0.0.1:18788;\n"
+     "        proxy_set_header Host $host;\n"
+     "        proxy_set_header X-Forwarded-Proto $scheme;\n"
+     "        proxy_read_timeout 300s;\n"
+     "        proxy_buffering off;\n"
+     "    }\n"),
+]
+for pattern, block in blocks:
+    if not re.search(pattern, s):
+        s = re.sub(r"(\n\s*location / \{)", "\n" + block + r"\1", s, count=1)
 open(p, "w").write(s)
-print("  /mcp route inserted")
+print("  /j/ and /mcp routes ensured")
 PYEOF
     sudo nginx -t && sudo systemctl reload nginx && echo "  nginx reloaded"
   else

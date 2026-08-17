@@ -104,9 +104,10 @@ plausible row count. It fails loudly — a raised exception with a specific
 message, non-zero CLI exit — on: missing file, zero-byte file, corrupt
 file, missing tables, or too few rows. It never prints row content,
 emails, or credentials. `redeploy-weft.sh` runs it against the backup it
-just took, on every deploy, as a warning (not a deploy-blocking failure —
-backup quality and code quality are different failure domains and
-conflating them would just be a variant of failure #3).
+just took, on every deploy, as a hard pre-promotion gate. A missing backup,
+missing restore drill, or failed restore drill exits non-zero before release
+retention or code promotion; deploying without a recoverable database is not a
+safe cutover.
 `scripts/systemd/weft-restore-drill.timer` runs it daily regardless.
 
 Real end-to-end output (against a throwaway copy, not any production data —

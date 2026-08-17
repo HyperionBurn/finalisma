@@ -40,6 +40,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Keep the status code visible when probing for login fallthrough."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
 @dataclass
 class ProbeResult:
     ok: bool
@@ -89,7 +99,9 @@ def probe_unauth_mcp(base_url: str, *, timeout: float = 5.0) -> ProbeResult:
     )
     started = time.monotonic()
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        # A 302/303 is the signal we are looking for.  Following it would
+        # hide the routing bug behind the web app's eventual response.
+        with _NO_REDIRECT_OPENER.open(req, timeout=timeout) as resp:
             status = resp.status
     except urllib.error.HTTPError as exc:
         # HTTPError is itself a file-like response object (it carries the

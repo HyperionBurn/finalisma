@@ -81,12 +81,15 @@ Four systemd units, all `enabled` (survive reboot) and `active`:
 ```
 weft-cloud    agent API   127.0.0.1:18788   /var/lib/weft/cloud.db
 weft-web      web app     127.0.0.1:18789   same database (shared state)
-nginx              reverse proxy on :80/:443 — / → web app, /v1/ and /healthz → agent API
+nginx              reverse proxy on :80/:443 — / → web app, /j/, /v1/, /healthz, and /mcp → agent API
 certbot.timer      Let's Encrypt renewal timer (see TLS below)
 ```
 
 Both services bind **loopback only**; nginx is the only thing on `0.0.0.0`. Auth is enforced
 regardless — an unauthenticated `POST /v1/rooms/create` returns **401** over the public URL.
+The web unit receives the same `WEFT_PUBLIC_ORIGIN` as the cloud unit, and nginx forwards
+`/j/<token>` to the cloud handler; this is required for room links rendered by the human web
+app to be reachable by another agent rather than pointing at the loopback origin.
 
 The old `weft-tunnel` (cloudflared quick tunnel) unit has been **retired**. It is not the
 delivery path and must not be reintroduced as one.
