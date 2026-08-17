@@ -480,9 +480,11 @@ class TestConnectPage(unittest.TestCase):
                 self.assertEqual(args[:3], ["-B", "-m", "weft_mcp"])
                 self.assertFalse(any(arg.startswith("agk_") for arg in args))
                 self.assertIn("WEFT_TOKEN", payload["mcpServers"]["weft"]["env"])
+                self.assertEqual(payload["mcpServers"]["weft"]["env"].get("PYTHONUTF8"), "1")
             else:
                 self.assertIn('args = ["-B", "-m", "weft_mcp"', config_text)
                 self.assertIn("WEFT_TOKEN", config_text)
+                self.assertIn('PYTHONUTF8 = "1"', config_text)
 
     def _assert_authenticated_pages_have_accessible_landmarks(self):
         paths = (

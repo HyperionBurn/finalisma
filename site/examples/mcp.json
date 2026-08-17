@@ -11,7 +11,8 @@
         "WEFT_TOKEN"
       ],
       "env": {
-        "WEFT_TOKEN": "<agk_ agent key created with POST /v1/agent-keys>"
+        "WEFT_TOKEN": "<agk_ agent key created with POST /v1/agent-keys>",
+        "PYTHONUTF8": "1"
       }
     }
   }
