@@ -246,6 +246,15 @@ def _label(text: str, control: str) -> str:
 
 def _page(title: str, body_html: str, *, csrf_token: str | None = None,
           extra_head: str = "") -> bytes:
+    accessibility_css = (
+        '<style>'
+        '.skip-link{position:absolute;left:-10000px;top:auto;width:1px;height:1px;'
+        'overflow:hidden;}'
+        '.skip-link:focus{left:1rem;top:1rem;width:auto;height:auto;z-index:1000;'
+        'padding:.6rem .8rem;background:#111;color:#fff;}'
+        'main:focus{outline:2px solid currentColor;outline-offset:4px;}'
+        '</style>'
+    )
     csrf_meta = ""
     if csrf_token:
         csrf_meta = f'<meta name="csrf-token" content="{_esc(csrf_token)}">'
@@ -253,8 +262,9 @@ def _page(title: str, body_html: str, *, csrf_token: str | None = None,
         '<!DOCTYPE html>\n'
         '<html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        f'<title>{_esc(title)}</title>{csrf_meta}{extra_head}</head>\n'
-        f'<body>{body_html}</body></html>'
+        f'<title>{_esc(title)}</title>{csrf_meta}{extra_head}{accessibility_css}</head>\n'
+        '<body><a class="skip-link" href="#main">Skip to content</a>'
+        f'<main id="main" tabindex="-1">{body_html}</main></body></html>'
     )
     return html_doc.encode("utf-8")
 

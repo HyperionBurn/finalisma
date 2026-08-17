@@ -379,6 +379,7 @@ class TestConnectPage(unittest.TestCase):
         self.assertIn("bridge", body)            # Tier 3 — bridge/webhook
         self.assertIn("WeftClient", body)   # Tier 4 — SDK
         self._assert_connector_configs_use_portable_entrypoint()
+        self._assert_authenticated_pages_have_accessible_landmarks()
 
     def _assert_connector_configs_use_portable_entrypoint(self):
         from html import unescape
@@ -407,6 +408,27 @@ class TestConnectPage(unittest.TestCase):
             else:
                 self.assertIn('args = ["-B", "-m", "weft_mcp"', config_text)
                 self.assertIn("WEFT_TOKEN", config_text)
+
+    def _assert_authenticated_pages_have_accessible_landmarks(self):
+        paths = (
+            "/",
+            "/org",
+            "/rooms",
+            "/agent-keys",
+            "/config",
+            f"/room/{self.room_id}",
+            f"/room/{self.room_id}/connect",
+            f"/room/{self.room_id}/audit",
+        )
+        for path in paths:
+            status, body, _ = self.driver.get(path)
+            self.assertEqual(status, 200, path)
+            self.assertEqual(
+                body.count('<a class="skip-link" href="#main">Skip to content</a>'),
+                1,
+                path,
+            )
+            self.assertEqual(body.count('<main id="main" tabindex="-1">'), 1, path)
 
     def test_connect_page_documents_a_working_join(self):
         """The page must document everything a working /v1/rooms/join needs.
