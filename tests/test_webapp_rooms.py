@@ -116,6 +116,17 @@ class WebAppDriver:
         assert token is not None, f"no _csrf token found on {path}"
         return token
 
+    def accept_invite(self, token, email, password):
+        """Accept an invite through its form, including the public CSRF token."""
+        status, body, _ = self.get(f"/invite/{token}")
+        assert status == 200, f"invite form expected 200, got {status}"
+        csrf = self.extract_csrf(body)
+        assert csrf is not None, "invite form did not include _csrf"
+        return self.post(
+            f"/invite/{token}",
+            {"email": email, "password": password, "_csrf": csrf},
+        )
+
     def last_outbox_body(self, to_email):
         with self.backend.transaction() as tx:
             row = tx.execute(
@@ -641,10 +652,7 @@ class TestMemberCannotClose(unittest.TestCase):
         token = re.search(
             r"(fiv_[A-Za-z0-9_-]+)", self.driver.last_outbox_body(self.member_email)
         ).group(1)
-        self.driver.post(
-            f"/invite/{token}",
-            {"email": self.member_email, "password": self.member_password},
-        )
+        self.driver.accept_invite(token, self.member_email, self.member_password)
         # Log in as the member.
         self.driver.cookies.clear()
         self.driver.post("/login", {"email": self.member_email, "password": self.member_password})
@@ -689,10 +697,7 @@ class TestMemberCanView(unittest.TestCase):
         token = re.search(
             r"(fiv_[A-Za-z0-9_-]+)", self.driver.last_outbox_body(self.member_email)
         ).group(1)
-        self.driver.post(
-            f"/invite/{token}",
-            {"email": self.member_email, "password": self.member_password},
-        )
+        self.driver.accept_invite(token, self.member_email, self.member_password)
         self.driver.cookies.clear()
         self.driver.post("/login", {"email": self.member_email, "password": self.member_password})
 
@@ -873,10 +878,7 @@ class TestCrossTenantIsolation(unittest.TestCase):
         token = re.search(
             r"(fiv_[A-Za-z0-9_-]+)", self.driver_a.last_outbox_body(self.member_a)
         ).group(1)
-        self.driver_a.post(
-            f"/invite/{token}",
-            {"email": self.member_a, "password": self.member_a_password},
-        )
+        self.driver_a.accept_invite(token, self.member_a, self.member_a_password)
         # Log in as the org-A member (the actor for the cross-tenant probes).
         self.driver_a.cookies.clear()
         self.driver_a.post("/login", {"email": self.member_a, "password": self.member_a_password})
