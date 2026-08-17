@@ -213,7 +213,10 @@ class TestSigninRateLimit(AuthRateLimitTestBase):
         """
         harness = _ServiceHarness(auth_rate_limits={
             "signup": {"ip": 20, "email": 5, "window_seconds": 900},
-            "signin": {"ip": 200, "email": 5, "window_seconds": 2},
+            # This test proves parity across both tiers, not window expiry. A
+            # long window keeps the 25-pair oracle check deterministic when the
+            # full suite is under load; expiry is covered separately above.
+            "signin": {"ip": 200, "email": 5, "window_seconds": 900},
             "reset_request": {"ip": 10, "email": 3, "window_seconds": 2},
         })
         try:
