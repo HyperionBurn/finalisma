@@ -155,29 +155,25 @@ class StorageBackend(ABC):
         """
 
     @abstractmethod
-    def renew_outbox_lease(self, tenant_id: str, entry_id: str,
-                           worker_id: str, now: float | None = None) -> bool:
-        """Extend a live claim only for its current worker owner."""
-
-    @abstractmethod
-    def renew_identity_outbox_lease(self, entry_id: str, worker_id: str,
-                                    now: float | None = None) -> bool:
-        """Extend a live identity-mail claim only for its current owner."""
-
-    @abstractmethod
     def mark_outbox_delivered(self, tenant_id: str, entry_id: str,
-                              worker_id: str | None = None) -> bool:
+                              worker_id: str | None = None,
+                              lease_seconds: float | None = None,
+                              now: float | None = None) -> bool:
         """Terminal state, only for the worker that owns the current lease."""
 
     @abstractmethod
     def mark_outbox_retry(self, tenant_id: str, entry_id: str, attempts: int,
                           next_attempt_at: float, error: str,
-                          worker_id: str | None = None) -> bool:
+                          worker_id: str | None = None,
+                          lease_seconds: float | None = None,
+                          now: float | None = None) -> bool:
         """Return a claimed row to ``queued`` only for its current lease owner."""
 
     @abstractmethod
     def mark_outbox_dead(self, tenant_id: str, entry_id: str, attempts: int,
-                         error: str, worker_id: str | None = None) -> bool:
+                         error: str, worker_id: str | None = None,
+                         lease_seconds: float | None = None,
+                         now: float | None = None) -> bool:
         """Terminal dead-letter state, fenced to the current lease owner."""
 
     # --- audit ---
@@ -570,65 +566,119 @@ class SqliteWalBackend(StorageBackend):
                                "claimed_by": worker_id}) for r in rows]
 
     def mark_outbox_delivered(self, tenant_id: str, entry_id: str,
-                              worker_id: str | None = None) -> bool:
+                              worker_id: str | None = None,
+                              lease_seconds: float | None = None,
+                              now: float | None = None) -> bool:
+        if worker_id is not None and lease_seconds is None:
+            return False
+        import time as _time
+        now = _time.time() if now is None else now
+        lease_clause = ""
+        lease_params: tuple = ()
+        if lease_seconds is not None:
+            lease_clause = " AND claimed_at IS NOT NULL AND claimed_at >= ?"
+            lease_params = (now - lease_seconds,)
         with self._transaction() as conn:
             cursor = conn.execute(
                 "UPDATE cloud_outbox SET status = 'delivered', dispatched_at = ?, "
                 "last_error = NULL WHERE tenant_id = ? AND entry_id = ? "
                 "AND status = 'claimed' "
-                "AND ((claimed_by = ?) OR (claimed_by IS NULL AND ? IS NULL))",
-                (utc_now_iso(), tenant_id, entry_id, worker_id, worker_id),
+                "AND ((claimed_by = ?) OR (claimed_by IS NULL AND ? IS NULL))"
+                + lease_clause,
+                (utc_now_iso(), tenant_id, entry_id, worker_id, worker_id, *lease_params),
             )
             return cursor.rowcount == 1
 
     def renew_outbox_lease(self, tenant_id: str, entry_id: str,
-                           worker_id: str, now: float | None = None) -> bool:
+                           worker_id: str, lease_seconds: float | None = None,
+                           now: float | None = None) -> bool:
+        if lease_seconds is None:
+            return False
         import time as _time
         now = _time.time() if now is None else now
+        lease_clause = ""
+        lease_params: tuple = ()
+        if lease_seconds is not None:
+            lease_clause = " AND claimed_at IS NOT NULL AND claimed_at >= ?"
+            lease_params = (now - lease_seconds,)
         with self._transaction() as conn:
             cursor = conn.execute(
                 "UPDATE cloud_outbox SET claimed_at = ?, updated_at = ? "
                 "WHERE tenant_id = ? AND entry_id = ? AND status = 'claimed' "
-                "AND claimed_by = ?",
-                (now, utc_now_iso(), tenant_id, entry_id, worker_id),
+                "AND claimed_by = ?" + lease_clause,
+                (now, utc_now_iso(), tenant_id, entry_id, worker_id, *lease_params),
             )
             return cursor.rowcount == 1
 
     def renew_identity_outbox_lease(self, entry_id: str, worker_id: str,
+                                    lease_seconds: float | None = None,
                                     now: float | None = None) -> bool:
+        if lease_seconds is None:
+            return False
         import time as _time
         now = _time.time() if now is None else now
+        lease_clause = ""
+        lease_params: tuple = ()
+        if lease_seconds is not None:
+            lease_clause = " AND claimed_at IS NOT NULL AND claimed_at >= ?"
+            lease_params = (now - lease_seconds,)
         with self._transaction() as conn:
             cursor = conn.execute(
                 "UPDATE cloud_identity_outbox SET claimed_at = ? "
-                "WHERE entry_id = ? AND status = 'claimed' AND claimed_by = ?",
-                (now, entry_id, worker_id),
+                "WHERE entry_id = ? AND status = 'claimed' AND claimed_by = ?"
+                + lease_clause,
+                (now, entry_id, worker_id, *lease_params),
             )
             return cursor.rowcount == 1
 
     def mark_outbox_retry(self, tenant_id: str, entry_id: str, attempts: int,
                           next_attempt_at: float, error: str,
-                          worker_id: str | None = None) -> bool:
+                          worker_id: str | None = None,
+                          lease_seconds: float | None = None,
+                          now: float | None = None) -> bool:
+        if worker_id is not None and lease_seconds is None:
+            return False
+        import time as _time
+        now = _time.time() if now is None else now
+        lease_clause = ""
+        lease_params: tuple = ()
+        if lease_seconds is not None:
+            lease_clause = " AND claimed_at IS NOT NULL AND claimed_at >= ?"
+            lease_params = (now - lease_seconds,)
         with self._transaction() as conn:
             cursor = conn.execute(
                 "UPDATE cloud_outbox SET status = 'queued', attempts = ?, next_attempt_at = ?, "
                 "claimed_at = NULL, claimed_by = NULL, last_error = ? "
                 "WHERE tenant_id = ? AND entry_id = ? AND status = 'claimed' "
-                "AND ((claimed_by = ?) OR (claimed_by IS NULL AND ? IS NULL))",
+                "AND ((claimed_by = ?) OR (claimed_by IS NULL AND ? IS NULL))"
+                + lease_clause,
                 (attempts, next_attempt_at, error, tenant_id, entry_id,
-                 worker_id, worker_id),
+                 worker_id, worker_id, *lease_params),
             )
             return cursor.rowcount == 1
 
     def mark_outbox_dead(self, tenant_id: str, entry_id: str, attempts: int,
-                         error: str, worker_id: str | None = None) -> bool:
+                         error: str, worker_id: str | None = None,
+                         lease_seconds: float | None = None,
+                         now: float | None = None) -> bool:
+        if worker_id is not None and lease_seconds is None:
+            return False
+        import time as _time
+        now = _time.time() if now is None else now
+        lease_clause = ""
+        lease_params: tuple = ()
+        if lease_seconds is not None:
+            lease_clause = " AND claimed_at IS NOT NULL AND claimed_at >= ?"
+            lease_params = (now - lease_seconds,)
         with self._transaction() as conn:
             cursor = conn.execute(
                 "UPDATE cloud_outbox SET status = 'dead', attempts = ?, "
                 "claimed_at = NULL, claimed_by = NULL, last_error = ? "
                 "WHERE tenant_id = ? AND entry_id = ? AND status = 'claimed' "
-                "AND ((claimed_by = ?) OR (claimed_by IS NULL AND ? IS NULL))",
-                (attempts, error, tenant_id, entry_id, worker_id, worker_id),
+                "AND ((claimed_by = ?) OR (claimed_by IS NULL AND ? IS NULL))"
+                + lease_clause,
+                (attempts, error, tenant_id, entry_id, worker_id, worker_id,
+                 *lease_params),
             )
             return cursor.rowcount == 1
 

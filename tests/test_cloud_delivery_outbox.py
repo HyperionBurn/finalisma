@@ -32,6 +32,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from weft_cloud.migrations import apply_migrations
+from weft_cloud.lease import LeaseHeartbeat
 from weft_cloud.storage import SqliteWalBackend
 
 # RED gate: the module does not exist yet.
@@ -175,6 +176,18 @@ class DeliveryDrainerTests(unittest.TestCase):
         worker_b = self._drainer(lease_seconds=60, worker_id="worker-b")
         self.assertEqual(worker_b.claim_due(now=1030.0), [])
 
+        # Lease ownership expires even before another worker performs the
+        # reclaim; a late renewal or completion must not extend the old claim.
+        self.assertFalse(self.backend.renew_outbox_lease(
+            self.tenant_id, entry_id, "worker-a", lease_seconds=60, now=1061.0
+        ))
+        self.assertFalse(self.backend.mark_outbox_delivered(
+            self.tenant_id, entry_id, "worker-a", lease_seconds=60, now=1061.0
+        ))
+        with LeaseHeartbeat(None, 1.0) as heartbeat:
+            self.assertFalse(heartbeat.acquired)
+            self.assertTrue(heartbeat.lost.is_set())
+
         # After the lease expires the claim is reclaimed.
         reclaimed = worker_b.claim_due(now=1100.0)
         self.assertEqual(len(reclaimed), 1)
@@ -189,7 +202,9 @@ class DeliveryDrainerTests(unittest.TestCase):
         row = self._row(entry_id)
         self.assertEqual(row["status"], "claimed")
         self.assertEqual(row["claimed_by"], "worker-b")
-        self.assertTrue(worker_b.mark_delivered(self.tenant_id, entry_id))
+        self.assertTrue(worker_b.mark_delivered(
+            self.tenant_id, entry_id, now=1100.0
+        ))
         self.assertEqual(self._row(entry_id)["status"], "delivered")
 
         # A live but slow delivery must renew its claim instead of being
@@ -222,6 +237,35 @@ class DeliveryDrainerTests(unittest.TestCase):
         self.assertEqual(result_holder[0]["sent"], 1)
         self.assertEqual(self._row(slow_entry_id)["status"], "delivered")
         self.assertEqual(len(calls), 1)
+
+        # Shutdown must not wait forever for a renewal callback that is stuck
+        # in a database/network call; the daemon callback is released after
+        # the bounded join completes.
+        callback_started = threading.Event()
+        release_callback = threading.Event()
+        callback_calls = 0
+
+        def blocked_renewal() -> bool:
+            nonlocal callback_calls
+            callback_calls += 1
+            if callback_calls == 1:
+                return True
+            callback_started.set()
+            release_callback.wait(5)
+            return True
+
+        heartbeat = LeaseHeartbeat(blocked_renewal, 0.03)
+        try:
+            started_at = time.monotonic()
+            with heartbeat:
+                self.assertTrue(callback_started.wait(5), "renewal did not start")
+            elapsed = time.monotonic() - started_at
+        finally:
+            release_callback.set()
+            thread = heartbeat._thread  # type: ignore[attr-defined]
+            if thread is not None:
+                thread.join(timeout=2)
+        self.assertLess(elapsed, 2.0)
 
     # -- 2. retry / terminal semantics --------------------------------------
 

@@ -311,7 +311,7 @@ class OutboxDrainerTests(unittest.TestCase):
         self.assertEqual(self._row()["status"], "sent")
 
     def test_reclaimed_worker_cannot_finalize_newer_claim(self) -> None:
-        self._seed()
+        entry_id = self._seed()
         drainer_a = self._drainer(lease_seconds=60)
         drainer_b = self._drainer(lease_seconds=60)
         drainer_a.worker_id = "worker-a"
@@ -325,6 +325,12 @@ class OutboxDrainerTests(unittest.TestCase):
 
         class ReclaimingMailer:
             def send(self, *_args) -> None:
+                # Renewal and completion are both fenced by the original
+                # lease deadline, even before worker B reclaims the row.
+                test_case.assertFalse(test_case.backend.renew_identity_outbox_lease(
+                    entry_id, "worker-a", lease_seconds=60, now=1061.0
+                ))
+                test_case.assertFalse(drainer_a.mark_sent(entry_id, now=1061.0))
                 test_case.assertEqual(len(drainer_b.claim_due(now=1061)), 1)
 
         drainer_a.mailer = ReclaimingMailer()

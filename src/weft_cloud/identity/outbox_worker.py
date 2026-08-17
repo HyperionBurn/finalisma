@@ -53,7 +53,7 @@ from typing import Any, Mapping
 
 from weft_cloud.identity.mailer import SmtpMailer, smtp_config_from_env
 from weft_cloud.identity.schema import ensure_schema
-from weft_cloud.lease import LeaseHeartbeat
+from weft_cloud.lease import LeaseHeartbeat, call_with_optional_lease
 from weft_cloud.storage import SqliteWalBackend, utc_now_iso
 
 logger = logging.getLogger("weft_cloud.identity.outbox_worker")
@@ -173,7 +173,13 @@ class OutboxDrainer:
             ).fetchall()
         return [dict(r) for r in owned]
 
-    def _mark(self, sql: str, params: tuple) -> bool:
+    def _mark(self, sql: str, params: tuple,
+              lease_seconds: float | None = None,
+              now: float | None = None) -> bool:
+        if lease_seconds is not None:
+            now = _time.time() if now is None else now
+            sql += " AND claimed_at IS NOT NULL AND claimed_at >= ?"
+            params = (*params, now - lease_seconds)
         with self.backend.transaction() as tx:
             cursor = tx.execute(sql, params)
             updated = cursor.rowcount
@@ -186,27 +192,51 @@ class OutboxDrainer:
             "UPDATE cloud_identity_outbox SET status = ?, dispatched_at = ?, last_error = NULL "
             "WHERE entry_id = ? AND status = ? AND claimed_by = ?",
             (STATUS_SENT, now, entry_id, STATUS_CLAIMED, self.worker_id),
+            lease_seconds=self.lease_seconds,
+            now=now,
         )
 
     def renew_lease(self, entry_id: str) -> bool:
-        return self.backend.renew_identity_outbox_lease(entry_id, self.worker_id)
+        renew = getattr(self.backend, "renew_identity_outbox_lease", None)
+        if not callable(renew):
+            return True
+        return call_with_optional_lease(
+            renew,
+            entry_id,
+            self.worker_id,
+            lease_seconds=self.lease_seconds,
+        )
+
+    def _lease_callback(self, entry_id: str):
+        if not callable(getattr(self.backend, "renew_identity_outbox_lease", None)):
+            logger.warning(
+                "identity outbox backend cannot renew leases; refusing send entry_id=%s",
+                entry_id,
+            )
+            return None
+        return lambda: self.renew_lease(entry_id)
 
     def mark_retry(self, entry_id: str, attempts: int, next_attempt_at: float,
-                   error: str) -> bool:
+                   error: str, now: float | None = None) -> bool:
         return self._mark(
             "UPDATE cloud_identity_outbox SET status = ?, attempts = ?, next_attempt_at = ?, "
             "claimed_at = NULL, claimed_by = NULL, last_error = ? "
             "WHERE entry_id = ? AND status = ? AND claimed_by = ?",
             (STATUS_QUEUED, attempts, next_attempt_at, error, entry_id, STATUS_CLAIMED,
              self.worker_id),
+            lease_seconds=self.lease_seconds,
+            now=now,
         )
 
-    def mark_failed(self, entry_id: str, attempts: int, error: str) -> bool:
+    def mark_failed(self, entry_id: str, attempts: int, error: str,
+                    now: float | None = None) -> bool:
         return self._mark(
             "UPDATE cloud_identity_outbox SET status = ?, attempts = ?, "
             "claimed_at = NULL, claimed_by = NULL, last_error = ? "
             "WHERE entry_id = ? AND status = ? AND claimed_by = ?",
             (STATUS_FAILED, attempts, error, entry_id, STATUS_CLAIMED, self.worker_id),
+            lease_seconds=self.lease_seconds,
+            now=now,
         )
 
     def drain_once(self, now: float | None = None) -> dict[str, int]:
@@ -218,7 +248,7 @@ class OutboxDrainer:
             entry_id = row["entry_id"]
             delivery_error: Exception | None = None
             with LeaseHeartbeat(
-                lambda: self.renew_lease(entry_id), self.lease_seconds
+                self._lease_callback(entry_id), self.lease_seconds
             ) as lease:
                 if lease.acquired:
                     try:
@@ -236,7 +266,9 @@ class OutboxDrainer:
                 attempts = row["attempts"] + 1
                 classification = _classify_smtp_error(exc)
                 if classification == "permanent" or attempts >= self.max_attempts:
-                    if self.mark_failed(entry_id, attempts, classification):
+                    if self.mark_failed(
+                        entry_id, attempts, classification, now=_time.time()
+                    ):
                         result["failed"] += 1
                         logger.warning(
                             "outbox send terminal entry_id=%s attempts=%d status=%s",
@@ -247,7 +279,9 @@ class OutboxDrainer:
                         logger.warning("outbox lease lost entry_id=%s outcome=failed", entry_id)
                 else:
                     next_at = now + self.backoff_seconds * attempts
-                    if self.mark_retry(entry_id, attempts, next_at, classification):
+                    if self.mark_retry(
+                        entry_id, attempts, next_at, classification, now=_time.time()
+                    ):
                         result["retried"] += 1
                         logger.info(
                             "outbox send retry entry_id=%s attempts=%d next_attempt_at=%s",
@@ -257,7 +291,7 @@ class OutboxDrainer:
                         result["lost"] += 1
                         logger.warning("outbox lease lost entry_id=%s outcome=retry", entry_id)
                 continue
-            if self.mark_sent(entry_id):
+            if self.mark_sent(entry_id, now=_time.time()):
                 result["sent"] += 1
                 logger.info("outbox delivered entry_id=%s", entry_id)
             else:

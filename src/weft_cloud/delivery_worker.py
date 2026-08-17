@@ -48,7 +48,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Mapping
 
 from weft_cloud.storage import SqliteWalBackend, utc_now_iso
-from weft_cloud.lease import LeaseHeartbeat
+from weft_cloud.lease import LeaseHeartbeat, call_with_optional_lease
 
 logger = logging.getLogger("weft_cloud.delivery_worker")
 
@@ -187,21 +187,56 @@ class CloudOutboxDrainer:
         return [dict(r) for r in owned]
 
     def mark_delivered(self, tenant_id: str, entry_id: str, now: float | None = None) -> bool:
-        del now  # dispatched_at is written as ISO by the backend
-        return self.backend.mark_outbox_delivered(tenant_id, entry_id, self.worker_id)
-
-    def renew_lease(self, tenant_id: str, entry_id: str) -> bool:
-        return self.backend.renew_outbox_lease(tenant_id, entry_id, self.worker_id)
-
-    def mark_retry(self, tenant_id: str, entry_id: str, attempts: int,
-                   next_attempt_at: float, error: str) -> bool:
-        return self.backend.mark_outbox_retry(
-            tenant_id, entry_id, attempts, next_attempt_at, error, self.worker_id
+        now = _time.time() if now is None else now
+        return call_with_optional_lease(
+            self.backend.mark_outbox_delivered,
+            tenant_id,
+            entry_id,
+            self.worker_id,
+            lease_seconds=self.lease_seconds,
+            now=now,
         )
 
-    def mark_dead(self, tenant_id: str, entry_id: str, attempts: int, error: str) -> bool:
-        return self.backend.mark_outbox_dead(
-            tenant_id, entry_id, attempts, error, self.worker_id
+    def renew_lease(self, tenant_id: str, entry_id: str) -> bool:
+        renew = getattr(self.backend, "renew_outbox_lease", None)
+        if not callable(renew):
+            return True
+        return call_with_optional_lease(
+            renew,
+            tenant_id,
+            entry_id,
+            self.worker_id,
+            lease_seconds=self.lease_seconds,
+        )
+
+    def _lease_callback(self, tenant_id: str, entry_id: str):
+        if not callable(getattr(self.backend, "renew_outbox_lease", None)):
+            logger.warning(
+                "outbox backend cannot renew leases; refusing delivery entry_id=%s",
+                entry_id,
+            )
+            return None
+        return lambda: self.renew_lease(tenant_id, entry_id)
+
+    def mark_retry(self, tenant_id: str, entry_id: str, attempts: int,
+                   next_attempt_at: float, error: str,
+                   now: float | None = None) -> bool:
+        now = _time.time() if now is None else now
+        return call_with_optional_lease(
+            self.backend.mark_outbox_retry,
+            tenant_id, entry_id, attempts, next_attempt_at, error, self.worker_id,
+            lease_seconds=self.lease_seconds,
+            now=now,
+        )
+
+    def mark_dead(self, tenant_id: str, entry_id: str, attempts: int, error: str,
+                  now: float | None = None) -> bool:
+        now = _time.time() if now is None else now
+        return call_with_optional_lease(
+            self.backend.mark_outbox_dead,
+            tenant_id, entry_id, attempts, error, self.worker_id,
+            lease_seconds=self.lease_seconds,
+            now=now,
         )
 
     def drain_once(self, now: float | None = None) -> dict[str, int]:
@@ -214,7 +249,7 @@ class CloudOutboxDrainer:
             entry_id = row["entry_id"]
             delivery_error: Exception | None = None
             with LeaseHeartbeat(
-                lambda: self.renew_lease(tenant_id, entry_id), self.lease_seconds
+                self._lease_callback(tenant_id, entry_id), self.lease_seconds
             ) as lease:
                 if lease.acquired:
                     try:
@@ -232,7 +267,9 @@ class CloudOutboxDrainer:
                 attempts = row["attempts"] + 1
                 classification = _classify_error(exc)
                 if classification == "permanent" or attempts >= self.max_attempts:
-                    if self.mark_dead(tenant_id, entry_id, attempts, classification):
+                    if self.mark_dead(
+                        tenant_id, entry_id, attempts, classification, now=_time.time()
+                    ):
                         result["dead"] += 1
                         logger.warning(
                             "outbox delivery terminal entry_id=%s attempts=%d status=%s",
@@ -243,7 +280,10 @@ class CloudOutboxDrainer:
                         logger.warning("outbox lease lost before dead-letter entry_id=%s", entry_id)
                 else:
                     next_at = now + self.backoff_seconds * attempts
-                    if self.mark_retry(tenant_id, entry_id, attempts, next_at, classification):
+                    if self.mark_retry(
+                        tenant_id, entry_id, attempts, next_at, classification,
+                        now=_time.time(),
+                    ):
                         result["retried"] += 1
                         logger.info(
                             "outbox delivery retry entry_id=%s attempts=%d next_attempt_at=%s",
@@ -253,7 +293,7 @@ class CloudOutboxDrainer:
                         result["lost"] += 1
                         logger.warning("outbox lease lost before retry entry_id=%s", entry_id)
                 continue
-            if self.mark_delivered(tenant_id, entry_id):
+            if self.mark_delivered(tenant_id, entry_id, now=_time.time()):
                 result["sent"] += 1
                 logger.info("outbox delivered entry_id=%s", entry_id)
             else:
