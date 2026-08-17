@@ -56,9 +56,21 @@ Claude Desktop / Cursor / Claude Code / Codex all use the same `command` +
 shell that launches it) as `WEFT_TOKEN`.
 
 Install the versioned `weft-mcp` package in the Python environment used by the
-client before pasting this block. For a source checkout, the developer-only
-setup is `python -m pip install -e .`; the hosted generator deliberately emits
-the installed module entry point rather than a server-local checkout path.
+client before pasting this block. For a source checkout, create a project-local
+environment and install the tree as a normal package (not an editable checkout):
+
+```powershell
+python -m venv .venv
+.venv\Scripts\python.exe scripts\verify-package-install.py --python .venv\Scripts\python.exe
+```
+
+On macOS/Linux, use `.venv/bin/python` in both commands. The verification gate
+builds the package and proves `python -B -m weft_mcp --help` works without
+`PYTHONPATH` or `scripts/weft-mcp.py`. If the client does not inherit the venv,
+replace the generated config's `command` value with the absolute path to that
+venv interpreter. This repository does not claim that `weft-mcp==0.1.0` is
+published to a public package index; use the release artifact supplied for the
+deployment you are connecting to.
 
 ```json
 {
