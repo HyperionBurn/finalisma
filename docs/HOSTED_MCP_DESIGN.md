@@ -277,7 +277,7 @@ and nginx owns the public origin, following the existing
 
 Systemd: reuse the existing `weft-cloud` unit; there is nothing new to run.
 Config is unchanged: `WEFT_HOST=127.0.0.1`, `WEFT_PORT=18788`,
-`WEFT_DB_PATH=/var/lib/weft/cloud.db`.
+`WEFT_DB_PATH=/var/lib/finalisma/cloud.db`.
 
 ## Scope decisions made deliberately
 

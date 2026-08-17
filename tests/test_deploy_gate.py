@@ -423,6 +423,20 @@ class RedeployBackupSafetyTests(unittest.TestCase):
         self.assertIn("Restart=on-failure", unit)
         self.assertNotIn("WEFT_SMTP_PASSWORD=", unit)
 
+        canonical_db = "/var/lib/finalisma/cloud.db"
+        for relative in (
+            "redeploy-weft.sh",
+            "rollback-weft.sh",
+            "systemd/weft-backup.service",
+            "systemd/weft-outbox.service",
+        ):
+            text = (SCRIPTS_DIR / relative).read_text(encoding="utf-8")
+            self.assertIn(canonical_db, text, relative)
+        self.assertIn(canonical_db, (REPO_ROOT / "docs" / "VM_OPERATIONS.md").read_text(encoding="utf-8"))
+        for relative in ("docs/LIVE_DEPLOYMENT.md", "docs/HOSTED_MCP_DESIGN.md"):
+            text = (REPO_ROOT / relative).read_text(encoding="utf-8")
+            self.assertNotIn("/var/lib/weft/cloud.db", text, relative)
+
 
 if __name__ == "__main__":
     unittest.main()
