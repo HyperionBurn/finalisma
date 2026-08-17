@@ -6,16 +6,18 @@ compatibility claim.
 
 ## Latest local regression
 
-Measured against commit `5ef5011` on branch
-`codex/weft-web-room-errors-2026-08-17`, before the documentation-only changes
-in this release-truth PR:
+Measured against commit `808b17c` on branch
+`codex/weft-room-link-recovery-2026-08-17`:
 
 - Command: `python -B -m unittest discover -s tests -p "test_*.py"`
 - Result: **1136 tests discovered; 1135 passed; 1 skipped**
-- Duration: 436.155 seconds
-- Focused browser room suite: 31 tests passed
-- Compose YAML parse: passed
+- Duration: 474.757 seconds
+- Focused room/deploy/recovery suite: 140 tests passed
+- Homepage build: Astro build and legacy-preservation checks passed
 - `git diff --check`: passed
+
+At capture time, stacked PRs #15–#18 were open with both CI jobs successful;
+none had been merged or deployed.
 
 The suite result is local evidence from this checkout. Hosted CI, review,
 merge, and deployment status must be read from the linked pull requests rather
