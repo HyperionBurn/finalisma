@@ -33,6 +33,11 @@ idempotency checks. It is not evidence of current production behavior or of
 the active release room. No Claude member or Claude-authored message was
 observed in the current room, so no three-agent acceptance claim is made.
 
+No live SMTP invite-delivery proof is claimed either. The repository now has
+an opt-in SMTP worker and emits a configured clickable `/invite/fiv_...` URL in
+the queued message, but a real mailbox delivery, public URL open, and invite
+acceptance still require an authorized end-to-end production check.
+
 | Surface | URL | Hosted on |
 |---|---|---|
 | Marketing site | `https://finalisma.vercel.app` | Vercel (static, free, TLS) |
