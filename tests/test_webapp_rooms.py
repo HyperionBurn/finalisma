@@ -185,6 +185,17 @@ class TestCreateRoom(unittest.TestCase):
             f"room_id must match room_<hex>, got {room_id!r}",
         )
 
+    def test_create_room_validation_error_returns_400_html(self):
+        html = self.driver.get("/rooms")[1]
+        csrf = self.driver.extract_csrf(html)
+        status, body, _ = self.driver.post(
+            "/rooms",
+            {"name": "x" * 161, "cap": "8", "_csrf": csrf},
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("name must be at most 160 characters", body)
+        self.assertNotIn("Internal server error", body)
+
 
 class TestListRooms(unittest.TestCase):
     """§3.3 + §6: GET /rooms lists the created room with a link to its detail page."""
