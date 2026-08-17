@@ -10,8 +10,8 @@ Measured locally on the current source/test stack (branch
 `codex/weft-mcp-envelope-guard-2026-08-17`):
 
 - Command: `python -B -m unittest discover -s tests -p "test_*.py"`
-- Result: **1161 tests discovered; 1160 passed; 1 skipped**
-- Duration: 459.878 seconds on the local Windows runner
+- Result: **1162 tests discovered; 1161 passed; 1 skipped**
+- Duration: 465.401 seconds on the local Windows runner
 - Focused hosted-MCP/count suite: 34 tests passed locally
   (`tests.test_hosted_mcp` and `tests.test_site.TestCountSyncTests`)
 - Site build: not rerun in this SDK-only local command; prior site evidence

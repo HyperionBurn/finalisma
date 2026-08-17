@@ -256,7 +256,43 @@ class PollingBridgeTests(unittest.TestCase):
 
         first = self.bridge.get_pending(team_id="team-1", agent_id="agent-1", cursor=0, actor_token=self.actor_token)
         second = self.bridge.get_pending(team_id="team-1", agent_id="agent-1", cursor=first["next_cursor"], actor_token=self.actor_token)
-        self.assertEqual(len(second["events"]), 0)
+        self.assertEqual([event["seq"] for event in second["events"]], [1, 2])
+        self.bridge.ack(
+            team_id="team-1",
+            agent_id="agent-1",
+            event_ids=[event["event_id"] for event in second["events"]],
+            actor_token=self.actor_token,
+        )
+        third = self.bridge.get_pending(
+            team_id="team-1",
+            agent_id="agent-1",
+            cursor=second["next_cursor"],
+            actor_token=self.actor_token,
+        )
+        self.assertEqual(len(third["events"]), 0)
+
+    def test_out_of_order_ack_does_not_skip_unacked_event(self):
+        self.bridge.enqueue(team_id="team-1", agent_id="agent-1", event={"kind": "test.1", "payload": {}}, actor_token=self.actor_token)
+        self.bridge.enqueue(team_id="team-1", agent_id="agent-1", event={"kind": "test.2", "payload": {}}, actor_token=self.actor_token)
+
+        first = self.bridge.get_pending(
+            team_id="team-1", agent_id="agent-1", cursor=0, actor_token=self.actor_token,
+        )
+        ack_result = self.bridge.ack(
+            team_id="team-1",
+            agent_id="agent-1",
+            event_ids=[first["events"][1]["event_id"]],
+            actor_token=self.actor_token,
+        )
+        self.assertEqual(ack_result["cursor"], 0)
+
+        resumed = self.bridge.get_pending(
+            team_id="team-1",
+            agent_id="agent-1",
+            cursor=first["next_cursor"],
+            actor_token=self.actor_token,
+        )
+        self.assertEqual([event["seq"] for event in resumed["events"]], [1])
 
     def test_ack_checkpoints_cursor(self):
         self.bridge.enqueue(team_id="team-1", agent_id="agent-1", event={"kind": "test.1", "payload": {}}, actor_token=self.actor_token)

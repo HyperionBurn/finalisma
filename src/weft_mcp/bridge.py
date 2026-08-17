@@ -449,6 +449,20 @@ class PollingBridge:
         _authorize_actor(self.store, team_id, agent_id, actor_token)
 
         with self.store._read() as conn:
+            first_unacked = conn.execute(
+                """
+                SELECT MIN(seq) AS first_unacked
+                FROM bridge_outbox
+                WHERE team_id = ? AND agent_id = ? AND acked = 0
+                """,
+                (team_id, agent_id),
+            ).fetchone()["first_unacked"]
+            # A caller may reconnect with the cursor returned by a previous
+            # page before acknowledging every event in that page. Never let
+            # that optimistic cursor skip an older unacked event.
+            effective_cursor = cursor
+            if first_unacked is not None and first_unacked <= cursor:
+                effective_cursor = int(first_unacked) - 1
             rows = conn.execute(
                 """
                 SELECT event_id, event_json, seq, acked
@@ -457,7 +471,7 @@ class PollingBridge:
                 ORDER BY seq ASC
                 LIMIT ?
                 """,
-                (team_id, agent_id, cursor, limit),
+                (team_id, agent_id, effective_cursor, limit),
             ).fetchall()
 
         events = []
@@ -498,16 +512,32 @@ class PollingBridge:
                     "UPDATE bridge_outbox SET acked = 1 WHERE event_id = ? AND team_id = ? AND agent_id = ?",
                     (eid, team_id, agent_id),
                 )
-            # Checkpoint cursor to max acked seq
+            # Checkpoint only through the highest CONTIGUOUS acknowledged
+            # sequence. An out-of-order ack must not make a lower unacked event
+            # disappear on reconnect.
+            cursor_row = conn.execute(
+                """
+                SELECT MIN(seq) AS first_unacked, MAX(seq) AS max_seq
+                FROM bridge_outbox
+                WHERE team_id = ? AND agent_id = ? AND acked = 0
+                """,
+                (team_id, agent_id),
+            ).fetchone()
+            first_unacked = cursor_row["first_unacked"]
+            last_ack_seq = (
+                int(cursor_row["max_seq"] or 0)
+                if first_unacked is None
+                else max(0, int(first_unacked) - 1)
+            )
             conn.execute(
                 """
                 INSERT INTO bridge_cursors(team_id, agent_id, last_ack_seq, updated_at)
-                VALUES (?, ?, (SELECT COALESCE(MAX(seq), 0) FROM bridge_outbox WHERE team_id = ? AND agent_id = ? AND acked = 1), ?)
+                VALUES (?, ?, ?, ?)
                 ON CONFLICT(team_id, agent_id) DO UPDATE SET
                     last_ack_seq = excluded.last_ack_seq,
                     updated_at = excluded.updated_at
                 """,
-                (team_id, agent_id, team_id, agent_id, now),
+                (team_id, agent_id, last_ack_seq, now),
             )
             row = conn.execute(
                 "SELECT last_ack_seq FROM bridge_cursors WHERE team_id = ? AND agent_id = ?",

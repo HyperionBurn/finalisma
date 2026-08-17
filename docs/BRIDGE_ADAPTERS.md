@@ -38,8 +38,9 @@ per `(team_id, agent_id)`. The host polls `get_pending(cursor)` and acks
 delivered events.
 
 - **At-most-once delivery**: acked events are not re-delivered.
-- **Cursor checkpoint**: acknowledgements advance the per-agent cursor so
-  reconnects resume from the last processed sequence.
+- **Cursor checkpoint**: acknowledgements advance the per-agent cursor only
+  through the highest contiguous acknowledged sequence, so an out-of-order ack
+  never skips a lower unacknowledged event on reconnect.
 - **Monotonic sequence**: events are numbered per `(team_id, agent_id)` in
   insertion order.
 
