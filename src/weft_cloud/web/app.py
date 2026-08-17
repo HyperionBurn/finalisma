@@ -156,7 +156,7 @@ _DASH_CSS = (
     'button{padding:.35rem .75rem;margin:.15rem;border:1px solid #999;border-radius:3px;'
     'background:#fff;cursor:pointer;}'
     'button[type=submit]{background:#111;color:#fff;border-color:#111;}'
-    '.muted{color:#777;}.flash{border:1px solid #d0d0cc;background:#fafaf8;'
+    '.muted{color:#707070;}.flash{border:1px solid #d0d0cc;background:#fafaf8;'
     'padding:.5rem .75rem;margin:.5rem 0;}'
     '.flash-error{border-color:#c44;background:#fdf0f0;color:#8b1a1a;}'
     '.warn{border:1px solid #e0b400;background:#fff7d6;padding:.5rem .75rem;margin:.5rem 0;}'

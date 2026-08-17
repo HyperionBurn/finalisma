@@ -4,24 +4,24 @@ This is the current local evidence ledger for the integration hardening work.
 It is not a hosted-release approval, deployment proof, or third-party client
 compatibility claim.
 
-## Latest local regression
+## Latest regression evidence
 
-Measured against commit `ff45b1b` on branch
-`codex/weft-site-tool-count-contract-2026-08-17`:
+Measured by hosted CI against commit `74b3ae1` on branch
+`codex/weft-dashboard-contrast-2026-08-17`:
 
 - Command: `python -B -m unittest discover -s tests -p "test_*.py"`
-- Result: **1138 tests discovered; 1137 passed; 1 skipped**
-- Duration: 458.282 seconds
-- Focused room/deploy/recovery suite: 140 tests passed
+- Result: **1139 tests discovered; 1138 passed; 1 skipped**
+- Duration: 342.937 seconds on the CI runner
+- Focused bridge/identity/auth/web suite: 86 tests passed locally
 - Homepage build: Astro build and legacy-preservation checks passed
 - `git diff --check`: passed
 
-At capture time, stacked PRs #15–#23 were open with both CI jobs successful;
+At capture time, stacked PRs #24–#28 were open with both CI jobs successful;
 none had been merged or deployed.
 
-The suite result is local evidence from this checkout. Hosted CI, review,
+The suite result is hosted CI evidence for this checkout. Hosted CI, review,
 merge, and deployment status must be read from the linked pull requests rather
-than inferred from this document.
+than inferred from this document. The focused result is local evidence.
 
 ## Explicitly unverified here
 
