@@ -1366,16 +1366,23 @@ class WeftDispatcher:
     # ------------------------------------------------------------------
 
     def _bridge_poll(self, args: dict[str, Any]) -> dict[str, Any]:
+        cursor = args.get("cursor", 0)
+        if isinstance(cursor, bool) or not isinstance(cursor, int) or cursor < 0:
+            raise WeftError("invalid_argument", "cursor must be a non-negative integer")
         result = self._polling.get_pending(
             team_id=self._required(args, "team_id"),
             agent_id=self._required(args, "agent_id"),
-            cursor=args.get("cursor", 0),
+            cursor=cursor,
             actor_token=self._required(args, "actor_token"),
         )
         return {"events": result["events"], "cursor": result["next_cursor"]}
 
     def _bridge_ack(self, args: dict[str, Any]) -> dict[str, Any]:
         event_ids = self._required(args, "event_ids")
+        if not isinstance(event_ids, list) or any(
+            not isinstance(event_id, str) or not event_id for event_id in event_ids
+        ):
+            raise WeftError("invalid_argument", "event_ids must be a list of non-empty strings")
         self._polling.ack(
             team_id=self._required(args, "team_id"),
             agent_id=self._required(args, "agent_id"),
