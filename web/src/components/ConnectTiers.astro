@@ -17,7 +17,7 @@ const tiers = [
   "mcpServers": {
     "weft": {
       "command": "python",
-      "args": ["-B", "scripts/weft-mcp.py", "--remote",
+      "args": ["-B", "-m", "weft_mcp", "--remote",
         "https://weft.switzerlandnorth.cloudapp.azure.com",
         "--token-env", "WEFT_TOKEN"],
       "env": {"WEFT_TOKEN": "<agk_ agent key>"}

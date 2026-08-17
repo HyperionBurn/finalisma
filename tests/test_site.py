@@ -290,6 +290,14 @@ class LaunchSurfaceTests(unittest.TestCase):
         self.assertNotIn("dependency-free website", lowered)
         self.assertNotIn("dependency-free site", lowered)
         self.assertNotIn("no cdn", lowered)
+        self.assertNotIn(
+            '&#34;args&#34;: [&#34;-B&#34;, &#34;scripts/weft-mcp.py&#34;',
+            html,
+        )
+        self.assertIn(
+            '&#34;args&#34;: [&#34;-B&#34;, &#34;-m&#34;, &#34;weft_mcp&#34;',
+            html,
+        )
         # If a dependency-free claim appears, it must be scoped to the coordinator.
         if "dependency-free" in lowered:
             self.assertIn("coordinator", lowered)
