@@ -6,18 +6,19 @@ compatibility claim.
 
 ## Latest regression evidence
 
-Measured by hosted CI on PR #28's final source/test stack (branch
-`codex/weft-dashboard-contrast-2026-08-17`):
+Measured locally on PR #35's current source/test stack (branch
+`codex/weft-live-outbox-lease-heartbeat-2026-08-17`):
 
 - Command: `python -B -m unittest discover -s tests -p "test_*.py"`
-- Result: **1139 tests discovered; 1138 passed; 1 skipped**
-- Duration: 351.238 seconds on the CI runner
-- Focused bridge/identity/auth/web suite: 86 tests passed locally
-- Homepage build: Astro build and legacy-preservation checks passed
+- Result: **1141 tests discovered; 1140 passed; 1 skipped**
+- Duration: 487.830 seconds on the local Windows runner
+- Focused SDK/interop/count-guard suite: 29 tests passed locally
+- Site build: not rerun in this SDK-only local command; prior site evidence
+  remains on the earlier stacked PRs
 - `git diff --check`: passed
 
-At capture time, stacked PRs #24–#28 were open with both CI jobs successful;
-none had been merged or deployed.
+At capture time, stacked PRs #24–#35 were open; PR #35's hosted CI and merge
+status must be read from GitHub rather than inferred from this ledger.
 
 The suite result is hosted CI evidence for this checkout. Hosted CI, review,
 merge, and deployment status must be read from the linked pull requests rather

@@ -311,15 +311,26 @@ class OutboxDrainerTests(unittest.TestCase):
         self.assertEqual(self._row()["status"], "sent")
 
     def test_reclaimed_worker_cannot_finalize_newer_claim(self) -> None:
-        self._seed()
+        entry_id = self._seed()
         drainer_a = self._drainer(lease_seconds=60)
         drainer_b = self._drainer(lease_seconds=60)
         drainer_a.worker_id = "worker-a"
         drainer_b.worker_id = "worker-b"
         test_case = self
+        # This test uses a deterministic synthetic clock to exercise stale
+        # finalization; bypass the live heartbeat so worker B can reclaim at
+        # the fixed timestamp below. A real-time renewal race is covered by
+        # the separate slow-send scenario.
+        drainer_a.renew_lease = lambda _entry_id: True
 
         class ReclaimingMailer:
             def send(self, *_args) -> None:
+                # Renewal and completion are both fenced by the original
+                # lease deadline, even before worker B reclaims the row.
+                test_case.assertFalse(test_case.backend.renew_identity_outbox_lease(
+                    entry_id, "worker-a", lease_seconds=60, now=1061.0
+                ))
+                test_case.assertFalse(drainer_a.mark_sent(entry_id, now=1061.0))
                 test_case.assertEqual(len(drainer_b.claim_due(now=1061)), 1)
 
         drainer_a.mailer = ReclaimingMailer()
@@ -337,6 +348,36 @@ class OutboxDrainerTests(unittest.TestCase):
         self.assertFalse(drainer_a.mark_failed(entry_id, 1, "stale"))
         self.assertTrue(drainer_b.mark_sent(entry_id, now=1063))
         self.assertEqual(self._row()["status"], "sent")
+
+        # A live but slow SMTP send must renew its claim instead of being
+        # mistaken for a dead worker and sent a second time.
+        slow_entry_id = self._seed(to="slow@example.com")
+        started = threading.Event()
+        release = threading.Event()
+        calls: list[str] = []
+
+        class SlowMailer:
+            def send(self, _tenant_id: str, _to: str, _subject: str, body: str) -> None:
+                calls.append(body)
+                started.set()
+                if not release.wait(5):
+                    raise RuntimeError("slow send test timed out")
+
+        live = self._drainer(lease_seconds=0.3)
+        live.mailer = SlowMailer()
+        observer = self._drainer(lease_seconds=0.3)
+        result_holder: list[dict] = []
+        thread = threading.Thread(target=lambda: result_holder.append(live.drain_once()))
+        thread.start()
+        self.assertTrue(started.wait(5), "slow send did not start")
+        time.sleep(0.8)
+        self.assertEqual(observer.claim_due(now=time.time()), [])
+        release.set()
+        thread.join(timeout=5)
+        self.assertFalse(thread.is_alive(), "slow send worker did not finish")
+        self.assertEqual(result_holder[0]["sent"], 1)
+        self.assertEqual(self._row(slow_entry_id)["status"], "sent")
+        self.assertEqual(len(calls), 1)
 
     # -- 4. retry / terminal semantics --
 

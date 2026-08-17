@@ -51,7 +51,7 @@ b.complete(task_id, fencing_token=task.fencing_token, summary="Shipped")
 | Sessions | `session_send()`, `session_poll()`, `session_wait()`, `session_ack()` | Ordered, idempotent, replayable events. |
 | Rooms | `create_room()`, `join_room()`, `send()`, `room_poll()`, `room_wait()`, `room_event_log()`, `room_remove_member()`, `leave_room()` | Typed `RoomPoll` / `RoomEvent`; see the Rooms section. |
 | Errors | `WeftError`, `AuthError`, `EvidenceError`, `NotFoundError`, `ConflictError`, `TimeoutError` | Mapped from server error codes. |
-| Retry | stdlib exponential backoff | Idempotent methods retry on 408/429/5xx with idempotency keys. |
+| Retry | stdlib exponential backoff | Retry-safe methods retry on 408/429/5xx; deduplicated mutations reuse one idempotency key. |
 
 ## SDK API surface
 
@@ -91,10 +91,18 @@ WeftClient(coordinator_url, agent_id, team_id,
 
 ## Retry & idempotency
 
-All mutating calls carry an auto-generated `idempotency_key` and retry up to
-4 times with stdlib-only exponential backoff on transient HTTP failures
-(408, 429, 500, 502, 503, 504).  Non-idempotent calls (`session_send`,
-`join_pairing`, `close_session`) are NOT retried.
+Retry-safe methods retry up to 4 times with stdlib-only exponential backoff on
+transient HTTP failures (408, 429, 500, 502, 503, 504). The server-backed
+deduplicated mutations (`create_task()`, `send_message()`/`ask()`,
+`session_send()`, and hosted `room_send()`) carry one auto-generated
+`idempotency_key` in their JSON-RPC arguments; every retry reuses that same
+key. Other retry-safe methods rely on their existing monotonic or transactional
+semantics and do not receive an unsupported key argument.
+
+Non-idempotent calls (`join_pairing()`, `close_session()`, and self-hosted
+`room_send()`) are NOT retried. `rotate_credential()` is also never retried:
+each successful rotation invalidates the current credential, so replaying a
+request after a lost response could not be made safe by the SDK.
 
 ### HTTP 429: structured code and `retry_after`
 
