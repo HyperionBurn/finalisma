@@ -440,15 +440,41 @@ class _JsonRpcTransport:
                     _raise_structured(err.get("code", "remote_error"), err.get("message", "Remote JSON-RPC error"), err.get("data"))
                 result = envelope.get("result", {})
                 if isinstance(result, dict) and result.get("isError"):
-                    # WeftError returned as tool error content
+                    # WeftError returned as tool error content.  The content
+                    # is remote input: only adopt it when it has the complete
+                    # structured shape emitted by the coordinator.  In every
+                    # malformed case, use fixed values so an arbitrary tool
+                    # error body (which may carry a token) cannot reach the
+                    # caller's exception.
                     content = result.get("content", [])
-                    text = content[0].get("text", "") if content else ""
+                    if (
+                        not isinstance(content, list)
+                        or not content
+                        or not isinstance(content[0], dict)
+                        or content[0].get("type") != "text"
+                    ):
+                        raise WeftError("tool_error", "Tool call failed")
+                    text = content[0].get("text")
+                    if not isinstance(text, str):
+                        raise WeftError("tool_error", "Tool call failed")
                     try:
                         inner = json.loads(text)
-                        err = inner.get("error", {})
-                        _raise_structured(err.get("code", "tool_error"), err.get("message", "Tool call failed"), err.get("details"))
-                    except (json.JSONDecodeError, IndexError):
-                        raise WeftError("tool_error", text or "Tool call failed")
+                    except json.JSONDecodeError:
+                        raise WeftError("tool_error", "Tool call failed")
+                    if not isinstance(inner, dict) or not isinstance(inner.get("error"), dict):
+                        raise WeftError("tool_error", "Tool call failed")
+                    err = inner["error"]
+                    code = err.get("code")
+                    message = err.get("message")
+                    details = err.get("details")
+                    if (
+                        not isinstance(code, str)
+                        or not _SAFE_HTTP_ERROR_CODE.fullmatch(code)
+                        or not isinstance(message, str)
+                        or (details is not None and not isinstance(details, dict))
+                    ):
+                        raise WeftError("tool_error", "Tool call failed")
+                    _raise_structured(code, message, details)
                 return result.get("structuredContent") if isinstance(result, dict) and "structuredContent" in result else result
             except (http.client.HTTPException, ConnectionError, TimeoutError, OSError) as exc:
                 last_exc = exc
