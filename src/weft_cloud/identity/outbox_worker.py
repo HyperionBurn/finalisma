@@ -13,7 +13,9 @@ Delivery contract:
   transaction, so two concurrent workers (or a restart) can never claim the
   same row; ``sent`` and ``failed`` are terminal states, so a delivered row is
   never sent twice. A row stuck in ``claimed`` (worker crashed mid-send) is
-  reclaimed after ``lease_seconds`` — that is the at-least-once window.
+  reclaimed after ``lease_seconds`` — that is the at-least-once window. A live
+  worker renews its claim while SMTP is in flight, so a slow but healthy send
+  is not reclaimed.
 - **Retry with backoff.** A transient failure returns the row to ``queued``
   with ``attempts`` incremented and ``next_attempt_at = now + backoff * attempts``.
   After ``max_attempts`` (or a permanent failure such as a refused recipient) the
@@ -51,6 +53,7 @@ from typing import Any, Mapping
 
 from weft_cloud.identity.mailer import SmtpMailer, smtp_config_from_env
 from weft_cloud.identity.schema import ensure_schema
+from weft_cloud.lease import LeaseHeartbeat
 from weft_cloud.storage import SqliteWalBackend, utc_now_iso
 
 logger = logging.getLogger("weft_cloud.identity.outbox_worker")
@@ -185,6 +188,9 @@ class OutboxDrainer:
             (STATUS_SENT, now, entry_id, STATUS_CLAIMED, self.worker_id),
         )
 
+    def renew_lease(self, entry_id: str) -> bool:
+        return self.backend.renew_identity_outbox_lease(entry_id, self.worker_id)
+
     def mark_retry(self, entry_id: str, attempts: int, next_attempt_at: float,
                    error: str) -> bool:
         return self._mark(
@@ -210,11 +216,23 @@ class OutboxDrainer:
         for row in self.claim_due(now):
             result["claimed"] += 1
             entry_id = row["entry_id"]
-            try:
-                self.mailer.send(
-                    row["tenant_id"], row["to_email"], row["subject"], row["body"]
-                )
-            except Exception as exc:  # noqa: BLE001 — classified below
+            delivery_error: Exception | None = None
+            with LeaseHeartbeat(
+                lambda: self.renew_lease(entry_id), self.lease_seconds
+            ) as lease:
+                if lease.acquired:
+                    try:
+                        self.mailer.send(
+                            row["tenant_id"], row["to_email"], row["subject"], row["body"]
+                        )
+                    except Exception as exc:  # noqa: BLE001 — classified below
+                        delivery_error = exc
+            if not lease.acquired or lease.lost.is_set():
+                result["lost"] += 1
+                logger.warning("outbox lease lost during send entry_id=%s", entry_id)
+                continue
+            if delivery_error is not None:
+                exc = delivery_error
                 attempts = row["attempts"] + 1
                 classification = _classify_smtp_error(exc)
                 if classification == "permanent" or attempts >= self.max_attempts:

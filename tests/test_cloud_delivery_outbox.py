@@ -192,6 +192,37 @@ class DeliveryDrainerTests(unittest.TestCase):
         self.assertTrue(worker_b.mark_delivered(self.tenant_id, entry_id))
         self.assertEqual(self._row(entry_id)["status"], "delivered")
 
+        # A live but slow delivery must renew its claim instead of being
+        # mistaken for a dead worker and delivered a second time.
+        slow_entry_id = self._seed(recipient="slow-agent")
+        started = threading.Event()
+        release = threading.Event()
+        calls: list[str] = []
+
+        class SlowDeliverer(delivery_worker.Deliverer):
+            def deliver(self, _tenant_id: str, _recipient: str, payload_json: str) -> None:
+                calls.append(payload_json)
+                started.set()
+                if not release.wait(5):
+                    raise RuntimeError("slow delivery test timed out")
+
+        live = delivery_worker.CloudOutboxDrainer(
+            self.backend, SlowDeliverer(), lease_seconds=0.3, worker_id="live-worker"
+        )
+        observer = self._drainer(lease_seconds=0.3, worker_id="observer")
+        result_holder: list[dict] = []
+        thread = threading.Thread(target=lambda: result_holder.append(live.drain_once()))
+        thread.start()
+        self.assertTrue(started.wait(5), "slow delivery did not start")
+        time.sleep(0.8)
+        self.assertEqual(observer.claim_due(now=time.time()), [])
+        release.set()
+        thread.join(timeout=5)
+        self.assertFalse(thread.is_alive(), "slow delivery worker did not finish")
+        self.assertEqual(result_holder[0]["sent"], 1)
+        self.assertEqual(self._row(slow_entry_id)["status"], "delivered")
+        self.assertEqual(len(calls), 1)
+
     # -- 2. retry / terminal semantics --------------------------------------
 
     def test_transient_failure_retried_with_backoff_then_succeeds(self) -> None:

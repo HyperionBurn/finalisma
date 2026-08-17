@@ -13,7 +13,8 @@ Delivery contract (mirrors ``identity/outbox_worker.py`` exactly):
   can never claim the same row; ``delivered`` and ``dead`` are terminal
   states, so a delivered row is never sent twice. A row stuck in ``claimed``
   (worker crashed mid-delivery) is reclaimed after ``lease_seconds`` — that is
-  the at-least-once window.
+  the at-least-once window. A live worker renews its claim while the external
+  deliverer is in flight, so a slow but healthy send is not reclaimed.
 - **Retry with backoff.** A transient failure returns the row to ``queued``
   with ``attempts`` incremented and ``next_attempt_at = now + backoff * attempts``.
   After ``max_attempts`` (or a permanent failure) the row reaches the terminal
@@ -47,6 +48,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Mapping
 
 from weft_cloud.storage import SqliteWalBackend, utc_now_iso
+from weft_cloud.lease import LeaseHeartbeat
 
 logger = logging.getLogger("weft_cloud.delivery_worker")
 
@@ -188,6 +190,9 @@ class CloudOutboxDrainer:
         del now  # dispatched_at is written as ISO by the backend
         return self.backend.mark_outbox_delivered(tenant_id, entry_id, self.worker_id)
 
+    def renew_lease(self, tenant_id: str, entry_id: str) -> bool:
+        return self.backend.renew_outbox_lease(tenant_id, entry_id, self.worker_id)
+
     def mark_retry(self, tenant_id: str, entry_id: str, attempts: int,
                    next_attempt_at: float, error: str) -> bool:
         return self.backend.mark_outbox_retry(
@@ -207,9 +212,23 @@ class CloudOutboxDrainer:
             result["claimed"] += 1
             tenant_id = row["tenant_id"]
             entry_id = row["entry_id"]
-            try:
-                self.deliverer.deliver(tenant_id, row["recipient"], row["payload_json"])
-            except Exception as exc:  # noqa: BLE001 — classified below
+            delivery_error: Exception | None = None
+            with LeaseHeartbeat(
+                lambda: self.renew_lease(tenant_id, entry_id), self.lease_seconds
+            ) as lease:
+                if lease.acquired:
+                    try:
+                        self.deliverer.deliver(
+                            tenant_id, row["recipient"], row["payload_json"]
+                        )
+                    except Exception as exc:  # noqa: BLE001 — classified below
+                        delivery_error = exc
+            if not lease.acquired or lease.lost.is_set():
+                result["lost"] += 1
+                logger.warning("outbox lease lost during delivery entry_id=%s", entry_id)
+                continue
+            if delivery_error is not None:
+                exc = delivery_error
                 attempts = row["attempts"] + 1
                 classification = _classify_error(exc)
                 if classification == "permanent" or attempts >= self.max_attempts:

@@ -155,6 +155,16 @@ class StorageBackend(ABC):
         """
 
     @abstractmethod
+    def renew_outbox_lease(self, tenant_id: str, entry_id: str,
+                           worker_id: str, now: float | None = None) -> bool:
+        """Extend a live claim only for its current worker owner."""
+
+    @abstractmethod
+    def renew_identity_outbox_lease(self, entry_id: str, worker_id: str,
+                                    now: float | None = None) -> bool:
+        """Extend a live identity-mail claim only for its current owner."""
+
+    @abstractmethod
     def mark_outbox_delivered(self, tenant_id: str, entry_id: str,
                               worker_id: str | None = None) -> bool:
         """Terminal state, only for the worker that owns the current lease."""
@@ -568,6 +578,31 @@ class SqliteWalBackend(StorageBackend):
                 "AND status = 'claimed' "
                 "AND ((claimed_by = ?) OR (claimed_by IS NULL AND ? IS NULL))",
                 (utc_now_iso(), tenant_id, entry_id, worker_id, worker_id),
+            )
+            return cursor.rowcount == 1
+
+    def renew_outbox_lease(self, tenant_id: str, entry_id: str,
+                           worker_id: str, now: float | None = None) -> bool:
+        import time as _time
+        now = _time.time() if now is None else now
+        with self._transaction() as conn:
+            cursor = conn.execute(
+                "UPDATE cloud_outbox SET claimed_at = ?, updated_at = ? "
+                "WHERE tenant_id = ? AND entry_id = ? AND status = 'claimed' "
+                "AND claimed_by = ?",
+                (now, utc_now_iso(), tenant_id, entry_id, worker_id),
+            )
+            return cursor.rowcount == 1
+
+    def renew_identity_outbox_lease(self, entry_id: str, worker_id: str,
+                                    now: float | None = None) -> bool:
+        import time as _time
+        now = _time.time() if now is None else now
+        with self._transaction() as conn:
+            cursor = conn.execute(
+                "UPDATE cloud_identity_outbox SET claimed_at = ? "
+                "WHERE entry_id = ? AND status = 'claimed' AND claimed_by = ?",
+                (now, entry_id, worker_id),
             )
             return cursor.rowcount == 1
 
