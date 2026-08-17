@@ -295,7 +295,7 @@ class BridgeInteropTests(unittest.TestCase):
     def test_webhook_register_deliver_verify(self) -> None:
         self.webhook_receiver = _WebhookReceiver()
         self.webhook_receiver.start()
-        webhook = WebhookBridge(self.bridge_store)
+        webhook = WebhookBridge(self.bridge_store, allow_local_webhooks=True)
         secret = "whsec_live_signing_secret_value_12345"
 
         wh = webhook.register_webhook(
@@ -341,7 +341,7 @@ class BridgeInteropTests(unittest.TestCase):
         """HIGH-1 fail-closed: deliver with no signing_secret is refused."""
         self.webhook_receiver = _WebhookReceiver()
         self.webhook_receiver.start()
-        webhook = WebhookBridge(self.bridge_store)
+        webhook = WebhookBridge(self.bridge_store, allow_local_webhooks=True)
         secret = "whsec_live_signing_secret_value_12345"
         wh = webhook.register_webhook(
             team_id=TEAM_ID,
