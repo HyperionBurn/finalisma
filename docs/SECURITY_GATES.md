@@ -1,4 +1,4 @@
-# Finalisma production security gates
+# Weft production security gates
 
 These gates turn model reviews into executable acceptance criteria. A model
 report is a claim; a passing test and observed artifact are evidence. The
@@ -36,7 +36,7 @@ untrusted public traffic without completing the multi-instance gates below.
 - `--actor-auth auto` requires actor credentials for HTTP and trusts stdio.
   `--actor-auth trust` is loopback-HTTP-only, emits a warning, and is rejected
   on non-loopback hosts; `--actor-auth required` can also protect stdio.
-- `finalisma_rotate_agent_credential` replaces the actor token atomically and
+- `rotate_agent_credential` replaces the actor token atomically and
   invalidates the old value. Schema-v2 migration creates schema v3 without
   inventing credentials for old identities; recovery requires trusted local
   rotation/bootstrap or migration to a newly paired identity.
@@ -46,7 +46,7 @@ untrusted public traffic without completing the multi-instance gates below.
 - Authenticated browser preflight is Origin-checked without requiring a bearer
   on the unauthenticated `OPTIONS` request.
 - Retention cleanup is explicit and dry-run-first through
-  `scripts/finalisma-prune.py`; it removes only terminal sessions, stale
+  `scripts/weft-prune.py`; it removes only terminal sessions, stale
   pairing credentials, and old audit events when an operator passes `--apply`.
 
 ## Must pass before multi-instance hosted traffic

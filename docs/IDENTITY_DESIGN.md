@@ -1,40 +1,42 @@
 # Wave G — Identity Design
 
-**Status:** Authoritative spec for identity in the `src/finalisma_cloud/` plane.
+**Status:** Authoritative spec for identity in the `src/weft_cloud/` plane.
 **Source of truth:** `docs/PRODUCT_ROADMAP.md` §4 (ship gate), §5 (Wave G — Identity).
-**Scope:** Email + password auth, local sessions, orgs, membership, roles, invites — all behind the Wave F storage interface. Stage 1 (THIS WAVE): tokens generated properly but written to a local outbox (no external email). Stage 2 (later): real transactional email + OIDC behind a `Mailer` interface swap.
-**Hard boundary:** `src/finalisma_mcp/` stays stdlib-only, untouched. No direct `sqlite3` in identity business logic — everything goes through `StorageBackend`.
+**Scope:** Email + password auth, local sessions, orgs, membership, roles, invites — all behind the Wave F storage interface. Identity mail is durable by default and can be drained through the implemented Stage-2 SMTP worker; see `docs/EMAIL_DELIVERY.md`. OIDC remains future work behind the same `Mailer` boundary.
+**Hard boundary:** `src/weft_mcp/` stays stdlib-only, untouched. No direct `sqlite3` in identity business logic — everything goes through `StorageBackend`.
 
 ---
 
 ## 1. Plane Boundary
 
-All identity lives in `src/finalisma_cloud/`, behind the Wave F `StorageBackend` interface. The coordinator plane (`finalisma_mcp/`) is untouched and stays stdlib-only.
+All identity lives in `src/weft_cloud/`, behind the Wave F `StorageBackend` interface. The coordinator plane (`weft_mcp/`) is untouched and stays stdlib-only.
 
 ### 1.1 Proposed module layout
 
 ```
-src/finalisma_cloud/
+src/weft_cloud/
   identity/
     __init__.py        # package marker
     accounts.py        # AccountStore: signup, password hashing (scrypt), verification, reset
     sessions.py        # SessionStore: opaque session tokens, SHA-256 at rest, rotation, revocation
+    agent_keys.py      # agent API keys: long-lived agk_ credentials, validate/revoke, seat release
     orgs.py            # OrgStore: membership, roles, role-gated operations via SessionContext
     invites.py         # InviteStore: email-addressed, expiring, single-use invites
     tokens.py          # Token generation + hashing (secrets.token_urlsafe, SHA-256)
     context.py         # SessionContext (auth analog of TenantContext), require_role()
-    mailer.py          # Mailer ABC + LocalOutboxMailer (Stage 1: writes to cloud_outbox, no send)
+    mailer.py          # Mailer ABC + LocalOutboxMailer + SmtpMailer
 ```
 
 | Module | Ownership |
 | --- | --- |
 | `accounts.py` | Account lifecycle: create, password hash/verify, email verification, password reset. All tenant-scoped. |
 | `sessions.py` | Session lifecycle: issue, validate, rotate, revoke, revoke-all. Token hygiene per `roster.py`. |
+| `agent_keys.py` | Agent API keys (added after the Wave-G lock, migration `cloud_012`): long-lived `agk_` credentials, validate (role re-derived per request), revoke + revoke_by_token_hash with room-seat release. Authoritative detail: `docs/AGENT_KEYS.md`. |
 | `orgs.py` | Org/membership/role operations. Every gated method takes `SessionContext` as required first arg. |
 | `invites.py` | Invite create/accept. Single-use, expiring, role-scoped, email-locked. |
 | `tokens.py` | Opaque token generation (`secrets.token_urlsafe`) + SHA-256 hashing. Shared by sessions, verification, reset, invites. |
 | `context.py` | `SessionContext` dataclass (analogous to `TenantContext`). `require_role()` guard. |
-| `mailer.py` | `Mailer` ABC: `send(tenant_id, to_email, subject, body)`. `LocalOutboxMailer` for Stage 1. |
+| `mailer.py` | `Mailer` ABC: `send(tenant_id, to_email, subject, body)`. Local outbox by default; SMTP when configured. |
 
 ### 1.2 Dependency justification
 
@@ -201,6 +203,7 @@ CREATE INDEX IF NOT EXISTS idx_identity_sessions_token
 | --- | --- | --- |
 | Create | `sessions.create(backend, tenant_id, account_id, role, ttl_seconds=86400) -> (session_id, raw_token)` | Issues session. Raw token returned once. |
 | Validate | `sessions.validate(backend, raw_token) -> SessionContext` | Looks up by hash, checks expiry + revocation. Returns `SessionContext` or raises `AuthError("invalid_session")`. |
+| Rotate | `sessions.rotate(backend, current_raw_token, ttl_seconds=86400) -> (session_id, raw_token)` | Atomically revokes one live session and issues a fresh one with the stored tenant/account/role. Expired, revoked, replayed, and agent-key credentials fail. |
 | Revoke | `sessions.revoke(backend, session_id) -> None` | Sets `revoked_at`. |
 | Revoke-all | `sessions.revoke_all_for_account(backend, account_id) -> None` | Sets `revoked_at` on ALL sessions for the account. Used by password change/reset. |
 | Revoke-all-for-tenant | `sessions.revoke_all_for_tenant(backend, tenant_id) -> None` | Nuclear option: revokes every session in a tenant. |
@@ -211,6 +214,15 @@ CREATE INDEX IF NOT EXISTS idx_identity_sessions_token
 
 **Why revoke (not update in place):** Sessions carry a `role_snapshot` captured at creation. Updating it in place would require either mutating sessions (fragile, race-prone) or re-validating role on every request (defeats the purpose of the snapshot). Revoke-all is simple, deterministic, and the re-auth cost is negligible (one login).
 
+An explicitly authenticated, unexpired session may also be rotated once through
+`POST /v1/auth/refresh`. Rotation is one-time and atomic: the old token is
+revoked before the new token is committed, and the new row copies only the
+server-derived tenant, account, and role. Refresh never resurrects an expired
+session and never accepts an `agk_` agent key. The browser adapter exposes the
+same operation at `POST /refresh` behind the existing CSRF double-submit check;
+static MCP connectors continue to use long-lived `agk_` keys instead of
+embedding a refresh secret.
+
 ### 4.5 Constant-time session lookup
 
 ```python
@@ -219,6 +231,55 @@ token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
 row = tx.execute("SELECT * FROM cloud_identity_sessions WHERE token_hash = ?", (token_hash,)).fetchone()
 ```
 
+### 4.6 Agent keys (`agk_`) — the long-lived sibling credential
+
+Added after the Wave-G lock (migration `cloud_012_identity_agent_keys`; canonical
+spec `docs/AGENT_KEYS.md`). Browser/API sessions expire after 24h but can be
+rotated while still live; a desktop MCP client holds a STATIC bearer token in a
+config file and never signs in, so it needs a credential with no expiry clock:
+the agent key.
+
+- **Raw token:** `agk_{secrets.token_urlsafe(32)}`, returned EXACTLY ONCE at
+  creation (`agent_keys.create(backend, tenant_id, account_id, label)`).
+  Only `sha256(raw)` is stored (`token_hash` UNIQUE). The row id (`key_...`)
+  is a deliberately DISTINCT prefix from the raw credential so a listing can
+  never be mistaken for the secret.
+- **Role model — never more than the account holds.** Sessions snapshot their
+  role; agent keys do NOT (a snapshot would let a demoted account keep an
+  admin key forever). `agent_keys.validate` RE-DERIVES the role from
+  `cloud_identity_members` on every request; a demoted or removed account's
+  key is refused on the next request.
+- **Identity:** `validate` returns a `SessionContext` whose room-facing
+  `agent_id` is the key's own `key_id` (see `context.py` `_agent_id` /
+  `agent_id` property) — one account running several keys gets several
+  DISTINCT room members, each addressable on its own. Sessions keep the
+  account as their agent identity.
+- **Revocation is immediate:** `revoke` is a conditional UPDATE scoped to
+  `(tenant_id, account_id, key_id)` — an account can never revoke another
+  account's key even with the id. `revoke_by_token_hash(backend, token_hash)`
+  is the shared-signout-funnel variant: **one transaction** performs the
+  lookup, the conditional UPDATE, and the room-seat release
+  (`rooms.release_agent_key_seats_in_tx`) under a single writer lock, so a
+  crash can never leave a revoked key's memberships unreachable — the
+  credential that could have called `leave` dies the moment the revoke
+  commits. It must NEVER be called from inside another
+  `backend.transaction()`: SQLite has one writer, and the nested
+  `BEGIN IMMEDIATE` self-deadlocks. A revoked key's room seats are released
+  to `left` (history and attribution preserved; a revoked key can never
+  rejoin, so the freed seat is exactly the one a new identity should take).
+- **Signout funnel:** `handle_signout` (REST `/v1/auth/signout`) branches on
+  the presented bearer — an `agk_` bearer is revoked via
+  `agent_keys.revoke_by_token_hash` (killing the key itself, or signout would
+  answer `signed_out: true` while the credential stays live); an `fss_`
+  bearer via `sessions.revoke_by_token_hash`.
+- **Password reset revokes all of an account's keys**
+  (`revoke_all_for_account`), matching the session hygiene — a reset must not
+  leave a working config-file key behind. Membership removal revokes the
+  account's keys for that tenant in the SAME transaction
+  (`revoke_all_for_tenant_account_in_tx`), so a removed member's long-lived
+  credential cannot survive a crash between the membership delete and the
+  revocation.
+
 ---
 
 ## 5. Email Verification + Password Reset
@@ -226,13 +287,12 @@ row = tx.execute("SELECT * FROM cloud_identity_sessions WHERE token_hash = ?", (
 ### 5.1 The `Mailer` interface
 
 ```python
-# src/finalisma_cloud/identity/mailer.py
+# src/weft_cloud/identity/mailer.py
 
 from abc import ABC, abstractmethod
 
 class Mailer(ABC):
-    """Pluggable mailer. Stage 1: LocalOutboxMailer (no send).
-    Stage 2: TransactionalEmailMailer (e.g., Postmark, SES) behind the same interface."""
+    """Pluggable mailer. Local outbox is the safe default; SMTP is optional."""
 
     @abstractmethod
     def send(self, tenant_id: str, to_email: str, subject: str, body: str) -> None:
@@ -240,9 +300,7 @@ class Mailer(ABC):
 
 
 class LocalOutboxMailer(Mailer):
-    """Stage 1 mailer: writes the email to cloud_identity_outbox instead of sending.
-    The outbox row contains the full email (to, subject, body). A future worker
-    (Stage 2) drains the same outbox via the real provider."""
+    """Write the email to cloud_identity_outbox for the SMTP worker to drain."""
 
     def __init__(self, backend: StorageBackend):
         self.backend = backend
@@ -385,6 +443,14 @@ def require_role(self, required: str) -> None:
 
 All role checks are enforced **server-side** in the `orgs.py` service layer. The `SessionContext` carries the authenticated role. A caller cannot elevate its role because the role comes from the session (issued from the DB), never from a client-supplied argument.
 
+**Owner minting is owner-gated (transfer-ownership rule, implemented in
+`orgs.add_member`):** `add_member` with `role="member"`/`"admin"` requires an
+admin+ caller; minting an `owner` additionally requires an OWNER caller,
+enforced at BOTH layers — `ctx.require_role("owner")` AND
+`require_db_role(..., "owner")` — mirroring `set_role`'s owner-to-owner rule.
+An admin can never mint a new owner (who could then delete the org or remove
+the admin).
+
 ---
 
 ## 7. Invites
@@ -413,7 +479,7 @@ CREATE INDEX IF NOT EXISTS idx_identity_invites_tenant
 
 | Operation | Method | Behavior |
 | --- | --- | --- |
-| Create invite | `invites.create(ctx, email, role) -> (invite_id, raw_token)` | Requires `admin` or `owner`. Token generated, email enqueued via `Mailer`. |
+| Create invite | `invites.create(ctx, email, role) -> (invite_id, raw_token)` | Requires `admin` or `owner`. Token generated, an absolute `/invite/{token}` URL is placed in the email body, and the message is enqueued via `Mailer`. |
 | Accept invite | `invites.accept(backend, raw_token, email, password) -> (account_id, session)` | Creates account IF new, adds membership with EXACTLY the invite's role, consumes token. |
 
 ### 7.3 Accept flow invariants
@@ -439,7 +505,7 @@ The accepter cannot escalate beyond the invite's role. Even if the accepter is a
 ### 8.2 `SessionContext` — the auth analog of `TenantContext`
 
 ```python
-# src/finalisma_cloud/identity/context.py
+# src/weft_cloud/identity/context.py
 
 from dataclasses import dataclass
 
@@ -585,7 +651,7 @@ These are the **deliverable tests**. Each specifies: the call, the expected erro
 | --- | --- | --- | --- |
 | 26 | Trigger any auth failure | Assert: exception message does not contain raw password or raw token | No raw secret in error strings |
 | 27 | Inspect any serialised response (account, session, invite) | Assert: no field contains raw password or raw token | No raw secret in responses |
-| 28 | Grep source: `grep -rn "password\|token" src/finalisma_cloud/identity` | Hits only field names/params, never values | No raw secret in code paths |
+| 28 | Grep source: `grep -rn "password\|token" src/weft_cloud/identity` | Hits only field names/params, never values | No raw secret in code paths |
 
 ---
 
@@ -607,7 +673,7 @@ This is a **product promise** (PRODUCT_ROADMAP.md §4: "secrets never in logs or
 
 4. **Grep proof:**
    ```bash
-   grep -rn "password\|token" src/finalisma_cloud/identity/
+   grep -rn "password\|token" src/weft_cloud/identity/
    ```
    Must only hit:
    - Field names: `password_hash`, `token_hash`, `verification_token_hash`, `reset_token_hash`
@@ -733,8 +799,16 @@ Identity migrations extend the existing `MIGRATIONS` list in `migrations.py`. Th
 | `cloud_004_identity_members` | identity membership | `cloud_identity_members` |
 | `cloud_005_identity_invites` | identity invites | `cloud_identity_invites` |
 | `cloud_006_identity_outbox` | identity email outbox | `cloud_identity_outbox` |
+| `cloud_007_room_tables` | cloud room lifecycle + event log + addressing | `cloud_rooms`, `cloud_room_members`, `cloud_room_links`, `cloud_room_event_log`, `cloud_room_cursors`, `cloud_room_groups`, `cloud_room_group_members` |
+| `cloud_008_identity_outbox_delivery` | identity email outbox delivery state | ALTERs `cloud_identity_outbox` (status/attempts/backoff/lease) |
+| `cloud_009_room_message_kind` | room event log `message_kind` column | ALTER `cloud_room_event_log` |
+| `cloud_010_room_membership_account` | bind room membership to the authenticated account | Python rewrite of `cloud_room_members` (recoverable from the session table) |
+| `cloud_011_cloud_outbox_lifecycle` | hosted delivery outbox completion lifecycle | ALTERs `cloud_outbox` (`claimed_at`/`claimed_by`/`last_error`/`dispatched_at`) |
+| `cloud_012_identity_agent_keys` | agent API keys (long-lived, revocable, SHA-256 at rest) | `cloud_identity_agent_keys` |
+| `cloud_013_room_receipts` | durable per-recipient room receipt consumption state | `cloud_room_receipts` (delivery `status` + `read_status`) |
+| `cloud_014_room_receipts_status_rename` | repair interim `cloud_013` receipt tables by renaming `status` → `read_status` | guarded `RENAME COLUMN` on `cloud_room_receipts` |
 
-**Note:** `cloud_001_init` is Wave F's and already exists. Wave G appends `cloud_002` through `cloud_006`. The existing migration is not modified.
+**Note:** `cloud_001_init` is Wave F's and already exists. Wave G appends `cloud_002` through `cloud_006`; later waves append `cloud_007` through `cloud_014`. Migration ids are the ledger's primary key and are **never mutated**: a numbering collision in the `cloud_010` slot was resolved by renumbering the outbox lifecycle migration to `cloud_011` (a new forward migration), and the interim `cloud_013` receipt column naming was repaired by the separate `cloud_014` rename rather than by editing the recorded `cloud_013` body.
 
 ---
 
@@ -743,6 +817,7 @@ Identity migrations extend the existing `MIGRATIONS` list in `migrations.py`. Th
 | Token Type | Prefix | Purpose | Expiry | Stored As | Single-Use | Consumed By |
 | --- | --- | --- | --- | --- | --- | --- |
 | Session | `fss_` | Authenticated session | 24h (configurable) | `sha256(raw)` in `token_hash` | No (rotated/revoked) | `sessions.validate()` |
+| Agent key | `agk_` | Long-lived config-file credential for MCP clients | none (revocable) | `sha256(raw)` in `token_hash` | No (revoked) | `agent_keys.validate()` |
 | Verification | `fvt_` | Email verification | 24h | `sha256(raw)` in `verification_token_hash` | Yes | `accounts.verify_email()` |
 | Reset | `frt_` | Password reset | 30 min | `sha256(raw)` in `reset_token_hash` | Yes | `accounts.reset_password()` |
 | Invite | `fiv_` | Org invitation | 7 days | `sha256(raw)` in `token_hash` | Yes | `invites.accept()` |
@@ -769,13 +844,17 @@ Identity migrations extend the existing `MIGRATIONS` list in `migrations.py`. Th
 
 6. **Email uniqueness is per-tenant, not global.** A global `UNIQUE(email)` constraint would prevent the same email from existing in two orgs. The orchestrator must verify: the unique index is `UNIQUE(tenant_id, email)`, not `UNIQUE(email)`.
 
-7. **No raw token or password in any log, error, or serialised response.** The orchestrator must run the grep proof (`grep -rn "password\|token" src/finalisma_cloud/identity/`) and verify only field-name hits. The negative test must assert no raw secret in any exception message.
+7. **No raw token or password in any log, error, or serialised response.** The orchestrator must run the grep proof (`grep -rn "password\|token" src/weft_cloud/identity/`) and verify only field-name hits. The negative test must assert no raw secret in any exception message.
 
 8. **The `cloud_identity_*` migrations must be idempotent.** Every `CREATE TABLE` must use `IF NOT EXISTS`. Every `INSERT` into `schema_migrations` must use `ON CONFLICT DO NOTHING`. The orchestrator must audit each migration SQL.
 
 9. **The identity plane must not touch coordinator tables.** No migration or query may reference `agent_credentials`, `tasks`, `sessions` (coordinator), `session_events`, `room_*`, etc. The orchestrator must verify: all identity SQL references only `cloud_*` tables.
 
-10. **The `Mailer` interface must be swappable without touching callers.** Stage 1 uses `LocalOutboxMailer`; Stage 2 swaps in a real provider. The orchestrator must verify: callers depend only on the `Mailer` ABC, never on `LocalOutboxMailer` directly.
+10. **The `Mailer` interface must be swappable without touching callers.** The default local outbox and optional SMTP worker share the same interface. The orchestrator must verify: callers depend only on the `Mailer` ABC, never on a concrete provider.
+
+11. **`agent_keys.revoke_by_token_hash` (and the `agk_` branch of the signout funnel) must never run inside another `backend.transaction()`.** SQLite has one writer; the nested `BEGIN IMMEDIATE` opens a second connection that blocks on the outer writer while the outer transaction waits for the inner to return — a 15s self-deadlock surfacing as a 500. The orchestrator must verify: signout calls it outside any transaction, and any future caller does the same.
+
+12. **Owner minting must be owner-gated at both layers.** `orgs.add_member(..., role="owner")` must call `ctx.require_role("owner")` AND `require_db_role(..., "owner")`, or an admin could mint a new owner who outranks them. The orchestrator must verify the DB-role layer is present — a hand-forged SessionContext must not mint an owner.
 
 ---
 

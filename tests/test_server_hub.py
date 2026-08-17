@@ -12,9 +12,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from finalisma_mcp.core import FinalismaStore
-from finalisma_mcp.server import (
-    FinalismaDispatcher,
+from weft_mcp.core import WeftError, WeftStore
+from weft_mcp.server import (
+    WeftDispatcher,
     _MCPRequestHandler,
     _Metrics,
     _ServerHubState,
@@ -31,15 +31,16 @@ def _make_handler(dispatcher, token=None, origins=None):
     handler.rate_limiter = _WindowRateLimiter()
     handler.mcp_rate_limiter = _WindowRateLimiter(limit=120, window_seconds=60, max_concurrent=16)
     handler.metrics = _Metrics()
+    handler.hub_state = _ServerHubState()
     return handler
 
 
 def _pair(dispatcher, team="team-h", initiator="hub-a", actor_token=None):
     if actor_token is not None:
-        return dispatcher.call_tool("finalisma_create_pairing", {
+        return dispatcher.call_tool("create_pairing", {
             "team_id": team, "initiator_id": initiator, "actor_token": actor_token,
         })
-    return dispatcher.call_tool("finalisma_create_pairing", {
+    return dispatcher.call_tool("create_pairing", {
         "team_id": team, "initiator_id": initiator,
     })
 
@@ -48,7 +49,7 @@ def _join(dispatcher, token, agent_id, team="team-h", actor_token=None):
     args = {"token": token, "agent_id": agent_id, "consent": True}
     if actor_token is not None:
         args["actor_token"] = actor_token
-    return dispatcher.call_tool("finalisma_join_pairing", args)
+    return dispatcher.call_tool("join_pairing", args)
 
 
 class TokenBucketTests(unittest.TestCase):
@@ -87,14 +88,50 @@ class TokenBucketTests(unittest.TestCase):
         self.assertFalse(bucket.consume())
 
 
+class ActorAuthRoomCreateTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        root = Path(self.temp.name)
+        self.store = WeftStore(root / "state.db", root, require_actor_auth=True)
+        self.dispatcher = WeftDispatcher(self.store)
+        registered = self.dispatcher.call_tool(
+            "register_agent", {"team_id": "team-auth", "agent_id": "owner"}
+        )
+        self.actor_token = registered["actor_token"]
+
+    def tearDown(self):
+        self.store.close()
+        self.temp.cleanup()
+
+    def test_room_create_requires_actor_token_in_required_mode(self):
+        with self.assertRaises(WeftError) as missing:
+            self.dispatcher.call_tool(
+                "room_create",
+                {"team_id": "team-auth", "owner_agent_id": "owner", "cap": 2},
+            )
+        self.assertEqual(missing.exception.code, "actor_auth_required")
+
+    def test_room_create_accepts_valid_actor_token_in_required_mode(self):
+        created = self.dispatcher.call_tool(
+            "room_create",
+            {
+                "team_id": "team-auth",
+                "owner_agent_id": "owner",
+                "cap": 2,
+                "actor_token": self.actor_token,
+            },
+        )
+        self.assertTrue(created["room_id"].startswith("room_"))
+
+
 class MultiClientSessionTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
-        self.store = FinalismaStore(root / "state.db", root)
-        self.dispatcher = FinalismaDispatcher(self.store)
-        self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-a"})
-        self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-b"})
+        self.store = WeftStore(root / "state.db", root)
+        self.dispatcher = WeftDispatcher(self.store)
+        self.dispatcher.call_tool("register_agent", {"team_id": "team-h", "agent_id": "hub-a"})
+        self.dispatcher.call_tool("register_agent", {"team_id": "team-h", "agent_id": "hub-b"})
 
     def tearDown(self):
         self.store.close()
@@ -109,7 +146,7 @@ class MultiClientSessionTests(unittest.TestCase):
         token_a, token_b = self._create_session()
         # Send 20 events from hub-a
         for i in range(20):
-            self.dispatcher.call_tool("finalisma_session_send", {
+            self.dispatcher.call_tool("session_send", {
                 "session_token": token_a, "agent_id": "hub-a",
                 "kind": "test.msg", "payload": {"i": i},
                 "idempotency_key": f"aaa-key-{i:06d}-xyz",
@@ -120,7 +157,7 @@ class MultiClientSessionTests(unittest.TestCase):
 
         def poll_worker():
             try:
-                result = self.dispatcher.call_tool("finalisma_session_poll", {
+                result = self.dispatcher.call_tool("session_poll", {
                     "session_token": token_b, "agent_id": "hub-b",
                     "after_seq": 0, "limit": 5,
                 })
@@ -147,7 +184,7 @@ class MultiClientSessionTests(unittest.TestCase):
         def sender(agent_id, token, prefix):
             try:
                 for i in range(50):
-                    self.dispatcher.call_tool("finalisma_session_send", {
+                    self.dispatcher.call_tool("session_send", {
                         "session_token": token, "agent_id": agent_id,
                         "kind": "test.msg", "payload": {"i": i},
                         "idempotency_key": f"{prefix}-key-{i:06d}-xyz",
@@ -163,7 +200,7 @@ class MultiClientSessionTests(unittest.TestCase):
         t2.join()
         self.assertEqual(errors, [])
         # Total events should be exactly 100 (no lost seqs)
-        status = self.dispatcher.call_tool("finalisma_session_status", {
+        status = self.dispatcher.call_tool("session_status", {
             "session_token": token_a, "agent_id": "hub-a",
         })
         self.assertEqual(status["cursor_head"], 100)
@@ -171,7 +208,7 @@ class MultiClientSessionTests(unittest.TestCase):
     def test_ack_monotonic_under_concurrent_poll(self):
         token_a, token_b = self._create_session()
         for i in range(10):
-            self.dispatcher.call_tool("finalisma_session_send", {
+            self.dispatcher.call_tool("session_send", {
                 "session_token": token_a, "agent_id": "hub-a",
                 "kind": "test.msg", "payload": {"i": i},
                 "idempotency_key": f"aaa-key-{i:06d}-xyz",
@@ -181,7 +218,7 @@ class MultiClientSessionTests(unittest.TestCase):
 
         def ack_worker(seq):
             try:
-                self.dispatcher.call_tool("finalisma_session_ack", {
+                self.dispatcher.call_tool("session_ack", {
                     "session_token": token_b, "agent_id": "hub-b", "seq": seq,
                 })
             except Exception as exc:
@@ -193,7 +230,7 @@ class MultiClientSessionTests(unittest.TestCase):
         for t in threads:
             t.join()
         self.assertEqual(errors, [])
-        status = self.dispatcher.call_tool("finalisma_session_status", {
+        status = self.dispatcher.call_tool("session_status", {
             "session_token": token_b, "agent_id": "hub-b",
         })
         cursor = {c["agent_id"]: c["last_ack_seq"] for c in status["cursors"]}
@@ -204,10 +241,10 @@ class ReconnectResilienceTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
-        self.store = FinalismaStore(root / "state.db", root)
-        self.dispatcher = FinalismaDispatcher(self.store)
-        self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-a"})
-        self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-b"})
+        self.store = WeftStore(root / "state.db", root)
+        self.dispatcher = WeftDispatcher(self.store)
+        self.dispatcher.call_tool("register_agent", {"team_id": "team-h", "agent_id": "hub-a"})
+        self.dispatcher.call_tool("register_agent", {"team_id": "team-h", "agent_id": "hub-b"})
 
     def tearDown(self):
         self.store.close()
@@ -222,23 +259,23 @@ class ReconnectResilienceTests(unittest.TestCase):
         token_a, token_b = self._create_session()
         # Send 30 events
         for i in range(30):
-            self.dispatcher.call_tool("finalisma_session_send", {
+            self.dispatcher.call_tool("session_send", {
                 "session_token": token_a, "agent_id": "hub-a",
                 "kind": "test.msg", "payload": {"i": i},
                 "idempotency_key": f"aaa-key-{i:06d}-xyz",
             })
         # hub-b polls first 10, acks them
-        first = self.dispatcher.call_tool("finalisma_session_poll", {
+        first = self.dispatcher.call_tool("session_poll", {
             "session_token": token_b, "agent_id": "hub-b",
             "after_seq": 0, "limit": 10,
         })
         self.assertEqual(len(first["events"]), 10)
         self.assertEqual(first["events"][-1]["seq"], 10)
-        self.dispatcher.call_tool("finalisma_session_ack", {
+        self.dispatcher.call_tool("session_ack", {
             "session_token": token_b, "agent_id": "hub-b", "seq": 10,
         })
         # Simulate disconnect: reconnect and poll from last ack
-        reconnected = self.dispatcher.call_tool("finalisma_session_poll", {
+        reconnected = self.dispatcher.call_tool("session_poll", {
             "session_token": token_b, "agent_id": "hub-b",
             "after_seq": 10, "limit": 20,
         })
@@ -246,7 +283,7 @@ class ReconnectResilienceTests(unittest.TestCase):
         self.assertEqual(reconnected["events"][0]["seq"], 11)
         self.assertEqual(reconnected["events"][-1]["seq"], 30)
         # No duplicates on second poll
-        again = self.dispatcher.call_tool("finalisma_session_poll", {
+        again = self.dispatcher.call_tool("session_poll", {
             "session_token": token_b, "agent_id": "hub-b",
             "after_seq": 10, "limit": 20,
         })
@@ -255,17 +292,17 @@ class ReconnectResilienceTests(unittest.TestCase):
     def test_last_ack_reconciliation_on_resume(self):
         token_a, token_b = self._create_session()
         for i in range(5):
-            self.dispatcher.call_tool("finalisma_session_send", {
+            self.dispatcher.call_tool("session_send", {
                 "session_token": token_a, "agent_id": "hub-a",
                 "kind": "test.msg", "payload": {"i": i},
                 "idempotency_key": f"aaa-key-{i:06d}-xyz",
             })
         # hub-b acks seq 3
-        self.dispatcher.call_tool("finalisma_session_ack", {
+        self.dispatcher.call_tool("session_ack", {
             "session_token": token_b, "agent_id": "hub-b", "seq": 3,
         })
         # Reconnect: poll with after_seq=0 should return all 5, but last_ack_seq=3
-        result = self.dispatcher.call_tool("finalisma_session_poll", {
+        result = self.dispatcher.call_tool("session_poll", {
             "session_token": token_b, "agent_id": "hub-b",
             "after_seq": 0, "limit": 10,
         })
@@ -281,10 +318,10 @@ class IdleDisconnectTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
-        self.store = FinalismaStore(root / "state.db", root)
-        self.dispatcher = FinalismaDispatcher(self.store)
-        self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-a"})
-        self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-b"})
+        self.store = WeftStore(root / "state.db", root)
+        self.dispatcher = WeftDispatcher(self.store)
+        self.dispatcher.call_tool("register_agent", {"team_id": "team-h", "agent_id": "hub-a"})
+        self.dispatcher.call_tool("register_agent", {"team_id": "team-h", "agent_id": "hub-b"})
 
     def tearDown(self):
         self.store.close()
@@ -303,7 +340,7 @@ class IdleDisconnectTests(unittest.TestCase):
         joined = _join(self.dispatcher, pairing["join_token"], "hub-b")
         token_a = joined["session_token"]
         # Session is active
-        status = self.dispatcher.call_tool("finalisma_session_status", {
+        status = self.dispatcher.call_tool("session_status", {
             "session_token": token_a, "agent_id": "hub-b",
         })
         self.assertEqual(status["state"], "active")
@@ -311,7 +348,7 @@ class IdleDisconnectTests(unittest.TestCase):
         self._expire_all_sessions()
         # Now a write operation should expire the stale session
         with self.assertRaises(Exception) as ctx:
-            self.dispatcher.call_tool("finalisma_session_send", {
+            self.dispatcher.call_tool("session_send", {
                 "session_token": token_a, "agent_id": "hub-b",
                 "kind": "test.msg", "payload": {},
                 "idempotency_key": "stale-test-01",
@@ -324,7 +361,7 @@ class IdleDisconnectTests(unittest.TestCase):
         token_a = joined["session_token"]
         # Send some events then abandon
         for i in range(5):
-            self.dispatcher.call_tool("finalisma_session_send", {
+            self.dispatcher.call_tool("session_send", {
                 "session_token": token_a, "agent_id": "hub-b",
                 "kind": "test.msg", "payload": {"i": i},
                 "idempotency_key": f"bbb-key-{i:06d}-xyz",
@@ -333,7 +370,7 @@ class IdleDisconnectTests(unittest.TestCase):
         self._expire_all_sessions()
         # Trigger a write to mark it expired in state
         with self.assertRaises(Exception):
-            self.dispatcher.call_tool("finalisma_session_send", {
+            self.dispatcher.call_tool("session_send", {
                 "session_token": token_a, "agent_id": "hub-b",
                 "kind": "test.msg", "payload": {},
                 "idempotency_key": "abandon-test-01",
@@ -343,7 +380,7 @@ class IdleDisconnectTests(unittest.TestCase):
         self.assertTrue(result["applied"])
         # Verify session is expired (status read should fail)
         with self.assertRaises(Exception):
-            self.dispatcher.call_tool("finalisma_session_status", {
+            self.dispatcher.call_tool("session_status", {
                 "session_token": token_a, "agent_id": "hub-b",
             })
 
@@ -352,10 +389,10 @@ class ServerHubRateLimitingTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
-        self.store = FinalismaStore(root / "state.db", root)
-        self.dispatcher = FinalismaDispatcher(self.store)
-        self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-a"})
-        self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-b"})
+        self.store = WeftStore(root / "state.db", root)
+        self.dispatcher = WeftDispatcher(self.store)
+        self.dispatcher.call_tool("register_agent", {"team_id": "team-h", "agent_id": "hub-a"})
+        self.dispatcher.call_tool("register_agent", {"team_id": "team-h", "agent_id": "hub-b"})
 
     def tearDown(self):
         self.store.close()
@@ -395,10 +432,10 @@ class ServerHubMetricsTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
-        self.store = FinalismaStore(root / "state.db", root)
-        self.dispatcher = FinalismaDispatcher(self.store)
-        self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-a"})
-        self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-b"})
+        self.store = WeftStore(root / "state.db", root)
+        self.dispatcher = WeftDispatcher(self.store)
+        self.dispatcher.call_tool("register_agent", {"team_id": "team-h", "agent_id": "hub-a"})
+        self.dispatcher.call_tool("register_agent", {"team_id": "team-h", "agent_id": "hub-b"})
 
     def tearDown(self):
         self.store.close()
@@ -410,13 +447,13 @@ class ServerHubMetricsTests(unittest.TestCase):
         token_a = pairing["initiator_session_token"]
         # Send events
         for i in range(5):
-            self.dispatcher.call_tool("finalisma_session_send", {
+            self.dispatcher.call_tool("session_send", {
                 "session_token": token_a, "agent_id": "hub-a",
                 "kind": "test.msg", "payload": {"i": i},
                 "idempotency_key": f"aaa-key-{i:06d}-xyz",
             })
         # Ack some
-        self.dispatcher.call_tool("finalisma_session_ack", {
+        self.dispatcher.call_tool("session_ack", {
             "session_token": joined["session_token"], "agent_id": "hub-b", "seq": 3,
         })
         hub_state = _ServerHubState()
@@ -434,14 +471,105 @@ class HTTPTransportHardeningTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
-        self.store = FinalismaStore(root / "state.db", root)
-        self.dispatcher = FinalismaDispatcher(self.store)
-        self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-a"})
-        self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "team-h", "agent_id": "hub-b"})
+        self.store = WeftStore(root / "state.db", root)
+        self.dispatcher = WeftDispatcher(self.store)
+        self.dispatcher.call_tool("register_agent", {"team_id": "team-h", "agent_id": "hub-a"})
+        self.dispatcher.call_tool("register_agent", {"team_id": "team-h", "agent_id": "hub-b"})
 
     def tearDown(self):
         self.store.close()
         self.temp.cleanup()
+
+    def test_hub_http_requires_authorization_and_accepts_valid_token(self):
+        handler = _make_handler(self.dispatcher, token="test-token")
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            host, port = server.server_address
+            body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping", "params": {}})
+            outcomes = []
+            for auth in (None, "Bearer wrong-token", "Bearer test-token"):
+                headers = {"Content-Type": "application/json", "Origin": "http://localhost"}
+                if auth is not None:
+                    headers["Authorization"] = auth
+                connection = HTTPConnection(host, port, timeout=5)
+                connection.request("POST", "/mcp", body=body, headers=headers)
+                response = connection.getresponse()
+                payload = json.loads(response.read())
+                connection.close()
+                outcomes.append((response.status, payload))
+
+            self.assertEqual([status for status, _ in outcomes], [403, 403, 200])
+            for _, payload in outcomes[:2]:
+                self.assertEqual(payload["jsonrpc"], "2.0")
+                self.assertEqual(payload["error"]["code"], -32001)
+            self.assertEqual(outcomes[2][1]["result"], {})
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+    def test_hub_http_returns_structured_errors_for_invalid_utf8_and_body_arrays(self):
+        handler = _make_handler(self.dispatcher, token="test-token")
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            host, port = server.server_address
+            headers = {"Content-Type": "application/json", "Authorization": "Bearer test-token"}
+
+            connection = HTTPConnection(host, port, timeout=5)
+            connection.request("POST", "/mcp", body=b'{"jsonrpc":"2.0","id":1,"method":"ping","params":\xff}', headers=headers)
+            response = connection.getresponse()
+            invalid_utf8 = json.loads(response.read())
+            connection.close()
+            self.assertEqual(response.status, 400)
+            self.assertEqual(invalid_utf8["jsonrpc"], "2.0")
+            self.assertIsNone(invalid_utf8["id"])
+            self.assertEqual(invalid_utf8["error"]["code"], -32700)
+
+            connection = HTTPConnection(host, port, timeout=5)
+            connection.request("POST", "/mcp", body=b"[]", headers=headers)
+            response = connection.getresponse()
+            array_body = json.loads(response.read())
+            connection.close()
+            self.assertEqual(response.status, 400)
+            self.assertEqual(array_body["jsonrpc"], "2.0")
+            self.assertIsNone(array_body["id"])
+            self.assertEqual(array_body["error"]["code"], -32600)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+    def test_hub_http_rejects_null_list_params_and_nonstandard_json_constants(self):
+        handler = _make_handler(self.dispatcher, token="test-token")
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            host, port = server.server_address
+            headers = {"Content-Type": "application/json", "Authorization": "Bearer test-token"}
+            bodies = (
+                b'{"jsonrpc":"2.0","id":1,"method":"ping","params":null}',
+                b'{"jsonrpc":"2.0","id":2,"method":"ping","params":[]}',
+                b'{"jsonrpc":"2.0","id":3,"method":"ping","params":{"value":NaN}}',
+            )
+            responses = []
+            for body in bodies:
+                connection = HTTPConnection(host, port, timeout=5)
+                connection.request("POST", "/mcp", body=body, headers=headers)
+                response = connection.getresponse()
+                responses.append((response.status, json.loads(response.read())))
+                connection.close()
+
+            self.assertEqual([status for status, _ in responses], [200, 200, 400])
+            self.assertEqual([payload["error"]["code"] for _, payload in responses], [-32600, -32600, -32700])
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
 
     def test_concurrent_http_clients_session_send_poll_ack(self):
         pairing = _pair(self.dispatcher)
@@ -463,7 +591,7 @@ class HTTPTransportHardeningTests(unittest.TestCase):
                         body = json.dumps({
                             "jsonrpc": "2.0", "id": i + 1, "method": "tools/call",
                             "params": {
-                                "name": "finalisma_session_send",
+                                "name": "session_send",
                                 "arguments": {
                                     "session_token": token, "agent_id": agent_id,
                                     "kind": "test.msg", "payload": {"i": i},
@@ -483,7 +611,7 @@ class HTTPTransportHardeningTests(unittest.TestCase):
                         body = json.dumps({
                             "jsonrpc": "2.0", "id": i + 100, "method": "tools/call",
                             "params": {
-                                "name": "finalisma_session_poll",
+                                "name": "session_poll",
                                 "arguments": {
                                     "session_token": token, "agent_id": agent_id,
                                     "after_seq": 0, "limit": 5,
@@ -511,7 +639,7 @@ class HTTPTransportHardeningTests(unittest.TestCase):
                 t.join()
             self.assertEqual(errors, [])
             # Verify total events
-            status = self.dispatcher.call_tool("finalisma_session_status", {
+            status = self.dispatcher.call_tool("session_status", {
                 "session_token": token_a, "agent_id": "hub-a",
             })
             self.assertEqual(status["cursor_head"], 20)
@@ -523,7 +651,7 @@ class HTTPTransportHardeningTests(unittest.TestCase):
     def test_http_rate_limiting_returns_429(self):
         handler = _make_handler(self.dispatcher)
         # Set a very low rate limit
-        handler.mcp_rate_limiter = _WindowRateLimiter(limit=2, window_seconds=60, max_concurrent=1)
+        handler.mcp_rate_limiter = _WindowRateLimiter(limit=2, window_seconds=60, now=lambda: 0.0)
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -533,7 +661,7 @@ class HTTPTransportHardeningTests(unittest.TestCase):
             for i in range(2):
                 body = json.dumps({
                     "jsonrpc": "2.0", "id": i + 1, "method": "tools/call",
-                    "params": {"name": "finalisma_protocol", "arguments": {}},
+                    "params": {"name": "protocol", "arguments": {}},
                 })
                 conn = HTTPConnection(host, port, timeout=5)
                 conn.request("POST", "/mcp", body=body,
@@ -545,7 +673,7 @@ class HTTPTransportHardeningTests(unittest.TestCase):
             # Next request should be rate limited
             body = json.dumps({
                 "jsonrpc": "2.0", "id": 3, "method": "tools/call",
-                "params": {"name": "finalisma_protocol", "arguments": {}},
+                "params": {"name": "protocol", "arguments": {}},
             })
             conn = HTTPConnection(host, port, timeout=5)
             conn.request("POST", "/mcp", body=body,

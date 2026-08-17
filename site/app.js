@@ -83,7 +83,7 @@
       }
       const values = Object.fromEntries(new FormData(cohortForm).entries());
       const application = [
-        'FINALISMA DESIGN-PARTNER APPLICATION',
+        'WEFT DESIGN-PARTNER APPLICATION',
         '',
         `Team: ${values.team}`,
         `Contact: ${values.contact}`,
@@ -97,8 +97,8 @@
 
       try {
         if (navigator.share) {
-          await navigator.share({ title: 'Finalisma design-partner application', text: application });
-          if (cohortStatus) cohortStatus.textContent = 'Application shared. Nothing was sent to Finalisma automatically.';
+          await navigator.share({ title: 'Weft design-partner application', text: application });
+          if (cohortStatus) cohortStatus.textContent = 'Application shared. Nothing was sent to Weft automatically.';
           return;
         }
         if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -117,7 +117,7 @@
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = 'finalisma-design-partner-application.txt';
+      link.download = 'weft-design-partner-application.txt';
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -178,18 +178,38 @@
     const readout = document.querySelector('[data-proof-readout]');
     const replayButton = document.querySelector('[data-proof-replay]');
     const rejectButton = document.querySelector('[data-proof-reject]');
-    if (!plate || !canvas || !window.FinalismaProof) return;
+    const announceStaticFallback = () => {
+      let status = readout;
+      if (!status && plate && typeof document.createElement === 'function') {
+        status = document.createElement('p');
+        status.className = 'plate-readout';
+        plate.appendChild(status);
+      }
+      if (!status) return;
+      status.setAttribute('role', 'status');
+      status.setAttribute('aria-live', 'polite');
+      status.textContent = 'Interactive proof unavailable. Static evidence remains available.';
+    };
+    if (!plate || !canvas) return;
+    if (!window.WeftProof) {
+      announceStaticFallback();
+      return;
+    }
 
     let engine = null;
     try {
-      engine = window.FinalismaProof.mount(canvas, {
+      engine = window.WeftProof.mount(canvas, {
         reducedMotion: reduceMotion,
         onPhase: (label) => { if (readout) readout.textContent = label; }
       });
     } catch (error) {
+      announceStaticFallback();
       return; // static sequence stays visible
     }
-    if (!engine) return;
+    if (!engine) {
+      announceStaticFallback();
+      return;
+    }
 
     plate.classList.add('is-ready');
     if (readout) readout.textContent = reduceMotion ? 'Static sequence' : 'Playing';

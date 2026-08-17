@@ -1,7 +1,7 @@
 """Wave H — web app security negative contract (RED).
 
 Each test encodes one refusal from docs/WEBAPP_DESIGN.md §9.
-The finalisma_cloud.web package does not exist yet — this file must
+The weft_cloud.web package does not exist yet — this file must
 fail at import with ModuleNotFoundError.
 """
 
@@ -19,9 +19,9 @@ from urllib.parse import urlencode
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from finalisma_cloud.storage import SqliteWalBackend
-from finalisma_cloud.identity.schema import ensure_schema
-from finalisma_cloud.web.app import FinalismaWebApp  # RED: package absent
+from weft_cloud.storage import SqliteWalBackend
+from weft_cloud.identity.schema import ensure_schema
+from weft_cloud.web.app import WeftWebApp  # RED: package absent
 
 SITE_DIR = str(Path(__file__).resolve().parents[1] / "site")
 
@@ -32,7 +32,7 @@ class WebAppDriver:
         self.backend = SqliteWalBackend(str(Path(self._tmp.name) / "cloud.db"))
         self.backend.initialize()
         ensure_schema(self.backend)
-        self.app = FinalismaWebApp(
+        self.app = WeftWebApp(
             self.backend, static_dir=SITE_DIR, state_dir=str(Path(self._tmp.name) / "state")
         )
         import http.server
@@ -170,7 +170,7 @@ class TestAuthRefusals(unittest.TestCase):
         self.assertTrue(self.d.signup_verify_login("revoked@example.com", "Password123!"))
         raw_cookie = self.d.cookies["fss_session"]
         # Look up session_id via token_hash, then revoke
-        from finalisma_cloud.identity import sessions as id_sessions
+        from weft_cloud.identity import sessions as id_sessions
         token_hash = id_sessions.hash_token(raw_cookie)
         with self.d.backend.transaction() as tx:
             row = tx.execute(
@@ -189,11 +189,18 @@ class TestAuthRefusals(unittest.TestCase):
 
     def test_06_get_root_expired_session_redirects_to_login(self):
         # Create a session directly with ttl=1
-        from finalisma_cloud.identity import sessions as id_sessions
-        from finalisma_cloud.identity import accounts
+        from weft_cloud.identity import sessions as id_sessions
+        from weft_cloud.identity import accounts
         tenant = "t_exp"
         self.d.backend.create_tenant(tenant, "exp@example.com", "free")
         acct = accounts._create_account(self.d.backend, tenant, "exp@example.com", "Password123!")
+        with self.d.backend.transaction() as tx:
+            tx.execute(
+                "INSERT INTO cloud_identity_members(tenant_id, account_id, role, joined_at) "
+                "VALUES (?, ?, 'owner', datetime('now'))",
+                (tenant, acct),
+            )
+            tx.commit()
         sid, raw = id_sessions.create(self.d.backend, tenant, acct, "owner", ttl_seconds=1)
         time.sleep(1.2)
         status, body, hdrs = self.d.get("/", extra_cookie=f"fss_session={raw}")

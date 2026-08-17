@@ -73,8 +73,8 @@ export default function ScrollController() {
 
     // ── Helper: drive scene ──
     function driveScene(progress: number) {
-      if ((window as any).FinalismaScene?.setProgress) {
-        (window as any).FinalismaScene.setProgress(progress);
+      if ((window as any).WeftScene?.setProgress) {
+        (window as any).WeftScene.setProgress(progress);
       }
     }
 
@@ -84,8 +84,8 @@ export default function ScrollController() {
       if (typeof window !== 'undefined') {
         if (beat === 4) {
           // The Gate — fire refusal (holds for beat extent via ScrollTrigger onLeave)
-          if ((window as any).FinalismaScene?.fireGateRefusal) {
-            (window as any).FinalismaScene.fireGateRefusal();
+          if ((window as any).WeftScene?.fireGateRefusal) {
+            (window as any).WeftScene.fireGateRefusal();
           } else {
             window.dispatchEvent(new CustomEvent('agent-event', {
               detail: { kind: 'refuse', seq: Date.now(), agent: 'agent-a', msg: 'stale_fencing_token (refused)' },

@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900">
-  <title>Finalisma — DOUBLE ENTRY visual target, 1440 × 900</title>
+  <title>Weft — DOUBLE ENTRY visual target, 1440 × 900</title>
   <desc>The page is a ledger. One hard vertical rule at 37% runs the full height: left of it is asserted, right of it is proved. Two inks on one ground, and red means an unposted entry rather than emphasis.</desc>
 
   <style>
@@ -48,7 +48,7 @@
   <!-- header -->
   <rect x="61" y="61" width="22" height="22" fill="#E8E3D4"/>
   <text class="brand ink-ground" x="72" y="79" text-anchor="middle" font-weight="700">f</text>
-  <text class="brand" x="93" y="79">finalisma</text>
+  <text class="brand" x="93" y="79">weft</text>
   <text class="mono-sm" x="567" y="77">PROBLEM     ENTRIES     DEMO     COMPATIBILITY     FAQ</text>
   <rect x="1251" y="55" width="117" height="34" fill="none" stroke="#E8E3D4" stroke-opacity=".38"/>
   <text class="btn" x="1266" y="76">COHORT FIT</text>
@@ -84,7 +84,7 @@
   <text class="mono dim" x="567" y="764">compatibility evidence on file</text>
 
   <rect y="788" width="1440" height="1" fill="#E8E3D4" fill-opacity=".22"/>
-  <text class="mono-md" x="567" y="816">0 live Finalisma validations</text>
+  <text class="mono-md" x="567" y="816">0 live Weft validations</text>
   <text class="mono dim" x="567" y="842">first proof pair: Codex + Claude Code</text>
 
   <!-- an unposted entry: red ink AND the word, never colour alone -->

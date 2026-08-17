@@ -1,0 +1,38 @@
+# Template for review/installation by the VM owner — nothing in this repo
+# installs or enables this unit automatically.
+#
+# Know about an outage before the owner does: probes GET /healthz and an
+# unauthenticated POST /mcp (must be 401 — anything else, including a 303,
+# means the hosted MCP surface is down or silently falling through to the
+# web app's login redirect). Dependency-free (stdlib urllib only) and local —
+# no third-party monitoring service, no outbound call other than to the
+# service itself.
+#
+# The backend URL is local, while the MCP probe goes through the nginx/public
+# edge. Set WEFT_EDGE_URL to the public HTTPS origin if local nginx routing is
+# not the same path customers use.
+#
+# A failed probe makes systemd mark this unit failed, which is what makes the
+# outage visible: `systemctl --failed` lists it, and (if wired up)
+# `OnFailure=` below can forward that to something the owner actually looks
+# at. This repo does not sign up for any such notification service — that
+# integration, if wanted, is the VM owner's call.
+#
+# Install:
+#   sudo mkdir -p /var/log/weft
+#   sudo cp scripts/systemd/weft-healthcheck.service scripts/systemd/weft-healthcheck.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now weft-healthcheck.timer
+
+[Unit]
+Description=Weft outage probe: /healthz + unauthenticated POST /mcp
+After=network.target
+
+[Service]
+Type=oneshot
+User=azureuser
+Environment=WEFT_EDGE_URL=http://127.0.0.1
+ExecStart=/usr/bin/python3 /opt/weft/scripts/healthcheck.py --base-url http://127.0.0.1:18788 --edge-url ${WEFT_EDGE_URL} --log /var/log/weft/healthcheck.jsonl
+# Uncomment to forward a failed probe to another unit (e.g. one that pages
+# someone) once the owner decides how they want to be notified:
+# OnFailure=weft-healthcheck-alert.service

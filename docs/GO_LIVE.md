@@ -1,17 +1,22 @@
-# Finalisma go-live checklist
+# Weft go-live checklist
 
 This is the launch plan for a truthful design-partner release. The current
-product is a dependency-free, single-node coordinator with a local static
-site. It is ready to demonstrate and onboard trusted teams; it is not yet a
-hosted multi-tenant SaaS. The browser simulation is a UX preview, not a live
-remote session.
+product has three real surfaces: the dependency-free single-node coordinator
+(`weft_mcp`, local), the hosted cloud service (`weft_cloud` — accounts,
+sessions, agent keys, rooms over `/v1`, and the authenticated hosted MCP
+endpoint `POST /mcp` with the 12 room tools; deploy runbook in
+`docs/DEPLOY.md`), and the local static site. The hosted service is a
+**single-instance SQLite-WAL pair** — one machine, one disk, one writer. It
+is not a horizontally scaled multi-tenant SaaS, and the browser simulation
+is a UX preview, not a live remote session. What is ready to demonstrate
+versus what is still open is stated at the end of this file.
 
 ## 1. Run the product locally
 
 From the repository root:
 
 ```powershell
-python -B .\scripts\finalisma-mcp.py --transport http --host 127.0.0.1 --port 8787 --team-id demo --workspace .\.local\workspace --state .\.local\workspace\.finalisma\state.db
+python -B .\scripts\weft-mcp.py --transport http --host 127.0.0.1 --port 8787 --team-id demo --workspace .\.local\workspace --state .\.local\workspace\.weft\state.db
 ```
 
 HTTP uses required actor authentication under the default `auto` policy. Each
@@ -23,7 +28,7 @@ credential-aware calls.
 In a second terminal, serve the launch site:
 
 ```powershell
-python -B .\scripts\finalisma-site.py --port 4173
+python -B .\scripts\weft-site.py --port 4173
 ```
 
 Open [http://127.0.0.1:4173/](http://127.0.0.1:4173/) and run the browser
@@ -33,7 +38,7 @@ simulation (labeled as a simulation). Then connect two real MCP hosts using
 For a fast protocol proof without host setup:
 
 ```powershell
-python -B .\scripts\finalisma-smoke.py
+python -B .\scripts\weft-smoke.py
 ```
 
 The `.local` folder is project-local and disposable. Stop both processes before
@@ -87,7 +92,7 @@ regenerate it from a fresh real coordinator run:
 
 ```powershell
 python -B .\scripts\generate-demo-transcript.py
-$env:FINALISMA_SITE_URL = "http://127.0.0.1:4173/"
+$env:WEFT_SITE_URL = "http://127.0.0.1:4173/"
 node .\scripts\record-demo-video.cjs
 ```
 
@@ -107,15 +112,29 @@ Before sharing a public URL, run:
 
 ```powershell
 python -B -m unittest discover -s tests -v
-python -B .\scripts\finalisma-smoke.py
-python -B .\scripts\finalisma_performance_gate.py --baseline .omx\goals\performance\single-node-coordinator-envelope\baseline.json --runs 7
-python -B .\scripts\finalisma-mcp.py --help
-python -B .\scripts\finalisma-site.py --help
+python -B .\scripts\weft-smoke.py
+python -B .\scripts\weft_performance_gate.py --baseline .omx\goals\performance\single-node-coordinator-envelope\baseline.json --runs 7
+python -B .\scripts\weft-mcp.py --help
+python -B .\scripts\weft-site.py --help
 ```
 
 The performance command is a same-machine single-node gate. Read
 [PERFORMANCE.md](PERFORMANCE.md) for the baseline contract and deployment
 boundary; do not present its absolute timings as a hosted-service SLA.
+
+**Historical gate snapshot (2026-08-15, `feature/product-perfect`):** that
+branch recorded 960 tests and a merge-gate pass, but this is not current
+integration or deployment evidence. The latest local regression is recorded
+in [`RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1162 discovered, 1161 passed,
+and 1 skipped. The performance gate is **red under host-load noise**: recent captures ran with multiple
+agent sessions active on the host, so the standing rule applies — rerun on a
+controlled idle host; never rebaseline to hide it. `docs/PERFORMANCE.md`
+owns the provenance and is the only place those numbers live. The hosted
+service itself is not yet exercised by this checklist: its deployment is the
+containerised single-instance runbook in `docs/DEPLOY.md` (image build
+untested on a Docker machine). Scale proof at 10/50 agents and the
+consolidated interop-breadth transcript are in flight in other worktrees and
+are not claimed here until they land with evidence.
 
 For an internet-facing coordinator, stop and complete the gates in
 [SECURITY_GATES.md](SECURITY_GATES.md): shared transactional storage,
@@ -125,7 +144,7 @@ retention/deletion, load tests, and operational alerting.
 Preview retention cleanup without deleting anything:
 
 ```powershell
-python -B .\scripts\finalisma-prune.py --state .\.local\workspace\.finalisma\state.db --workspace .\.local\workspace
+python -B .\scripts\weft-prune.py --state .\.local\workspace\.weft\state.db --workspace .\.local\workspace
 ```
 
 Only pass `--apply` after reviewing the dry-run counts and your retention
@@ -133,8 +152,23 @@ policy.
 
 ## 7. Materialize the public deployment bundle
 
-Keep the source tree free of placeholder domains and founder addresses. Once the
-real values are known, build an isolated static release:
+Keep the source tree free of placeholder domains and founder addresses. The
+source pages carry the documented marketing origin in `rel="canonical"` and
+`og:url`, a real `robots.txt` policy, and a committed `sitemap.xml`, so even a
+raw `site/` deploy is SEO-correct. The Vercel deploy runs the materializer as
+its build command (`scripts/vercel-build.py` → `scripts/build-site-release.py`),
+so an authorized push to the connected branch is configured to produce a
+materialized release; the currently reachable Vercel deployment must still be
+re-probed after that push. The
+materializer rewrites the baked canonical/OG URLs to the deployment origin
+(`WEFT_SITE_ORIGIN`, default `https://finalisma.vercel.app`), so a non-default
+origin stays correct too. `WEFT_CONTACT_URL` — a founder-owned HTTPS contact
+form or `mailto:` address — must be set in the Vercel project build
+environment. If it is unset the build fails loudly rather than shipping a site
+whose contact CTA was never injected.
+
+For a local, non-Vercel materialization (e.g. to inspect the bundle before
+pushing), run the materializer by hand once the real values are known:
 
 ```powershell
 python -B .\scripts\build-site-release.py `

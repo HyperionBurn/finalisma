@@ -3,21 +3,28 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="A practical local guide to connecting two MCP-capable AI agent hosts through a shared Finalisma coordinator.">
-  <meta property="og:title" content="Connect two MCP agents in ten minutes · Finalisma">
+  <meta name="description" content="A practical local guide to connecting two MCP-capable AI agent hosts through a shared Weft coordinator.">
+  <meta property="og:site_name" content="Weft">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Connect two MCP agents in ten minutes · Weft">
   <meta property="og:description" content="A local, evidence-gated handoff using the MCP settings and Python runtime you already have.">
-  <meta property="og:image" content="../assets/og-card.png">
+  <meta property="og:image" content="/assets/og-card.png">
+  <meta property="og:image:alt" content="Weft guide to connecting two MCP agents through a shared coordinator.">
   <meta name="twitter:card" content="summary_large_image">
-  <title>Connect two MCP agents in ten minutes · Finalisma</title>
+  <meta name="twitter:title" content="Connect two MCP agents in ten minutes · Weft">
+  <meta name="twitter:description" content="A local, evidence-gated handoff using the MCP settings and Python runtime you already have.">
+  <meta name="twitter:image" content="/assets/og-card.png">
+  <meta name="twitter:image:alt" content="Weft guide to connecting two MCP agents through a shared coordinator.">
+  <link rel="canonical" href="https://finalisma.vercel.app/blog/mcp-two-agent-setup.html"><meta property="og:url" content="https://finalisma.vercel.app/blog/mcp-two-agent-setup.html"><title>Connect two MCP agents in ten minutes · Weft</title>
   <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="../styles.css">
 </head>
 <body class="article-body">
   <a class="skip-link" href="#main">Skip to content</a>
   <div class="ledger-ground" aria-hidden="true"></div>
-  <div class="announcement">Finalisma field notes <a href="../index.html">Back to the product →</a></div>
+  <div class="announcement">Weft field notes <a href="../index.html">Back to the product →</a></div>
   <header class="site-header">
-    <a class="brand" href="../index.html"><span class="brand-mark" aria-hidden="true">f</span><span>finalisma</span></a>
+    <a class="brand" href="../index.html"><span class="brand-mark" aria-hidden="true">f</span><span>weft</span></a>
     <a class="button button-small button-outline" href="../docs/quickstart.html">Quickstart <span aria-hidden="true">↗</span></a>
   </header>
   <main id="main" class="article-main">
@@ -27,30 +34,30 @@
     <div class="article-meta"><span>6 min read</span><span>Operator guide</span><span>No global install</span></div>
     <div class="article-layout">
       <article>
-        <p class="lead-paragraph">Finalisma does not replace your agent hosts. It gives two MCP-capable hosts a shared task board, pairing flow, ordered event log, leases, and evidence gate.</p>
-        <div class="article-callout"><strong>Before you start</strong><p>You need Python 3.11+, this repository, two MCP-capable hosts, and one non-production workspace both agents may use. Host support is documented, not yet validated by Finalisma.</p></div>
+        <p class="lead-paragraph">Weft does not replace your agent hosts. It gives two MCP-capable hosts a shared task board, pairing flow, ordered event log, leases, and evidence gate.</p>
+        <div class="article-callout"><strong>Before you start</strong><p>You need Python 3.11+, this repository, two MCP-capable hosts, and one non-production workspace both agents may use. Host support is documented, not yet validated by Weft.</p></div>
         <h2>1. Add the same local server entry</h2>
         <p>Point both hosts at the repository launcher and the same workspace-local state file. Keep the state beneath the workspace so the experiment is isolated and removable.</p>
         <pre class="article-code"><code>{
   &quot;mcpServers&quot;: {
-    &quot;finalisma&quot;: {
+    &quot;weft&quot;: {
       &quot;command&quot;: &quot;python&quot;,
       &quot;args&quot;: [
-        &quot;C:\\path\\to\\scripts\\finalisma-mcp.py&quot;,
+        &quot;C:\\path\\to\\scripts\\weft-mcp.py&quot;,
         &quot;--workspace&quot;, &quot;C:\\path\\to\\workspace&quot;,
-        &quot;--state&quot;, &quot;C:\\path\\to\\workspace\\.finalisma\\state.db&quot;
+        &quot;--state&quot;, &quot;C:\\path\\to\\workspace\\.weft\\state.db&quot;
       ]
     }
   }
 }</code></pre>
         <h2>2. Register two identities</h2>
-        <p>Agent A and Agent B use the same <code>team_id</code> and different <code>agent_id</code> values. Record the host and model route each agent declares. Finalisma records that claim; the host still owns and protects the credential.</p>
+        <p>Agent A and Agent B use the same <code>team_id</code> and different <code>agent_id</code> values. Record the host and model route each agent declares. Weft records that claim; the host still owns and protects the credential.</p>
         <h2>3. Create and claim a bounded task</h2>
         <p>Agent A creates a task with a concise question and declared file scope. Agent B reads its inbox, claims the task, and supplies the fencing token on later updates so stale owners cannot write.</p>
         <h2>4. Gate completion on evidence</h2>
-        <p>Agent B submits artifact paths and checks. Finalisma resolves paths beneath the configured workspace, hashes artifacts, scans for high-confidence secret signatures, and refuses completion when a required check fails.</p>
+        <p>Agent B submits artifact paths and checks. Weft resolves paths beneath the configured workspace, hashes artifacts, scans for high-confidence secret signatures, and refuses completion when a required check fails.</p>
         <h2>5. Record what actually worked</h2>
-        <p>Save the two host versions, model routes, redacted event transcript, and result. Only then should that pair move from documented compatibility to a live Finalisma validation.</p>
+        <p>Save the two host versions, model routes, redacted event transcript, and result. Only then should that pair move from documented compatibility to a live Weft validation.</p>
         <div class="article-next"><span>Next</span><a href="../docs/protocol.html">Read the protocol preview and deployment boundary →</a></div>
       </article>
       <aside class="article-aside">
@@ -59,6 +66,6 @@
       </aside>
     </div>
   </main>
-  <footer class="site-footer"><div class="footer-brand"><span class="brand-mark" aria-hidden="true">f</span><span>finalisma</span></div><p>Evidence-backed handoffs for AI-native engineering teams.</p></footer>
+  <footer class="site-footer"><div class="footer-brand"><span class="brand-mark" aria-hidden="true">f</span><span>weft</span></div><p>Evidence-backed handoffs for AI-native engineering teams.</p></footer>
 </body>
 </html>

@@ -1,22 +1,49 @@
-# Deploying Finalisma Cloud
+# Deploying Weft Cloud
 
 Two processes make up the hosted SaaS surface, and both share ONE SQLite
 database file:
 
-- `src/finalisma_cloud/service.py` — the agent-facing API: accounts, orgs,
-  sessions, and multi-agent rooms over `/v1/*`, plus `/healthz`.
-- `src/finalisma_cloud/web` — the browser front-end (signup/login/rooms) via
-  `python -m finalisma_cloud.web`.
+- `src/weft_cloud/service.py` — the agent-facing API: accounts, orgs,
+  sessions, agent keys, and multi-agent rooms over `/v1/*`, the hosted MCP
+  endpoint at `POST /mcp` (authenticated, tenant-confined — see
+  `docs/HOSTED_MCP_DESIGN.md`), plus `/healthz`.
+- `src/weft_cloud/web` — the browser front-end (signup/login/rooms) via
+  `python -m weft_cloud.web`.
 
-This runbook gets both into containers with durable state. Commands are meant
-to be executed verbatim from the repository root.
+The surface a deployment must serve (all verified against the container
+entry commands below):
+
+- **REST rooms API** — `POST /v1/rooms/{create,connect,join,leave,
+  remove_member,close,send,receipts,poll,wait,ack,heartbeat,revoke_link,
+  event_log,groups}` plus `GET /v1/rooms` and `GET /v1/rooms/info`
+  (`src/weft_cloud/service.py` route table). `receipts` and `remove_member`
+  are the newest pair (`1e0aa5a`). Malformed cursors are a caller error:
+  non-integer / negative / beyond-head `after_seq` and negative `seq` return
+  **400** `invalid_argument` or `invalid_cursor` — never a 500
+  (`src/weft_cloud/rooms.py`).
+- **Hosted MCP** — `POST /mcp` exposes exactly **12 room tools**
+  (`room_create` `room_join` `room_send` `room_receipts` `room_poll`
+  `room_wait` `room_info` `room_ack` `room_heartbeat` `room_leave`
+  `room_remove_member` `room_event_log`), pinned by
+  `test_hosted_surface_is_a_small_correct_set`. Identity is never an
+  argument: `agent_id` resolves from the authenticated `fss_` session or
+  `agk_` agent key, and client-supplied identity fields are rejected.
+- **SDK** — `src/weft_sdk/client.py` drives all 12 hosted tools; in hosted
+  mode it strips identity arguments and surfaces HTTP 429 as structured
+  `rate_limited` errors with `retry_after` (`c9f4e0e`).
+- **Identity** — `POST /v1/auth/signout` with an `agk_` bearer truthfully
+  revokes the key itself (and frees its room seats); org member-add can
+  never mint an `owner` from an admin caller (`d344ebe`).
+
+This runbook gets both processes into containers with durable state.
+Commands are meant to be executed verbatim from the repository root.
 
 ## Read this first: the single-instance constraint
 
 State is SQLite in WAL mode. SQLite-WAL supports exactly **one writer** and
 many concurrent readers — *across processes*. That means the constraint now
-spans **both** services: `finalisma-cloud` and `finalisma-web` both open the
-same `/data/finalisma-cloud.db` file, so they must run as **one writer pair on
+spans **both** services: `weft-cloud` and `weft-web` both open the
+same `/data/weft-cloud.db` file, so they must run as **one writer pair on
 one persistent disk**. Never scale either of them horizontally, never place
 either behind a load balancer, and never point the two services at different
 disks — two processes on different machines sharing one SQLite file is unsafe
@@ -46,14 +73,35 @@ Wait for both to become healthy:
 ```bash
 docker compose ps
 # NAME                 IMAGE                COMMAND              SERVICE           STATUS
-# finalisma-cloud-1    finalisma-cloud:local python -m finalisma… finalisma-cloud   Up 3 seconds (healthy)
-# finalisma-web-1      finalisma-cloud:local python -m finalisma… finalisma-web     Up 3 seconds (healthy)
+# weft-cloud-1    weft-cloud:local python -m weft… weft-cloud   Up 3 seconds (healthy)
+# weft-web-1      weft-cloud:local python -m weft… weft-web     Up 3 seconds (healthy)
 ```
 
-Both containers come from the same image (`finalisma-cloud:local`); the web
+Both containers come from the same image (`weft-cloud:local`); the web
 container overrides the default command to run `python -B -m
-finalisma_cloud.web`. Both mount the same named volume and open the same
+weft_cloud.web`. Both mount the same named volume and open the same
 database file.
+
+Email delivery is deliberately opt-in. The default stack queues verification,
+reset, and organization-invite messages without sending them. To enable the
+bundled SMTP worker, provide the SMTP settings through the shell or an ignored
+local `.env`, then start the delivery profile:
+
+```bash
+export WEFT_SMTP_HOST=smtp.example.com
+export WEFT_SMTP_PORT=587
+export WEFT_SMTP_USERNAME=apikey
+export WEFT_SMTP_PASSWORD='use-your-secret-store'
+export WEFT_SMTP_FROM=no-reply@example.com
+export WEFT_WEB_PUBLIC_ORIGIN=http://127.0.0.1:18789
+docker compose --profile delivery up -d --build
+```
+
+The `weft-outbox` container uses the same `/data/weft-cloud.db` volume and
+only the delivery profile starts it. Without SMTP configuration it exits
+without sending; no credential is committed in this repository. Invite mail
+contains a clickable `/invite/fiv_...` URL, while the authenticated REST
+response continues to return metadata only—not the bearer token.
 
 ## 2. Verify
 
@@ -61,7 +109,7 @@ Health probe from the host for the agent API:
 
 ```bash
 curl -fsS http://127.0.0.1:18788/healthz
-# {"status":"ok","service":"finalisma-cloud"}
+# {"status":"ok","service":"weft-cloud"}
 ```
 
 The browser front-end is published on the loopback only, at
@@ -93,44 +141,46 @@ and the image contains no secrets.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `FINALISMA_HOST` | `127.0.0.1` | Bind address. `0.0.0.0` inside a container. |
-| `FINALISMA_PORT` | `18788` | HTTP port. |
-| `FINALISMA_DB_PATH` | `./data/finalisma-cloud.db` | SQLite path. In the container this is the `/data` mount point. |
+| `WEFT_HOST` | `127.0.0.1` | Bind address. `0.0.0.0` inside a container. |
+| `WEFT_PORT` | `18788` | HTTP port. |
+| `WEFT_DB_PATH` | `./data/weft-cloud.db` | SQLite path. In the container this is the `/data` mount point. |
+| `WEFT_PUBLIC_ORIGIN` | `http://127.0.0.1:18788` | Origin used for agent-facing room join links. Set this to the public nginx origin in a hosted deployment. |
 
-The web front-end is configured the same way, with `FINALISMA_WEB_*` variables:
+The web front-end is configured the same way, with `WEFT_WEB_*` variables:
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `FINALISMA_WEB_HOST` | `127.0.0.1` | Bind address. `0.0.0.0` inside a container. |
-| `FINALISMA_WEB_PORT` | `18789` | HTTP port. |
-| `FINALISMA_WEB_DB_PATH` | `./data/finalisma-web.db` | **Must equal the agent API's `FINALISMA_DB_PATH`** — both processes share one store. In the container: `/data/finalisma-cloud.db`. |
-| `FINALISMA_WEB_STATE_DIR` | `./data` | Scratch/state directory (unused by the current web code, kept for parity). |
-| `FINALISMA_WEB_STATIC_DIR` | `./site` | Built marketing site, if any. The image does **not** carry the site, so compose leaves this unset; the web container serves no static files and unmatched GETs return 404. |
+| `WEFT_WEB_HOST` | `127.0.0.1` | Bind address. `0.0.0.0` inside a container. |
+| `WEFT_WEB_PORT` | `18789` | HTTP port. |
+| `WEFT_WEB_DB_PATH` | `./data/weft-web.db` | **Must equal the agent API's `WEFT_DB_PATH`** — both processes share one store. In the container: `/data/weft-cloud.db`. |
+| `WEFT_WEB_STATE_DIR` | `./data` | Scratch/state directory (unused by the current web code, kept for parity). |
+| `WEFT_WEB_PUBLIC_ORIGIN` | `http://127.0.0.1:18789` | Origin used for human invite acceptance URLs. In a shared nginx deployment, set it to the same public origin as `WEFT_PUBLIC_ORIGIN`. |
+| `WEFT_WEB_STATIC_DIR` | `./site` | Built marketing site, if any. The image does **not** carry the site, so compose leaves this unset; the web container serves no static files and unmatched GETs return 404. |
 
 Precedence is argv > env > default, so the legacy launch form
-(`python -B src/finalisma_cloud/service.py <port> <db-path>`) keeps working
+(`python -B src/weft_cloud/service.py <port> <db-path>`) keeps working
 unchanged. A malformed or out-of-range port fails at startup rather than
 silently binding a default.
 
 Run the agent API without a container:
 
 ```bash
-FINALISMA_HOST=0.0.0.0 FINALISMA_PORT=18788 FINALISMA_DB_PATH=./data/cloud.db \
-  PYTHONPATH=src python -B -m finalisma_cloud.service
+WEFT_HOST=0.0.0.0 WEFT_PORT=18788 WEFT_DB_PATH=./data/cloud.db \
+  PYTHONPATH=src python -B -m weft_cloud.service
 ```
 
 Run the web front-end without a container (against the same database file so
 the two processes share state):
 
 ```bash
-FINALISMA_WEB_HOST=127.0.0.1 FINALISMA_WEB_PORT=18789 \
-  FINALISMA_WEB_DB_PATH=./data/cloud.db FINALISMA_WEB_STATE_DIR=./data \
-  PYTHONPATH=src python -B -m finalisma_cloud.web
+WEFT_WEB_HOST=127.0.0.1 WEFT_WEB_PORT=18789 \
+  WEFT_WEB_DB_PATH=./data/cloud.db WEFT_WEB_STATE_DIR=./data \
+  PYTHONPATH=src python -B -m weft_cloud.web
 ```
 
 Both running like this is the single-writer pair described above: they must
 stay on one machine, and `./data/cloud.db` is the one shared file. In local
-development you may point `FINALISMA_WEB_STATIC_DIR` at `./site` to serve the
+development you may point `WEFT_WEB_STATIC_DIR` at `./site` to serve the
 built marketing pages from the web app.
 
 ### Secret hygiene
@@ -142,14 +192,14 @@ secrets manager (`fly secrets set`, Docker secrets, etc.) — never via compose,
 
 ## 4. Back up the volume
 
-The database lives in the named volume `finalisma-cloud-data`, shared by both
+The database lives in the named volume `weft-cloud-data`, shared by both
 services. Back up with **both** services stopped so the WAL is fully
 checkpointed:
 
 ```bash
 docker compose stop
-docker run --rm -v finalisma-cloud-data:/data -v "$PWD":/backup \
-  alpine tar czf /backup/finalisma-cloud-data-$(date +%F).tgz -C /data .
+docker run --rm -v weft-cloud-data:/data -v "$PWD":/backup \
+  alpine tar czf /backup/weft-cloud-data-$(date +%F).tgz -C /data .
 docker compose start
 ```
 
@@ -157,16 +207,16 @@ Restore (replaces current data):
 
 ```bash
 docker compose stop
-docker run --rm -v finalisma-cloud-data:/data -v "$PWD":/backup \
-  alpine sh -c "rm -rf /data/* && tar xzf /backup/finalisma-cloud-data-YYYY-MM-DD.tgz -C /data"
+docker run --rm -v weft-cloud-data:/data -v "$PWD":/backup \
+  alpine sh -c "rm -rf /data/* && tar xzf /backup/weft-cloud-data-YYYY-MM-DD.tgz -C /data"
 docker compose start
 ```
 
 Logs:
 
 ```bash
-docker compose logs -f finalisma-cloud
-docker compose logs -f finalisma-web
+docker compose logs -f weft-cloud
+docker compose logs -f weft-web
 ```
 
 ## 5. Roll back
@@ -216,21 +266,31 @@ repo creates accounts or pushes images anywhere.
 
 Executed and confirmed on the authoring machine:
 
-- `PYTHONPATH=src python -B -m finalisma_cloud.service` with env config →
-  `{"status":"ok","service":"finalisma-cloud"}`.
+- `PYTHONPATH=src python -B -m weft_cloud.service` with env config →
+  `{"status":"ok","service":"weft-cloud"}`.
 - `PYTHONPATH=src python -B scripts/prove-multiagent.py` against that service →
   exit 0, `PROOF COMPLETE`.
 - Legacy argv form (`service.py <port> <db-path>`) → healthy, and argv won over
-  a conflicting `FINALISMA_PORT` env var.
-- `PYTHONPATH=src python -B -m finalisma_cloud.web` with env config → prints
-  `finalisma-web listening on http://127.0.0.1:<port>` and serves `GET /signup`
-  → 200, `GET /login` → 200; a non-integer `FINALISMA_WEB_PORT` exits 2 with
-  `finalisma-web: FINALISMA_WEB_PORT must be an integer`.
+  a conflicting `WEFT_PORT` env var.
+- `PYTHONPATH=src python -B -m weft_cloud.web` with env config → prints
+  `weft-web listening on http://127.0.0.1:<port>` and serves `GET /signup`
+  → 200, `GET /login` → 200; a non-integer `WEFT_WEB_PORT` exits 2 with
+  `weft-web: WEFT_WEB_PORT must be an integer`.
 - Both processes started against one shared database file; the shared-store
   suite `tests/test_webapp_entrypoint.py` (6 tests) passes.
-- 524 tests, 2 pre-existing branch-drift failures unchanged (a cloud link_token
-  prefix and a marketing launch-surface string; both reproduced on a clean
-  tree, outside these files).
+- The latest local regression is recorded in
+  [`RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1162 tests discovered, 1161
+  passed, and 1 skipped (measured 2026-08-17 on the integration hardening
+  stack). This is not Docker, VM, hosted-edge, SMTP, or merge proof; the
+  historical 915-test and 524-test snapshots above remain provenance for
+  earlier deployment runs.
+
+Performance numbers are deliberately absent from this runbook. The locked
+performance gate is currently **red under host-load noise** (recent captures
+ran while multiple agent sessions were active on the host); its provenance,
+rules, and the requirement of a controlled idle-host rerun live in
+`docs/PERFORMANCE.md`. Do not publish a deployment performance figure that
+does not trace to that file.
 
 Not executed on the authoring machine (no Docker runtime installed):
 `docker build`, `docker compose up`, the volume backup/restore and the
@@ -238,4 +298,5 @@ Not executed on the authoring machine (no Docker runtime installed):
 documented contract, `compose.yaml` was validated by parsing it as YAML (both
 services resolve, web `command`/port/volume/healthcheck as intended), and the
 container entry commands above were verified, but the image build itself should
-be treated as untested until it runs where Docker exists.
+be treated as untested until it runs where Docker exists. This remains the
+deploy queue's only unexecuted step; nothing above it is known red.

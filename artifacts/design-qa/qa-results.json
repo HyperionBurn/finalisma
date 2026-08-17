@@ -9,7 +9,6 @@
     ]
   },
   "screenshots": {
-    "source": "artifacts\\design-qa\\source-design-target-1440x900.png",
     "desktop": "artifacts\\design-qa\\implementation-desktop-1440x900.png",
     "mobile": "artifacts\\design-qa\\implementation-mobile-390x844.png",
     "mobileShort": "artifacts\\design-qa\\implementation-mobile-short-390x667.png",
@@ -19,7 +18,7 @@
     "blog": "artifacts\\design-qa\\implementation-blog-1440x900.png",
     "demo": "artifacts\\design-qa\\implementation-demo-1440x900.png",
     "comparison": "artifacts\\design-qa\\comparison-desktop-1440x900.png",
-    "og": "site\\assets\\og-card.png",
+    "og": "artifacts\\design-qa\\implementation-og-card-1200x630.png",
     "story": [
       "artifacts\\design-qa\\implementation-story-0pct-1440x900.png",
       "artifacts\\design-qa\\implementation-story-25pct-1440x900.png",
@@ -29,321 +28,85 @@
     ]
   },
   "topLevelChecks": {
-    "title": "Finalisma — one incident, two agents, one account",
+    "title": "Weft — one link, many agents, all governed",
     "oneH1": true,
-    "initialStoryCtaHidden": true,
-    "ruleFixed": false,
-    "ruleWidth": null,
-    "ruleLeft": null,
-    "maxRuleDrift": null,
-    "unpostedCount": 0,
-    "allUnpostedLabelled": true,
+    "htmlHasJsClass": true,
+    "canvasPresent": true,
+    "canvasWrapPresent": true,
+    "fallbackRows": 5,
+    "readoutHasLive": true,
+    "gatePresent": true,
+    "generatedLinkNonEmpty": true,
+    "tierTabsCount": 4,
+    "tierPanelsCount": 4,
+    "stepsCount": 4,
+    "unlabelledColourRows": 0,
     "thirdParty": [],
     "linksWithNoName": 0,
     "formLabels": true,
-    "htmlHasJsClass": true
+    "revealDefaultVisible": true
   },
   "interactions": {
-    "copyStatus": "Configuration copied to the clipboard.",
-    "cohortStatus": "Application copied. Paste it into the channel that brought you here.",
+    "linkCopied": "weft.test/r/room_8cc840e0fd9044b7ab2154af9e9c1222",
+    "tierSwitched": {
+      "httpVisible": true,
+      "stdioHidden": true,
+      "selectedTab": "true"
+    },
+    "tierCopied": "POST /mcp HTTP/1.1\nHost: weft.switzerlandnorth.cloudapp.azure.com\nContent-Type: application/json\nAuthorization: Bearer <agk_ agent key>\n\n{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}",
+    "cohortStatus": "Brief copied to clipboard. Send it to the channel that brought you here.",
     "cohortApplicationPrepared": true,
-    "manualComplete": {
-      "session": "",
-      "balance": "",
-      "ctaVisible": false,
-      "namedTransport": ""
+    "noJsCohort": {
+      "locationSearch": "",
+      "navigated": false,
+      "leakFree": true
     },
-    "manualReset": {
-      "session": "",
-      "balance": "",
-      "ctaHidden": false
-    },
-    "scrollChecks": {
-      "present": false,
-      "checkpoints": [],
-      "allPinned": false,
-      "advances": false,
-      "reachesDone": false,
-      "planeHasDepth": false,
-      "entriesFitBody": false
-    },
-    "reducedMotionChecks": {
-      "storyStatic": null,
-      "trackCompact": null,
-      "planeFlat": true,
-      "revealsVisible": true
-    },
-    "noJsChecks": {
-      "revealsVisible": true,
-      "typeVisible": true,
-      "headlineVisible": true,
-      "noJsClass": true
-    },
-    "noJsMobileChecks": {
-      "fallbackNavVisible": null,
-      "fallbackNavLinks": null,
-      "menuButtonHidden": false,
-      "noHorizontalOverflow": true
-    },
+    "gateTriggered": true,
+    "gateStateText": "armed",
     "mobileResults": [
       {
         "viewport": "390x844",
         "documentWidth": 390,
         "viewportWidth": 390,
-        "offenders": [
-          {
-            "selector": "div.spec-copy",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "div.body-copy",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "p",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "p",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "b",
-            "left": 20,
-            "right": 446,
-            "width": 426
-          },
-          {
-            "selector": "b",
-            "left": 20,
-            "right": 474,
-            "width": 454
-          },
-          {
-            "selector": "ul.spec-list",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "li",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "span",
-            "left": 48,
-            "right": 508,
-            "width": 460
-          },
-          {
-            "selector": "li",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "span",
-            "left": 48,
-            "right": 508,
-            "width": 459
-          },
-          {
-            "selector": "li",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          }
-        ],
-        "storyStatic": false,
-        "storyTrackCompact": false,
-        "storyContentVisible": false,
-        "planeFlat": true,
+        "offenders": [],
+        "canvasWrapHasHeight": true,
+        "canvasMounted": true,
+        "fallbackHasEvents": true,
+        "eventsPresent": true,
+        "readoutLive": true,
         "openingPrimaryCtaInFirstFold": true,
-        "navInitiallyInert": false,
+        "noHorizontalOverflow": true,
+        "navInitiallyInert": true,
         "navOpen": "true",
         "navOpenInert": false,
         "navClosed": "false",
-        "navClosedInert": false,
-        "tapStoryBalanced": null,
-        "tapStoryCtaVisible": false
+        "navClosedInert": true
       },
       {
         "viewport": "390x667",
         "documentWidth": 390,
         "viewportWidth": 390,
-        "offenders": [
-          {
-            "selector": "div.spec-copy",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "div.body-copy",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "p",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "p",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "b",
-            "left": 20,
-            "right": 446,
-            "width": 426
-          },
-          {
-            "selector": "b",
-            "left": 20,
-            "right": 474,
-            "width": 454
-          },
-          {
-            "selector": "ul.spec-list",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "li",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "span",
-            "left": 48,
-            "right": 508,
-            "width": 460
-          },
-          {
-            "selector": "li",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "span",
-            "left": 48,
-            "right": 508,
-            "width": 459
-          },
-          {
-            "selector": "li",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          }
-        ],
-        "storyStatic": false,
-        "storyTrackCompact": false,
-        "storyContentVisible": false,
-        "planeFlat": true,
-        "openingPrimaryCtaInFirstFold": true
+        "offenders": [],
+        "canvasWrapHasHeight": true,
+        "canvasMounted": true,
+        "fallbackHasEvents": true,
+        "eventsPresent": true,
+        "readoutLive": true,
+        "openingPrimaryCtaInFirstFold": true,
+        "noHorizontalOverflow": true
       },
       {
         "viewport": "320x568",
         "documentWidth": 320,
         "viewportWidth": 320,
-        "offenders": [
-          {
-            "selector": "div.spec-copy",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "div.body-copy",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "p",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "p",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "b",
-            "left": 20,
-            "right": 446,
-            "width": 426
-          },
-          {
-            "selector": "b",
-            "left": 20,
-            "right": 474,
-            "width": 454
-          },
-          {
-            "selector": "ul.spec-list",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "li",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "span",
-            "left": 48,
-            "right": 508,
-            "width": 460
-          },
-          {
-            "selector": "li",
-            "left": 20,
-            "right": 508,
-            "width": 488
-          },
-          {
-            "selector": "span",
-            "left": 48,
-            "right": 508,
-            "width": 459
-          },
-          {
-            "selector": "a",
-            "left": 283,
-            "right": 382,
-            "width": 98
-          }
-        ],
-        "storyStatic": false,
-        "storyTrackCompact": false,
-        "storyContentVisible": false,
-        "planeFlat": true,
-        "openingPrimaryCtaInFirstFold": false
+        "offenders": [],
+        "canvasWrapHasHeight": true,
+        "canvasMounted": true,
+        "fallbackHasEvents": true,
+        "eventsPresent": true,
+        "readoutLive": true,
+        "openingPrimaryCtaInFirstFold": true,
+        "noHorizontalOverflow": true
       }
     ],
     "supportingPageChecks": {
@@ -375,15 +138,20 @@
       "noHorizontalOverflow": true
     }
   },
+  "canvas": {
+    "frameTimeMedianMs": 19.499999999999773,
+    "frameTimeP95Ms": 24.500000000000455,
+    "canvasAnimated": true
+  },
   "performanceChecks": {
-    "cls": 0.0006737437307098766,
-    "lcp": 164,
+    "cls": 0.0016950241528420782,
+    "lcp": 144,
     "longTasks": [
-      61
+      139
     ],
-    "resourceCount": 7,
-    "transferBytes": 235544,
-    "domNodes": 314
+    "resourceCount": 11,
+    "transferBytes": 1374820,
+    "domNodes": 371
   },
   "accessibility": {
     "axeResults": [
@@ -392,7 +160,7 @@
         "url": "http://127.0.0.1:4175/",
         "violations": [],
         "violationCount": 0,
-        "passes": 27,
+        "passes": 28,
         "incomplete": 1
       },
       {
@@ -441,11 +209,11 @@
         "name": "home",
         "url": "http://127.0.0.1:4175/",
         "checks": {
-          "focusableCount": 32,
+          "focusableCount": 35,
           "labelledControls": 4,
           "totalControls": 4,
           "unlabelledControls": 0,
-          "liveRegionCount": 3,
+          "liveRegionCount": 6,
           "imagesTotal": 0,
           "imagesWithAlt": 0,
           "imagesMissingAlt": 0,
@@ -458,7 +226,7 @@
             "hasFooter": true,
             "mainCount": 1,
             "h1Count": 1,
-            "navCount": 2,
+            "navCount": 3,
             "ariaLandmarks": 0
           }
         }
@@ -476,7 +244,7 @@
           "imagesWithAlt": 0,
           "imagesMissingAlt": 0,
           "skipLinkPresent": true,
-          "headingOrderViolations": 1,
+          "headingOrderViolations": 0,
           "landmarks": {
             "hasMain": true,
             "hasNav": false,
@@ -528,7 +296,7 @@
           "imagesWithAlt": 0,
           "imagesMissingAlt": 0,
           "skipLinkPresent": true,
-          "headingOrderViolations": 1,
+          "headingOrderViolations": 0,
           "landmarks": {
             "hasMain": true,
             "hasNav": false,
@@ -596,74 +364,11 @@
     ],
     "totalAxeViolations": 0,
     "totalAxePages": 6,
-    "lighthouseNote": "Lighthouse CLI not available in this runtime. Lightweight equivalent checks (landmarks, form labels, focus order, image alt, heading order, skip link) implemented inline. Run `npx lighthouse <url>` manually for full Lighthouse scores."
+    "lighthouseNote": "Lightweight Lighthouse-equivalent checks implemented inline (landmarks, form labels, focus order, image alt, heading order, skip link). Run `npx lighthouse <url>` for full scores."
   },
   "signals": {
-    "consoleErrors": [
-      "Failed to load resource: the server responded with a status of 404 (File not found)",
-      "Refused to execute script from 'http://127.0.0.1:4175/proof-engine.js' because its MIME type ('text/html') is not executable, and strict MIME type checking is enabled.",
-      "Failed to load resource: the server responded with a status of 404 (File not found)",
-      "Refused to execute script from 'http://127.0.0.1:4175/proof-engine.js' because its MIME type ('text/html') is not executable, and strict MIME type checking is enabled.",
-      "Failed to load resource: the server responded with a status of 404 (File not found)",
-      "Refused to execute script from 'http://127.0.0.1:4175/proof-engine.js' because its MIME type ('text/html') is not executable, and strict MIME type checking is enabled.",
-      "Failed to load resource: the server responded with a status of 404 (File not found)",
-      "Refused to execute script from 'http://127.0.0.1:4175/proof-engine.js' because its MIME type ('text/html') is not executable, and strict MIME type checking is enabled.",
-      "Failed to load resource: the server responded with a status of 404 (File not found)",
-      "Refused to execute script from 'http://127.0.0.1:4175/proof-engine.js' because its MIME type ('text/html') is not executable, and strict MIME type checking is enabled.",
-      "Failed to load resource: the server responded with a status of 404 (File not found)",
-      "Refused to execute script from 'http://127.0.0.1:4175/proof-engine.js' because its MIME type ('text/html') is not executable, and strict MIME type checking is enabled."
-    ],
-    "failedRequests": [
-      {
-        "url": "http://127.0.0.1:4175/proof-engine.js",
-        "reason": "net::ERR_ABORTED"
-      },
-      {
-        "url": "http://127.0.0.1:4175/proof-engine.js",
-        "reason": "net::ERR_ABORTED"
-      },
-      {
-        "url": "http://127.0.0.1:4175/proof-engine.js",
-        "reason": "net::ERR_ABORTED"
-      },
-      {
-        "url": "http://127.0.0.1:4175/proof-engine.js",
-        "reason": "net::ERR_ABORTED"
-      },
-      {
-        "url": "http://127.0.0.1:4175/proof-engine.js",
-        "reason": "net::ERR_ABORTED"
-      },
-      {
-        "url": "http://127.0.0.1:4175/proof-engine.js",
-        "reason": "net::ERR_ABORTED"
-      }
-    ],
-    "badResponses": [
-      {
-        "url": "http://127.0.0.1:4175/proof-engine.js",
-        "status": 404
-      },
-      {
-        "url": "http://127.0.0.1:4175/proof-engine.js",
-        "status": 404
-      },
-      {
-        "url": "http://127.0.0.1:4175/proof-engine.js",
-        "status": 404
-      },
-      {
-        "url": "http://127.0.0.1:4175/proof-engine.js",
-        "status": 404
-      },
-      {
-        "url": "http://127.0.0.1:4175/proof-engine.js",
-        "status": 404
-      },
-      {
-        "url": "http://127.0.0.1:4175/proof-engine.js",
-        "status": 404
-      }
-    ]
+    "consoleErrors": [],
+    "failedRequests": [],
+    "badResponses": []
   }
 }

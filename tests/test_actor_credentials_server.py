@@ -14,23 +14,23 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from finalisma_mcp.__main__ import _resolve_actor_auth
-from finalisma_mcp.core import FinalismaError, FinalismaStore
-from finalisma_mcp.server import FinalismaDispatcher, TOOLS, _MCPRequestHandler, _Metrics, _WindowRateLimiter, run_stdio
+from weft_mcp.__main__ import _resolve_actor_auth
+from weft_mcp.core import WeftError, WeftStore
+from weft_mcp.server import WeftDispatcher, TOOLS, _MCPRequestHandler, _Metrics, _WindowRateLimiter, run_stdio
 
 
 class ActorCredentialTransportTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
-        self.store = FinalismaStore(root / "state.db", root, require_actor_auth=True)
-        self.dispatcher = FinalismaDispatcher(self.store)
+        self.store = WeftStore(root / "state.db", root, require_actor_auth=True)
+        self.dispatcher = WeftDispatcher(self.store)
         self.agent_a = self.dispatcher.call_tool(
-            "finalisma_register_agent",
+            "register_agent",
             {"team_id": "demo", "agent_id": "agent-a", "role": "architect"},
         )
         self.agent_b = self.dispatcher.call_tool(
-            "finalisma_register_agent",
+            "register_agent",
             {"team_id": "demo", "agent_id": "agent-b", "role": "builder"},
         )
         self.token_a = self.agent_a["actor_token"]
@@ -43,61 +43,61 @@ class ActorCredentialTransportTests(unittest.TestCase):
     def test_schemas_and_dispatcher_cover_actor_credential_contract(self) -> None:
         schemas = {tool["name"]: tool["inputSchema"] for tool in TOOLS}
         actor_tools = {
-            "finalisma_create_pairing",
-            "finalisma_join_pairing",
-            "finalisma_register_agent",
-            "finalisma_route_task",
-            "finalisma_team_status",
-            "finalisma_create_task",
-            "finalisma_claim_task",
-            "finalisma_update_task",
-            "finalisma_send_message",
-            "finalisma_read_inbox",
-            "finalisma_ack_message",
-            "finalisma_heartbeat",
-            "finalisma_verify_task",
-            "finalisma_complete_task",
+            "create_pairing",
+            "join_pairing",
+            "register_agent",
+            "route_task",
+            "team_status",
+            "create_task",
+            "claim_task",
+            "update_task",
+            "send_message",
+            "read_inbox",
+            "ack_message",
+            "heartbeat",
+            "verify_task",
+            "complete_task",
         }
         for tool_name in actor_tools:
             self.assertIn("actor_token", schemas[tool_name]["properties"], tool_name)
-        self.assertIn("current_token", schemas["finalisma_rotate_agent_credential"]["properties"])
-        self.assertIn("agent_id", schemas["finalisma_route_task"]["properties"])
-        self.assertIn("agent_id", schemas["finalisma_team_status"]["properties"])
+        self.assertIn("current_token", schemas["rotate_agent_credential"]["properties"])
+        self.assertIn("agent_id", schemas["route_task"]["properties"])
+        self.assertIn("agent_id", schemas["team_status"]["properties"])
 
     def test_required_mode_issues_and_enforces_bound_actor_tokens(self) -> None:
         self.assertTrue(self.token_a.startswith("fst_actor_"))
-        with self.assertRaises(FinalismaError) as missing:
-            self.dispatcher.call_tool("finalisma_register_agent", {"team_id": "demo", "agent_id": "agent-a", "role": "architect"})
+        with self.assertRaises(WeftError) as missing:
+            self.dispatcher.call_tool("register_agent", {"team_id": "demo", "agent_id": "agent-a", "role": "architect"})
         self.assertEqual(missing.exception.code, "actor_auth_required")
 
-        with self.assertRaises(FinalismaError) as wrong:
-            self.dispatcher.call_tool("finalisma_create_task", {"team_id": "demo", "created_by": "agent-a", "title": "Wrong proof", "actor_token": "fst_actor_wrong_token_value_which_is_long_enough"})
+        with self.assertRaises(WeftError) as wrong:
+            self.dispatcher.call_tool("create_task", {"team_id": "demo", "created_by": "agent-a", "title": "Wrong proof", "actor_token": "fst_actor_wrong_token_value_which_is_long_enough"})
         self.assertEqual(wrong.exception.code, "actor_auth_invalid")
 
-        with self.assertRaises(FinalismaError) as cross_agent:
-            self.dispatcher.call_tool("finalisma_create_task", {"team_id": "demo", "created_by": "agent-b", "title": "Spoof agent", "actor_token": self.token_a})
+        with self.assertRaises(WeftError) as cross_agent:
+            self.dispatcher.call_tool("create_task", {"team_id": "demo", "created_by": "agent-b", "title": "Spoof agent", "actor_token": self.token_a})
         self.assertEqual(cross_agent.exception.code, "actor_auth_invalid")
 
         created = self.dispatcher.call_tool(
-            "finalisma_create_task",
+            "create_task",
             {"team_id": "demo", "created_by": "agent-a", "title": "Bound proof", "actor_token": self.token_a},
         )
         self.assertTrue(created["created"])
 
     def test_existing_identity_join_needs_its_token_and_http_does_not_leak_it(self) -> None:
         missing_proof_pairing = self.dispatcher.call_tool(
-            "finalisma_create_pairing",
+            "create_pairing",
             {"team_id": "demo", "initiator_id": "agent-a", "actor_token": self.token_a},
         )
-        with self.assertRaises(FinalismaError) as overwrite:
+        with self.assertRaises(WeftError) as overwrite:
             self.dispatcher.call_tool(
-                "finalisma_join_pairing",
+                "join_pairing",
                 {"token": missing_proof_pairing["join_token"], "agent_id": "agent-b", "consent": True},
             )
         self.assertEqual(overwrite.exception.code, "actor_auth_required")
 
         pairing = self.dispatcher.call_tool(
-            "finalisma_create_pairing",
+            "create_pairing",
             {"team_id": "demo", "initiator_id": "agent-a", "actor_token": self.token_a},
         )
         handler = type("ActorJoinHandler", (_MCPRequestHandler,), {})
@@ -125,24 +125,38 @@ class ActorCredentialTransportTests(unittest.TestCase):
             server.server_close()
             thread.join(timeout=5)
 
+    def test_unauthenticated_rotation_does_not_leak_agent_existence_via_mcp(self) -> None:
+        def unauth_code(agent_id: str) -> str:
+            with self.assertRaises(WeftError) as caught:
+                self.dispatcher.call_tool(
+                    "rotate_agent_credential",
+                    {"team_id": "demo", "agent_id": agent_id},
+                )
+            return caught.exception.code
+
+        real = unauth_code("agent-a")
+        fake = unauth_code("no-such-agent-zzz")
+        self.assertEqual(real, fake, "MCP surface: unauth rotate must not reveal agent existence")
+        self.assertEqual(real, "actor_auth_required")
+
     def test_rotation_invalidates_the_prior_token(self) -> None:
         rotated = self.dispatcher.call_tool(
-            "finalisma_rotate_agent_credential",
+            "rotate_agent_credential",
             {"team_id": "demo", "agent_id": "agent-a", "current_token": self.token_a},
         )
         replacement = rotated["actor_token"]
         self.assertNotEqual(replacement, self.token_a)
-        with self.assertRaises(FinalismaError) as stale:
-            self.dispatcher.call_tool("finalisma_create_task", {"team_id": "demo", "created_by": "agent-a", "title": "Stale", "actor_token": self.token_a})
+        with self.assertRaises(WeftError) as stale:
+            self.dispatcher.call_tool("create_task", {"team_id": "demo", "created_by": "agent-a", "title": "Stale", "actor_token": self.token_a})
         self.assertEqual(stale.exception.code, "actor_auth_invalid")
-        created = self.dispatcher.call_tool("finalisma_create_task", {"team_id": "demo", "created_by": "agent-a", "title": "Rotated", "actor_token": replacement})
+        created = self.dispatcher.call_tool("create_task", {"team_id": "demo", "created_by": "agent-a", "title": "Rotated", "actor_token": replacement})
         self.assertTrue(created["created"])
 
     def test_trusted_stdio_and_cli_actor_auth_resolution(self) -> None:
-        trusted_store = FinalismaStore(Path(self.temp.name) / "trusted.db", Path(self.temp.name) / "trusted-workspace")
-        trusted_dispatcher = FinalismaDispatcher(trusted_store)
-        trusted_dispatcher.call_tool("finalisma_register_agent", {"team_id": "trusted", "agent_id": "local-agent"})
-        request = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "finalisma_create_task", "arguments": {"team_id": "trusted", "created_by": "local-agent", "title": "No token in stdio trust mode"}}}
+        trusted_store = WeftStore(Path(self.temp.name) / "trusted.db", Path(self.temp.name) / "trusted-workspace")
+        trusted_dispatcher = WeftDispatcher(trusted_store)
+        trusted_dispatcher.call_tool("register_agent", {"team_id": "trusted", "agent_id": "local-agent"})
+        request = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "create_task", "arguments": {"team_id": "trusted", "created_by": "local-agent", "title": "No token in stdio trust mode"}}}
         output = io.StringIO()
         run_stdio(trusted_dispatcher, io.StringIO(json.dumps(request) + "\n"), output)
         self.assertTrue(json.loads(output.getvalue())["result"]["structuredContent"]["created"])
@@ -153,7 +167,7 @@ class ActorCredentialTransportTests(unittest.TestCase):
         with redirect_stderr(warning):
             self.assertFalse(_resolve_actor_auth("http", "trust", "localhost"))
         self.assertIn("security warning", warning.getvalue())
-        with self.assertRaises(FinalismaError) as rejected:
+        with self.assertRaises(WeftError) as rejected:
             _resolve_actor_auth("http", "trust", "0.0.0.0")
         self.assertEqual(rejected.exception.code, "actor_auth_trust_forbidden")
 

@@ -1,14 +1,14 @@
-# Finalisma Coordination Protocol Preview 0.1
+# Weft Coordination Protocol Preview 0.1
 
-Finalisma is a coordination protocol carried by MCP tools. MCP provides the
-host-neutral discovery and call boundary; Finalisma defines the durable team
+Weft is a coordination protocol carried by MCP tools. MCP provides the
+host-neutral discovery and call boundary; Weft defines the durable team
 semantics behind those calls.
 
 ## Why these invariants matter
 
 Agent handoffs fail in the gaps between messages: a stale worker keeps writing,
 the same task is created twice, a reconnect loses the last event, or “done” is
-only a prose claim. Finalisma makes those failure modes explicit with leases,
+only a prose claim. Weft makes those failure modes explicit with leases,
 fencing tokens, idempotency, ordered replay, and evidence before completion.
 They are the product contract, not implementation trivia.
 
@@ -30,27 +30,27 @@ They are the product contract, not implementation trivia.
 ## Identity and credential boundary
 
 Schema v3 adds one agent credential per `(team_id, agent_id)`. A new identity
-receives its raw `actor_token` once from `finalisma_register_agent`; a new
-identity accepted through `finalisma_join_pairing` receives one in the join
-result. The host must keep that value in secret storage. Finalisma persists only
+receives its raw `actor_token` once from `register_agent`; a new
+identity accepted through `join_pairing` receives one in the join
+result. The host must keep that value in secret storage. Weft persists only
 the SHA-256 hash in `agent_credentials`, never the plaintext token, and does not
 return the token again when an existing identity registers or joins.
 
 Existing identities and team/work-plane calls are protected in actor-auth
 required mode. The matching `actor_token` is passed to tools such as
-`finalisma_create_pairing`, `finalisma_create_task`, `finalisma_team_status`,
-`finalisma_send_message`, `finalisma_heartbeat`, and the task lifecycle tools.
+`create_pairing`, `create_task`, `team_status`,
+`send_message`, `heartbeat`, and the task lifecycle tools.
 An already registered invitee must also pass its token to
-`finalisma_join_pairing`; the one-time pair token cannot be used to overwrite an
+`join_pairing`; the one-time pair token cannot be used to overwrite an
 existing identity. A genuinely new invited identity may bootstrap through the
 pairing.
 
 Actor tokens are not session tokens. Actor tokens authorize the durable logical
 identity on the team/work plane. Pairing creates separate, member-bound session
-tokens used only by the `finalisma_session_*` tools. Neither credential can be
+tokens used only by the `session_*` tools. Neither credential can be
 substituted for the other.
 
-`finalisma_rotate_agent_credential` accepts `team_id`, `agent_id`, and
+`rotate_agent_credential` accepts `team_id`, `agent_id`, and
 `current_token`. It returns the replacement `actor_token` once and invalidates
 the old token atomically. A v2 database migrates to schema v3 without fabricating
 credentials for existing rows. Such an identity must be bootstrapped through a
@@ -60,11 +60,11 @@ re-registration or re-pairing to claim an existing ID.
 
 ## Message envelope
 
-`finalisma_send_message` persists this shape:
+`send_message` persists this shape:
 
 ```json
 {
-  "protocol": "finalisma.a2a",
+  "protocol": "weft.a2a",
   "version": "1.0",
   "message_id": "msg_...",
   "type": "task.progress",
@@ -95,14 +95,14 @@ pending -> assigned -> in_progress -> review -> verified -> done
              +-----------> blocked <----+
 ```
 
-`finalisma_create_task` performs duplicate detection and routing. A claimed
+`create_task` performs duplicate detection and routing. A claimed
 task receives a lease and fencing token. Heartbeats renew the lease. When a
 lease expires, the server returns the task to `pending` and records an audit
 event, allowing another agent to recover it safely.
 
 ## Quality gate
 
-`finalisma_verify_task` accepts a list of named checks with `passed`, `failed`,
+`verify_task` accepts a list of named checks with `passed`, `failed`,
 or `unknown` status and a list of workspace-relative artifact paths. The server
 then:
 
@@ -129,7 +129,7 @@ Model slots are data, not hard-coded provider branches:
 | `longcat/LongCat-2.0` | parallel execution, coding, knowledge work | OpenCodex |
 | `opencode-go/mimo-v2.5` | security review, coding, reasoning | OpenCodex |
 
-The selected slot is stored in the agent/task/message record. Finalisma does not
+The selected slot is stored in the agent/task/message record. Weft does not
 launch a provider, hold its key, or make a recorded slot available. A host or
 native child-agent orchestrator must request the exact model ID. If that backend
 rejects or cannot run the requested model, report that failure and stop that

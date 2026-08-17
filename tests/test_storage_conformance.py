@@ -20,7 +20,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 # Import the ABC and the concrete backend (the orchestrator wires the seam).
-from finalisma_cloud.storage import StorageBackend, SqliteWalBackend
+from weft_cloud.storage import StorageBackend, SqliteWalBackend
 
 
 def make_backend() -> StorageBackend:

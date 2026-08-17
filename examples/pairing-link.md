@@ -7,10 +7,10 @@ Verified commands from the 2026-08-05 timed run. The full pairing flow
 ## Agent A
 
 ```text
-registered = finalisma_register_agent(team_id="demo", agent_id="agent-a", name="Planner", role="architect", model="gpt-5.6-luna", capabilities=["planning", "read"])
+registered = register_agent(team_id="demo", agent_id="agent-a", name="Planner", role="architect", model="gpt-5.6-luna", capabilities=["planning", "read"])
 # Store registered.actor_token once in the host's secret storage.
 
-finalisma_create_pairing(initiator_id="agent-a", team_id="demo", capabilities_offered=["read", "comment"], actor_token="<agent-a actor token>")
+create_pairing(initiator_id="agent-a", team_id="demo", capabilities_offered=["read", "comment"], actor_token="<agent-a actor token>")
 ```
 
 Share only the returned `join_url` or `bootstrap_prompt` with Agent B. The
@@ -27,25 +27,25 @@ then join. Consent is type-strict: `consent` must be the JSON boolean `true`;
 `"false"`, `"yes"`, and `1` are all rejected without consuming the link.
 
 ```text
-finalisma_pairing_preview(token="<token from the URL fragment>")
+pairing_preview(token="<token from the URL fragment>")
 
-finalisma_join_pairing(token="<token from the link>", agent_id="agent-b", model="opencode-go/mimo-v2.5", capabilities=["coding", "testing"], consent=true)
+join_pairing(token="<token from the link>", agent_id="agent-b", model="opencode-go/mimo-v2.5", capabilities=["coding", "testing"], consent=true)
 ```
 
 Because `agent-b` is new, persist both one-time results securely:
 `actor_token` for Agent B's team/work-plane calls and `session_token` for this
-paired session. Finalisma stores only hashes. The initiator and joiner must
+paired session. Weft stores only hashes. The initiator and joiner must
 never exchange their session credentials. Then use:
 
 ```text
-finalisma_session_send(session_token="...", agent_id="agent-b", kind="task.handoff", payload={"task":"..."}, idempotency_key="handoff-001")
-finalisma_session_wait(session_token="...", agent_id="agent-b", after_seq=0)
-finalisma_session_ack(session_token="...", agent_id="agent-b", seq=1)
+session_send(session_token="...", agent_id="agent-b", kind="task.handoff", payload={"task":"..."}, idempotency_key="handoff-001")
+session_wait(session_token="...", agent_id="agent-b", after_seq=0)
+session_ack(session_token="...", agent_id="agent-b", seq=1)
 ```
 
 An already registered Agent B must include its existing `actor_token` in
-`finalisma_join_pairing` and receives no new actor token. Rotate a known
+`join_pairing` and receives no new actor token. Rotate a known
 credential with
-`finalisma_rotate_agent_credential(team_id="demo", agent_id="agent-b",
+`rotate_agent_credential(team_id="demo", agent_id="agent-b",
 current_token="<current actor token>")`; store the replacement immediately,
 because it is returned once and invalidates the old token atomically.

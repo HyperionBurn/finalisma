@@ -3,7 +3,7 @@
 This is the RED deliverable for design §7.4. Tests exercise REAL storage
 (no mocks) through the `make_backend()` factory seam — the single seam the
 orchestrator fills in. Every test imports the cloud quota/rate-limit entry
-points (finalisma_cloud.quotas, finalisma_cloud.rate_limit) which do not
+points (weft_cloud.quotas, weft_cloud.rate_limit) which do not
 exist yet, so the file fails until the implementation is wired in.
 
 Per design §5:
@@ -26,9 +26,9 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 # These modules now exist — wired by the orchestrator to the real cloud plane.
-from finalisma_cloud.storage import StorageBackend, SqliteWalBackend
-from finalisma_cloud.quotas import PlanLimits, PLANS, QuotaError, join_room_with_quota, create_room_with_quota
-from finalisma_cloud.rate_limit import RateLimiter, RateResult, RateLimitedError
+from weft_cloud.storage import StorageBackend, SqliteWalBackend
+from weft_cloud.quotas import PlanLimits, PLANS, QuotaError, join_room_with_quota, create_room_with_quota
+from weft_cloud.rate_limit import RateLimiter, RateResult, RateLimitedError
 
 
 def make_backend() -> StorageBackend:

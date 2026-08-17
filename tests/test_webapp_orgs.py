@@ -1,9 +1,9 @@
 """Wave H — web org/member routes integration contract (RED).
 
-The finalisma_cloud.web package does not exist yet — this file must fail at
+The weft_cloud.web package does not exist yet — this file must fail at
 import with ModuleNotFoundError.
 
-Drives real HTTP against an in-process FinalismaWebApp server. Route contract
+Drives real HTTP against an in-process WeftWebApp server. Route contract
 from docs/WEBAPP_DESIGN.md sections 3.1, 3.2, 4, 8, 9.2, 9.3, 10.
 """
 
@@ -22,17 +22,19 @@ from urllib.parse import urlencode
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from finalisma_cloud.storage import SqliteWalBackend
-from finalisma_cloud.identity.schema import ensure_schema
-from finalisma_cloud.web.app import FinalismaWebApp  # RED: package absent
+from weft_cloud.storage import SqliteWalBackend
+from weft_cloud.identity.schema import ensure_schema
+from weft_cloud.identity.agent_keys import create as create_agent_key, validate as validate_agent_key
+from weft_cloud.identity.sessions import AuthError, create as create_session, validate as validate_session
+from weft_cloud.web.app import WeftWebApp  # RED: package absent
 
 SITE_DIR = str(ROOT / "site")
 
 
 class WebAppDriver:
-    """In-process HTTP driver for FinalismaWebApp.
+    """In-process HTTP driver for WeftWebApp.
 
-    Contract: FinalismaWebApp(backend, static_dir=..., state_dir=...)
+    Contract: WeftWebApp(backend, static_dir=..., state_dir=...)
     exposes .handler (a BaseHTTPRequestHandler subclass) and is driven on
     ("127.0.0.1", 0) with finally teardown.
     """
@@ -44,7 +46,7 @@ class WebAppDriver:
         self.backend = SqliteWalBackend(str(Path(self._tmp.name) / "cloud.db"))
         self.backend.initialize()
         ensure_schema(self.backend)
-        self.app = FinalismaWebApp(
+        self.app = WeftWebApp(
             self.backend,
             static_dir=SITE_DIR,
             state_dir=str(Path(self._tmp.name) / "state"),
@@ -107,6 +109,17 @@ class WebAppDriver:
         token = self.extract_csrf(body)
         assert token is not None, f"no _csrf token found on {path}"
         return token
+
+    def accept_invite(self, token, email, password):
+        """Accept an invite through its form, including the public CSRF token."""
+        status, body, _ = self.get(f"/invite/{token}")
+        assert status == 200, f"invite form expected 200, got {status}"
+        csrf = self.extract_csrf(body)
+        assert csrf is not None, "invite form did not include _csrf"
+        return self.post(
+            f"/invite/{token}",
+            {"email": email, "password": password, "_csrf": csrf},
+        )
 
     def last_outbox_body(self, to_email):
         with self.backend.transaction() as tx:
@@ -246,11 +259,27 @@ class TestInviteFlow(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn('name="email"', body)
         self.assertIn('name="password"', body)
-        self.assertIsNotNone(self.driver.extract_csrf(body))
-        # POST accept.
-        status, _, headers = self.driver.post(
+        invite_csrf = self.driver.extract_csrf(body)
+        self.assertIsNotNone(invite_csrf)
+        session_before = self.driver.cookies.get("fss_session")
+        # Missing and wrong CSRF tokens must not consume the invite or issue a
+        # new session; the same invite remains available for the valid submit.
+        status, _, _ = self.driver.post(
             f"/invite/{token}",
             {"email": invitee_email, "password": invitee_password},
+        )
+        self.assertEqual(status, 403)
+        self.assertEqual(self.driver.cookies.get("fss_session"), session_before)
+        status, _, _ = self.driver.post(
+            f"/invite/{token}",
+            {"email": invitee_email, "password": invitee_password, "_csrf": "wrong"},
+        )
+        self.assertEqual(status, 403)
+        self.assertEqual(self.driver.cookies.get("fss_session"), session_before)
+        # POST accept with the form token.
+        status, _, headers = self.driver.post(
+            f"/invite/{token}",
+            {"email": invitee_email, "password": invitee_password, "_csrf": invite_csrf},
         )
         self.assertEqual(status, 303)
         self.assertTrue(headers["Location"].startswith("/"))
@@ -281,10 +310,7 @@ class TestRoleManagement(unittest.TestCase):
         token = re.search(
             r"(fiv_[A-Za-z0-9_-]+)", self.driver.last_outbox_body(self.member_email)
         ).group(1)
-        self.driver.post(
-            f"/invite/{token}",
-            {"email": self.member_email, "password": self.member_password},
-        )
+        self.driver.accept_invite(token, self.member_email, self.member_password)
         # Re-login as owner (invite-accept set the session to the new member).
         self.driver.cookies.clear()
         self.driver.post("/login", {"email": self.owner_email, "password": self.owner_password})
@@ -335,10 +361,7 @@ class TestRemoveMember(unittest.TestCase):
         token = re.search(
             r"(fiv_[A-Za-z0-9_-]+)", self.driver.last_outbox_body(self.member_email)
         ).group(1)
-        self.driver.post(
-            f"/invite/{token}",
-            {"email": self.member_email, "password": self.member_password},
-        )
+        self.driver.accept_invite(token, self.member_email, self.member_password)
         self.member_acct = self.driver.account_id_for_email(self.tenant_id, self.member_email)
         # Log in as the member to establish their session.
         self.member_cookies = dict(self.driver.cookies)
@@ -388,10 +411,7 @@ class TestOwnerLeave(unittest.TestCase):
         token = re.search(
             r"(fiv_[A-Za-z0-9_-]+)", self.driver.last_outbox_body(self.member_email)
         ).group(1)
-        self.driver.post(
-            f"/invite/{token}",
-            {"email": self.member_email, "password": self.member_password},
-        )
+        self.driver.accept_invite(token, self.member_email, self.member_password)
         # Re-login as owner.
         self.driver.cookies.clear()
         self.driver.post("/login", {"email": self.owner_email, "password": self.owner_password})
@@ -401,10 +421,119 @@ class TestOwnerLeave(unittest.TestCase):
 
     def test_owner_leave_refused_while_other_members_exist(self):
         csrf = self.driver.csrf()
-        status, _, _ = self.driver.post("/org/leave", {"_csrf": csrf})
+        status, body, _ = self.driver.post("/org/leave", {"_csrf": csrf})
         self.assertIn(status, (400, 403))
+        self.assertIn("Owners cannot leave", body)
         # Org still exists.
         self.assertIsNotNone(self.driver.backend.get_tenant(self.tenant_id))
+
+
+class TestOwnerLeaveAlone(unittest.TestCase):
+    """Owner leave is a truthful refusal even when no other member exists."""
+
+    def setUp(self):
+        self.driver = WebAppDriver()
+        self.owner_email = f"owner{time.time_ns()}@example.com"
+        self.driver.login(self.owner_email, "owner-password-ok")
+        self.tenant_id = self.driver.tenant_for_email(self.owner_email)
+        self.owner_acct = self.driver.account_id_for_email(self.tenant_id, self.owner_email)
+
+    def tearDown(self):
+        self.driver.close()
+
+    def test_owner_leave_refused_truthfully_and_membership_remains(self):
+        csrf = self.driver.csrf()
+        status, body, _ = self.driver.post("/org/leave", {"_csrf": csrf})
+        self.assertEqual(status, 400)
+        self.assertIn("Owners cannot leave", body)
+        self.assertEqual(self.driver.membership_count(self.owner_acct), 1)
+        self.assertIsNotNone(self.driver.backend.get_tenant(self.tenant_id))
+
+
+class TestMemberLeave(unittest.TestCase):
+    """A non-owner leave removes membership and tenant-scoped credentials."""
+
+    def setUp(self):
+        self.driver = WebAppDriver()
+        self.owner_email = f"owner{time.time_ns()}@example.com"
+        self.driver.login(self.owner_email, "owner-password-ok")
+        self.tenant_id = self.driver.tenant_for_email(self.owner_email)
+        self.member_email = f"member{time.time_ns()}@example.com"
+        self.member_password = "member-password-ok"
+        csrf = self.driver.csrf()
+        self.driver.post(
+            "/org/invite",
+            {"email": self.member_email, "role": "member", "_csrf": csrf},
+        )
+        token = re.search(
+            r"(fiv_[A-Za-z0-9_-]+)", self.driver.last_outbox_body(self.member_email)
+        ).group(1)
+        self.driver.accept_invite(token, self.member_email, self.member_password)
+        self.member_cookies = dict(self.driver.cookies)
+        self.member_token = self.member_cookies["fss_session"]
+        self.member_acct = self.driver.account_id_for_email(self.tenant_id, self.member_email)
+        self.key_id, self.agent_key = create_agent_key(
+            self.driver.backend, self.tenant_id, self.member_acct, "member-laptop"
+        )
+        _, self.second_session = create_session(
+            self.driver.backend, self.tenant_id, self.member_acct, "member"
+        )
+
+    def tearDown(self):
+        self.driver.close()
+
+    def test_member_leave_removes_membership_revokes_credentials_and_redirects(self):
+        self.driver.cookies.clear()
+        self.driver.cookies.update(self.member_cookies)
+        csrf = self.driver.csrf("/org")
+        status, _, headers = self.driver.post("/org/leave", {"_csrf": csrf})
+        self.assertEqual(status, 303)
+        self.assertEqual(headers["Location"], "/login")
+        self.assertNotIn("fss_session", self.driver.cookies)
+
+        with self.driver.backend.transaction() as tx:
+            membership = tx.execute(
+                "SELECT 1 FROM cloud_identity_members WHERE tenant_id = ? AND account_id = ?",
+                (self.tenant_id, self.member_acct),
+            ).fetchone()
+            key = tx.execute(
+                "SELECT revoked_at FROM cloud_identity_agent_keys WHERE tenant_id = ? AND key_id = ?",
+                (self.tenant_id, self.key_id),
+            ).fetchone()
+            sessions = tx.execute(
+                "SELECT COUNT(*) AS n FROM cloud_identity_sessions "
+                "WHERE tenant_id = ? AND account_id = ? AND revoked_at IS NULL",
+                (self.tenant_id, self.member_acct),
+            ).fetchone()
+        self.assertIsNone(membership)
+        self.assertIsNotNone(key["revoked_at"])
+        self.assertEqual(sessions["n"], 0)
+        with self.assertRaises(AuthError):
+            validate_session(self.driver.backend, self.member_token)
+        with self.assertRaises(AuthError):
+            validate_session(self.driver.backend, self.second_session)
+        with self.assertRaises(AuthError):
+            validate_agent_key(self.driver.backend, self.agent_key)
+
+    def test_non_owner_with_active_room_cannot_leave(self):
+        self.driver.app.rooms.create_room(
+            self.tenant_id,
+            self.member_acct,
+            "member-room-actor-token-1234",
+            name="member-owned-room",
+        )
+        self.driver.cookies.clear()
+        self.driver.cookies.update(self.member_cookies)
+        csrf = self.driver.csrf("/org")
+        status, body, _ = self.driver.post("/org/leave", {"_csrf": csrf})
+        self.assertEqual(status, 400)
+        self.assertIn("active room", body)
+        with self.driver.backend.transaction() as tx:
+            membership = tx.execute(
+                "SELECT 1 FROM cloud_identity_members WHERE tenant_id = ? AND account_id = ?",
+                (self.tenant_id, self.member_acct),
+            ).fetchone()
+        self.assertIsNotNone(membership)
 
 
 class TestMemberCannotAdmin(unittest.TestCase):
@@ -426,10 +555,7 @@ class TestMemberCannotAdmin(unittest.TestCase):
         token = re.search(
             r"(fiv_[A-Za-z0-9_-]+)", self.driver.last_outbox_body(self.member_email)
         ).group(1)
-        self.driver.post(
-            f"/invite/{token}",
-            {"email": self.member_email, "password": self.member_password},
-        )
+        self.driver.accept_invite(token, self.member_email, self.member_password)
         self.member_acct = self.driver.account_id_for_email(self.tenant_id, self.member_email)
         # Log in as the member.
         self.driver.cookies.clear()
@@ -512,10 +638,7 @@ class TestOneOrgPerAccount(unittest.TestCase):
             r"(fiv_[A-Za-z0-9_-]+)", self.driver.last_outbox_body(owner_a)
         ).group(1)
         # Owner A accepts the invite to org B — must be refused (already in org A).
-        status, _, _ = self.driver.post(
-            f"/invite/{token_b}",
-            {"email": owner_a, "password": password_a},
-        )
+        status, _, _ = self.driver.accept_invite(token_b, owner_a, password_a)
         self.assertEqual(status, 400)
         # Owner A still has exactly one membership (org A).
         self.assertEqual(self.driver.membership_count(acct_a), 1)

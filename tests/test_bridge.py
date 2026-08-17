@@ -1,4 +1,4 @@
-"""TDD tests for finalisma_mcp.bridge — universal adapters for non-MCP hosts.
+"""TDD tests for weft_mcp.bridge — universal adapters for non-MCP hosts.
 
 Covers: WebhookBridge, PollingBridge, ClipboardBridge, HttpBridgeClient,
 actor-auth binding, signature verification, one-use enforcement.
@@ -22,8 +22,8 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from finalisma_mcp.core import FinalismaStore, FinalismaError
-from finalisma_mcp.bridge import (
+from weft_mcp.core import WeftStore, WeftError
+from weft_mcp.bridge import (
     WebhookBridge,
     PollingBridge,
     ClipboardBridge,
@@ -36,7 +36,7 @@ from finalisma_mcp.bridge import (
 
 def _make_store(tmpdir):
     root = Path(tmpdir)
-    return FinalismaStore(root / "state.db", root, require_actor_auth=True)
+    return WeftStore(root / "state.db", root, require_actor_auth=True)
 
 
 def _register_agent(store, team_id, agent_id, actor_token=None):
@@ -51,7 +51,7 @@ class WebhookBridgeTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.store = _make_store(self.temp.name)
-        self.bridge = WebhookBridge(self.store)
+        self.bridge = WebhookBridge(self.store, allow_local_webhooks=True)
         cred = _register_agent(self.store, "team-1", "agent-1")
         self.actor_token = cred["actor_token"]
 
@@ -88,11 +88,20 @@ class WebhookBridgeTests(unittest.TestCase):
             )
 
     def test_register_webhook_rejects_bad_url(self):
-        with self.assertRaises(FinalismaError):
+        with self.assertRaises(WeftError):
             self.bridge.register_webhook(
                 team_id="team-1",
                 agent_id="agent-1",
                 url="ftp://example.com/hook",
+                secret_ref="whsec_test",
+                actor_token=self.actor_token,
+            )
+        secure_bridge = WebhookBridge(self.store)
+        with self.assertRaises(WeftError):
+            secure_bridge.register_webhook(
+                team_id="team-1",
+                agent_id="agent-1",
+                url="http://127.0.0.1:8080/hook",
                 secret_ref="whsec_test",
                 actor_token=self.actor_token,
             )
@@ -106,8 +115,8 @@ class WebhookBridgeTests(unittest.TestCase):
                 length = int(self.headers.get("Content-Length", 0))
                 body = self.rfile.read(length)
                 received["body"] = json.loads(body)
-                received["sig"] = self.headers.get("X-Finalisma-Signature")
-                received["ts"] = self.headers.get("X-Finalisma-Timestamp")
+                received["sig"] = self.headers.get("X-Weft-Signature")
+                received["ts"] = self.headers.get("X-Weft-Timestamp")
                 self.send_response(200)
                 self.send_header("Content-Length", "0")
                 self.end_headers()
@@ -172,7 +181,7 @@ class WebhookBridgeTests(unittest.TestCase):
             actor_token=self.actor_token,
         )
         event = {"kind": "task.dispatch", "payload": {"title": "hello"}, "agent_id": "agent-1"}
-        with self.assertRaises(FinalismaError):
+        with self.assertRaises(WeftError):
             self.bridge.deliver(
                 webhook_id=reg["webhook_id"],
                 event=event,
@@ -247,7 +256,43 @@ class PollingBridgeTests(unittest.TestCase):
 
         first = self.bridge.get_pending(team_id="team-1", agent_id="agent-1", cursor=0, actor_token=self.actor_token)
         second = self.bridge.get_pending(team_id="team-1", agent_id="agent-1", cursor=first["next_cursor"], actor_token=self.actor_token)
-        self.assertEqual(len(second["events"]), 0)
+        self.assertEqual([event["seq"] for event in second["events"]], [1, 2])
+        self.bridge.ack(
+            team_id="team-1",
+            agent_id="agent-1",
+            event_ids=[event["event_id"] for event in second["events"]],
+            actor_token=self.actor_token,
+        )
+        third = self.bridge.get_pending(
+            team_id="team-1",
+            agent_id="agent-1",
+            cursor=second["next_cursor"],
+            actor_token=self.actor_token,
+        )
+        self.assertEqual(len(third["events"]), 0)
+
+    def test_out_of_order_ack_does_not_skip_unacked_event(self):
+        self.bridge.enqueue(team_id="team-1", agent_id="agent-1", event={"kind": "test.1", "payload": {}}, actor_token=self.actor_token)
+        self.bridge.enqueue(team_id="team-1", agent_id="agent-1", event={"kind": "test.2", "payload": {}}, actor_token=self.actor_token)
+
+        first = self.bridge.get_pending(
+            team_id="team-1", agent_id="agent-1", cursor=0, actor_token=self.actor_token,
+        )
+        ack_result = self.bridge.ack(
+            team_id="team-1",
+            agent_id="agent-1",
+            event_ids=[first["events"][1]["event_id"]],
+            actor_token=self.actor_token,
+        )
+        self.assertEqual(ack_result["cursor"], 0)
+
+        resumed = self.bridge.get_pending(
+            team_id="team-1",
+            agent_id="agent-1",
+            cursor=first["next_cursor"],
+            actor_token=self.actor_token,
+        )
+        self.assertEqual([event["seq"] for event in resumed["events"]], [1])
 
     def test_ack_checkpoints_cursor(self):
         self.bridge.enqueue(team_id="team-1", agent_id="agent-1", event={"kind": "test.1", "payload": {}}, actor_token=self.actor_token)
@@ -344,7 +389,7 @@ class ClipboardBridgeTests(unittest.TestCase):
             "join_token": "fst_actor_xxx",
             "join_url": "http://127.0.0.1:8787/v1/join/fst_actor_xxx",
         }
-        with self.assertRaises(FinalismaError):
+        with self.assertRaises(WeftError):
             self.bridge.parse_bootstrap(json.dumps(bad_snippet2))
 
     def test_one_use_enforcement(self):
@@ -365,7 +410,7 @@ class ClipboardBridgeTests(unittest.TestCase):
         # First parse succeeds
         self.bridge.parse_bootstrap(json.dumps(snippet))
         # Second parse of the same nonce fails (one-use)
-        with self.assertRaises(FinalismaError):
+        with self.assertRaises(WeftError):
             self.bridge.parse_bootstrap(json.dumps(snippet))
 
     def test_generate_requires_actor_auth(self):
@@ -385,9 +430,9 @@ class HttpBridgeClientTests(unittest.TestCase):
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        from finalisma_mcp.server import FinalismaDispatcher, _MCPRequestHandler, _Metrics, _WindowRateLimiter
+        from weft_mcp.server import WeftDispatcher, _MCPRequestHandler, _Metrics, _WindowRateLimiter
         self.store = _make_store(self.temp.name)
-        self.dispatcher = FinalismaDispatcher(self.store)
+        self.dispatcher = WeftDispatcher(self.store)
         cred = _register_agent(self.store, "team-1", "agent-1")
         self.actor_token = cred["actor_token"]
 
@@ -450,7 +495,7 @@ class HttpBridgeClientTests(unittest.TestCase):
             actor_token=self.actor_token,
         )
         join_url = pairing["join_url"]
-        with self.assertRaises(FinalismaError):
+        with self.assertRaises(WeftError):
             self.client.join_link(
                 join_url=join_url,
                 agent_id="agent-2",
@@ -536,7 +581,7 @@ class HttpBridgeClientTests(unittest.TestCase):
         bad_url = join_url.split("#token=")[0] + "#token=" + pairing["join_token"]
         # This is the correct form — now try a bad one
         bad_path_url = f"{self.base_url}/v1/join/{pairing['join_token']}"
-        with self.assertRaises(FinalismaError):
+        with self.assertRaises(WeftError):
             self.client.preview_link(bad_path_url)
 
 
@@ -599,7 +644,7 @@ class BridgeInitTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         store = _make_store(temp.name)
         # init should be idempotent and create bridge tables
-        from finalisma_mcp.bridge import init_bridge
+        from weft_mcp.bridge import init_bridge
         init_bridge(store)
         init_bridge(store)  # idempotent
         with store._read() as conn:

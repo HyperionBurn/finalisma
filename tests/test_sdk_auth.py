@@ -29,7 +29,8 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from finalisma_sdk import FinalismaClient, FinalismaError
+from weft_sdk import WeftClient, WeftError
+from tests._process_cleanup import cleanup_tempdir, stop_subprocess
 
 
 def _pick_free_port() -> int:
@@ -58,7 +59,7 @@ def _spawn_coordinator(port: int, workspace: Path, actor_auth: str = "auto") -> 
     return subprocess.Popen([
             sys.executable,
             "-B",
-            "scripts/finalisma-mcp.py",
+            "scripts/weft-mcp.py",
             "--transport",
             "http",
             "--host",
@@ -70,7 +71,7 @@ def _spawn_coordinator(port: int, workspace: Path, actor_auth: str = "auto") -> 
             "--workspace",
             str(workspace),
             "--state",
-            str(workspace / ".finalisma" / "state.db"),
+            str(workspace / ".weft" / "state.db"),
             "--actor-auth",
             actor_auth,
         ],
@@ -84,13 +85,13 @@ def _spawn_coordinator(port: int, workspace: Path, actor_auth: str = "auto") -> 
     )
 
 
-def _register(base_url: str, name: str, team: str = "demo") -> tuple[FinalismaClient, str]:
+def _register(base_url: str, name: str, team: str = "demo") -> tuple[WeftClient, str]:
     """Register an agent, return (client bound to that token, token)."""
-    bootstrap = FinalismaClient(base_url, name, team)
+    bootstrap = WeftClient(base_url, name, team)
     reg = bootstrap.register(name=name, role="generalist")
     token = reg["actor_token"]
     bootstrap.close()
-    client = FinalismaClient(base_url, name, team, actor_token=token)
+    client = WeftClient(base_url, name, team, actor_token=token)
     return client, token
 
 
@@ -109,16 +110,16 @@ class SdkAuthInjectionContract(unittest.TestCase):
     port: int = 0
 
     # shared fixtures
-    owner: FinalismaClient | None = None
+    owner: WeftClient | None = None
     owner_token: str = ""
     room_id: str = ""
     link_token: str = ""
-    members: dict[str, FinalismaClient] = {}
+    members: dict[str, WeftClient] = {}
     member_tokens: dict[str, str] = {}
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.scratch = tempfile.TemporaryDirectory(prefix="finalisma-sdk-auth-")
+        cls.scratch = tempfile.TemporaryDirectory(prefix="weft-sdk-auth-")
         cls.workspace = Path(cls.scratch.name)
         cls.port = _pick_free_port()
         cls.base_url = f"http://127.0.0.1:{cls.port}/mcp"
@@ -128,7 +129,7 @@ class SdkAuthInjectionContract(unittest.TestCase):
         # Owner registers + creates a room (cap 4).
         cls.owner, cls.owner_token = _register(cls.base_url, "owner")
         room = cls.owner._call(
-            "finalisma_room_create",
+            "room_create",
             owner_agent_id="owner", cap=4, name="auth-contract",
         )
         cls.room_id = room["room_id"]
@@ -140,7 +141,7 @@ class SdkAuthInjectionContract(unittest.TestCase):
             cls.members[name] = c
             cls.member_tokens[name] = t
             c._call(
-                "finalisma_room_join",
+                "room_join",
                 room_id=cls.room_id,
                 link_token=cls.link_token,
                 agent_id=name,
@@ -154,14 +155,9 @@ class SdkAuthInjectionContract(unittest.TestCase):
             if c:
                 c.close()
         if cls.proc is not None:
-            cls.proc.terminate()
-            try:
-                cls.proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                cls.proc.kill()
-                cls.proc.wait(timeout=10)
+            stop_subprocess(cls.proc)
         if cls.scratch is not None:
-            cls.scratch.cleanup()
+            cleanup_tempdir(cls.scratch)
 
     # ---- 1. join_pairing injects actor_token (the original bug) -----------
 
@@ -187,7 +183,7 @@ class SdkAuthInjectionContract(unittest.TestCase):
     def _assert_refused(self, callable_, expected_codes: set[str]) -> None:
         try:
             callable_()
-        except FinalismaError as e:
+        except WeftError as e:
             self.assertIn(
                 e.code, expected_codes,
                 f"expected one of {expected_codes}, got {e.code}: {e.message}",
@@ -196,7 +192,7 @@ class SdkAuthInjectionContract(unittest.TestCase):
             self.fail(f"expected refusal in {expected_codes}, call succeeded")
 
     def test_02_create_room_wrong_token_refused(self) -> None:
-        bogus = FinalismaClient(
+        bogus = WeftClient(
             self.base_url, "owner", "demo",
             actor_token="rm_" + secrets.token_urlsafe(32),
         )
@@ -209,7 +205,7 @@ class SdkAuthInjectionContract(unittest.TestCase):
             bogus.close()
 
     def test_03_join_room_wrong_token_refused(self) -> None:
-        bogus = FinalismaClient(
+        bogus = WeftClient(
             self.base_url, "m1", "demo",
             actor_token="rm_" + secrets.token_urlsafe(32),
         )
@@ -225,7 +221,7 @@ class SdkAuthInjectionContract(unittest.TestCase):
             bogus.close()
 
     def test_04_room_info_wrong_token_refused(self) -> None:
-        bogus = FinalismaClient(
+        bogus = WeftClient(
             self.base_url, "m1", "demo",
             actor_token="rm_" + secrets.token_urlsafe(32),
         )
@@ -238,7 +234,7 @@ class SdkAuthInjectionContract(unittest.TestCase):
             bogus.close()
 
     def test_05_room_poll_wrong_token_refused(self) -> None:
-        bogus = FinalismaClient(
+        bogus = WeftClient(
             self.base_url, "m1", "demo",
             actor_token="rm_" + secrets.token_urlsafe(32),
         )
@@ -251,7 +247,7 @@ class SdkAuthInjectionContract(unittest.TestCase):
             bogus.close()
 
     def test_06_room_ack_wrong_token_refused(self) -> None:
-        bogus = FinalismaClient(
+        bogus = WeftClient(
             self.base_url, "m1", "demo",
             actor_token="rm_" + secrets.token_urlsafe(32),
         )
@@ -264,7 +260,7 @@ class SdkAuthInjectionContract(unittest.TestCase):
             bogus.close()
 
     def test_07_room_send_wrong_token_refused(self) -> None:
-        bogus = FinalismaClient(
+        bogus = WeftClient(
             self.base_url, "m1", "demo",
             actor_token="rm_" + secrets.token_urlsafe(32),
         )
@@ -280,7 +276,7 @@ class SdkAuthInjectionContract(unittest.TestCase):
             bogus.close()
 
     def test_08_room_heartbeat_wrong_token_refused(self) -> None:
-        bogus = FinalismaClient(
+        bogus = WeftClient(
             self.base_url, "m1", "demo",
             actor_token="rm_" + secrets.token_urlsafe(32),
         )
@@ -293,7 +289,7 @@ class SdkAuthInjectionContract(unittest.TestCase):
             bogus.close()
 
     def test_09_group_members_wrong_token_refused(self) -> None:
-        bogus = FinalismaClient(
+        bogus = WeftClient(
             self.base_url, "m1", "demo",
             actor_token="rm_" + secrets.token_urlsafe(32),
         )
@@ -309,7 +305,7 @@ class SdkAuthInjectionContract(unittest.TestCase):
             bogus.close()
 
     def test_10_add_to_group_wrong_token_refused(self) -> None:
-        bogus = FinalismaClient(
+        bogus = WeftClient(
             self.base_url, "owner", "demo",
             actor_token="rm_" + secrets.token_urlsafe(32),
         )
@@ -325,7 +321,7 @@ class SdkAuthInjectionContract(unittest.TestCase):
             bogus.close()
 
     def test_11_room_receipts_wrong_token_refused(self) -> None:
-        bogus = FinalismaClient(
+        bogus = WeftClient(
             self.base_url, "m1", "demo",
             actor_token="rm_" + secrets.token_urlsafe(32),
         )
@@ -340,7 +336,7 @@ class SdkAuthInjectionContract(unittest.TestCase):
             bogus.close()
 
     def test_12_leave_room_wrong_token_refused(self) -> None:
-        bogus = FinalismaClient(
+        bogus = WeftClient(
             self.base_url, "m1", "demo",
             actor_token="rm_" + secrets.token_urlsafe(32),
         )
@@ -353,7 +349,7 @@ class SdkAuthInjectionContract(unittest.TestCase):
             bogus.close()
 
     def test_13_close_room_wrong_token_refused(self) -> None:
-        bogus = FinalismaClient(
+        bogus = WeftClient(
             self.base_url, "owner", "demo",
             actor_token="rm_" + secrets.token_urlsafe(32),
         )
@@ -366,7 +362,7 @@ class SdkAuthInjectionContract(unittest.TestCase):
             bogus.close()
 
     def test_14_revoke_link_wrong_token_refused(self) -> None:
-        bogus = FinalismaClient(
+        bogus = WeftClient(
             self.base_url, "owner", "demo",
             actor_token="rm_" + secrets.token_urlsafe(32),
         )
@@ -388,7 +384,7 @@ class SdkAuthInjectionContract(unittest.TestCase):
         try:
             # Join the room with the good token via low-level call.
             victim._call(
-                "finalisma_room_join",
+                "room_join",
                 room_id=self.room_id, link_token=self.link_token,
                 agent_id="victim", consent=True,
             )
@@ -398,7 +394,7 @@ class SdkAuthInjectionContract(unittest.TestCase):
             self.assertNotEqual(rotated.actor_token, old_token)
 
             # A client bound to the OLD token must be refused.
-            stale = FinalismaClient(
+            stale = WeftClient(
                 self.base_url, "victim", "demo", actor_token=old_token,
             )
             try:
@@ -415,27 +411,27 @@ class SdkAuthInjectionContract(unittest.TestCase):
 
     def test_16_cross_room_isolation(self) -> None:
         """A member of room A calling room_info/poll/send on room B's id
-        is refused (room_not_found or member_required)."""
+        is refused with room_not_found (no existence oracle)."""
         other = self.owner._call(
-            "finalisma_room_create",
+            "room_create",
             owner_agent_id="owner", cap=4, name="other",
         )
         other_id = other["room_id"]
         # m1 is in self.room_id but NOT in other_id.
         self._assert_refused(
             lambda: self.members["m1"].room_info(room_id=other_id, agent_id="m1"),
-            {"room_not_found", "member_required"},
+            {"room_not_found"},
         )
         self._assert_refused(
             lambda: self.members["m1"].room_poll(room_id=other_id, agent_id="m1"),
-            {"room_not_found", "member_required"},
+            {"room_not_found"},
         )
         self._assert_refused(
             lambda: self.members["m1"].send(
                 room_id=other_id, sender_agent_id="m1",
                 target_spec="*", payload={"text": "x"},
             ),
-            {"room_not_found", "member_required"},
+            {"room_not_found"},
         )
 
     # ---- 4. Room cap -------------------------------------------------------
@@ -445,7 +441,7 @@ class SdkAuthInjectionContract(unittest.TestCase):
         # Cap must be >= 2 per coordinator validation. Use cap=2: owner
         # auto-joins (1), m1 joins (2) → full. The 3rd join attempt is refused.
         tiny = self.owner._call(
-            "finalisma_room_create",
+            "room_create",
             owner_agent_id="owner", cap=2, name="tiny",
         )
         tiny_id = tiny["room_id"]
@@ -453,7 +449,7 @@ class SdkAuthInjectionContract(unittest.TestCase):
 
         # Fill the room: m1 joins (2nd member → cap reached).
         self.members["m1"]._call(
-            "finalisma_room_join",
+            "room_join",
             room_id=tiny_id, link_token=tiny_link,
             agent_id="m1", consent=True,
         )
@@ -476,13 +472,13 @@ class SdkAuthInjectionContract(unittest.TestCase):
         """A revoked link is refused (link_revoked)."""
         # Create a room, revoke its link, then attempt to join.
         rl = self.owner._call(
-            "finalisma_room_create",
+            "room_create",
             owner_agent_id="owner", cap=4, name="rl",
         )
         rl_id = rl["room_id"]
         # Revoke the room's PRIMARY link (a distinct link_* id returned by create).
         self.owner._call(
-            "finalisma_room_revoke_link",
+            "room_revoke_link",
             room_id=rl_id, owner_agent_id="owner", link_id=rl["link_id"],
         )
         joiner, _ = _register(self.base_url, "rl-joiner")
@@ -514,7 +510,7 @@ class SdkAuthInjectionContract(unittest.TestCase):
             self.assertTrue(session_token)
 
             # Client with NO actor_token — must still send/poll/ack.
-            bare = FinalismaClient(self.base_url, "sess-b", "demo")
+            bare = WeftClient(self.base_url, "sess-b", "demo")
             try:
                 evt = bare.session_send(
                     session_token=session_token, kind="test",

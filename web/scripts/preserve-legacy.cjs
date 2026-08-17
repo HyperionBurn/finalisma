@@ -51,6 +51,15 @@ const STAGING = path.resolve(ROOT, '.legacy-staging');
 // Root-level entries that Astro regenerates or that must disappear — never snapshot.
 const ROOT_EXCLUDED = new Set(['index.html', 'agent-canvas.js', '_astro']);
 
+// Astro also emits a server manifest (`manifest_<hash>.mjs`) into the static
+// outDir. Its content embeds ABSOLUTE MACHINE PATHS (cacheDir/outDir/srcDir),
+// so the hash is different on every machine/worktree — a non-reproducible
+// artifact that must never be preserved or committed. `site/manifest_*.mjs`
+// is git-ignored, and this predicate keeps it out of the legacy staging too.
+function isRootExcluded(name) {
+  return ROOT_EXCLUDED.has(name) || /^manifest_[A-Za-z0-9]+\.mjs$/.test(name);
+}
+
 // Entries that MUST exist in site/ before a snapshot is allowed. A site/
 // lacking any of these has already been wiped and must not be captured.
 const CRITICAL = [
@@ -90,7 +99,7 @@ function snapshot() {
   }
 
   const entries = fs.readdirSync(SITE, { withFileTypes: true });
-  const expected = entries.filter((entry) => !ROOT_EXCLUDED.has(entry.name)).map((entry) => entry.name);
+  const expected = entries.filter((entry) => !isRootExcluded(entry.name)).map((entry) => entry.name);
   if (expected.length === 0) {
     console.error('[preserve-legacy] ERROR: no legacy entries found in site/. Nothing to preserve.');
     process.exit(1);
@@ -107,7 +116,7 @@ function snapshot() {
 
   ensureDir(STAGING);
   for (const entry of entries) {
-    if (ROOT_EXCLUDED.has(entry.name)) continue;
+    if (isRootExcluded(entry.name)) continue;
     const s = path.join(SITE, entry.name);
     const d = path.join(STAGING, entry.name);
     if (entry.isDirectory()) {

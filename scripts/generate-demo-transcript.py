@@ -12,11 +12,11 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from finalisma_mcp.core import FinalismaError, FinalismaStore  # noqa: E402
+from weft_mcp.core import WeftError, WeftStore  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Generate the redacted Finalisma launch-demo transcript")
+    parser = argparse.ArgumentParser(description="Generate the redacted Weft launch-demo transcript")
     parser.add_argument(
         "--output",
         default=str(PROJECT_ROOT / "site" / "assets" / "demo-transcript.json"),
@@ -26,9 +26,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def run_demo() -> dict[str, object]:
-    with tempfile.TemporaryDirectory(prefix="finalisma-launch-demo-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="weft-launch-demo-") as temporary:
         workspace = Path(temporary)
-        with FinalismaStore(workspace / "state.db", workspace) as store:
+        with WeftStore(workspace / "state.db", workspace) as store:
             agent_a = store.register_agent(
                 "incident-7f3a",
                 "agent-a",
@@ -135,11 +135,11 @@ def run_demo() -> dict[str, object]:
             digest = verified["details"]["files"][0]["sha256"]
             event_types = [event["type"] for event in reversed(status["events"])]
             return {
-                "schema": "finalisma.public-demo/v1",
-                "source": "real local FinalismaStore protocol run",
+                "schema": "weft.public-demo/v1",
+                "source": "real local WeftStore protocol run",
                 "boundary": "Agent hosts are deterministic fixtures; coordinator, SQLite state, pairing, session, lease, fencing, artifact hashing, secret scan, evidence gate, and completion are real.",
                 "credentials_redacted": True,
-                "duration_seconds": 42,
+                "duration_seconds": 43,
                 "proof": {
                     "pairing_preview_status": preview["status"],
                     "pairing_status": consumed_preview["status"],
@@ -159,7 +159,7 @@ def run_demo() -> dict[str, object]:
                     {
                         "eyebrow": "The handoff problem",
                         "headline": "One agent stalls. Copy-paste destroys the account.",
-                        "caption": "Finalisma keeps scope, ownership, ordered progress, and evidence in one inspectable record.",
+                        "caption": "Weft keeps scope, ownership, ordered progress, and evidence in one inspectable record.",
                         "agent_a": "Incident owner · context exhausted",
                         "agent_b": "Review agent · waiting outside the account",
                         "event": "No governed handoff yet",
@@ -198,7 +198,7 @@ def run_demo() -> dict[str, object]:
                         "caption": "The receiver observes sequence 1, acknowledges sequence 1, and can resume from that cursor.",
                         "agent_a": "task.offer · seq 1",
                         "agent_b": "poll → receive → ack 1",
-                        "event": "finalisma.a2a/1.0 · idempotent",
+                        "event": "weft.a2a/1.0 · idempotent",
                         "state": "posted",
                     },
                     {
@@ -238,11 +238,11 @@ def run_demo() -> dict[str, object]:
                         "state": "balanced",
                     },
                     {
-                        "eyebrow": "Finalisma · design-partner preview",
+                        "eyebrow": "Weft · design-partner preview",
                         "headline": "One incident. Two agents. One account of what happened.",
                         "caption": "Run the local proof. Then help validate the first real host pair.",
                         "agent_a": "9 documented MCP paths",
-                        "agent_b": "0 live Finalisma host validations",
+                        "agent_b": "0 live Weft host validations",
                         "event": "Codex + Claude Code proposed first pair",
                         "state": "balanced",
                     },
@@ -276,6 +276,6 @@ def main(argv: list[str] | None = None) -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except FinalismaError as exc:
+    except WeftError as exc:
         print(json.dumps({"status": "failed", "error": exc.as_dict()}, indent=2), file=sys.stderr)
         raise SystemExit(1) from exc

@@ -12,7 +12,7 @@ verify the live status at [YC Apply](https://www.ycombinator.com/apply).
 
 ## What does your company make?
 
-Finalisma is the secure coordination layer for AI-native engineering teams. It
+Weft is the secure coordination layer for AI-native engineering teams. It
 lets two agent hosts pair through a one-time link, transfer only the approved
 task context, and produce an auditable, evidence-gated handoff.
 
@@ -29,12 +29,15 @@ conversation or sharing provider credentials.
 - One-use pairing links with preview-before-consent.
 - Member-bound session credentials and replayable ordered events.
 - Scoped tasks, leases, fencing tokens, artifact hashes, and evidence gates.
-- 525 passing standard-library tests, including concurrency, restart, HTTP,
+ - 1161 passing standard-library tests (1162 discovered, 1 skipped; measured
+  locally on 2026-08-17), including concurrency, restart, HTTP,
   tenancy isolation, roster routing, durable outbox, bridge adapters, SDK
-  flows, room lifecycle, cloud storage, cross-team boundary cases, identity.
-- A locked same-machine coordinator benchmark with a re-baselined (2026-08-05)
-  weighted median of ~68.8 ms against the current extended harness, with
-  matching semantic digests and a green regression gate.
+  flows, room lifecycle, cloud storage, cross-team boundary cases, identity,
+  and the stdio-to-hosted bridge (docs/STDIO_BRIDGE.md).
+- A locked same-machine coordinator benchmark with a 72.221 ms reference artifact.
+  The latest complete local gate measured 137.404 ms weighted median / 155.381 ms
+  p95 and failed its timing guards while its quality sub-gates passed; this remains
+  an unresolved local performance blocker pending a controlled idle-host rerun.
 - A static marketing site (Astro-built) and a dependency-free coordinator. The coordinator is Python stdlib-only, SQLite, no CDN. An interactive product simulation, quickstart, and
   reproducible 42-second MP4/WebM demo generated from a real local coordinator run.
 
@@ -54,7 +57,7 @@ What we can state truthfully:
   customer median, and it does not include the human time to read docs,
   paste commands, and approve a host's MCP prompt. Treat it as a lower bound on
   the protocol, not an adoption signal.
-- **One real host validated.** The finalisma MCP server completed a full
+- **One real host validated.** The weft MCP server completed a full
   two-agent handoff through a genuine MCP host — opencode 1.18.13 — from its
   own config, with a captured transcript (`docs/INTEROP_VALIDATION_2026-08-05.md`).
   That validation also found and fixed a real interop defect (fencing tokens
@@ -65,13 +68,13 @@ The plan is to recruit a small cohort of teams already running two MCP-capable
 agent hosts, run their first three handoffs as concierge onboarding, and
 measure first-handoff time and second-weekly-handoff rates on real teams. Until
 those are real, the truthful statement is **"we are recruiting design
-partners,"** not "teams use Finalisma."
+partners,"** not "teams use Weft."
 
 ## Why now?
 
 AI-native teams increasingly use more than one agent host. The useful work is
 distributed across coding, research, review, and operations agents, but the
-handoff remains manual. MCP makes host integration possible; Finalisma supplies
+handoff remains manual. MCP makes host integration possible; Weft supplies
 the missing identity, scope, replay, and evidence contract.
 
 ## What is the insight?
@@ -90,7 +93,12 @@ do not return, narrow or kill the wedge before building hosted scale.
 
 ## What is not built yet?
 
-The current release is not a hosted multi-tenant service. Before untrusted
-public traffic we need shared transactional storage, OAuth/OIDC audience
-binding, distributed rate limits, durable delivery/retry, data retention and
-deletion, load tests, and operational alerting.
+The checkout contains a hosted multi-tenant preview implementation, but this
+checkout does not establish that an external preview is live or that signup
+works on the current deployment. Fresh authenticated deployment evidence is
+required before making that claim. The local evidence and remaining gaps are
+tracked in [`docs/RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md) and
+`docs/LIVE_DEPLOYMENT.md`.
+Before untrusted public traffic we need shared transactional storage, OAuth/OIDC
+audience binding, distributed rate limits, durable delivery/retry, data
+retention and deletion, load tests, and operational alerting.

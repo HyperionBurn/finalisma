@@ -3,7 +3,7 @@
 Authoritative spec: docs/IDENTITY_DESIGN.md section 9 (all 28 negative cases)
 and section 10 (no-secrets-in-logs).
 
-This file imports from finalisma_cloud.identity — which does NOT exist yet.
+This file imports from weft_cloud.identity — which does NOT exist yet.
 Every test here encodes a refusal that MUST fire. The refusals ARE the
 deliverable. This file must FAIL now with ModuleNotFoundError; when the
 identity plane is implemented, each test must pass without weakening.
@@ -14,26 +14,33 @@ SqliteWalBackend on a temp file, initialized with the cloud schema.
 
 from __future__ import annotations
 
+import json
 import os
+import statistics
 import sys
 import tempfile
+import threading
 import time
 import unittest
+import urllib.error
+import urllib.request
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-# Add src/ to sys.path so finalisma_cloud is importable (mirrors test_tenancy_negative.py).
+# Add src/ to sys.path so weft_cloud is importable (mirrors test_tenancy_negative.py).
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 # --- identity-plane imports: these modules do NOT exist yet (RED) ---
-from finalisma_cloud.identity.accounts import AccountStore
-from finalisma_cloud.identity.sessions import SessionStore
-from finalisma_cloud.identity.orgs import OrgStore
-from finalisma_cloud.identity.invites import InviteStore
-from finalisma_cloud.identity.context import SessionContext, RoleError
-from finalisma_cloud.identity.tokens import generate_token, hash_token
+from weft_cloud.identity.accounts import AccountStore
+from weft_cloud.identity.sessions import SessionStore
+from weft_cloud.identity.orgs import OrgStore
+from weft_cloud.identity.invites import InviteStore
+from weft_cloud.identity.context import SessionContext, RoleError
+from weft_cloud.identity.tokens import generate_token, hash_token
 
 # --- existing cloud-plane primitives (Wave F) ---
-from finalisma_cloud.storage import SqliteWalBackend
+from weft_cloud.service import WeftCloudService, _CloudHTTPHandler
+from weft_cloud.storage import SqliteWalBackend
 
 
 # ---------------------------------------------------------------------------
@@ -189,51 +196,110 @@ class IdentityNegatives(unittest.TestCase):
         self.assertEqual(exc.exception.args[0], "invalid_credentials")
 
     def test_02_unknown_user_timing_indistinguishable(self):
-        """#1/#3: unknown-user path does NOT short-circuit.
+        """#1/#3: unknown-user signin does NOT short-circuit over real HTTP.
 
         The spec requires the same scrypt computation against a dummy hash for
-        unknown emails. We measure both paths several times and assert the mean
-        times are within a tolerant ratio (the unknown path is NOT orders of
-        magnitude faster — which would signal an early return / enumeration
-        vector).
+        unknown emails. The original test called ``accounts.authenticate``
+        directly — the internal function the real entry point never reaches, so
+        it would pass even if the entire HTTP layer bailed early on a
+        tenant-lookup miss (which is exactly what the shipped oracle did).
+
+        This drives ``POST /v1/auth/signin`` over a REAL HTTP server and
+        asserts the median known-vs-unknown latency ratio stays below 3× — the
+        refusal body/status are identical, only the timing differs.
         """
-        make_tenant(self.backend, "tenant_a", "Org A")
-        self.accounts.signup(self.backend, "tenant_a", KNOWN_EMAIL, KNOWN_PASSWORD)
+        from weft_cloud.service import WeftCloudService, _CloudHTTPHandler
 
-        iterations = 5
-        unknown_times = []
-        wrong_pw_times = []
+        tmpdir = tempfile.mkdtemp(prefix="id-neg-timing-")
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), _CloudHTTPHandler)
+        service = None
+        try:
+            backend = SqliteWalBackend(str(Path(tmpdir) / "timing.db"))
+            service = WeftCloudService(backend)
+            _CloudHTTPHandler.service = service
+            port = httpd.server_address[1]
+            base = f"http://127.0.0.1:{port}"
+            thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+            thread.start()
 
-        for _ in range(iterations):
-            t0 = time.perf_counter()
+            # Create a known account through the REAL signup entry point.
+            self._http_post(base, "/v1/auth/signup",
+                            {"email": KNOWN_EMAIL, "password": KNOWN_PASSWORD})
+
+            def _signin_ms(email: str, password: str) -> float:
+                t0 = time.perf_counter()
+                status, _ = self._http_post(base, "/v1/auth/signin",
+                                            {"email": email, "password": password})
+                self.assertEqual(status, 401)
+                return (time.perf_counter() - t0) * 1000.0
+
+            # Warm up both paths (connection + scrypt caches settle).
+            for _ in range(3):
+                _signin_ms(KNOWN_EMAIL, WRONG_PASSWORD)
+                _signin_ms(UNKNOWN_EMAIL, "irrelevant")
+
+            trials = 12
+            unknown_times: list[float] = []
+            wrong_pw_times: list[float] = []
+            for _ in range(trials):
+                wrong_pw_times.append(_signin_ms(KNOWN_EMAIL, WRONG_PASSWORD))
+                unknown_times.append(_signin_ms(UNKNOWN_EMAIL, "irrelevant"))
+
+            med_unknown = statistics.median(unknown_times)
+            med_wrong = statistics.median(wrong_pw_times)
+
+            # The oracle direction: a known-email-wrong-password attempt costs
+            # one scrypt, so if the unknown-email path returns WITHOUT that
+            # work it is dramatically FASTER — known/unknown blows past 3x.
+            # The invariant is "same scrypt cost"; a ratio cap of 3× is
+            # generous. (The inverse ratio would pass even with the oracle
+            # present, which is the trap the original test fell into.)
+            ratio = med_wrong / med_unknown if med_unknown > 0 else float("inf")
+            self.assertLess(
+                ratio, 3.0,
+                f"unknown-user signin is {ratio:.2f}× faster than wrong-password "
+                f"({med_unknown:.2f}ms vs {med_wrong:.2f}ms) — "
+                f"possible user-enumeration timing oracle via HTTP",
+            )
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+            if service is not None:
+                try:
+                    service.backend.close()
+                except Exception:
+                    pass
+            import shutil
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def _http_post(self, base: str, path: str, body: dict) -> tuple[int, dict]:
+        data = json.dumps(body).encode("utf-8")
+        req = urllib.request.Request(base + path, data=data, method="POST")
+        req.add_header("Content-Type", "application/json")
+        # Retry transient connection-level failures (socket reset, refused) a
+        # couple of times so a one-off blip does not error a timing test.
+        last_error: Exception | None = None
+        for _attempt in range(3):
             try:
-                self.accounts.authenticate(self.backend, "tenant_a", UNKNOWN_EMAIL, "irrelevant")
-            except Exception:
-                pass
-            unknown_times.append(time.perf_counter() - t0)
-
-            t0 = time.perf_counter()
-            try:
-                self.accounts.authenticate(self.backend, "tenant_a", KNOWN_EMAIL, WRONG_PASSWORD)
-            except Exception:
-                pass
-            wrong_pw_times.append(time.perf_counter() - t0)
-
-        mean_unknown = sum(unknown_times) / len(unknown_times)
-        mean_wrong = sum(wrong_pw_times) / len(wrong_pw_times)
-
-        # The unknown path must not be dramatically faster. A ratio cap of 3×
-        # is generous — the real invariant is "same scrypt cost". We also bound
-        # the absolute delta so a trivially-fast both-paths still trips if one
-        # path is suspiciously quicker.
-        if mean_wrong > 0:
-            ratio = mean_unknown / mean_wrong
-            self.assertLess(ratio, 3.0,
-                            f"unknown-user path is {ratio:.2f}× faster than wrong-password "
-                            f"({mean_unknown*1000:.2f}ms vs {mean_wrong*1000:.2f}ms) — "
-                            f"possible enumeration vector")
-        self.assertLess(abs(mean_unknown - mean_wrong), 0.025,
-                        "absolute timing delta exceeds 25ms")
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    raw = resp.read()
+                    return resp.status, json.loads(raw.decode("utf-8")) if raw else {}
+            except urllib.error.HTTPError as exc:
+                # HTTPError is a SUBCLASS of URLError; it must be caught first
+                # so an expected 401 is returned, never retried as transport.
+                payload = {}
+                try:
+                    raw = exc.read()
+                    payload = json.loads(raw.decode("utf-8")) if raw else {}
+                except Exception:
+                    pass
+                finally:
+                    exc.close()  # release the unread response body / socket
+                return exc.code, payload
+            except urllib.error.URLError as exc:
+                last_error = exc
+                continue
+        raise last_error  # type: ignore[misc]  # three retries consumed
 
     # ------------------------------------------------------------------
     # 9.2 Token refusals
@@ -645,7 +711,7 @@ class IdentityNegatives(unittest.TestCase):
             self.assertNotIn(session_token, serialised)
 
     def test_17_grep_proof_no_raw_secrets_in_source(self):
-        """#28: grep src/finalisma_cloud/identity/ for 'password'/'token'.
+        """#28: grep src/weft_cloud/identity/ for 'password'/'token'.
 
         Any hit must be a field name / param / comment — never a raw secret
         value. We verify by asserting that the actual test passwords and tokens
@@ -653,7 +719,7 @@ class IdentityNegatives(unittest.TestCase):
         """
         import glob as _glob
 
-        identity_dir = Path(__file__).resolve().parent.parent / "src" / "finalisma_cloud" / "identity"
+        identity_dir = Path(__file__).resolve().parent.parent / "src" / "weft_cloud" / "identity"
         if not identity_dir.exists():
             self.skipTest("identity module not yet created (RED phase)")
 

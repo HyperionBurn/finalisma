@@ -33,7 +33,7 @@ function run(nodeArgs) {
 /** @type {import('astro').AstroIntegration} */
 module.exports = function guardLegacyIntegration() {
   return {
-    name: 'finalisma-guard-legacy',
+    name: 'weft-guard-legacy',
     hooks: {
       'astro:build:start': () => {
         // Snapshot phase: copies site/* (minus excluded) → .legacy-staging/.

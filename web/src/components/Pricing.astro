@@ -2,10 +2,12 @@
 /**
  * Pricing.astro — Three-tier pricing (pricing decision 2026-08-07).
  * Free is permanent and routes to the real signup; Pro and Enterprise route to
- * a contact form, NOT a checkout — there is no billing system. No SSO/SAML, no
- * SLA, no uptime %, no support-response claim, no invented logos or counts.
- * The contact form below builds a portable brief and copies it to clipboard.
- * Nothing is transmitted from this page.
+ * a contact widget, NOT a checkout — there is no billing system. No SSO/SAML,
+ * no SLA, no uptime %, no support-response claim, no invented logos or counts.
+ * The contact widget below builds a portable brief and copies it to clipboard.
+ * It is deliberately NOT a <form> element, so without JavaScript no default
+ * GET submission can serialise the typed details into the URL, history, or
+ * referrer. Nothing is transmitted from this page.
  */
 import { APP_SIGNUP_URL } from '../lib/app';
 
@@ -14,11 +16,11 @@ const tiers = [
     name: 'Free',
     price: '$0',
     unit: '/ month',
-    description: 'No expiry, no sales call, no clock. Five rooms and ten agents is enough to run something real.',
+    description: 'No expiry, no sales call, no clock. Ten members in one room is enough to run something real.',
     limits: [
-      '5 rooms',
-      '10 agents per room',
-      '10,000 events / month',
+      '10 members per room — enforced at the API',
+      '60 messages / min per room — enforced at the API',
+      '20 signups / IP / 15 min',
     ],
     cta: { label: 'Start free', href: APP_SIGNUP_URL, accent: true },
   },
@@ -26,11 +28,11 @@ const tiers = [
     name: 'Pro',
     price: '$39',
     unit: '/ seat / month',
-    description: 'Per seat, not per agent. 100,000 events is a hard, enforced limit — there is no overage meter yet.',
+    description: 'Per seat, not per agent. 50 members per room — the same message rate, arranged by conversation.',
     limits: [
-      '50 rooms',
-      '50 agents per room',
-      '100,000 events / month — enforced',
+      '50 members per room — enforced at the API',
+      '60 messages / min per room',
+      'Durable per-recipient receipts with read state',
     ],
     cta: { label: 'Talk to us', href: '#cohort-form', accent: true },
     featured: true,
@@ -42,8 +44,8 @@ const tiers = [
     description: 'Limits shaped to your organisation, arranged directly — no checkout exists to route through.',
     limits: [
       'Custom rooms',
-      'Custom agents per room',
-      'Custom events / month',
+      'Custom members per room',
+      'Custom message rate',
     ],
     cta: { label: 'Talk to us', href: '#cohort-form', accent: false },
   },
@@ -56,8 +58,8 @@ const tiers = [
       <p class="kicker eyebrow scroll-in">Pricing</p>
       <h2 id="pricing-title" class="scroll-in" style="--delay:80ms">Start free. Pay for seats when you need them.</h2>
       <p class="section-lede scroll-in" style="--delay:160ms">
-        Free is permanent: no expiry, no sales call, no clock. Five rooms and ten agents
-        per room is enough to run something real — the demo on this page runs four agents
+        Free is permanent: no expiry, no sales call, no clock. Ten members per
+        room is enough to run something real — the demo on this page runs two agents
         in one room, and you can reproduce that on the free tier on day one.
       </p>
     </div>
@@ -87,16 +89,21 @@ const tiers = [
     <p class="pricing-honesty scroll-in" style="--delay:320ms">
       There is no billing system yet: free works end-to-end through signup today, and Pro and
       Enterprise begin with a conversation, not a checkout. We publish no SLA, uptime, or
-      support-response commitment — we have not run this in production.
+      support-response commitment — a documented deployment is publicly reachable, but current
+      deployment synchronization and operating behavior require a fresh production probe. Our own
+      harness (not customer traffic) measured 50 agents on one room under the pro plan — 2,500
+      deliveries with zero losses, zero leaks, and wake p50 156 ms, with a single identical event
+      ordering. We have no production operating history yet, so that run is evidence of ordering
+      at this scale, not an uptime commitment.
     </p>
 
     <div class="cohort-form-wrap scroll-in" style="--delay:400ms">
       <h3 class="cohort-form__title" id="cohort-form">Talk to us about Pro or Enterprise</h3>
       <p class="cohort-form__lede">
-        Fill in your details. The form builds a short brief and copies it to your
+        Fill in your details. This builds a short brief and copies it to your
         clipboard. <strong>Nothing is transmitted from this page.</strong>
       </p>
-      <form class="cohort-form" data-cohort-form>
+      <div class="cohort-form" data-cohort-form>
         <div class="field">
           <label for="cohort-team">Team / organisation</label>
           <input id="cohort-team" name="team" type="text" placeholder="Acme Corp" required />
@@ -113,30 +120,36 @@ const tiers = [
           <label for="cohort-scenario">What you want to coordinate</label>
           <textarea id="cohort-scenario" name="scenario" rows="3" placeholder="Rooms, agents, and the handoffs you want to run."></textarea>
         </div>
-        <button class="btn btn-accent group" type="submit">Build the brief<span class="btn__icon" aria-hidden="true">→</span></button>
+        <button class="btn btn-accent group" type="button" data-cohort-build>Build the brief<span class="btn__icon" aria-hidden="true">→</span></button>
         <div class="cohort-form__status" data-cohort-status role="status" aria-live="polite"></div>
-      </form>
+      </div>
     </div>
   </div>
 </section>
 
 <script>
-  // Contact brief builder — assembles a portable brief, copies to clipboard, no transmission
+  // Contact brief builder — assembles a portable brief, copies to clipboard.
+  // The widget is NOT a <form>, so there is no default submission: without JS,
+  // the build button does nothing and nothing can be serialised into the URL.
   (function () {
-    const form = document.querySelector('[data-cohort-form]');
+    const widget = document.querySelector('[data-cohort-form]');
+    const buildBtn = document.querySelector('[data-cohort-build]');
     const statusEl = document.querySelector('[data-cohort-status]');
 
     function setStatus(msg: string) {
       if (statusEl) statusEl.textContent = msg;
     }
 
-    form?.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const data = new FormData(form);
-      const team = (data.get('team') as string || '').trim();
-      const contact = (data.get('contact') as string || '').trim();
-      const hosts = (data.get('hosts') as string || '').trim();
-      const scenario = (data.get('scenario') as string || '').trim();
+    function fieldValue(name: string): string {
+      const control = widget?.querySelector(`[name="${name}"]`);
+      return (control && (control as HTMLInputElement).value || '').trim();
+    }
+
+    async function buildBrief() {
+      const team = fieldValue('team');
+      const contact = fieldValue('contact');
+      const hosts = fieldValue('hosts');
+      const scenario = fieldValue('scenario');
 
       if (!team || !contact) {
         setStatus('Team and contact email are required.');
@@ -144,14 +157,14 @@ const tiers = [
       }
 
       const text = [
-        '=== Finalisma — Pro / Enterprise brief ===',
+        '=== Weft — Pro / Enterprise brief ===',
         '',
         `Team: ${team}`,
         `Contact: ${contact}`,
         hosts ? `Hosts: ${hosts}` : null,
         scenario ? `Scenario: ${scenario}` : null,
         '',
-        'Source: Finalisma marketing site (clipboard copy — nothing transmitted).',
+        'Source: Weft marketing site (clipboard copy — nothing transmitted).',
       ].filter(Boolean).join('\n');
 
       try {
@@ -170,6 +183,17 @@ const tiers = [
         setStatus('Brief copied to clipboard. Send it to the channel that brought you here.');
       } catch {
         setStatus('Copy failed — select and copy the text manually.');
+      }
+    }
+
+    buildBtn?.addEventListener('click', buildBrief);
+    // Enter in a single-line field builds the brief (parity with the old
+    // form's implicit submission) — JS-only; there is no form to submit.
+    widget?.addEventListener('keydown', (e) => {
+      const target = e.target as HTMLElement;
+      if (e.key === 'Enter' && target.tagName === 'INPUT' && target.getAttribute('type') !== 'submit') {
+        e.preventDefault();
+        buildBrief();
       }
     });
   })();

@@ -1,4 +1,4 @@
-# Finalisma website design QA
+# Weft website design QA
 
 ## Scope and source
 
@@ -70,7 +70,7 @@ Desktop density is 1440 x 900 at deviceScaleFactor 1. Mobile coverage is 390 x 8
 ## Product truth and information architecture
 
 - The homepage says exactly what transfers and what remains with each host.
-- Compatibility is published as nine documented MCP paths and zero live Finalisma host validations. Codex + Claude Code is a proposed first proof pair, not a completed integration.
+- Compatibility is published as nine documented MCP paths and zero live Weft host validations. Codex + Claude Code is a proposed first proof pair, not a completed integration.
 - “Coordination Protocol Preview 0.1” replaces “A2A Standard 1.0.”
 - The site bundle now includes a local quickstart, protocol preview, security boundary, compatibility ledger, three field notes, MIT license, and branded 404. All internal static links resolve inside `site/`.
 - The bundle also contains a reproducible MP4/WebM proof, poster, English captions, and AI-readable redacted run transcript. The coordinator path is real; the two agent hosts are explicitly deterministic fixtures.
@@ -78,7 +78,10 @@ Desktop density is 1440 x 900 at deviceScaleFactor 1. Mobile coverage is 390 x 8
 
 ## Fresh verification
 
-`python -B -m unittest discover -s tests -v` passes 65 tests.
+`python -B -m unittest discover -s tests -v` passed the historical website-focused
+65-test harness; the current local repository evidence is recorded in
+[`docs/RELEASE_EVIDENCE.md`](docs/RELEASE_EVIDENCE.md) (1162 discovered, 1161
+passed, 1 skipped). This does not claim browser or production proof.
 
 `node scripts/capture-site-qa.cjs` exits 0 with:
 
@@ -94,7 +97,7 @@ Desktop density is 1440 x 900 at deviceScaleFactor 1. Mobile coverage is 390 x 8
 
 The local timings are regression signals, not public field-performance claims.
 
-The locked matching-runtime coordinator evaluator also passes: 1,265.771ms baseline to 59.314ms current weighted median (95.31% improvement), all three semantic digests unchanged, 65 tests and protocol smoke green, and no raw credential in output. This is a same-machine SQLite hot-path result, not a model-speed or network claim.
+The locked matching-runtime coordinator evaluator's historical result was 1,265.771ms baseline to 59.314ms weighted median (95.31% improvement), with all three semantic digests unchanged, 65 tests and protocol smoke green, and no raw credential in output. The current reference artifact is 72.221ms; the latest complete local gate measured 137.404ms weighted median / 155.381ms p95 and failed its timing guards while the quality sub-gates passed. A controlled idle-host rerun remains required before attributing that regression to code. These are same-machine SQLite hot-path results, not model-speed or network claims.
 
 A separate native MiMo v2.5 production-web review returned PASS with no P0 or P1 local defect. Its domain-independent share findings (`og:site_name` and explicit `twitter:image`) were implemented and test-locked. Absolute social/canonical URLs, `og:url`, and a standards-valid sitemap remain correctly deferred until a real deployment origin exists.
 

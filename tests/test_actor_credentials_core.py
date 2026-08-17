@@ -10,23 +10,23 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from finalisma_mcp.core import FinalismaError, FinalismaStore
+from weft_mcp.core import WeftError, WeftStore
 
 
 class ActorCredentialCoreTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
-        self.state_path = self.root / ".finalisma" / "state.db"
-        self.stores: list[FinalismaStore] = []
+        self.state_path = self.root / ".weft" / "state.db"
+        self.stores: list[WeftStore] = []
 
     def tearDown(self) -> None:
         for store in self.stores:
             store.close()
         self.temp.cleanup()
 
-    def store(self, *, require_actor_auth: bool = False) -> FinalismaStore:
-        store = FinalismaStore(
+    def store(self, *, require_actor_auth: bool = False) -> WeftStore:
+        store = WeftStore(
             self.state_path,
             self.root,
             heartbeat_timeout=30,
@@ -35,8 +35,8 @@ class ActorCredentialCoreTests(unittest.TestCase):
         self.stores.append(store)
         return store
 
-    def assert_error(self, code: str, call, *args, **kwargs) -> FinalismaError:
-        with self.assertRaises(FinalismaError) as caught:
+    def assert_error(self, code: str, call, *args, **kwargs) -> WeftError:
+        with self.assertRaises(WeftError) as caught:
             call(*args, **kwargs)
         self.assertEqual(caught.exception.code, code)
         return caught.exception
@@ -222,7 +222,7 @@ class ActorCredentialCoreTests(unittest.TestCase):
             try:
                 result = secured.rotate_agent_credential("team", "agent-a", old_token)
                 return ("ok", result["actor_token"])
-            except FinalismaError as exc:
+            except WeftError as exc:
                 return (exc.code, None)
 
         with ThreadPoolExecutor(max_workers=2) as pool:
@@ -246,6 +246,30 @@ class ActorCredentialCoreTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(row["token_hash"], hashlib.sha256(new_token.encode("utf-8")).hexdigest())
         self.assertEqual(row["rotation_count"], 1)
+
+    def test_unauthenticated_rotation_does_not_leak_agent_existence(self) -> None:
+        trusted = self.store()
+        trusted.register_agent("team", "agent-a")
+        secured = self.store(require_actor_auth=True)
+
+        def unauth_code(agent_id: str) -> str:
+            with self.assertRaises(WeftError) as caught:
+                secured.rotate_agent_credential("team", agent_id)
+            return caught.exception.code
+
+        real = unauth_code("agent-a")
+        fake = unauth_code("no-such-agent-zzz")
+        self.assertEqual(real, fake, "unauth rotate must not reveal whether the agent exists")
+        self.assertEqual(real, "actor_auth_required")
+
+        def bad_token_code(agent_id: str) -> str:
+            with self.assertRaises(WeftError) as caught:
+                secured.rotate_agent_credential("team", agent_id, "fst_actor_bogus_token_value_which_is_long")
+            return caught.exception.code
+
+        real_bad = bad_token_code("agent-a")
+        fake_bad = bad_token_code("no-such-agent-zzz")
+        self.assertEqual(real_bad, fake_bad, "bad-token rotate must not reveal agent existence either")
 
     def test_v2_migration_does_not_claim_credentials_and_trusted_rotation_recovers(self) -> None:
         self.state_path.parent.mkdir(parents=True, exist_ok=True)

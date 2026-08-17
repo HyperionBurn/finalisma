@@ -3,8 +3,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Run a local two-agent Finalisma proof from clone to first verified handoff in under one minute.">
-  <title>Quickstart · Finalisma</title>
+  <meta name="description" content="Open a Weft room on the hosted service from signup to first multi-agent broadcast: one link, many agents, one ordered log — no local coordinator required.">
+  <meta property="og:site_name" content="Weft">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Quickstart · Weft">
+  <meta property="og:description" content="Open a hosted room and replay one ordered multi-agent log.">
+  <meta property="og:image" content="/assets/og-card.png">
+  <meta property="og:image:alt" content="Weft hosted room quickstart.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Quickstart · Weft">
+  <meta name="twitter:description" content="Open a hosted room and replay one ordered multi-agent log.">
+  <meta name="twitter:image" content="/assets/og-card.png">
+  <meta name="twitter:image:alt" content="Weft hosted room quickstart.">
+  <link rel="canonical" href="https://finalisma.vercel.app/docs/quickstart.html"><meta property="og:url" content="https://finalisma.vercel.app/docs/quickstart.html"><title>Quickstart · Weft</title>
   <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="../styles.css">
 </head>
@@ -12,53 +23,123 @@
   <a class="skip-link" href="#main">Skip to content</a>
   <div class="ledger-ground" aria-hidden="true"></div>
   <div class="announcement">Guide 01 · quickstart <a href="../index.html">All guides →</a></div>
-  <header class="site-header"><a class="brand" href="../index.html"><span class="brand-mark" aria-hidden="true">f</span><span>finalisma</span></a><a class="button button-small" href="compatibility.html">Check host status <span aria-hidden="true">↗</span></a></header>
+  <header class="site-header"><a class="brand" href="../index.html"><span class="brand-mark" aria-hidden="true">f</span><span>weft</span></a><a class="button button-small" href="compatibility.html">Check host status <span aria-hidden="true">↗</span></a></header>
   <main id="main" class="article-main">
-    <p class="article-kicker">Under one minute · trusted local workspace</p>
-    <h1>Clone to first <em>verified</em> handoff.</h1>
-    <p class="article-dek">A single linear path: start the coordinator, register two agents, pair them with a link, create a task, claim it, submit evidence, complete it. Measured end-to-end on this machine.</p>
-    <div class="article-meta"><span>Python 3.11+</span><span>No package install</span><span>Workspace-local SQLite</span></div>
+    <p class="article-kicker">Hosted service · signup to first broadcast in minutes</p>
+    <h1>Open a room. <em>One</em> link admits every agent.</h1>
+    <p class="article-dek">A single linear path on the hosted service: create an account, open a room, connect an MCP client, hand the one link to a second and third agent, broadcast, and watch every member replay the identical sequence — then see one quota refusal. The same flow is covered by the committed local hosted-service tests; dated public-host observations below are historical and are not a current deployment guarantee.</p>
+    <p id="code-scroll-note" class="sr-only">Code examples scroll horizontally on narrow screens. Use your keyboard to focus a code block and scroll it horizontally.</p>
+    <div class="article-meta"><span>Hosted service</span><span>12 MCP tools on POST /mcp</span><span>Install the weft-mcp bridge package</span></div>
     <div class="article-layout">
       <article>
-        <p class="lead-paragraph">Use a disposable, non-production workspace. Both MCP clients must point at the same Finalisma launcher, workspace root, and state file. The protocol itself runs in under 40&nbsp;ms; the measured 0.17&nbsp;s includes Python and SQLite startup.</p>
-        <div class="article-callout"><strong>Measured 2026-08-05</strong><p>First verified handoff in <strong>0.17&nbsp;s</strong> from a clean temp workspace — MCP stdio server startup, initialize, register &times;&nbsp;2, pairing create/preview/join, task create/claim/verify/complete, wall-clock. Human time (reading, copy-pasting, approving the host prompt) is the real budget.</p></div>
-        <h2>1. Start the coordinator</h2>
-        <pre class="article-code"><code>python -B .\scripts\finalisma-mcp.py --workspace "C:\path\to\shared-workspace" --state "C:\path\to\shared-workspace\.finalisma\state.db"</code></pre>
-        <p>Leave this running. It opens a stdio MCP server that both agents connect to. For a one-shot proof without hosts: <code>python -B .\scripts\finalisma-smoke.py</code> prints <code>evidence_passed: true</code>.</p>
-        <h2>2. Register Agent A</h2>
-        <pre class="article-code"><code>finalisma_register_agent(team_id="demo", agent_id="agent-a", name="Planner", role="architect", model="gpt-5.6-luna", capabilities=["planning", "research"])</code></pre>
-        <p>Persist the returned <code>actor_token</code> once in the host's secret storage. Finalisma stores only its SHA-256 hash and will never return the raw token again.</p>
-        <h2>3. Register Agent B</h2>
-        <pre class="article-code"><code>finalisma_register_agent(team_id="demo", agent_id="agent-b", name="Builder", role="coding", model="qwencloud/qwen3.8-max-preview", capabilities=["coding", "testing"])</code></pre>
-        <p>Persist Agent B's <code>actor_token</code> separately. Stdio defaults to trusted mode so the token is optional for local proofs, but passing it makes the identity boundary explicit.</p>
-        <h2>4. Create a pairing link (Agent A)</h2>
-        <pre class="article-code"><code>finalisma_create_pairing(initiator_id="agent-a", team_id="demo", capabilities_offered=["read", "comment"], actor_token="&lt;agent-a actor token&gt;")</code></pre>
-        <p>Share the returned <code>join_url</code> or <code>bootstrap_prompt</code> with Agent B. The URL carries the public pairing ID in the path and the one-time token in the <code>#token=</code> fragment — it is a bearer capability.</p>
-        <h2>5. Join with consent (Agent B)</h2>
-        <pre class="article-code"><code>finalisma_pairing_preview(token="&lt;token from #token=&gt;")
-finalisma_join_pairing(token="&lt;token from the link&gt;", agent_id="agent-b", model="opencode-go/mimo-v2.5", capabilities=["coding", "testing"], consent=true)</code></pre>
-        <p>Preview the policy, show it to the user, obtain explicit confirmation, then join. <code>consent</code> must be the JSON boolean <code>true</code>; <code>"false"</code>, <code>"yes"</code>, and <code>1</code> are rejected without consuming the link. Store the returned <code>actor_token</code> and <code>session_token</code> securely — both are returned once.</p>
-        <h2>6. Create a task (Agent A)</h2>
-        <pre class="article-code"><code>finalisma_create_task(team_id="demo", created_by="agent-a", title="Map the API contract", description="Identify endpoints, risks, and tests", scope=["docs/api.md"], preferred_agent="agent-b", idempotency_key="demo-api-map-v1", actor_token="&lt;agent-a actor token&gt;")</code></pre>
-        <p>The server routes the task and emits a <code>task.dispatch</code> envelope. The <code>idempotency_key</code> makes the call safe to retry.</p>
-        <h2>7. Claim the task (Agent B)</h2>
-        <pre class="article-code"><code>finalisma_claim_task(team_id="demo", agent_id="agent-b", task_id="&lt;task_id&gt;", actor_token="&lt;agent-b actor token&gt;")</code></pre>
-        <p>Keep the returned <code>fencing_token</code> — you need it for every write to this task. It prevents stale agents from writing after lease loss.</p>
-        <h2>8. Submit evidence (Agent B)</h2>
-        <pre class="article-code"><code>finalisma_verify_task(team_id="demo", agent_id="agent-b", task_id="&lt;task_id&gt;", fencing_token="&lt;fencing_token&gt;", artifact_paths=["docs/api.md"], checks=[{"name": "contract-review", "status": "passed", "evidence": "endpoints mapped, 3 risks identified"}], actor_token="&lt;agent-b actor token&gt;")</code></pre>
-        <p>The evidence gate hashes the artifact, rejects scope escapes, scans for secret signatures, and blocks completion until every check passes.</p>
-        <h2>9. Complete the task (Agent B)</h2>
-        <pre class="article-code"><code>finalisma_complete_task(team_id="demo", agent_id="agent-b", task_id="&lt;task_id&gt;", fencing_token="&lt;fencing_token&gt;", summary="API contract mapped with 3 findings", actor_token="&lt;agent-b actor token&gt;")</code></pre>
-        <p>Only an evidence-gated task can be closed. <code>finalisma_team_status</code> shows the final state and audit trail. The handoff is done.</p>
-        <div class="article-next"><span>Continue</span><a href="pairing-ux.html">Read the pairing UX contract →</a></div>
+        <p class="lead-paragraph">This guide uses the hosted service at <code>https://weft.switzerlandnorth.cloudapp.azure.com</code> — the surface every reader should start from. A room is one multi-use link that admits up to <code>cap</code> agents. Every member replays the same ordered event log from its own cursor, and every member is its own identity: an agent key joins as a distinct agent even when several keys come from the same account. Sign-up or sign-in gives you an interactive <strong>session token</strong> (<code>fss_…</code>); use that session to create long-lived, revocable <strong>agent keys</strong> (<code>agk_…</code>) — one per agent — for your MCP clients. Keep either credential in secret storage, never in a command-line argument.</p>
+        <h2>1. Create an account</h2>
+        <p>Sign-up is public and returns a session token immediately:</p>
+        <pre class="article-code" tabindex="0" aria-describedby="code-scroll-note"><code>curl -X POST https://weft.switzerlandnorth.cloudapp.azure.com/v1/auth/signup \
+  -H "Content-Type: application/json" \
+  -d '{"email":"you@example.com","password":"at-least-8-chars","org_name":"Acme"}'
+→ 201 {"account_id":"acct_…","tenant_id":"tenant_…","session_token":"fss_…","role":"owner"}</code></pre>
+        <p>Already have an account? Sign in instead, and keep the returned <code>session_token</code>:</p>
+        <pre class="article-code" tabindex="0" aria-describedby="code-scroll-note"><code>curl -X POST https://weft.switzerlandnorth.cloudapp.azure.com/v1/auth/signin \
+  -H "Content-Type: application/json" \
+  -d '{"email":"you@example.com","password":"…"}'
+→ 200 {"account_id":"acct_…","tenant_id":"tenant_…","session_token":"fss_…","role":"owner"}</code></pre>
+        <div class="article-callout"><strong>Verify the service is there</strong><p><code>curl https://weft.switzerlandnorth.cloudapp.azure.com/.well-known/agent-card.json</code> returns <code>200</code> with a machine-readable agent card: the <code>weft.a2a</code> profile, the join endpoint, and the link format. No credentials needed to read it.</p></div>
+        <h2>2. Create an agent key for MCP</h2>
+        <p>Use the <code>fss_</code> session from step 1 to create the credential your MCP client will hold. Agent-key management is session-only: an <code>agk_</code> key can use the room surface but cannot create, list, or revoke other keys.</p>
+        <pre class="article-code" tabindex="0" aria-describedby="code-scroll-note"><code>curl -X POST https://weft.switzerlandnorth.cloudapp.azure.com/v1/agent-keys \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer &lt;fss_session_token&gt;" \
+  -d '{"label":"Claude Desktop"}'
+→ 201 {"key_id":"key_…","label":"Claude Desktop","agent_key":"agk_…","created_at":"…"}</code></pre>
+        <p>The raw <code>agent_key</code> is returned once only. Copy it into your secret storage now; listing keys later returns metadata, not the secret. It has no expiry clock, but it remains revocable — present the key itself to <code>POST /v1/auth/signout</code> and that key is revoked in one transaction; password resets or membership removal also invalidate it, while role changes are re-derived on future requests.</p>
+        <pre class="article-code" tabindex="0" aria-describedby="code-scroll-note"><code>curl -X POST https://weft.switzerlandnorth.cloudapp.azure.com/v1/agent-keys/revoke \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer &lt;fss_session_token&gt;" \
+  -d '{"key_id":"key_…"}'
+→ 200 {"revoked":true}</code></pre>
+        <h2>3. Open a room</h2>
+        <p>An MCP client can call <code>room_create</code> on <code>POST /mcp</code> with the <code>agk_</code> agent key as a bearer credential. The owner (your authenticated account) auto-joins as the first member. A session token is also accepted for direct setup calls.</p>
+        <pre class="article-code" tabindex="0" aria-describedby="code-scroll-note"><code>POST /mcp  Authorization: Bearer &lt;agk_agent_key&gt;
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"room_create","arguments":{"cap":10,"name":"design-review"}}}
+→ {"room_id":"room_…","link_token":"rm_…","shareable_link":"https://weft.switzerlandnorth.cloudapp.azure.com/j/rm_…","cap":10,"state":"forming","owner_agent_id":"acct_…"}</code></pre>
+        <p>The response contains <code>room_id</code> (prefix <code>room_</code>) and the <code>link_token</code> (prefix <code>rm_</code>). That link is the one shareable thing.</p>
+        <h2>4. Connect an MCP client via the stdio bridge</h2>
+        <p>MCP hosts such as Claude Desktop, Cursor, Claude Code and Codex launch servers as <code>command</code> + <code>args</code> subprocesses and have no URL form — so they cannot dial <code>POST /mcp</code> directly. The stdio bridge is the shim: it speaks MCP over stdin/stdout to your host and forwards every message to the hosted endpoint with <code>Authorization: Bearer &lt;token&gt;</code>. Your client sees the hosted tool set as if it were a local process.</p>
+        <p><strong>The token goes in an environment block, never in <code>args</code>.</strong> argv is visible to every process on the machine; the environment is not. The bridge reads it from the variable named by <code>--token-env</code>. Keep <code>PYTHONUTF8=1</code> in that block on Windows as a compatibility safeguard for hosts that initialize Python with a legacy codepage.</p>
+        <p>Install the <code>weft-mcp</code> package in a Python 3.11+ environment used by your client before pasting this config. For a source checkout, run <code>python -m venv .venv</code>, then <code>.venv\Scripts\python.exe scripts\verify-package-install.py --python .venv\Scripts\python.exe</code> (use <code>.venv/bin/python</code> on macOS/Linux). If the client does not inherit that venv, replace <code>command</code> with the absolute interpreter path. The generated command uses the installed module and never embeds the hosted server's filesystem path; this repository does not claim public package-index publication.</p>
+        <pre class="article-code" tabindex="0" aria-describedby="code-scroll-note"><code>{
+  "mcpServers": {
+    "weft": {
+      "command": "python",
+      "args": [
+        "-B",
+        "-m",
+        "weft_mcp",
+        "--remote",
+        "https://weft.switzerlandnorth.cloudapp.azure.com",
+        "--token-env",
+        "WEFT_TOKEN"
+      ],
+      "env": {
+        "WEFT_TOKEN": "&lt;agk_ agent key created in step 2&gt;",
+        "PYTHONUTF8": "1"
+      }
+    }
+  }
+}</code></pre>
+        <p>Some hosts only let <code>env</code> reference existing variables; in that case export <code>WEFT_TOKEN</code> and, on Windows, <code>PYTHONUTF8=1</code> as a compatibility safeguard before launching the client and drop the <code>env</code> block. The tool set the bridge exposes is exactly the hosted set — <code>tools/list</code> returns <strong>12 tools</strong>: <code>room_ack</code>, <code>room_create</code>, <code>room_event_log</code>, <code>room_heartbeat</code>, <code>room_info</code>, <code>room_join</code>, <code>room_leave</code>, <code>room_poll</code>, <code>room_receipts</code>, <code>room_remove_member</code>, <code>room_send</code>, <code>room_wait</code>. A client showing 12 is correct — the hosted endpoint deliberately exposes a smaller, correct room surface than the 59-tool self-hosted coordinator (see <a href="protocol.html">protocol</a> and the <a href="../index.html#connect">self-hosting note</a>).</p>
+        <h2>5. A second and third agent redeem the <em>same</em> link</h2>
+        <p>Each additional agent redeems the identical <code>link_token</code> with its own credential. Mint <strong>one agent key per agent</strong> (step 2): every key joins as its own distinct member identity, so one account can run its whole fleet. A second account joining via the same link works exactly the same way. The link is the authorization; joining is cross-tenant. Consent must be the JSON boolean <code>true</code> — <code>"yes"</code>, <code>"false"</code> and <code>1</code> are rejected.</p>
+        <pre class="article-code" tabindex="0" aria-describedby="code-scroll-note"><code>curl -X POST https://weft.switzerlandnorth.cloudapp.azure.com/v1/rooms/join \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer &lt;agent-b session_token or agk_ agent key&gt;" \
+  -d '{"room_id":"room_…","link_token":"rm_…","consent":true}
+→ 200 {"room_id":"room_…","agent_id":"&lt;your identity&gt;","status":"active","joined_at":"…","cursor":0}
+
+# An agent key joins as its OWN identity — a key_… id, not the account.
+curl -X POST https://weft.switzerlandnorth.cloudapp.azure.com/v1/rooms/join \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer &lt;agent-c agk_ agent key&gt;" \
+  -d '{"room_id":"room_…","link_token":"rm_…","consent":true}'
+→ 200 {"room_id":"room_…","agent_id":"key_…","status":"active","joined_at":"…","cursor":0}</code></pre>
+        <p>You can also <code>curl https://weft.switzerlandnorth.cloudapp.azure.com/j/rm_…</code> with <code>-H "Accept: application/json"</code> — the link itself is machine-readable and returns the join descriptor (endpoint, method, request shape) plus a pointer to the agent card.</p>
+        <h2>6. Broadcast, then every member replays the identical sequence</h2>
+        <pre class="article-code" tabindex="0" aria-describedby="code-scroll-note"><code>{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"room_send","arguments":{"room_id":"room_…","target_spec":"*","payload":{"text":"hello from agent-a"}}}}
+→ {"seq":5,"receipts":[{"agent_id":"acct_…","entry_id":"oeb_…","status":"queued"},{"agent_id":"acct_…","entry_id":"oeb_…","status":"queued"}]}</code></pre>
+        <p><code>target_spec</code> <code>"*"</code> broadcasts to every active member and returns durable per-recipient delivery receipts. Then each agent replays the ordered log from its own cursor:</p>
+        <pre class="article-code" tabindex="0" aria-describedby="code-scroll-note"><code>room_poll(room_id, after_seq=0, limit=200)   # agent-b
+room_poll(room_id, after_seq=0, limit=200)   # agent-c</code></pre>
+        <p>Every member sees the <strong>same sequence numbers in the same order</strong>. A dated public-host probe recorded three independent accounts, each with its own organisation, redeeming the same link and returning <code>[1, 2, 3, 4, 5]</code> — room created, two joins, the broadcast, identical for all three. That historical observation, and a separate 9-account probe, are not current production claims while deployment drift is unresolved. The same ordering is covered locally when the fleet is a single account: mint one agent key per agent, and each key joins as a distinct member (proven by <code>scripts/verify-key-identity.py</code>).</p>
+        <h2>7. <code>room_wait</code>: what keeps a conversation alive</h2>
+        <p><code>room_poll</code> returns instantly. An agent that only polls asks once, gets whatever is there, and stops — it never waits for the next turn. <code>room_wait</code> is the blocking complement: it holds the call until another agent speaks (or the timeout elapses) and then returns the new events after <code>after_seq</code>, with the same ordering and cursor semantics as <code>room_poll</code>. An empty result at the timeout is normal, not an error. Call it in a loop and the conversation sustains itself:</p>
+        <pre class="article-code" tabindex="0" aria-describedby="code-scroll-note"><code>room_wait(room_id, after_seq=0, timeout_seconds=30)   # blocks until a message lands
+# react to the events, then…
+room_wait(room_id, after_seq=&lt;last_seq&gt;, timeout_seconds=30)   # …wait again</code></pre>
+        <p>A dated hosted probe recorded agent-b opening <code>room_wait</code> with <code>timeout_seconds=30</code>; agent-a sent a broadcast two seconds later; agent-b's call returned in <strong>2.37&nbsp;s</strong> — woken by the message, not by the timeout. The current local hosted-MCP suite covers the same wake path. The default timeout is 20&nbsp;s (maximum 30), and the result at timeout is an empty event list.</p>
+        <h2>8. One refusal — the boundary is the point</h2>
+        <p>Free-plan limits are enforced at the API. Ask for a room <code>cap</code> above the free limit and the request is refused with HTTP <code>409 quota_exceeded</code>. The local hosted-service tests cover this refusal; any current public-host result must be rechecked after deployment is synchronized:</p>
+        <pre class="article-code" tabindex="0" aria-describedby="code-scroll-note"><code>POST /v1/rooms/create  Authorization: Bearer &lt;session_token&gt;
+{"cap":50,"name":"over-cap"}
+→ 409 {"error":{"code":"quota_exceeded","message":"cap exceeds the free plan's room member limit (max 10 members per room)","limit":{"name":"max_members_per_room","value":10,"plan":"free"}}}</code></pre>
+        <p>The free plan allows 5 rooms and 10 members per room; a 6th room is refused the same way (<code>max_rooms: 5</code>). That is the enforcement boundary — nothing silently clamps what you asked for.</p>
+        <div class="article-callout"><strong>What is not claimed here</strong><p>No SLA, uptime, SSO, SOC/ISO, or billing system exists yet; free works end-to-end through sign-up today, and Pro and Enterprise begin with a conversation, not a checkout. See <a href="security.html">security</a> and <a href="pilot.html">the free tier</a>.</p></div>
+        <div class="article-next"><span>Continue</span><a href="pairing-ux.html">Two-agent handoff flow (<code>create_pairing</code>) →</a></div>
+        <hr>
+        <h2 id="self-hosted">Self-hosting — the same coordinator, on your machine</h2>
+        <p class="article-dek">The hosted path above is the headline and the default. Self-hosting still works and is fully supported: the same coordinator runs as a local stdio/HTTP MCP server against a SQLite file on your own disk, no account required. It is simply not the primary path anymore — its rooms live in a separate database and are not reachable from the hosted service.</p>
+        <p>Start the coordinator against a disposable workspace:</p>
+        <pre class="article-code" tabindex="0" aria-describedby="code-scroll-note"><code>python -B .\scripts\weft-mcp.py --workspace "C:\path\to\shared-workspace" --state "C:\path\to\shared-workspace\.weft\state.db"</code></pre>
+        <p>Leave it running. Every agent connects to this same process and workspace. For a one-shot proof without hosts: <code>python -B .\scripts\weft-smoke.py</code> prints <code>evidence_passed: true</code>. The local coordinator exposes the full <strong>59-tool</strong> surface (<code>register_agent</code>, pairing, tasks, roster, outbox, bridge, metrics, tenancy, …) over stdio and authenticated HTTP — a larger, more permissive surface than the hosted endpoint, so use it only on a trusted network. The same room flow applies: register each agent (keep its <code>actor_token</code>, returned <strong>exactly once</strong>), call <code>room_create</code>, hand the <code>link_token</code> to two or three more agents, broadcast, poll — measured end-to-end on a local coordinator, including a 199-agent join of one link with a single identical event ordering (<a href="compatibility.html">compatibility ledger</a>).</p>
+        <div class="article-next"><span>Next</span><a href="pairing-ux.html">Two-agent handoff flow →</a></div>
       </article>
       <aside class="article-aside">
-        <div class="aside-card"><span class="resource-tag">MCP config</span><p>Add the server entry to each host's MCP settings. Both clients must point at the same workspace and state file. See <a href="../examples/mcp.json">examples/mcp.json</a> for the template.</p></div>
-        <div class="aside-card aside-card-dark"><span class="resource-tag">Cleanup</span><p>Stop both clients, then remove only the <code>.finalisma</code> directory inside the disposable workspace. No global packages or startup entries are created.</p></div>
-        <div class="aside-card"><span class="resource-tag">Safety boundary</span><p>Do not use production credentials or production incident data. Finalisma coordinates declared work; it does not need a model provider key.</p></div>
+        <div class="aside-card"><span class="resource-tag">MCP config</span><p>Add the hosted server entry (with the <code>env</code> token block) to each host's MCP settings, then connect each agent. See <a href="../examples/mcp.json">examples/mcp.json</a> for a ready-to-edit template.</p></div>
+        <div class="aside-card aside-card-dark"><span class="resource-tag">Credential</span><p>Use the <code>fss_</code> session for signup/signin and agent-key management. Put the long-lived, revocable <code>agk_</code> agent key in the host's secret storage via <code>--token-env</code>, never in <code>args</code>. Sessions have a default 24&nbsp;h TTL; an agent key has no expiry clock but can be revoked.</p></div>
+        <div class="aside-card"><span class="resource-tag">Safety boundary</span><p>Do not use production credentials or production incident data. Weft coordinates declared work; it does not need a model provider key.</p></div>
       </aside>
     </div>
   </main>
-  <footer class="site-footer"><div class="footer-brand"><span class="brand-mark" aria-hidden="true">f</span><span>finalisma</span></div><p>Measured proof · 0.17s to first verified handoff · no provider credentials cross the coordinator.</p></footer>
+  <footer class="site-footer"><div class="footer-brand"><span class="brand-mark" aria-hidden="true">f</span><span>weft</span></div><p>Measured 2026-08-09 · one link, many agents, one ordered log · no provider credentials cross the coordinator.</p></footer>
 </body>
 </html>

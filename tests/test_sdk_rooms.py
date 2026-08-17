@@ -1,12 +1,12 @@
 """SDK-tier RED integration tests for the Wave SDK-ROOMS public room API.
 
-Drives a REAL coordinator over HTTP using ONLY the public FinalismaClient
+Drives a REAL coordinator over HTTP using ONLY the public WeftClient
 room methods — the private `_call` is never used here. These tests lock the
-contract the SDK-ROOMS orchestrator must implement on FinalismaClient.
+contract the SDK-ROOMS orchestrator must implement on WeftClient.
 
 Run:  python -B -m unittest tests.test_sdk_rooms -v   (<30s)
 
-Expected: FAIL RED — the public room API does not exist yet on FinalismaClient.
+Expected: FAIL RED — the public room API does not exist yet on WeftClient.
 That is the whole point: this file is the TDD contract, written before the
 implementation.
 """
@@ -27,9 +27,9 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 # --- These imports are the contract. They WILL raise ImportError until the
 #     orchestrator adds the room API surface + dataclasses to the SDK. ---
-from finalisma_sdk import (  # noqa: E402  (expected AttributeError/ImportError)
-    FinalismaClient,
-    FinalismaError,
+from weft_sdk import (  # noqa: E402  (expected AttributeError/ImportError)
+    WeftClient,
+    WeftError,
     RoomResult,
     RoomJoinResult,
     RoomInfo,
@@ -38,8 +38,9 @@ from finalisma_sdk import (  # noqa: E402  (expected AttributeError/ImportError)
     RoomPoll,
     RoomEvent,
 )
+from tests._process_cleanup import cleanup_tempdir, stop_subprocess
 
-# Names that MUST be exported from finalisma_sdk for the tests to even load.
+# Names that MUST be exported from weft_sdk for the tests to even load.
 _REQUIRED_EXPORTS = [
     "RoomResult",
     "RoomJoinResult",
@@ -78,12 +79,12 @@ class _RoomHarness:
     _live: list["_RoomHarness"] = []
 
     def __init__(self) -> None:
-        self.scratch = tempfile.TemporaryDirectory(prefix="finalisma-sdk-rooms-")
+        self.scratch = tempfile.TemporaryDirectory(prefix="weft-sdk-rooms-")
         self.workspace = Path(self.scratch.name)
         self.port = _pick_free_port()
         self.base_url = f"http://127.0.0.1:{self.port}/mcp"
         self.proc: subprocess.Popen | None = None
-        self.clients: dict[str, FinalismaClient] = {}
+        self.clients: dict[str, WeftClient] = {}
         self.tokens: dict[str, str] = {}
         self._live.append(self)
 
@@ -92,7 +93,7 @@ class _RoomHarness:
             [
                 sys.executable,
                 "-B",
-                "scripts/finalisma-mcp.py",
+                "scripts/weft-mcp.py",
                 "--transport",
                 "http",
                 "--host",
@@ -104,7 +105,7 @@ class _RoomHarness:
                 "--workspace",
                 str(self.workspace),
                 "--state",
-                str(self.workspace / ".finalisma" / "state.db"),
+                str(self.workspace / ".weft" / "state.db"),
             ],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
@@ -118,11 +119,11 @@ class _RoomHarness:
         # Register N distinct agents; each registers to get its own actor_token.
         for i in range(n_agents):
             name = f"agent-{i}"
-            bootstrap = FinalismaClient(self.base_url, name, "demo")
+            bootstrap = WeftClient(self.base_url, name, "demo")
             reg = bootstrap.register(name=name, role="generalist")
             self.tokens[name] = reg["actor_token"]
             bootstrap.close()
-            self.clients[name] = FinalismaClient(
+            self.clients[name] = WeftClient(
                 self.base_url, name, "demo", actor_token=self.tokens[name],
             )
 
@@ -130,26 +131,14 @@ class _RoomHarness:
         for c in self.clients.values():
             c.close()
         if self.proc is not None:
-            self.proc.terminate()
-            try:
-                self.proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                self.proc.kill()
-                self.proc.wait(timeout=10)
-        self.scratch.cleanup()
+            stop_subprocess(self.proc)
+        cleanup_tempdir(self.scratch)
 
 
 def _kill_orphaned_coordinators() -> None:
     for h in list(_RoomHarness._live):
         if h.proc is not None and h.proc.poll() is None:
-            try:
-                h.proc.terminate()
-                h.proc.wait(timeout=5)
-            except Exception:
-                try:
-                    h.proc.kill()
-                except Exception:
-                    pass
+            stop_subprocess(h.proc)
         h.proc = None
     _RoomHarness._live.clear()
 
@@ -170,10 +159,10 @@ class SdkRoomsContractTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         # Fail fast with a clear message if the SDK hasn't exported the names.
-        missing = [n for n in _REQUIRED_EXPORTS if not hasattr(sys.modules["finalisma_sdk"], n)]
+        missing = [n for n in _REQUIRED_EXPORTS if not hasattr(sys.modules["weft_sdk"], n)]
         if missing:
             raise ImportError(
-                f"finalisma_sdk is missing room dataclasses: {missing} — "
+                f"weft_sdk is missing room dataclasses: {missing} — "
                 "this test is RED until the SDK-ROOMS wave implements them.",
             )
         cls.harness = _RoomHarness()
@@ -200,6 +189,10 @@ class SdkRoomsContractTest(unittest.TestCase):
         self.assertEqual(res.cap, 4)
         self.assertEqual(res.state, "forming")
         self.assertEqual(res.owner_agent_id, "agent-0")
+        # Shareable link is an absolute URL embedding the token.
+        self.assertTrue(res.shareable_link.startswith(("http://", "https://")),
+                        f"bad shareable_link: {res.shareable_link}")
+        self.assertTrue(res.shareable_link.endswith(f"/j/{res.link_token}"))
 
         # Owner auto-joined: info shows member_count 1, roster lists owner.
         info: RoomInfo = a.room_info(res.room_id)
@@ -389,14 +382,14 @@ class SdkRoomsContractTest(unittest.TestCase):
     # -- 9. negative: non-member refused ------------------------------------
 
     def test_09_non_member_refused(self) -> None:
-        """A non-member agent is refused with member_required."""
+        """A non-member agent is refused with room_not_found (no existence oracle)."""
         a = self.harness.clients["agent-0"]
         res = a.create_room(cap=4, name="neg")
 
         # agent-3 never joins — must be refused on room_info.
-        with self.assertRaises(FinalismaError) as ctx:
+        with self.assertRaises(WeftError) as ctx:
             self.harness.clients["agent-3"].room_info(res.room_id)
-        self.assertEqual(ctx.exception.code, "member_required")
+        self.assertEqual(ctx.exception.code, "room_not_found")
 
     # -- 10. the private _call is never needed ------------------------------
 
@@ -428,8 +421,35 @@ class SdkRoomsContractTest(unittest.TestCase):
         for m in required_methods:
             self.assertTrue(
                 callable(getattr(a, m, None)),
-                f"FinalismaClient missing public room method: {m}",
+                f"WeftClient missing public room method: {m}",
             )
+
+    # -- 11. message_kind via the public SDK ---------------------------------
+
+    def test_11_message_kind_round_trip_through_public_sdk(self) -> None:
+        """send(message_kind=...) + room_poll(message_kinds=[...]) round-trip."""
+        a = self.harness.clients["agent-0"]
+        res = a.create_room(cap=4, name="mk")
+        for name in ["agent-1", "agent-2"]:
+            self.harness.clients[name].join_room(res.room_id, res.link_token, consent=True)
+
+        # Broadcast a status and a result.
+        a.send(res.room_id, target="*", payload={"text": "liveness"}, message_kind="status")
+        a.send(res.room_id, target="*", payload={"text": "the result"}, message_kind="result")
+
+        # Filter on ["result"] — only the result event, with message_kind set.
+        filtered: RoomPoll = a.room_poll(res.room_id, after_seq=0, message_kinds=["result"])
+        result_events = [e for e in filtered.events if e.kind == "room.message"]
+        self.assertEqual(len(result_events), 1)
+        self.assertEqual(result_events[0].message_kind, "result")
+        self.assertEqual(result_events[0].payload["payload"]["text"], "the result")
+
+        # Unfiltered poll sees both, each carrying its message_kind.
+        all_events: RoomPoll = a.room_poll(res.room_id, after_seq=0)
+        msg_events = [e for e in all_events.events if e.kind == "room.message"]
+        self.assertEqual(len(msg_events), 2)
+        kinds = {e.message_kind for e in msg_events}
+        self.assertEqual(kinds, {"status", "result"})
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 """Integration tests for the metrics_activation module via the REAL MCP surface.
 
-These tests drive metrics through FinalismaDispatcher.call_tool — never through
-metrics_activation.py's Python API directly. The finalisma_metrics_* tools do
+These tests drive metrics through WeftDispatcher.call_tool — never through
+metrics_activation.py's Python API directly. The metrics_* tools do
 not exist yet; this file is the RED phase of TDD. The orchestrator will wire
 the tools after this test is written.
 
@@ -20,8 +20,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from finalisma_mcp.core import FinalismaStore
-from finalisma_mcp.server import FinalismaDispatcher, TOOLS
+from weft_mcp.core import WeftStore
+from weft_mcp.server import WeftDispatcher, TOOLS
 
 
 # The five activation funnel stages, in funnel order.
@@ -35,10 +35,10 @@ FUNNEL_STAGES = (
 
 # The four tool names the orchestrator is expected to register.
 METRIC_TOOL_NAMES = (
-    "finalisma_metrics_event",
-    "finalisma_metrics_funnel",
-    "finalisma_metrics_ttfvh",
-    "finalisma_metrics_retention",
+    "metrics_event",
+    "metrics_funnel",
+    "metrics_ttfvh",
+    "metrics_retention",
 )
 
 
@@ -48,8 +48,8 @@ class MetricsIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
-        self.store = FinalismaStore(root / "state.db", root, require_actor_auth=True)
-        self.dispatcher = FinalismaDispatcher(self.store)
+        self.store = WeftStore(root / "state.db", root, require_actor_auth=True)
+        self.dispatcher = WeftDispatcher(self.store)
         self.team_id = "team-metrics-1"
         self.agent_id = "agent-metrics-1"
         self.workspace_id = "ws-1"
@@ -75,7 +75,7 @@ class MetricsIntegrationTests(unittest.TestCase):
             "event_type": event_type,
             "metadata": {"workspace_id": workspace_id or self.workspace_id},
         }
-        return self.dispatcher.call_tool("finalisma_metrics_event", args)
+        return self.dispatcher.call_tool("metrics_event", args)
 
     # ------------------------------------------------------------------
     # Test 1 — Full funnel: all five stages, ttfvh positive.
@@ -89,7 +89,7 @@ class MetricsIntegrationTests(unittest.TestCase):
 
         # Funnel snapshot: every stage count >= 1.
         funnel = self.dispatcher.call_tool(
-            "finalisma_metrics_funnel", {"team_id": self.team_id}
+            "metrics_funnel", {"team_id": self.team_id}
         )
         funnel_stages = funnel["funnel"]
         for stage in FUNNEL_STAGES:
@@ -100,7 +100,7 @@ class MetricsIntegrationTests(unittest.TestCase):
 
         # derive ttfvh: must be a positive int ms.
         ttfvh_result = self.dispatcher.call_tool(
-            "finalisma_metrics_ttfvh",
+            "metrics_ttfvh",
             {"team_id": self.team_id, "workspace_id": self.workspace_id},
         )
         ttfvh_ms = ttfvh_result["ttfvh_ms"]
@@ -116,14 +116,14 @@ class MetricsIntegrationTests(unittest.TestCase):
         self._record_event("link_accepted")
 
         funnel = self.dispatcher.call_tool(
-            "finalisma_metrics_funnel", {"team_id": self.team_id}
+            "metrics_funnel", {"team_id": self.team_id}
         )
         self.assertEqual(funnel["funnel"]["link_created"], 1)
         self.assertEqual(funnel["funnel"]["link_accepted"], 1)
         self.assertEqual(funnel["funnel"]["first_evidence_verified"], 0)
 
         ttfvh_result = self.dispatcher.call_tool(
-            "finalisma_metrics_ttfvh",
+            "metrics_ttfvh",
             {"team_id": self.team_id, "workspace_id": self.workspace_id},
         )
         self.assertIsNone(
@@ -142,13 +142,13 @@ class MetricsIntegrationTests(unittest.TestCase):
             "event_type": "link_created",
             "metadata": {"workspace_id": self.workspace_id},
         }
-        first = self.dispatcher.call_tool("finalisma_metrics_event", args)
-        second = self.dispatcher.call_tool("finalisma_metrics_event", args)
+        first = self.dispatcher.call_tool("metrics_event", args)
+        second = self.dispatcher.call_tool("metrics_event", args)
         self.assertTrue(first["recorded"])
         self.assertTrue(second["recorded"])
 
         funnel = self.dispatcher.call_tool(
-            "finalisma_metrics_funnel", {"team_id": self.team_id}
+            "metrics_funnel", {"team_id": self.team_id}
         )
         self.assertEqual(
             funnel["funnel"]["link_created"],
@@ -165,7 +165,7 @@ class MetricsIntegrationTests(unittest.TestCase):
             self._record_event(stage)
 
         result = self.dispatcher.call_tool(
-            "finalisma_metrics_retention",
+            "metrics_retention",
             {"team_id": self.team_id, "week_start": "2026-08-03"},
         )
         self.assertIsInstance(result["retained_workspaces"], int)

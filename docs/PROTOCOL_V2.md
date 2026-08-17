@@ -1,11 +1,11 @@
-# Finalisma Coordination Protocol — finalisma.a2a/2.0
+# Weft Coordination Protocol — weft.a2a/2.0
 
 **Status:** Draft specification for next-sprint implementation.
-**Supersedes:** `docs/PROTOCOL.md` (finalisma.a2a/1.0) for all features defined here. 1.0 remains valid for unicast pairing and task lifecycle; 2.0 is additive.
+**Supersedes:** `docs/PROTOCOL.md` (weft.a2a/1.0) for all features defined here. 1.0 remains valid for unicast pairing and task lifecycle; 2.0 is additive.
 
 ## 1. Design goals and scope
 
-Finalisma 2.0 extends the coordination layer from a strict two-party pairing model to an **N-way, multi-agent, multi-adapter** fabric. The invariants of 1.0 (attributable mutations, atomic fencing-token claims, idempotency, evidence-gated completion, no arbitrary command execution) remain inviolate. 2.0 adds:
+Weft 2.0 extends the coordination layer from a strict two-party pairing model to an **N-way, multi-agent, multi-adapter** fabric. The invariants of 1.0 (attributable mutations, atomic fencing-token claims, idempotency, evidence-gated completion, no arbitrary command execution) remain inviolate. 2.0 adds:
 
 1. **Multi-recipient addressing** — one envelope reaches many agents.
 2. **Capability negotiation** — explicit offer/accept/reject/renegotiate with auditable degradation.
@@ -19,11 +19,11 @@ The protocol remains transport-neutral: MCP/stdio, MCP/HTTP, and the bridge tier
 
 ### 2.1 Canonical shape
 
-`finalisma_send_message` and the session event store persist this shape for v2 envelopes. All new fields are optional-by-default so a 1.0 envelope remains valid (see §6).
+`send_message` and the session event store persist this shape for v2 envelopes. All new fields are optional-by-default so a 1.0 envelope remains valid (see §6).
 
 ```json
 {
-  "protocol": "finalisma.a2a",
+  "protocol": "weft.a2a",
   "version": "2.0",
   "message_id": "msg_01J9X...",
   "type": "task.dispatch",
@@ -56,7 +56,7 @@ The protocol remains transport-neutral: MCP/stdio, MCP/HTTP, and the bridge tier
 
 | Field | Type | 1.0 | 2.0 | Description |
 | --- | --- | --- | --- | --- |
-| `protocol` | `string` | ✅ | ✅ | MUST be `"finalisma.a2a"`. |
+| `protocol` | `string` | ✅ | ✅ | MUST be `"weft.a2a"`. |
 | `version` | `string` | ✅ | ✅ | `"1.0"` or `"2.0"`. Receivers MUST accept both. |
 | `message_id` | `string` | ✅ | ✅ | Unique message id, prefix `msg_`. |
 | `type` | `string` | ✅ | ✅ | Message type (see §2.4). |
@@ -293,7 +293,7 @@ On roster join, the agent declares its maximum supported version. The coordinato
 
 ```json
 {
-  "protocol": "finalisma.a2a",
+  "protocol": "weft.a2a",
   "version": "1.0",
   "message_id": "msg_pair_001",
   "type": "pairing.create",
@@ -313,7 +313,7 @@ On roster join, the agent declares its maximum supported version. The coordinato
 
 ```json
 {
-  "protocol": "finalisma.a2a",
+  "protocol": "weft.a2a",
   "version": "2.0",
   "message_id": "msg_dispatch_001",
   "type": "task.dispatch",
@@ -343,7 +343,7 @@ On roster join, the agent declares its maximum supported version. The coordinato
 **Offer:**
 ```json
 {
-  "protocol": "finalisma.a2a",
+  "protocol": "weft.a2a",
   "version": "2.0",
   "message_id": "msg_cap_offer_001",
   "type": "capability.offer",
@@ -365,7 +365,7 @@ On roster join, the agent declares its maximum supported version. The coordinato
 **Accept (degraded):**
 ```json
 {
-  "protocol": "finalisma.a2a",
+  "protocol": "weft.a2a",
   "version": "2.0",
   "message_id": "msg_cap_accept_001",
   "type": "capability.accept",
@@ -393,7 +393,7 @@ On roster join, the agent declares its maximum supported version. The coordinato
 
 ```json
 {
-  "protocol": "finalisma.a2a",
+  "protocol": "weft.a2a",
   "version": "2.0",
   "message_id": "msg_evidence_001",
   "type": "evidence.submit",
@@ -424,7 +424,7 @@ On roster join, the agent declares its maximum supported version. The coordinato
 
 ### 7.5 Reconnect / replay
 
-On reconnect, an agent calls `finalisma_session_poll` with its last `last_ack_seq`. The coordinator replays `session_events` with `seq > last_ack_seq`, preserving order. The agent MUST acknowledge with `finalisma_session_ack` after durable processing.
+On reconnect, an agent calls `session_poll` with its last `last_ack_seq`. The coordinator replays `session_events` with `seq > last_ack_seq`, preserving order. The agent MUST acknowledge with `session_ack` after durable processing.
 
 ## 8. State machine — N-way session lifecycle
 

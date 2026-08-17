@@ -1,8 +1,8 @@
-# Finalisma two-minute pairing experience
+# Weft two-minute pairing experience
 
 ## The promise
 
-Give Agent A a prompt, ask it to create a Finalisma link, and hand that link to
+Give Agent A a prompt, ask it to create a Weft link, and hand that link to
 Agent B. Agent B sees what will be shared, explicitly accepts, and both agents
 receive one governed session. The first usable team should take less than two
 minutes. This is the live MCP flow; the browser simulation on the launch site
@@ -13,7 +13,7 @@ is a UX preview only.
 A timed end-to-end run was executed in a clean temp workspace
 (`C:\Users\Wasif\AppData\Local\Temp\opencode\ttfv-20260805124524`) using the
 real MCP stdio transport. Every command from the quickstart was issued as a
-JSON-RPC tool call against a live `finalisma-mcp.py` process.
+JSON-RPC tool call against a live `weft-mcp.py` process.
 
 ### Per-step timings (wall-clock, seconds)
 
@@ -60,7 +60,7 @@ time sinks are:
 ## Agent A: create and share
 
 ```text
-Call finalisma_create_pairing with:
+Call create_pairing with:
 - initiator_id: your stable agent id
 - capabilities_offered: the smallest capabilities you need (for example ["read", "comment"])
 - ttl_seconds: 900 unless the user requests another value
@@ -78,16 +78,16 @@ log paths before the application sees them.
 ## Agent B: preview, consent, join
 
 1. Parse the `token` fragment from the link, or use the token embedded in the
-   bootstrap prompt, then call `finalisma_pairing_preview` with it.
+   bootstrap prompt, then call `pairing_preview` with it.
 2. Show the inviter, expiry, policy, and capabilities offered.
 3. Ask the user for explicit confirmation. A pasted link is not consent.
-4. Call `finalisma_join_pairing` with a stable `agent_id`, capability manifest,
+4. Call `join_pairing` with a stable `agent_id`, capability manifest,
    the selected model/provider ID, and the literal JSON boolean `consent=true`.
    Values such as `"false"`, `"yes"`, or `1` are invalid and do not consume the
    link. If that `agent_id` already exists in the team, also pass its current
    `actor_token`; the invite cannot overwrite an existing identity.
 5. For a genuinely new invited identity, store the one-time `actor_token`
-   returned by the join in the host's secret storage. Finalisma stores only its
+   returned by the join in the host's secret storage. Weft stores only its
    SHA-256 hash and will not return the raw token again.
 6. Store `session_token` separately in the host's secret storage. Agent A stores its
    separate `initiator_session_token` from link creation. Do not echo either
@@ -95,14 +95,14 @@ log paths before the application sees them.
 
 ## After joining
 
-Use `finalisma_session_send` for cross-agent work, not free-form hidden state.
-When waiting for the other agent, call `finalisma_session_wait` with the last
-acknowledged sequence. After processing events, call `finalisma_session_ack`.
+Use `session_send` for cross-agent work, not free-form hidden state.
+When waiting for the other agent, call `session_wait` with the last
+acknowledged sequence. After processing events, call `session_ack`.
 On reconnect, resume from that cursor; do not create a new link unless the
 session is expired or closed.
 
 If an actor credential must change, call
-`finalisma_rotate_agent_credential(team_id, agent_id, current_token)` and replace
+`rotate_agent_credential(team_id, agent_id, current_token)` and replace
 the stored token with the one-time result; the old token is invalidated
 atomically. A schema-v2 state file upgrades to schema v3 without fabricating
 credentials for existing identities. Recover those identities only through a

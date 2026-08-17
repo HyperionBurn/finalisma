@@ -1,11 +1,11 @@
-"""Finalisma real-MCP Streamable HTTP protocol validation driver.
+"""Weft real-MCP Streamable HTTP protocol validation driver.
 
 Spawns the coordinator itself over HTTP (MCP Streamable HTTP transport), speaks
 real MCP JSON-RPC over POST /mcp using stdlib http.client (initialize /
 tools/list / tools/call), exercises the full pairing + verified-handoff
 lifecycle, includes a deliberate negative case, and tears the child down in a
 finally block. This is a genuine remote client: it does NOT import
-finalisma_mcp internals or call the dispatcher directly.
+weft_mcp internals or call the dispatcher directly.
 
 Run:  timeout 180 python -B scripts/interop-validate-http.py
 """
@@ -20,6 +20,9 @@ import tempfile
 import time
 import http.client
 from pathlib import Path
+
+from _process_cleanup import cleanup_tempdir, stop_subprocess
+from _transcript_safety import redact_text, redact_transcript_line
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
@@ -81,7 +84,7 @@ class HTTPClient:
         if params is not None:
             payload["params"] = params
         body = json.dumps(payload, separators=(",", ":"))
-        transcript.append(f"> {body}")
+        transcript.append(f"> {redact_transcript_line(body)}")
         conn = self._connection()
         try:
             conn.request(
@@ -94,9 +97,9 @@ class HTTPClient:
             resp_body = resp.read().decode("utf-8", errors="replace")
         except (OSError, http.client.HTTPException) as exc:
             raise InteropError(f"HTTP transport error on {method}: {exc}") from exc
-        transcript.append(f"< HTTP {resp.status} {resp.reason}: {resp_body}")
+        transcript.append(f"< HTTP {resp.status} {resp.reason}: {redact_transcript_line(resp_body)}")
         if resp.status != 200:
-            raise InteropError(f"HTTP {resp.status} on {method}: {resp_body}")
+            raise InteropError(f"HTTP {resp.status} on {method}: {redact_text(resp_body)}")
         reply = json.loads(resp_body)
         if "error" in reply:
             raise InteropError(f"JSON-RPC error {reply['error']}")
@@ -116,7 +119,7 @@ def call_tool(client: HTTPClient, transcript: list[str], request_id: int, name: 
 
 
 def main() -> int:
-    scratch = tempfile.TemporaryDirectory(prefix="finalisma-interop-http-")
+    scratch = tempfile.TemporaryDirectory(prefix="weft-interop-http-")
     workspace = Path(scratch.name)
     transcript: list[str] = []
     started = time.monotonic()
@@ -129,7 +132,7 @@ def main() -> int:
         [
             sys.executable,
             "-B",
-            "scripts/finalisma-mcp.py",
+            "scripts/weft-mcp.py",
             "--transport",
             "http",
             "--host",
@@ -141,7 +144,7 @@ def main() -> int:
             "--workspace",
             str(workspace),
             "--state",
-            str(workspace / ".finalisma" / "state.db"),
+            str(workspace / ".weft" / "state.db"),
             "--actor-auth",
             "trust",
         ],
@@ -175,59 +178,59 @@ def main() -> int:
         tool_names = [t["name"] for t in tools]
         transcript.append(f"# tools/list: {len(tools)} tools")
         required_tools = {
-            "finalisma_register_agent",
-            "finalisma_create_pairing",
-            "finalisma_pairing_preview",
-            "finalisma_join_pairing",
-            "finalisma_create_task",
-            "finalisma_claim_task",
-            "finalisma_verify_task",
-            "finalisma_complete_task",
+            "register_agent",
+            "create_pairing",
+            "pairing_preview",
+            "join_pairing",
+            "create_task",
+            "claim_task",
+            "verify_task",
+            "complete_task",
         }
         missing = required_tools - set(tool_names)
         if missing:
             raise InteropError(f"tools/list missing required tools: {missing}")
 
         # 3. register two agents
-        reg_a = call_tool(client, transcript, 3, "finalisma_register_agent", {
+        reg_a = call_tool(client, transcript, 3, "register_agent", {
             "team_id": TEAM_ID, "agent_id": "agent-a", "role": "architect", "name": "Planner",
         })
         token_a = reg_a["actor_token"]
-        reg_b = call_tool(client, transcript, 4, "finalisma_register_agent", {
+        reg_b = call_tool(client, transcript, 4, "register_agent", {
             "team_id": TEAM_ID, "agent_id": "agent-b", "role": "builder", "name": "Builder",
         })
         token_b = reg_b["actor_token"]
 
         # pairing link + preview + join with consent=true
-        pairing = call_tool(client, transcript, 5, "finalisma_create_pairing", {
+        pairing = call_tool(client, transcript, 5, "create_pairing", {
             "initiator_id": "agent-a", "team_id": TEAM_ID,
             "capabilities_offered": ["read", "comment"], "actor_token": token_a,
         })
         join_token = pairing["join_token"]
-        preview = call_tool(client, transcript, 6, "finalisma_pairing_preview", {"token": join_token})
+        preview = call_tool(client, transcript, 6, "pairing_preview", {"token": join_token})
         if preview.get("status") != "issued":
             raise InteropError(f"pairing preview status != issued: {preview}")
-        joined = call_tool(client, transcript, 7, "finalisma_join_pairing", {
+        joined = call_tool(client, transcript, 7, "join_pairing", {
             "token": join_token, "agent_id": "agent-b", "consent": True, "actor_token": token_b,
         })
         if joined.get("state") not in ("active", "open"):
             raise InteropError(f"join state not active/open: {joined}")
 
         # 4. create task, claim, write artifact, verify evidence, complete
-        task_result = call_tool(client, transcript, 8, "finalisma_create_task", {
+        task_result = call_tool(client, transcript, 8, "create_task", {
             "team_id": TEAM_ID, "created_by": "agent-a",
             "title": "Interop review", "description": "Verify the retry boundary in handoff.txt",
             "scope": ["handoff.txt"], "preferred_agent": "agent-b",
             "idempotency_key": "interop-http-task-v1", "actor_token": token_a,
         })
         task_id = task_result["task"]["task_id"]
-        claimed = call_tool(client, transcript, 9, "finalisma_claim_task", {
+        claimed = call_tool(client, transcript, 9, "claim_task", {
             "team_id": TEAM_ID, "agent_id": "agent-b", "task_id": task_id, "actor_token": token_b,
         })
         fencing = claimed["fencing_token"]
         artifact = workspace / "handoff.txt"
         artifact.write_text("synthetic interop http evidence\n", encoding="utf-8")
-        verified = call_tool(client, transcript, 10, "finalisma_verify_task", {
+        verified = call_tool(client, transcript, 10, "verify_task", {
             "team_id": TEAM_ID, "agent_id": "agent-b", "task_id": task_id,
             "fencing_token": fencing, "files": ["handoff.txt"],
             "checks": [{"name": "interop-check", "status": "passed", "evidence": "artifact present"}],
@@ -235,7 +238,7 @@ def main() -> int:
         })
         if not verified.get("passed"):
             raise InteropError(f"evidence gate did not pass: {verified}")
-        completed = call_tool(client, transcript, 11, "finalisma_complete_task", {
+        completed = call_tool(client, transcript, 11, "complete_task", {
             "team_id": TEAM_ID, "agent_id": "agent-b", "task_id": task_id,
             "fencing_token": fencing, "summary": "Interop HTTP verified", "actor_token": token_b,
         })
@@ -246,7 +249,7 @@ def main() -> int:
         negative_transcript = []
         refused = False
         try:
-            call_tool(client, transcript, 12, "finalisma_join_pairing", {
+            call_tool(client, transcript, 12, "join_pairing", {
                 "token": join_token, "agent_id": "agent-c", "consent": True,
             })
             negative_transcript.append("JOIN_REUSE: NOT refused (unexpected)")
@@ -278,13 +281,8 @@ def main() -> int:
     finally:
         if client is not None:
             client.close()
-        proc.terminate()
-        try:
-            proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait(timeout=10)
-        scratch.cleanup()
+        stop_subprocess(proc)
+        cleanup_tempdir(scratch)
 
 
 if __name__ == "__main__":

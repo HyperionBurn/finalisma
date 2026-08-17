@@ -1,2 +1,6 @@
+# Weft marketing site — static, public, fully crawlable.
+# Every page in this bundle is intended to be indexed.
+# The web app and agent API live on a separate origin and are not affected.
 User-agent: *
 Allow: /
+Sitemap: https://finalisma.vercel.app/sitemap.xml

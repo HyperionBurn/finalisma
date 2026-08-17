@@ -1,4 +1,4 @@
-/* Finalisma Fig. 1 — dependency-free, canvas proof sequence. */
+/* Weft Fig. 1 — dependency-free, canvas proof sequence. */
 (() => {
   'use strict';
 
@@ -195,5 +195,5 @@
     };
   };
 
-  window.FinalismaProof = { mount };
+  window.WeftProof = { mount };
 })();

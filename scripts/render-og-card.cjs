@@ -11,7 +11,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
-const playwrightPath = process.env.FINALISMA_PLAYWRIGHT
+const playwrightPath = process.env.WEFT_PLAYWRIGHT
   || "C:/Users/Wasif/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright";
 const { chromium } = require(playwrightPath);
 

@@ -1,4 +1,4 @@
-"""Tests for the Finalisma N-way roster layer.
+"""Tests for the Weft N-way roster layer.
 
 Stdlib only. Temp SQLite files. Mirrors core's stale-agent semantics.
 """
@@ -16,7 +16,7 @@ from pathlib import Path
 _REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO / "src"))
 
-from finalisma_mcp import roster  # noqa: E402
+from weft_mcp import roster  # noqa: E402
 
 
 class RosterFreshDbTests(unittest.TestCase):
@@ -152,7 +152,7 @@ class RosterFreshDbTests(unittest.TestCase):
             payload={"progress": 50},
             capabilities=["coding"],
         )
-        self.assertEqual(env["protocol"], "finalisma.a2a")
+        self.assertEqual(env["protocol"], "weft.a2a")
         self.assertEqual(env["version"], "2.0")
         self.assertEqual(env["type"], "task.progress")
         self.assertEqual(env["sender"], {"agent_id": "agent-a"})
@@ -206,9 +206,9 @@ class RosterCoexistenceWithCoreTests(unittest.TestCase):
             pass
 
     def test_core_then_roster_same_db(self):
-        from finalisma_mcp.core import FinalismaStore
+        from weft_mcp.core import WeftStore
 
-        store = FinalismaStore(state_path=self.db_path, workspace_path=self.db_path + ".ws")
+        store = WeftStore(state_path=self.db_path, workspace_path=self.db_path + ".ws")
         try:
             store.register_agent(team_id="demo", agent_id="core-agent", role="tester")
             # Now init the roster layer on the same file.

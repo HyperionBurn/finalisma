@@ -1,11 +1,11 @@
-"""Finalisma bridge-adapter interop unit tests.
+"""Weft bridge-adapter interop unit tests.
 
 Reuses the same end-to-end pattern as scripts/interop-validate-bridge.py:
 spawn the REAL coordinator over stdio, register an agent through its MCP
 surface, then exercise the REAL bridge adapters against the coordinator's
 database. Happy paths + deliberate negative refusals.
 
-These tests compose the real bridge classes from src/finalisma_mcp/bridge.py;
+These tests compose the real bridge classes from src/weft_mcp/bridge.py;
 they do NOT fabricate state through core.py store methods.
 """
 
@@ -24,13 +24,14 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from finalisma_mcp.core import FinalismaStore, FinalismaError
-from finalisma_mcp.bridge import (
+from weft_mcp.core import WeftStore, WeftError
+from weft_mcp.bridge import (
     WebhookBridge,
     PollingBridge,
     ClipboardBridge,
     BridgeAuthError,
 )
+from tests._process_cleanup import cleanup_tempdir, stop_subprocess
 
 
 TEAM_ID = "demo"
@@ -75,8 +76,8 @@ def _make_handler():
         def do_POST(self):
             length = int(self.headers.get("Content-Length", "0"))
             raw = self.rfile.read(length) if length else b""
-            sig = self.headers.get("X-Finalisma-Signature", "")
-            ts = self.headers.get("X-Finalisma-Timestamp", "")
+            sig = self.headers.get("X-Weft-Signature", "")
+            ts = self.headers.get("X-Weft-Timestamp", "")
             try:
                 body = json.loads(raw.decode("utf-8")) if raw else None
             except json.JSONDecodeError:
@@ -94,7 +95,7 @@ class BridgeInteropTests(unittest.TestCase):
     """End-to-end bridge adapter tests against a real spawned coordinator."""
 
     proc: subprocess.Popen | None = None
-    bridge_store: FinalismaStore | None = None
+    bridge_store: WeftStore | None = None
     webhook_receiver: _WebhookReceiver | None = None
     actor_token: str = ""
     _scratch: tempfile.TemporaryDirectory | None = None
@@ -102,15 +103,15 @@ class BridgeInteropTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls._scratch = tempfile.TemporaryDirectory(prefix="finalisma-interop-bridge-test-")
+        cls._scratch = tempfile.TemporaryDirectory(prefix="weft-interop-bridge-test-")
         workspace = Path(cls._scratch.name)
-        state_path = workspace / ".finalisma" / "state.db"
+        state_path = workspace / ".weft" / "state.db"
 
         cls.proc = subprocess.Popen(
             [
                 sys.executable,
                 "-B",
-                "scripts/finalisma-mcp.py",
+                "scripts/weft-mcp.py",
                 "--transport",
                 "stdio",
                 "--team-id",
@@ -136,13 +137,13 @@ class BridgeInteropTests(unittest.TestCase):
         # register agent
         reg = cls._call_tool(
             3,
-            "finalisma_register_agent",
+            "register_agent",
             {"team_id": TEAM_ID, "agent_id": "bridge-agent", "role": "generalist", "name": "Bridge Agent"},
         )
         cls.actor_token = reg["actor_token"]
 
         # open bridge store against coordinator's DB
-        cls.bridge_store = FinalismaStore(
+        cls.bridge_store = WeftStore(
             str(state_path),
             str(workspace),
             require_actor_auth=True,
@@ -156,14 +157,9 @@ class BridgeInteropTests(unittest.TestCase):
             except Exception:
                 pass
         if cls.proc is not None:
-            cls.proc.terminate()
-            try:
-                cls.proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                cls.proc.kill()
-                cls.proc.wait(timeout=10)
+            stop_subprocess(cls.proc, close_stdin=True)
         if cls._scratch is not None:
-            cls._scratch.cleanup()
+            cleanup_tempdir(cls._scratch)
 
     def setUp(self) -> None:
         # fresh webhook receiver per test that needs one
@@ -210,7 +206,7 @@ class BridgeInteropTests(unittest.TestCase):
         rid = self.__class__._request_id
         pairing = self._call_tool(
             rid,
-            "finalisma_create_pairing",
+            "create_pairing",
             {
                 "initiator_id": "bridge-agent",
                 "team_id": TEAM_ID,
@@ -254,7 +250,7 @@ class BridgeInteropTests(unittest.TestCase):
         )
         raw = json.dumps(bootstrap)
         clipboard.parse_bootstrap(raw)  # first: ok
-        with self.assertRaises(FinalismaError) as ctx:
+        with self.assertRaises(WeftError) as ctx:
             clipboard.parse_bootstrap(raw)  # second: refused
         self.assertEqual(ctx.exception.code, "bootstrap_reused")
 
@@ -284,12 +280,12 @@ class BridgeInteropTests(unittest.TestCase):
 
     def test_polling_wrong_token_refused(self) -> None:
         polling = PollingBridge(self.bridge_store)
-        with self.assertRaises((FinalismaError, BridgeAuthError)):
+        with self.assertRaises((WeftError, BridgeAuthError)):
             polling.get_pending(TEAM_ID, "bridge-agent", cursor=0, actor_token="not-a-valid-token")
 
     def test_polling_nonmember_refused(self) -> None:
         polling = PollingBridge(self.bridge_store)
-        with self.assertRaises((FinalismaError, BridgeAuthError)):
+        with self.assertRaises((WeftError, BridgeAuthError)):
             polling.get_pending(TEAM_ID, "ghost-agent", cursor=0, actor_token=self.actor_token)
 
     # ------------------------------------------------------------------
@@ -299,7 +295,7 @@ class BridgeInteropTests(unittest.TestCase):
     def test_webhook_register_deliver_verify(self) -> None:
         self.webhook_receiver = _WebhookReceiver()
         self.webhook_receiver.start()
-        webhook = WebhookBridge(self.bridge_store)
+        webhook = WebhookBridge(self.bridge_store, allow_local_webhooks=True)
         secret = "whsec_live_signing_secret_value_12345"
 
         wh = webhook.register_webhook(
@@ -345,7 +341,7 @@ class BridgeInteropTests(unittest.TestCase):
         """HIGH-1 fail-closed: deliver with no signing_secret is refused."""
         self.webhook_receiver = _WebhookReceiver()
         self.webhook_receiver.start()
-        webhook = WebhookBridge(self.bridge_store)
+        webhook = WebhookBridge(self.bridge_store, allow_local_webhooks=True)
         secret = "whsec_live_signing_secret_value_12345"
         wh = webhook.register_webhook(
             team_id=TEAM_ID,
@@ -354,7 +350,7 @@ class BridgeInteropTests(unittest.TestCase):
             secret_ref=secret,
             actor_token=self.actor_token,
         )
-        with self.assertRaises(FinalismaError) as ctx:
+        with self.assertRaises(WeftError) as ctx:
             webhook.deliver(wh["webhook_id"], {"kind": "x"}, signing_secret=None)
         self.assertEqual(ctx.exception.code, "signing_secret_required")
 

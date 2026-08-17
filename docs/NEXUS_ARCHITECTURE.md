@@ -1,4 +1,4 @@
-# NEXUS Architecture — Finalisma Universal Agent Interconnect
+# NEXUS Architecture — Weft Universal Agent Interconnect
 
 > **Owner:** ARCH-NEXUS lane (architecture, docs only — no source code).
 > **Scope:** Blueprint for turning the single-node MCP coordinator into the universal
@@ -10,9 +10,9 @@
 
 ## 0. Design roots (read this first)
 
-Finalisma already ships a dependency-free, schema-v3 SQLite coordinator with:
+Weft already ships a dependency-free, schema-v3 SQLite coordinator with:
 
-- **One-version envelope:** `finalisma.a2a/1.0` (`PROTOCOL.md` §Message envelope).
+- **One-version envelope:** `weft.a2a/1.0` (`PROTOCOL.md` §Message envelope).
 - **Two-tier credential model:** per-agent `actor_token` (SHA-256 at rest) for the
   team/work plane; member-bound `session_token` for the ordered event log
   (`PROTOCOL.md` §Identity and credential boundary).
@@ -31,7 +31,7 @@ NEXUS preserves every one of those invariants. It adds **interconnect** on top.
 
 ### 1.1 Core insight
 
-A Finalisma link is already more than an MCP session — it is a **capability-bearing,
+A Weft link is already more than an MCP session — it is a **capability-bearing,
 consent-gated invitation** with a public pairing ID and a secret fragment. The NEXUS
 thesis: that link is the **single universal connector** between any two agent hosts,
 whether or not either host speaks MCP.
@@ -73,7 +73,7 @@ The existing HTTP server (`server.py` `_MCPRequestHandler`) already:
 A browser embed is therefore **already implementable** against the shipped server:
 a static page that calls `GET /v1/join/...`, renders the consent screen, and POSTs
 the fragment token. NEXUS formalizes this as the **browser-embed SDK**
-(`finalisma_sdk` — see §6).
+(`weft_sdk` — see §6).
 
 ### 1.4 The bridge contract (`bridge.py`)
 
@@ -101,13 +101,13 @@ core.py ← bridge.py   (REST for non-MCP hosts)
 
 Auth: bearer <actor_token> for team-plane calls; the one-time pairing token for join.
 `bridge.py` must apply the same `_assert_capability_scope` and team-boundary checks
-`FinalismaDispatcher` applies.
+`WeftDispatcher` applies.
 
 ---
 
 ## 2. N-agent topology
 
-Today Finalisma coordinates **two** agents per session (`agent_a`, `agent_b` in the
+Today Weft coordinates **two** agents per session (`agent_a`, `agent_b` in the
 `sessions` table). NEXUS generalizes to **N** while reusing every existing primitive.
 
 ### 2.1 Reuse map (do not re-implement)
@@ -130,7 +130,7 @@ The roster is the **set of active agents in a team**, derived from the existing
 
 - **Capability manifest** — each agent declares a `capabilities_json` (already a
   column) plus a new `manifest_version` and `supported_envelope_versions` (e.g.
-  `["finalisma.a2a/1.0"]`). Stored in the existing `metadata_json` column to avoid
+  `["weft.a2a/1.0"]`). Stored in the existing `metadata_json` column to avoid
   schema churn in P0; promoted to first-class columns in P1.
 - **Presence** — derived from `last_seen` (already a column) vs.
   `heartbeat_timeout`. No new table; `roster.py` is a query + policy layer over
@@ -180,7 +180,7 @@ section is the entry condition for P2).
 
 ### 3.1 Single-node (P0, current)
 
-- One `FinalismaStore`, one SQLite file, one process.
+- One `WeftStore`, one SQLite file, one process.
 - `--team-id` scopes the coordinator to one team.
 - Actor-auth `auto` (stdio trusted, HTTP requires actor credentials).
 - Rate limit: in-process `_WindowRateLimiter` (single-node guard only).
@@ -210,14 +210,14 @@ section is the entry condition for P2).
 
 ### 3.4 Retention (P2)
 
-- `scripts/finalisma-prune.py` already does dry-run-first retention cleanup.
+- `scripts/weft-prune.py` already does dry-run-first retention cleanup.
 - `tenancy.py` adds per-tenant retention policies (events older than N days,
   terminal sessions, stale pairings).
 - Outbox retention: acked entries purged after a tenant-configurable window.
 
 ---
 
-## 4. Protocol evolution: `finalisma.a2a/1.0` → `2.0`
+## 4. Protocol evolution: `weft.a2a/1.0` → `2.0`
 
 ### 4.1 Version 1.0 (shipped)
 
@@ -225,7 +225,7 @@ The current envelope (`PROTOCOL.md` §Message envelope):
 
 ```json
 {
-  "protocol": "finalisma.a2a",
+  "protocol": "weft.a2a",
   "version": "1.0",
   "message_id": "msg_...",
   "type": "task.progress",
@@ -244,7 +244,7 @@ Additions for N-agent interconnect:
 
 ```json
 {
-  "protocol": "finalisma.a2a",
+  "protocol": "weft.a2a",
   "version": "2.0",
   "message_id": "msg_...",
   "type": "task.progress",
@@ -310,7 +310,7 @@ in P0, first-class columns in P1):
   "version": 1,
   "offers": ["coding", "security-review", "research"],
   "accepts": ["task.dispatch", "task.progress", "task.blocked"],
-  "envelope_versions": ["finalisma.a2a/1.0", "finalisma.a2a/2.0"],
+  "envelope_versions": ["weft.a2a/1.0", "weft.a2a/2.0"],
   "max_scope_paths": 256,
   "max_payload_bytes": 262144
 }
@@ -328,7 +328,7 @@ When a T2/T3 host cannot express a capability the T1 MCP surface supports:
    produce a `capability_manifest` sends the legacy `capabilities` array; the
    receiver treats it as a flat offer list.
 3. **Fail closed on evidence** — if a tier cannot submit the evidence gate
-   (`finalisma_verify_task`), the task stays in `review`. No tier gets to bypass
+   (`verify_task`), the task stays in `review`. No tier gets to bypass
    the gate.
 4. **Preserve the lease/fencing contract** — every tier must hold a valid fencing
    token to mutate a task. No adapter shortcut.
@@ -344,13 +344,13 @@ coordination works for T1/T2/T3.
 
 | Module | Lane | What it does |
 |--------|------|-------------|
-| *(shipped)* | — | `core.py`, `server.py`, `finalisma.a2a/1.0` envelope |
+| *(shipped)* | — | `core.py`, `server.py`, `weft.a2a/1.0` envelope |
 | `bridge.py` | bridge lane | REST adapter over `core.py` for T2 hosts |
-| `finalisma_sdk` | SDK lane | Browser-embed JS + Python thin client for T3 |
+| `weft_sdk` | SDK lane | Browser-embed JS + Python thin client for T3 |
 
 **P0 deliverables:**
 - `bridge.py` implements the REST surface in §1.4.
-- `finalisma_sdk` ships a `<script>`-loadable widget that drives
+- `weft_sdk` ships a `<script>`-loadable widget that drives
   `GET /v1/join/:id` → consent → `POST /v1/join/:id` → `session_send`/`poll`.
 - `roster.py` (P0 = read-only view): `discover(team_id, capabilities)` over the
   existing `agents` table.
@@ -371,7 +371,7 @@ coordination works for T1/T2/T3.
 
 **P1 deliverables:**
 - Group sessions (N members) via `session_credentials` generalization.
-- `finalisma.a2a/2.0` envelope with roster, capability manifest, addressing.
+- `weft.a2a/2.0` envelope with roster, capability manifest, addressing.
 - Outbox relay delivers events to webhooks (push, not just poll).
 - `roster.discover()` replaces `ROUTE_KEYWORDS` as the primary routing input.
 
@@ -401,7 +401,7 @@ roster.py     → roster lane     (capability manifests, discovery, presence)
 outbox.py     → outbox lane     (durable delivery, relay, DLQ)
 tenancy.py    → tenancy lane    (tenant isolation, limits, retention)
 bridge.py     → bridge lane     (REST adapter for non-MCP hosts)
-finalisma_sdk → SDK lane        (browser widget + thin Python client)
+weft_sdk → SDK lane        (browser widget + thin Python client)
 ```
 
 **Naming contract — do not rename.** Other lanes build against these exact names.
@@ -418,14 +418,14 @@ graph TB
         T3["T3 Browser embed<br/>ChatGPT-like / extension / panel"]
     end
 
-    subgraph Edge["Finalisma edge adapters"]
+    subgraph Edge["Weft edge adapters"]
         MCP["server.py<br/>MCP JSON-RPC<br/>stdio + Streamable HTTP"]
         REST["bridge.py<br/>REST (T2)"]
-        JS["finalisma_sdk<br/>JS widget + Py client (T3)"]
+        JS["weft_sdk<br/>JS widget + Py client (T3)"]
     end
 
     subgraph Core["Transport-neutral core (core.py)"]
-        Store["FinalismaStore<br/>schema-v3 SQLite → Postgres (P2)"]
+        Store["WeftStore<br/>schema-v3 SQLite → Postgres (P2)"]
         Roster["roster.py<br/>capability manifests<br/>discovery, presence"]
         Outbox["outbox.py<br/>durable outbox<br/>relay + DLQ"]
         Tenancy["tenancy.py<br/>tenant isolation<br/>limits, retention"]
@@ -479,13 +479,13 @@ These are **non-negotiable** — they already ship in `core.py` / `server.py`:
 ## 9. What other lanes must know
 
 - **Module names are fixed:** `roster.py`, `outbox.py`, `tenancy.py`, `bridge.py`,
-  `finalisma_sdk`. Do not rename — the lane map in §6 is the build contract.
+  `weft_sdk`. Do not rename — the lane map in §6 is the build contract.
 - **`bridge.py` reuses `core.py`, not `server.py`.** It is a parallel edge adapter.
 - **No schema changes in P0.** Capability manifests live in `metadata_json`.
 - **The `/v1/join/:id` flow is the universal onboarding.** Every tier — T1/T2/T3 —
   uses the same link, the same preview, the same consent POST.
-- **`finalisma.a2a/2.0` is additive.** Unknown fields ignored by `1.0` consumers;
+- **`weft.a2a/2.0` is additive.** Unknown fields ignored by `1.0` consumers;
   `2.0` consumers fall back to `1.0` defaults for missing fields.
 - **`SECURITY_GATES.md` is the gate for P2.** Do not claim multi-tenant hosted
   until its "Must pass before multi-instance hosted traffic" section is green.
-- **Evidence gate is tier-invariant.** No adapter may bypass `finalisma_verify_task`.
+- **Evidence gate is tier-invariant.** No adapter may bypass `verify_task`.

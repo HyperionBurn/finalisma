@@ -6,13 +6,13 @@
  */
 
 const terminalLines = [
-  '$ python -B scripts/finalisma-mcp.py --transport stdio --team-id demo',
-  'finalisma-mcp/0.1.0 ready · 58 tools · protocol 2025-11-25',
+  '$ python -B scripts/weft-mcp.py --transport stdio --team-id demo',
+  'weft-mcp/0.1.0 ready · 59 tools · protocol 2025-11-25',
   '',
-  '> finalisma_register_agent(team_id="demo", agent_id="agent-a", role="architect")',
+  '> register_agent(team_id="demo", agent_id="agent-a", role="architect")',
   '  → {"agent_id": "agent-a", "status": "active", "actor_token": "fst_***"}',
   '',
-  '> finalisma_claim_task(..., fencing_token=0)',
+  '> claim_task(..., fencing_token=0)',
   '  → <span class="terminal__refuse">REFUSED: stale fencing token</span>',
 ];
 
@@ -22,7 +22,7 @@ const terminalText = terminalLines.join('\n');
 <section class="section demo" id="demo" aria-labelledby="demo-title" data-reveal-section>
   <div class="section-shell">
     <div class="section-head">
-      <p class="kicker eyebrow scroll-in">Live demo</p>
+      <p class="kicker eyebrow scroll-in">Demo</p>
       <h2 id="demo-title" class="scroll-in" style="--delay:80ms">See it run.</h2>
       <p class="section-lede scroll-in" style="--delay:160ms">
         A real coordinator run — simulated here with real protocol strings.
@@ -34,10 +34,12 @@ const terminalText = terminalLines.join('\n');
       <div class="bezel__core demo-shell" data-demo-shell>
         <pre class="terminal is-typewriter" data-terminal role="log" aria-live="polite" data-full={terminalText}><code set:html={terminalText}></code><span class="terminal__caret" aria-hidden="true"></span></pre>
 
+        <p class="section-lede" style="margin-top:1rem">Banner: the <strong>self-hosted</strong> coordinator advertises 59 tools. The hosted <code>POST /mcp</code> endpoint exposes 12 — the room set under Connect.</p>
+
         <div class="demo-output">
           <div class="link-out" data-link-output>
             <span class="link-out__label">Room link</span>
-            <code class="link-out__code" data-generated-link>finalisma.test/r/room_8cc840e0fd9044b7ab2154af9e9c1222</code>
+            <code class="link-out__code" data-generated-link>weft.test/r/room_8cc840e0fd9044b7ab2154af9e9c1222</code>
             <button class="btn btn-sm group" data-copy="link" type="button">Copy link<span class="btn__icon" aria-hidden="true">→</span></button>
           </div>
           <div class="gate" data-gate>
@@ -63,9 +65,9 @@ const terminalText = terminalLines.join('\n');
     opacity: 0;
     margin-left: 0.1ch;
   }
-  .terminal.is-typing .terminal__caret { opacity: 1; animation: finalisma-blink 1s steps(1) infinite; }
+  .terminal.is-typing .terminal__caret { opacity: 1; animation: weft-blink 1s steps(1) infinite; }
   .terminal.is-done .terminal__caret { opacity: 0; }
-  @keyframes finalisma-blink { 50% { opacity: 0; } }
+  @keyframes weft-blink { 50% { opacity: 0; } }
   @media (prefers-reduced-motion: reduce) {
     .terminal__caret { display: none !important; }
   }
@@ -134,8 +136,8 @@ const terminalText = terminalLines.join('\n');
     }
 
     triggerBtn?.addEventListener('click', () => {
-      if ((window as any).FinalismaScene?.fireGateRefusal) {
-        (window as any).FinalismaScene.fireGateRefusal();
+      if ((window as any).WeftScene?.fireGateRefusal) {
+        (window as any).WeftScene.fireGateRefusal();
       } else {
         fireRefusal();
       }

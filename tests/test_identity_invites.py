@@ -1,7 +1,7 @@
 """Wave G — Identity: invites contract (RED).
 
 Drives the invites module through the real identity API against a real
-SqliteWalBackend on a temp file. The ``finalisma_cloud.identity.invites``
+SqliteWalBackend on a temp file. The ``weft_cloud.identity.invites``
 module does not exist yet, so the import fails — that ModuleNotFoundError is
 the RED deliverable.
 
@@ -29,6 +29,7 @@ No mocks: make_backend() returns a real SqliteWalBackend on a temp file.
 from __future__ import annotations
 
 import hashlib
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -38,11 +39,11 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 # These imports are the RED line — the identity package does not exist yet.
-from finalisma_cloud.identity import invites, orgs, sessions  # noqa: E402
-from finalisma_cloud.identity.context import RoleError, SessionContext  # noqa: E402
-from finalisma_cloud.identity.tokens import AuthError  # noqa: E402
-from finalisma_cloud.migrations import apply_migrations  # noqa: E402
-from finalisma_cloud.storage import SqliteWalBackend  # noqa: E402
+from weft_cloud.identity import invites, orgs, sessions  # noqa: E402
+from weft_cloud.identity.context import RoleError, SessionContext  # noqa: E402
+from weft_cloud.identity.tokens import AuthError  # noqa: E402
+from weft_cloud.migrations import apply_migrations  # noqa: E402
+from weft_cloud.storage import SqliteWalBackend  # noqa: E402
 
 
 def _sha256(text: str) -> str:
@@ -67,7 +68,7 @@ def make_backend() -> SqliteWalBackend:
 
 def _seed_owner(backend: SqliteWalBackend, tenant_id: str, email: str, password: str):
     """signup + owner membership + owner session context. Returns ctx."""
-    from finalisma_cloud.identity import accounts
+    from weft_cloud.identity import accounts
 
     account_id, _ = accounts.signup(backend, tenant_id, email, password)
     with backend.transaction() as tx:
@@ -152,7 +153,7 @@ class IdentityInvitesContractTests(unittest.TestCase):
     # -- 3. the accepted account can authenticate with the given password --
 
     def test_accepted_account_can_authenticate(self) -> None:
-        from finalisma_cloud.identity import accounts
+        from weft_cloud.identity import accounts
 
         _, raw_token = invites.create(self.owner_ctx, "guest@example.com", role="member")
         new_account_id, _ = invites.accept(
@@ -162,6 +163,88 @@ class IdentityInvitesContractTests(unittest.TestCase):
             self.backend, self.tenant_id, "guest@example.com", self.PASSWORD
         )
         self.assertEqual(authenticated, new_account_id)
+
+    def test_accept_migrates_existing_member_and_rotates_legacy_credentials(self) -> None:
+        """An old bootstrap member can adopt a private password via invite."""
+        from weft_cloud.identity import accounts
+
+        legacy_password = "legacy-bootstrap-password"
+        private_password = "private-password-after-invite"
+        account_id = accounts._create_account(
+            self.backend,
+            self.tenant_id,
+            "legacy@example.com",
+            legacy_password,
+            email_verified=1,
+        )
+        with self.backend.transaction() as tx:
+            tx.execute(
+                "INSERT INTO cloud_identity_members(tenant_id, account_id, role, joined_at) "
+                "VALUES (?, ?, 'member', datetime('now'))",
+                (self.tenant_id, account_id),
+            )
+            tx.commit()
+        _, old_session = sessions.create(
+            self.backend, self.tenant_id, account_id, role="member"
+        )
+
+        _, invite_token = invites.create(
+            self.owner_ctx, "legacy@example.com", role="member"
+        )
+        migrated_id, _ = invites.accept(
+            self.backend, invite_token, "legacy@example.com", private_password
+        )
+
+        self.assertEqual(migrated_id, account_id)
+        self.assertEqual(
+            accounts.authenticate(
+                self.backend, self.tenant_id, "legacy@example.com", private_password
+            ),
+            account_id,
+        )
+        with self.assertRaises(accounts.AuthError):
+            accounts.authenticate(
+                self.backend, self.tenant_id, "legacy@example.com", legacy_password
+            )
+        with self.assertRaises(sessions.AuthError):
+            sessions.validate(self.backend, old_session)
+
+    def test_existing_member_cannot_use_invite_to_change_role(self) -> None:
+        """Migration is role-preserving; role changes stay in orgs.set_role."""
+        from weft_cloud.identity import accounts
+
+        account_id = accounts._create_account(
+            self.backend,
+            self.tenant_id,
+            "role-locked@example.com",
+            "existing-password",
+            email_verified=1,
+        )
+        with self.backend.transaction() as tx:
+            tx.execute(
+                "INSERT INTO cloud_identity_members(tenant_id, account_id, role, joined_at) "
+                "VALUES (?, ?, 'member', datetime('now'))",
+                (self.tenant_id, account_id),
+            )
+            tx.commit()
+        _, invite_token = invites.create(
+            self.owner_ctx, "role-locked@example.com", role="admin"
+        )
+
+        with self.assertRaises(AuthError) as exc:
+            invites.accept(
+                self.backend, invite_token, "role-locked@example.com", "new-password"
+            )
+        self.assertEqual(exc.exception.code, "already_in_org")
+        self.assertEqual(
+            accounts.authenticate(
+                self.backend,
+                self.tenant_id,
+                "role-locked@example.com",
+                "existing-password",
+            ),
+            account_id,
+        )
 
     # -- 4. wrong email refused with invite_mismatch --
 
@@ -225,7 +308,7 @@ class IdentityInvitesContractTests(unittest.TestCase):
     # -- 9. member cannot create invites (admin/owner only) --
 
     def test_member_create_invite_raises_forbidden(self) -> None:
-        from finalisma_cloud.identity import accounts
+        from weft_cloud.identity import accounts
 
         member_id, _ = accounts.signup(
             self.backend, self.tenant_id, "member@example.com", self.PASSWORD
@@ -250,7 +333,7 @@ class IdentityInvitesContractTests(unittest.TestCase):
 
     def test_accept_lands_in_invite_tenant_only(self) -> None:
         tenant_b = _new_id("tenant")
-        from finalisma_cloud.identity import accounts
+        from weft_cloud.identity import accounts
 
         backend = self.backend
         owner_b_ctx = _seed_owner(backend, tenant_b, "owner-b@example.com", self.PASSWORD)
@@ -277,7 +360,7 @@ class IdentityInvitesContractTests(unittest.TestCase):
         """Layer-2 guard: even a SessionContext hand-built with role='owner'
         is refused when the DB membership is only 'member'. The role gate
         re-derives the actor's role from cloud_identity_members."""
-        from finalisma_cloud.identity import accounts
+        from weft_cloud.identity import accounts
 
         member_id, _ = accounts.signup(
             self.backend, self.tenant_id, "lowpriv@example.com", self.PASSWORD
@@ -313,6 +396,92 @@ class IdentityInvitesContractTests(unittest.TestCase):
             ).fetchone()
         self.assertIsNotNone(row)
         self.assertIn(raw_token, row["body"])
+
+    def test_invite_email_contains_configured_clickable_web_url(self) -> None:
+        previous = os.environ.get("WEFT_WEB_PUBLIC_ORIGIN")
+        os.environ["WEFT_WEB_PUBLIC_ORIGIN"] = "https://app.example.test/"
+        try:
+            _, raw_token = invites.create(self.owner_ctx, "clickable@example.com", role="member")
+        finally:
+            if previous is None:
+                os.environ.pop("WEFT_WEB_PUBLIC_ORIGIN", None)
+            else:
+                os.environ["WEFT_WEB_PUBLIC_ORIGIN"] = previous
+
+        with self.backend.transaction() as tx:
+            row = tx.execute(
+                "SELECT body FROM cloud_identity_outbox WHERE to_email = ? "
+                "ORDER BY created_at DESC LIMIT 1",
+                ("clickable@example.com",),
+            ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertIn(
+            f"https://app.example.test/invite/{raw_token}",
+            row["body"],
+        )
+
+    def test_invalid_web_origin_refuses_before_writing_invite(self) -> None:
+        previous = os.environ.get("WEFT_WEB_PUBLIC_ORIGIN")
+        invalid_values = (
+            "javascript:alert(1)",
+            "https://user:pass@example.test",
+            "https://example.test/path",
+            "https://example.test/?next=evil",
+            "https://example.test/#fragment",
+            "https://example.test\r\nX-Leak: yes",
+        )
+        try:
+            for index, value in enumerate(invalid_values):
+                with self.subTest(value=value), self.assertRaises(ValueError):
+                    os.environ["WEFT_WEB_PUBLIC_ORIGIN"] = value
+                    invites.create(
+                        self.owner_ctx,
+                        f"invalid-origin-{index}@example.com",
+                        role="member",
+                    )
+        finally:
+            if previous is None:
+                os.environ.pop("WEFT_WEB_PUBLIC_ORIGIN", None)
+            else:
+                os.environ["WEFT_WEB_PUBLIC_ORIGIN"] = previous
+
+        with self.backend.transaction() as tx:
+            count = tx.execute(
+                "SELECT COUNT(*) AS n FROM cloud_identity_outbox "
+                "WHERE tenant_id = ? AND to_email LIKE 'invalid-origin-%'",
+                (self.tenant_id,),
+            ).fetchone()["n"]
+        self.assertEqual(count, 0)
+
+    def test_blank_web_origin_falls_back_to_public_origin(self) -> None:
+        previous_web = os.environ.get("WEFT_WEB_PUBLIC_ORIGIN")
+        previous_public = os.environ.get("WEFT_PUBLIC_ORIGIN")
+        os.environ["WEFT_WEB_PUBLIC_ORIGIN"] = "   "
+        os.environ["WEFT_PUBLIC_ORIGIN"] = "https://fallback.example.test/"
+        try:
+            _, raw_token = invites.create(
+                self.owner_ctx, "fallback-origin@example.com", role="member"
+            )
+        finally:
+            if previous_web is None:
+                os.environ.pop("WEFT_WEB_PUBLIC_ORIGIN", None)
+            else:
+                os.environ["WEFT_WEB_PUBLIC_ORIGIN"] = previous_web
+            if previous_public is None:
+                os.environ.pop("WEFT_PUBLIC_ORIGIN", None)
+            else:
+                os.environ["WEFT_PUBLIC_ORIGIN"] = previous_public
+
+        with self.backend.transaction() as tx:
+            row = tx.execute(
+                "SELECT body FROM cloud_identity_outbox WHERE to_email = ? "
+                "ORDER BY created_at DESC LIMIT 1",
+                ("fallback-origin@example.com",),
+            ).fetchone()
+        self.assertIn(
+            f"https://fallback.example.test/invite/{raw_token}",
+            row["body"],
+        )
 
     # -- 13. migration cloud_005_identity_invites is recorded --
 

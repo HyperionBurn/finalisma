@@ -14,7 +14,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from finalisma_mcp import tenancy
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from weft_mcp import tenancy
 
 
 def _sha256(text: str) -> str:

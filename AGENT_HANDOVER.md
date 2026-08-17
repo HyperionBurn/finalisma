@@ -1,4 +1,4 @@
-# Finalisma — agent handover
+# Weft — agent handover
 
 > Read this before changing anything. This is the shortest complete explanation of
 > what this repository is, what has already been built, what is verified, and what
@@ -11,20 +11,25 @@ required before public deployment.
 
 ## 1. The product in one paragraph
 
-Finalisma is a dependency-free MCP coordination layer for making two separate AI
+Weft is a dependency-free MCP coordination layer for making two separate AI
 agents behave like a governed team. The product promise is:
 
-> Finalisma is designed for two MCP-capable hosts with compatible stdio or
+> Weft is designed for two MCP-capable hosts with compatible stdio or
 > Streamable HTTP integration. They can share a scoped task, messages, leases,
 > ordered events, and evidence without sharing provider credentials or conversation
-> history. Real host interoperability validation is still pending.
+> history. Interoperability status: one real host verified (OpenCode 1.18.13,
+> `docs/INTEROP_VALIDATION_2026-08-05.md`); the HTTP, bridge, and SDK tiers have
+> committed protocol-tier transcripts (`docs/INTEROP_HTTP_2026-08-05.md`,
+> `docs/INTEROP_BRIDGE_2026-08-05.md`, `docs/INTEROP_SDK_2026-08-05.md`);
+> host-product breadth for those tiers is still being consolidated
+> (`docs/INTEROP_VALIDATION_2026-08-15.md`, in flight).
 
 The first startup wedge is evidence-backed handoffs for AI-native engineering teams:
 incident triage and pull-request review. One agent opens a narrowly scoped task;
 the other previews/consents, claims it under a lease, works inside the declared
 scope, returns evidence, and can only complete after every check passes.
 
-Finalisma coordinates agents. It does not execute arbitrary shell commands from
+Weft coordinates agents. It does not execute arbitrary shell commands from
 payloads, silently substitute model providers, or mutate host settings.
 
 ## 2. Current state at handoff
@@ -115,49 +120,58 @@ Rules that must survive future edits:
 
 ### Runtime / protocol
 
-- `src/finalisma_mcp/core.py` — schema-v3 SQLite-backed domain store: agents and
+- `src/weft_mcp/core.py` — schema-v3 SQLite-backed domain store: agents and
   SHA-256-only actor credential records, tasks, leases, fencing tokens, pairing
   links, separate sessions, ordered events, evidence, idempotency, and audit records.
-- `src/finalisma_mcp/server.py` — MCP JSON-RPC dispatcher, stdio transport,
+- `src/weft_mcp/server.py` — MCP JSON-RPC dispatcher, stdio transport,
   authenticated Streamable HTTP, pairing/session HTTP routes, origin/token gates,
   and metrics/rate-limit surfaces.
-- `src/finalisma_mcp/__main__.py` — CLI entry point and actor-auth policy resolver:
+- `src/weft_mcp/__main__.py` — CLI entry point and actor-auth policy resolver:
   HTTP required / stdio trusted in `auto`, explicit loopback-only HTTP trust with a
   warning, and rejection of non-loopback trust.
-- `src/finalisma_mcp/tenancy.py` — org/membership boundary layer: org CRUD, member
+- `src/weft_mcp/tenancy.py` — org/membership boundary layer: org CRUD, member
   roles, SHA-256 actor-key derivation, and scope enforcement (`assert_scope`). Mounted
-  behind `finalisma_org_*` MCP tools (2026-08-05).
-- `src/finalisma_mcp/roster.py` — N-way roster: create/join/leave, capabilities,
+  behind `org_*` MCP tools (2026-08-05).
+- `src/weft_mcp/roster.py` — N-way roster: create/join/leave, capabilities,
   named groups, one-use roster links, `route_targets` expansion (agent / group /
-  `*` / list), and `build_envelope_v2`. Mounted behind `finalisma_roster_*` tools.
-- `src/finalisma_mcp/outbox.py` — durable per-recipient outbox: fan-out enqueue,
+  `*` / list), and `build_envelope_v2`. Mounted behind `roster_*` tools.
+- `src/weft_mcp/outbox.py` — durable per-recipient outbox: fan-out enqueue,
   atomic claim, exponential backoff retry, DLQ, restart crash-recovery. Mounted
-  behind `finalisma_outbox_*` tools.
-- `src/finalisma_mcp/bridge.py` — universal adapters for non-MCP hosts:
+  behind `outbox_*` tools.
+- `src/weft_mcp/bridge.py` — universal adapters for non-MCP hosts:
   `WebhookBridge` (HMAC-signed POST, fails closed without the real signing secret),
   `PollingBridge` (at-most-once cursor delivery), `ClipboardBridge` (one-shot
-  bootstrap snippet). Mounted behind `finalisma_bridge_*` tools.
-- `src/finalisma_mcp/metrics_activation.py` — local-first activation funnel:
+  bootstrap snippet). Mounted behind `bridge_*` tools.
+- `src/weft_mcp/metrics_activation.py` — local-first activation funnel:
   `link_created → link_previewed → link_accepted → first_task_claimed →
   first_evidence_verified` with time-to-first-verified-handoff, retention, and
-  handoffs-per-workspace. Mounted behind `finalisma_metrics_*` tools. No external
+  handoffs-per-workspace. Mounted behind `metrics_*` tools. No external
   analytics vendor, no PII.
-- `src/finalisma_mcp/room.py` — the Wave E Room product object: one multi-use link admits
+- `src/weft_mcp/room.py` — the Wave E Room product object: one multi-use link admits
   N agents (bounded by a cap) with preview-before-consent; ordered event log with per-member
   cursors; addressing (unicast / group / broadcast) with durable outbox delivery receipts;
   presence from heartbeats. Composes `roster`/`outbox`/`core`; owns `room_*` tables. Mounted
-  behind 12 `finalisma_room_*` tools. Design: `docs/ROOMS_DESIGN.md`.
-- `src/finalisma_sdk/` — official stdlib-only Python client (`FinalismaClient`):
+  behind 12 `room_*` tools. Design: `docs/ROOMS_DESIGN.md`.
+- `src/weft_sdk/` — official stdlib-only Python client (`WeftClient`):
   typed results, structured errors, token hygiene (never in repr/logs), exponential
   backoff retry with idempotency keys.
-- `src/finalisma_cloud/` — the Wave F hosted-service plane. `storage.py` defines the
+- `src/weft_cloud/` — the Wave F hosted-service plane. `storage.py` defines the
   `StorageBackend` ABC (transport-engine-agnostic) with a `SqliteWalBackend` (stdlib SQLite-WAL).
   `tenancy.py` is structural isolation: `TenantContext.require_tenant()` guard + required
   `tenant_id` on every storage method. `migrations.py` is forward-only/idempotent and upgrades a
   real v3 coordinator DB in place (additive only, never touches agent_credentials).
-  `quotas.py`/`rate_limit.py` are plan-driven seams (Wave I adds billing). Design:
-  `docs/CLOUD_SPINE_DESIGN.md`. This plane MAY take pinned deps; v1 uses none (stdlib).
-- `src/finalisma_cloud/identity/` — the Wave G identity plane (stdlib only). `accounts.py`
+  `quotas.py`/`rate_limit.py` are plan-driven seams (Wave I adds billing). `mcp.py` is the
+  hosted MCP endpoint at `POST /mcp` — authenticated with cloud sessions, tenant-confined,
+  exposing the 12 room tools over `CloudRoomService`; `service.py` routes `/mcp` to it
+   (Design: `docs/CLOUD_SPINE_DESIGN.md`, `docs/HOSTED_MCP_DESIGN.md`).
+   `cloud_outbox` (the HOSTED delivery outbox — distinct from the email
+   `cloud_identity_outbox`) has a full completion lifecycle: migration `cloud_011`
+   adds `claimed_at`/`claimed_by`/`last_error`/`dispatched_at`, the backend exposes
+   lease-aware `claim_due_outbox` + `mark_outbox_delivered/retry/dead`, and
+   `delivery_worker.py` drains it with a pluggable `Deliverer` (lease reclaim,
+   retry with backoff, terminal `delivered`, dead-letter after max attempts).
+  This plane MAY take pinned deps; v1 uses none (stdlib).
+- `src/weft_cloud/identity/` — the Wave G identity plane (stdlib only). `accounts.py`
   (scrypt password hashing, per-user salt, constant-time compare, timing-invariant unknown-email
   auth, single-use verify/reset tokens), `sessions.py` (opaque `fss_` tokens, SHA-256 at rest,
   expiry, revoke / revoke-all, rotation on role change), `orgs.py` (membership + owner/admin/member;
@@ -168,16 +182,16 @@ Rules that must survive future edits:
   so a forged SessionContext still cannot act above its DB role). Migrations `cloud_002..cloud_006`
   add accounts/sessions/members/invites/outbox. 58 Wave G integration tests drive the real API.
   Design: `docs/IDENTITY_DESIGN.md`.
-- `scripts/finalisma-mcp.py` — no-install launcher that adds `src/` to the import
+- `scripts/weft-mcp.py` — no-install launcher that adds `src/` to the import
   path and starts the MCP server.
-- `scripts/finalisma-smoke.py` — real in-process protocol smoke: pairing preview,
+- `scripts/weft-smoke.py` — real in-process protocol smoke: pairing preview,
   join, task claim, evidence verification, and completion.
-- `scripts/finalisma_performance_gate.py` — locked same-machine evaluator. Re-baselined
+- `scripts/weft_performance_gate.py` — locked same-machine evaluator. Re-baselined
   2026-08-05 after the harness gained roster/tenancy scenarios; original 1,265.771 ms
   → 59.314 ms / 95.31% is preserved in the baseline `history` array and
   `docs/PERFORMANCE.md`. A force re-capture is a regression guard (target 0), not an
   improvement proof.
-- `.finalisma/state.db` — ignored project-local SQLite state currently present on
+- `.weft/state.db` — ignored project-local SQLite state currently present on
   this machine. Do not commit it. Do not delete it casually; it may contain local
   runtime state. The smoke script uses a temporary directory.
 
@@ -194,7 +208,7 @@ Rules that must survive future edits:
 - `site/blog/` — focused field-note articles. Each carries `.ledger-ground` too.
 - `site/assets/og-card.svg` — the social card, and the single source of truth for it.
 - `site/assets/og-card.png` — rendered from that SVG at exactly 1200×630.
-- `scripts/finalisma-site.py` — dependency-free static server for the launch site.
+- `scripts/weft-site.py` — dependency-free static server for the launch site.
 - `scripts/capture-site-qa.cjs` — Playwright capture and interaction harness.
 - `scripts/render-og-card.cjs` — renders `og-card.svg` → `og-card.png` via Playwright
   and verifies the PNG header is 1200×630. This replaced a PowerShell script that
@@ -207,7 +221,7 @@ Rules that must survive future edits:
 
 - `README.md` — installation, MCP config, first handshake, link-first pairing,
   HTTP mode, development checks, and cleanup.
-- `docs/PROTOCOL.md` — Finalisma A2A envelope, lifecycle, evidence gate, and MCP
+- `docs/PROTOCOL.md` — Weft A2A envelope, lifecycle, evidence gate, and MCP
   compatibility boundary.
 - `docs/PRODUCTION_PROTOCOL.md` — pairing/session security and reconnect model.
 - `docs/PAIRING_UX.md` — the intended two-minute link-first pairing experience.
@@ -363,7 +377,7 @@ The site server defaults to port 4173. The currently verified live server used p
 
 ```powershell
 Get-NetTCPConnection -LocalPort 4175 -State Listen -ErrorAction SilentlyContinue
-python -B .\scripts\finalisma-site.py --host 127.0.0.1 --port 4175
+python -B .\scripts\weft-site.py --host 127.0.0.1 --port 4175
 ```
 
 Open <http://127.0.0.1:4175/>. Check both `/` and `/blog/index.html` return 200 before
@@ -373,7 +387,7 @@ listening.
 ### Run the real protocol smoke
 
 ```powershell
-python -B .\scripts\finalisma-smoke.py
+python -B .\scripts\weft-smoke.py
 ```
 
 Expected result includes `status: ok`, `pairing_preview: issued`,
@@ -383,7 +397,7 @@ Expected result includes `status: ok`, `pairing_preview: issued`,
 
 ```powershell
 python -B -m unittest discover -s tests -v
-python -B .\scripts\finalisma-smoke.py
+python -B .\scripts\weft-smoke.py
 node --check .\site\app.js
 node .\scripts\capture-site-qa.cjs
 ```
@@ -394,23 +408,29 @@ To regenerate the social card after editing `site/assets/og-card.svg`:
 node .\scripts\render-og-card.cjs
 ```
 
-**Verified for the current launch pass:** 65/65 Python tests and
-`evidence_passed: true` on the smoke. The last recorded DOUBLE ENTRY harness run had
-`consoleErrors: []` and all 13 harness boolean checks true — `allPinned` with the five
-checkpoints at exactly 64px
-(`--header-h`), `reachesDone`, `startsOutOfBalance`, `rulesTrackPosting`,
-`ledgerRuleAligned` (max column drift 0.003px), `redIsNeverTheOnlyMarker` (11
-unposted rows, all worded), `reducedMotionStatic`, `mobileNoHorizontalOverflow`
-(390 = 390) and `mobileStoryNoHorizontalOverflow`. The scroll-driven layer was also
-verified with the `@supports` branch forced off (§4.1): checkpoints still pin and the
-account still reaches `7 / balanced`. Blog index, article, mobile article and 404 were
-captured clean with zero console errors and zero serif declarations.
+**Historical launch snapshot (2026-08-15, `feature/product-perfect`):** 960/960 Python tests and
+`evidence_passed: true` on the smoke. The last recorded `capture-site-qa.cjs`
+run on file (with `consoleErrors: []` and all harness booleans true —
+`allPinned` with the five checkpoints at exactly 64px (`--header-h`),
+`reachesDone`, `startsOutOfBalance`, `rulesTrackPosting`, `ledgerRuleAligned`
+(max column drift 0.003px), `redIsNeverTheOnlyMarker` (11 unposted rows, all
+worded), `reducedMotionStatic`, `mobileNoHorizontalOverflow` (390 = 390) and
+`mobileStoryNoHorizontalOverflow`) predates the FIELD NOTES rebuild and is
+kept as historical evidence, not a current pass. A fresh harness capture
+against the current FIELD NOTES tree is required before those booleans can
+be re-claimed. The scroll-driven layer's `@supports`-forced-off check (§4.1)
+belongs to the same historical run.
 
-The site copy and audit total now state 65 tests, with the same assertion in
-`tests/test_site.py`. **That number is a measured fact stated on the page** — if you
-add or remove a test, update `site/index.html` (the microcopy in folio 00 and the total
-in folio 04) and the assertion in `tests/test_site.py`. Do not confuse this test count
-with the permanent 37/63 visual split.
+The published test count is guarded automatically by
+`tests/test_site.py::TestCountSyncTests`: it discovers the live count with the
+same loader and pattern as `unittest discover -s tests` and fails if any
+published instance in `docs/` or `site/` claims a count ABOVE the live count
+(the guard protects against deleted tests; adding tests never invalidates a
+published number). The latest local count is **1162 discovered, 1161 passed,
+1 skipped**, measured 2026-08-17 and recorded in `docs/RELEASE_EVIDENCE.md`.
+If you delete tests, that guard will tell you what to update. Do not
+hand-maintain the number, and do not confuse the test count with the permanent
+37/63 visual split.
 
 The old `pointerTiltChanged` / `pointerTiltReset` checks are gone: the hero 3D tilt
 object they measured was deleted with the mockups.
@@ -420,17 +440,23 @@ Codex runtime. Do not install browsers or add a Node package just to run the har
 
 ### Performance-goal result
 
-The locked single-node evaluator is `scripts/finalisma_performance_gate.py`; its
+The locked single-node evaluator is `scripts/weft_performance_gate.py`; its
 baseline and OMX ledger live under
-`.omx/goals/performance/single-node-coordinator-envelope/`. The gate was re-baselined
-2026-08-05 (see §3): the current weighted median is ~68.8 ms against the extended
-harness with matching semantic digests and a green regression gate; the original
-1,265.771 ms -> 59.314 ms (95.31%) figure is preserved in the baseline `history`
-array. The gate requires 226 tests passing, smoke passing, and no raw credential in
-evaluator output. Read `docs/PERFORMANCE.md` before changing the
-harness, baseline, connection pooling, routing query, or session cursor path.
+`.omx/goals/performance/single-node-coordinator-envelope/`. The current reference
+artifact is 72.221 ms; the latest complete local gate measured 137.404 ms /
+155.381 ms p95 and failed its timing guards while its quality sub-gates passed.
+The 2026-08-14 single-trial captures (~144.8 ms, ~68.8 ms, ~145.0 ms weighted
+medians against the same reference) show run-to-run variance of a size that is
+host load, not code; the gate remains red pending a controlled idle-host
+rerun. The older ~68.8 ms and 1,265.771 ms -> 59.314 ms (95.31%) results are
+historical evidence preserved in the baseline `history` array. The gate
+requires the current suite recorded in `docs/RELEASE_EVIDENCE.md` to pass,
+smoke passing, and no raw credential in evaluator output. Read
+`docs/PERFORMANCE.md` (the owner of
+every performance number and its provenance) before changing the harness,
+baseline, connection pooling, routing query, or session cursor path.
 
-`FinalismaStore` now owns bounded read/write connection pools. Long-lived callers
+`WeftStore` now owns bounded read/write connection pools. Long-lived callers
 must call `close()` or use the store as a context manager. The CLI and operator
 scripts close it during shutdown. Do not remove that lifecycle handling: Windows
 will keep temporary SQLite files locked while pooled connections remain open.
@@ -445,7 +471,7 @@ will keep temporary SQLite files locked while pooled connections remain open.
 - Pairing/session tokens are opaque and stored hashed; token-bearing URL paths are
   rejected. The HTTP adapter keeps the one-time token in the URL fragment and sends
   it in the POST body. Session tokens remain separate from actor credentials.
-- `finalisma_rotate_agent_credential` atomically replaces an actor token and returns
+- `rotate_agent_credential` atomically replaces an actor token and returns
   the replacement once. A v2 database migrates to v3 without fabricated credentials;
   recover an old identity only through trusted local rotation/bootstrap or move work
   to a genuinely new paired ID.
@@ -462,19 +488,19 @@ will keep temporary SQLite files locked while pooled connections remain open.
 - **Webhook signing fails closed.** `WebhookBridge.deliver` raises
   `signing_secret_required` unless the caller supplies the real signing secret; the
   stored SHA-256 hash is never used as a live HMAC key (HIGH-1 fix, 2026-08-05).
-- **SDK error bodies are redacted.** `FinalismaClient` never embeds a coordinator
+- **SDK error bodies are redacted.** `WeftClient` never embeds a coordinator
   response body into a raised exception — only `{status}` is attached, so a body that
   echoes a token cannot land in caller logs (HIGH-2 fix, 2026-08-05).
-- **Bridge calls require actor auth.** Every `finalisma_bridge_*` tool validates the
+- **Bridge calls require actor auth.** Every `bridge_*` tool validates the
   caller's `actor_token` (`actor_auth_invalid` on failure); webhook secrets and
   bootstrap nonces are stored hashed / one-use and never returned.
-- **Tenancy scope is negative-tested.** `finalisma_org_assert_scope` raises
+- **Tenancy scope is negative-tested.** `org_assert_scope` raises
   `tenancy_scope_forbidden` for non-members and for cross-tenant key mismatches; org
   isolation is enforced by negative integration tests.
 - **Outbox delivery is durable and idempotent.** Fan-out entries are keyed
   `(envelope_id, team, recipient)`; crash recovery resets stranded `in_flight` rows;
   DLQ holds entries past max attempts. No raw secret enters `payload_json`.
-- **Activation metrics carry no PII.** `finalisma_metrics_event` rejects PII-bearing
+- **Activation metrics carry no PII.** `metrics_event` rejects PII-bearing
   metadata keys at the top level; events carry team/agent ids and caller-controlled
   metadata only.
 - **Room links are multi-use up to a cap — governed, not anonymous.** A room link
@@ -486,7 +512,7 @@ will keep temporary SQLite files locked while pooled connections remain open.
   atomic under `BEGIN IMMEDIATE` (`room_full`); expiry (`link_expired`) and revocation
   (`link_revoked`) are checked on every join; only the SHA-256 of the link token is stored.
   The existing one-use two-party pairing link is unchanged — rooms are additive.
-- **Room reads and mutations are member-only.** Every `finalisma_room_*` tool requires an
+- **Room reads and mutations are member-only.** Every `room_*` tool requires an
   `actor_token` bound to a member; non-members get `member_required`, and cross-room access
   is refused. Ordered room events replay from per-member cursors with at-least-once delivery
   and monotonic MAX acks (`UNIQUE(room_id, seq)`, `room_cursors` PK `(room_id, agent_id)`).
@@ -522,12 +548,30 @@ will keep temporary SQLite files locked while pooled connections remain open.
   supplies a role. Wrong email → `invite_mismatch`, double redeem → `invite_consumed` (atomic
   conditional UPDATE), expired/unknown → `invite_expired` (uniform, not a token oracle). The
   membership lands in the invite's own tenant — no cross-org redirect.
-- **Coordinator (`finalisma_mcp`) stays dependency-free forever.** The cloud plane is the only
+- **Admin can never mint an owner (2026-08-15, `d344ebe`).** `add_member` with
+  `role: "owner"` requires an owner caller — `ctx.require_role("owner")` (layer 1)
+  AND `require_db_role(..., "owner")` (layer 2) — mirroring `set_role`; an admin
+  cannot create an owner who could then delete the org or remove the admin.
+- **Agent-key signout revokes truthfully (2026-08-15, `d344ebe`).** The shared
+  signout funnel checks the presented credential type: for an `agk_` bearer the
+  credential IS the key, so signout revokes the key itself (and frees its room
+  seats via `release_agent_key_seats_in_tx`) instead of reporting a no-op.
+- **Hosted REST refuses malformed cursors with 400s, not 500s (2026-08-15, `1e0aa5a`).**
+  Non-integer / negative / beyond-head `after_seq` → 400 `invalid_argument` /
+  `invalid_cursor`; negative `seq` on ack → 400 `invalid_cursor`. Caller error
+  is never surfaced as a server fault.
+- **The SDK drives all 12 hosted room tools in hosted mode without identity
+  arguments (2026-08-15, `c9f4e0e`).** When an `agk_`/`fss_` bearer is supplied,
+  the client strips `team_id`/`agent_id`/`actor_token` from every tool call —
+  the hosted dispatcher derives identity from the credential and rejects
+  client-supplied identity — and surfaces HTTP 429 as a structured
+  `rate_limited` error carrying `retry_after`.
+- **Coordinator (`weft_mcp`) stays dependency-free forever.** The cloud plane is the only
   place pinned dependencies may land, and v1 adds none (stdlib SQLite-WAL).
 - The current storage model is durable SQLite single-node preview. It is not yet a
   multi-instance, OAuth/OIDC, distributed-rate-limit, outbox-backed hosted service.
 - Model names are recorded provider routes. The host still owns credentials and
-  execution; Finalisma does not run the models.
+  execution; Weft does not run the models.
 
 ## 8. Known gaps and next work
 
@@ -555,12 +599,29 @@ Priority order for the next agent:
    `--display` / `--serif` / `--mono` token — nothing else references the family
    names directly. Do not move any of them to a CDN; local assets are what keeps
    the dependency-free promise true.
-8. The cloud service (`src/finalisma_cloud/service.py`) is containerised
+8. The cloud service (`src/weft_cloud/service.py`) is containerised
    (`Dockerfile` + `compose.yaml` + `docs/DEPLOY.md`) as a **single-instance**
    SQLite-WAL deployment: one writer, one persistent disk, no horizontal
    scaling. The image build itself is untested until run on a machine with
    Docker installed; `docs/DEPLOY.md` records the exact verification status.
    Making it a real multi-node service is a storage-layer change.
+9. A hosted MCP endpoint now exists at `POST /mcp` on `weft-cloud`
+   (`src/weft_cloud/mcp.py`, `docs/HOSTED_MCP_DESIGN.md`): authenticated with
+   cloud sessions, tenant-confined, exposing the 12 room tools over
+   `CloudRoomService` (the same store `/v1` uses). The **SDK now drives all
+   12 hosted tools** (`c9f4e0e` — `room_wait`, `room_event_log`,
+   `room_remove_member` added) and REST has `/v1/rooms/receipts` +
+   `/v1/rooms/remove_member` parity with 400-not-500 cursor errors
+   (`1e0aa5a`). What remains, in priority order:
+   a. the consolidated host-product breadth transcript
+      (`docs/INTEROP_VALIDATION_2026-08-15.md`, in flight) — the stdio tier
+      is host-verified (OpenCode 1.18.13), and HTTP/bridge/SDK protocol-tier
+      transcripts are committed, but host-product breadth for those tiers is
+      the open item per `docs/PRODUCT_ROADMAP.md` §3;
+   b. scale proof at 10/50 agents (in flight in a separate worktree — do not
+      claim numbers until it lands with evidence);
+   c. a controlled idle-host rerun of the performance gate, which is red
+      under host-load noise (`docs/PERFORMANCE.md` owns the numbers).
 
 Current mobile QA is clean: document width equals the 390px viewport, no horizontal
 page scroll is exposed, and the overflow-offender scan reports no offenders. Keep
@@ -568,16 +629,25 @@ the rendered width and offender checks in future visual regression passes.
 
 ## 9. Workspace hygiene rules
 
-- Work only inside `C:\Users\Wasif\Documents\Multiplayer-AI-isolated` (branch `isolated`).
-  `C:\Users\Wasif\Documents\Multiplayer-AI` is a **separate worktree** on `master` with its
-  own uncommitted work; never read from or write to it.
+- Work only inside the current checkout `C:\Users\Wasif\Documents\Multiplayer-AI-integration`
+  (branch `codex/weft-release-truth-2026-08-17`). The latest local test
+  evidence is in `docs/RELEASE_EVIDENCE.md`; do not infer merge or deployment
+  status from it.
+  `C:\Users\Wasif\Documents\Multiplayer-AI-isolated` (branch `isolated`) and
+  `C:\Users\Wasif\Documents\Multiplayer-AI` (branch `master`) are **separate
+  worktrees** with their own work; never read from or write to them from a
+  lane in this one.
 - Use the opencode `read`/`write`/`edit` tools for source changes. There is no `apply_patch`
   tool in this environment (that is Codex). Do not use shell redirection or ad hoc file
   writers for code/doc changes.
 - If your shell cwd is `C:\Users\Wasif`, every `bash` call must pass
-  `workdir = C:\Users\Wasif\Documents\Multiplayer-AI-isolated` and every file path must be
+  `workdir = C:\Users\Wasif\Documents\Multiplayer-AI-perfect` and every file path must be
   absolute under that worktree. Restarting opencode from inside the worktree fixes this
   permanently.
+- The `AGENTS.md` in this worktree is a stale copy of the isolated worktree's
+  rules (it names branch `isolated`); its product facts pre-date the
+  2026-08-15 closes. Verify any of its claims against this tree before
+  acting on them.
 - Do not install globally, modify PATH/profile/registry, create services, or add startup
   entries.
 - Do not add secrets to `.env`, shell profiles, logs, task payloads, MCP JSON, or git.

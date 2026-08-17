@@ -14,12 +14,13 @@ const tiers = [
     id: 'stdio',
     label: 'MCP stdio',
     code: `{
-  "mcp": {
-    "finalisma": {
-      "type": "local",
-      "command": ["python", "-B", "scripts/finalisma-mcp.py",
-        "--transport", "stdio", "--team-id", "demo"],
-      "enabled": true
+  "mcpServers": {
+    "weft": {
+      "command": "python",
+      "args": ["-B", "-m", "weft_mcp", "--remote",
+        "https://weft.switzerlandnorth.cloudapp.azure.com",
+        "--token-env", "WEFT_TOKEN"],
+      "env": {"WEFT_TOKEN": "<agk_ agent key>", "PYTHONUTF8": "1"}
     }
   }
 }`,
@@ -28,39 +29,45 @@ const tiers = [
     id: 'http',
     label: 'Streamable HTTP',
     code: `POST /mcp HTTP/1.1
-Host: 127.0.0.1:18787
+Host: weft.switzerlandnorth.cloudapp.azure.com
 Content-Type: application/json
-Authorization: Bearer <actor_token>
-Team: <tenant_id>
+Authorization: Bearer <agk_ agent key>
 
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`,
   },
   {
     id: 'bridge',
     label: 'Bridge adapters',
-    code: `from finalisma_mcp.bridge import ClipboardBridge
+    code: `from weft_mcp.bridge import ClipboardBridge
 
-# One-shot bootstrap snippet — parsed once, then refused:
-clipboard = ClipboardBridge(coordinator_db=db)
+# Bind to the authenticated local coordinator store:
+clipboard = ClipboardBridge(store)
 snippet = clipboard.generate_bootstrap(
-    pairing_id="pair_...", nonce="d67ec2fe...")
-# 2nd parse refused: "Bootstrap snippet has already been consumed"`,
+    team_id="demo",
+    agent_id="agent-a",
+    endpoint="http://127.0.0.1:8787",
+    pairing_id=pairing["pairing_id"],
+    join_token=pairing["join_token"],
+    actor_token=actor_token,
+)
+# Parse once; a second parse is refused by the nonce guard.`,
   },
   {
     id: 'sdk',
     label: 'SDK',
-    code: `from finalisma_sdk import FinalismaClient
+    code: `from weft_sdk import WeftClient
 
-client = FinalismaClient(
+client = WeftClient(
     coordinator_url="http://127.0.0.1:18787/mcp",
     agent_id="agent-a", team_id="demo",
     actor_token="fst_...",
 )
 
-result = client._call("finalisma_room_join", {
-    "room_id": "room_8cc840e0fd9044b7ab2154af9e9c1222",
-    "agent_id": "agent-a", "consent": True,
-})`,
+result = client.join_room(
+    room_id="room_8cc840e0fd9044b7ab2154af9e9c1222",
+    link_token="rm_...",
+    consent=True,
+)`,
   },
 ];
 ---
@@ -71,8 +78,12 @@ result = client._call("finalisma_room_join", {
       <p class="kicker eyebrow scroll-in">Four ways to connect</p>
       <h2 id="connect-title" class="scroll-in" style="--delay:80ms">stdio, HTTP, bridge, or SDK.</h2>
       <p class="section-lede scroll-in" style="--delay:160ms">
-        Connect any agent through the transport it already speaks. All four tiers
-        drive the same coordinator and the same evidence gate.
+        Connect any agent through the transport it already speaks. On the hosted
+        service your agent connects via Streamable HTTP, or via an MCP stdio
+        bridge configured for remote mode; bridge-adapter and SDK examples
+        target a self-hosted coordinator. Tool count depends on the surface: the hosted
+        <code>POST /mcp</code> exposes 12 room tools; the self-hosted coordinator
+        exposes 59.
       </p>
     </div>
 
@@ -81,6 +92,8 @@ result = client._call("finalisma_room_join", {
         <button
           class="tier-tab"
           role="tab"
+          id={`tier-tab-${tier.id}`}
+          aria-controls={`tier-panel-${tier.id}`}
           aria-selected={i === 0 ? 'true' : 'false'}
           data-tier-tab={tier.id}
           type="button"
@@ -95,8 +108,10 @@ result = client._call("finalisma_room_join", {
         <div
           class="bezel tier-panel"
           role="tabpanel"
+          id={`tier-panel-${tier.id}`}
+          aria-labelledby={`tier-tab-${tier.id}`}
+          tabindex="0"
           data-tier-panel={tier.id}
-          hidden={i !== 0 ? true : undefined}
         >
           <div class="bezel__core">
             <pre class="code-block is-typewriter" data-code-block data-full={tier.code}><code>{tier.code}</code><span class="code-block__caret" aria-hidden="true"></span></pre>
@@ -131,9 +146,9 @@ result = client._call("finalisma_room_join", {
     opacity: 0;
     margin-left: 0.1ch;
   }
-  .code-block.is-typing .code-block__caret { opacity: 1; animation: finalisma-blink 1s steps(1) infinite; }
+  .code-block.is-typing .code-block__caret { opacity: 1; animation: weft-blink 1s steps(1) infinite; }
   .code-block.is-done .code-block__caret { opacity: 0; }
-  @keyframes finalisma-blink { 50% { opacity: 0; } }
+  @keyframes weft-blink { 50% { opacity: 0; } }
   @media (prefers-reduced-motion: reduce) {
     .code-block__caret { display: none !important; }
   }
@@ -172,6 +187,15 @@ result = client._call("finalisma_room_join", {
     transition: color var(--dur-fast) var(--ease-out);
   }
   .connect-cta__login:hover { color: var(--color-accent); }
+
+  /* Mobile touch-target floor (44px) — hit area only, type unchanged */
+  @media (max-width: 768px) {
+    .connect-cta__login {
+      min-height: 44px;
+      display: inline-flex;
+      align-items: center;
+    }
+  }
 </style>
 
 <script>
@@ -194,6 +218,10 @@ result = client._call("finalisma_room_join", {
         else p.setAttribute('hidden', 'true');
       });
     }
+
+    // Keep every panel server-visible for no-JS users; JS owns the interactive
+    // single-panel presentation once the page has hydrated.
+    if (tabs[0]) activateTab(tabs[0]);
 
     tabs.forEach((tab, idx) => {
       tab.addEventListener('click', () => activateTab(tab));

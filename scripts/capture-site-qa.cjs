@@ -2,7 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
-const playwrightPath = process.env.FINALISMA_PLAYWRIGHT
+const playwrightPath = process.env.WEFT_PLAYWRIGHT
   || "C:/Users/Wasif/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright";
 const { chromium } = require(playwrightPath);
 
@@ -105,7 +105,7 @@ const lighthouseChecks = (page) => page.evaluate(() => {
 
 const root = path.resolve(__dirname, "..");
 const outputDir = path.join(root, "artifacts", "design-qa");
-const siteUrl = process.env.FINALISMA_SITE_URL || "http://127.0.0.1:4175/";
+const siteUrl = process.env.WEFT_SITE_URL || "http://127.0.0.1:4175/";
 const origin = new URL(siteUrl).origin;
 fs.mkdirSync(outputDir, { recursive: true });
 
@@ -139,7 +139,7 @@ const capturePageSignals = (page, bucket) => {
     const expectedMetadataAbort =
       request.resourceType() === "media" &&
       reason === "net::ERR_ABORTED" &&
-      /\/assets\/finalisma-demo\.(?:mp4|webm)$/.test(requestPath);
+      /\/assets\/weft-demo\.(?:mp4|webm)$/.test(requestPath);
 
     if (!expectedMetadataAbort) {
       bucket.failedRequests.push({ url: request.url(), reason });
@@ -153,30 +153,34 @@ const capturePageSignals = (page, bucket) => {
 };
 
 const installPerformanceObservers = (page) => page.addInitScript(() => {
-  window.__finalismaQaPerf = { cls: 0, lcp: 0, longTasks: [] };
+  window.__weftQaPerf = { cls: 0, lcp: 0, longTasks: [] };
   try {
     new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) {
-        if (!entry.hadRecentInput) window.__finalismaQaPerf.cls += entry.value;
+        if (!entry.hadRecentInput) window.__weftQaPerf.cls += entry.value;
       }
     }).observe({ type: "layout-shift", buffered: true });
   } catch (_) {}
   try {
     new PerformanceObserver((list) => {
       const entries = list.getEntries();
-      if (entries.length) window.__finalismaQaPerf.lcp = entries.at(-1).startTime;
+      if (entries.length) window.__weftQaPerf.lcp = entries.at(-1).startTime;
     }).observe({ type: "largest-contentful-paint", buffered: true });
   } catch (_) {}
   try {
     new PerformanceObserver((list) => {
-      window.__finalismaQaPerf.longTasks.push(...list.getEntries().map((entry) => entry.duration));
+      window.__weftQaPerf.longTasks.push(...list.getEntries().map((entry) => entry.duration));
     }).observe({ type: "longtask", buffered: true });
   } catch (_) {}
 });
 
 const mobileLayoutChecks = (page) => page.evaluate(() => {
   const width = document.documentElement.clientWidth;
-  const offenders = [...document.querySelectorAll("*")].map((element) => {
+  const offenders = [...document.querySelectorAll("*")]
+    // The marquee track deliberately clips its duplicated, off-screen items;
+    // those descendants are not document layout overflow.
+    .filter((element) => !element.closest("[data-marquee-track]"))
+    .map((element) => {
     const rect = element.getBoundingClientRect();
     return {
       selector: element.className && typeof element.className === "string"
@@ -186,7 +190,7 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
       right: Math.round(rect.right),
       width: Math.round(rect.width)
     };
-  }).filter((item) => (item.right > width + 1 || item.left < -1)
+    }).filter((item) => (item.right > width + 1 || item.left < -1)
     && !item.selector.includes("folio-label")
     && !/^(pre|code|span\.code-)/.test(item.selector)).slice(0, 12);
 
@@ -212,17 +216,21 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
 });
 
 (async () => {
-  const browser = await chromium.launch({
+  const launchBrowser = () => chromium.launch({
     headless: true,
-    executablePath: process.env.FINALISMA_CHROMIUM_PATH || undefined
+    executablePath: process.env.WEFT_CHROMIUM_PATH || undefined,
+    // The WebGL canvas can stall headless screenshots on Windows GPU drivers.
+    // Keep visual/DOM assertions intact while making capture deterministic.
+    args: ["--disable-gpu"]
   });
+  let browser = await launchBrowser();
   const signals = { consoleErrors: [], failedRequests: [], badResponses: [] };
 
   const desktop = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
   capturePageSignals(desktop, signals);
   await installPerformanceObservers(desktop);
   await desktop.goto(siteUrl, { waitUntil: "networkidle" });
-  await desktop.screenshot({ path: screenshots.desktop });
+  await desktop.screenshot({ path: screenshots.desktop, animations: "disabled" });
 
   const topLevelChecks = await desktop.evaluate(() => {
     const canvas = document.querySelector("[data-agent-canvas]");
@@ -232,10 +240,8 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
     const generatedLink = document.querySelector("[data-generated-link]");
     const tierTabs = document.querySelectorAll("[data-tier-tab]");
     const tierPanels = document.querySelectorAll("[data-tier-panel]");
-    const proofItems = document.querySelectorAll("[data-proof-item]");
     const steps = document.querySelectorAll("[data-step]");
-    const unlabelledColourRows = [...proofItems].filter((item) => !(item.querySelector(".proof-label")?.textContent || "").trim())
-      .concat([...steps].filter((step) => !(step.querySelector("h3")?.textContent || "").trim()));
+    const unlabelledColourRows = [...steps].filter((step) => !(step.querySelector("h3")?.textContent || "").trim());
     const thirdParty = performance.getEntriesByType("resource")
       .map((entry) => entry.name)
       .filter((url) => new URL(url).origin !== location.origin);
@@ -249,23 +255,28 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
       fallbackRows: fallback ? fallback.querySelectorAll("li").length : 0,
       readoutHasLive: !!readout && readout.getAttribute("aria-live") === "polite",
       gatePresent: !!gateState,
-      generatedLinkNonEmpty: !!generatedLink && /finalisma\.[^/]*\/r\//.test(generatedLink.textContent || ""),
+      generatedLinkNonEmpty: !!generatedLink && /weft\.[^/]*\/r\//.test(generatedLink.textContent || ""),
       tierTabsCount: tierTabs.length,
       tierPanelsCount: tierPanels.length,
-      proofItemsCount: proofItems.length,
       stepsCount: steps.length,
       unlabelledColourRows: unlabelledColourRows.length,
       thirdParty,
-      linksWithNoName: [...document.querySelectorAll("a,button")].filter((element) => !(element.innerText || element.getAttribute("aria-label") || "").trim()).length,
+      linksWithNoName: [...document.querySelectorAll("a,button")].filter((element) => {
+        const label = element.getAttribute("aria-label")
+          || element.getAttribute("title")
+          || element.textContent
+          || "";
+        return !label.trim();
+      }).length,
       formLabels: [...document.querySelectorAll("[data-cohort-form] input,[data-cohort-form] textarea")].every((control) => control.closest("label") || (control.id && document.querySelector(`label[for="${control.id}"]`))),
       revealDefaultVisible: revealBase.length > 0 && revealBase.every((opacity) => opacity === "1")
     };
   });
 
   // Wait for the R3F island to mount and animate (up to ~6s), then measure frame times.
-  await desktop.waitForFunction(() => window.FinalismaScene || window.__finalismaFrameTimes, null, { timeout: 15000 }).catch(() => {});
+  await desktop.waitForFunction(() => window.WeftScene || window.__weftFrameTimes, null, { timeout: 15000 }).catch(() => {});
   await desktop.waitForTimeout(2500);
-  const frameTimes = await desktop.evaluate(() => Array.isArray(window.__finalismaFrameTimes) ? window.__finalismaFrameTimes.slice() : []);
+  const frameTimes = await desktop.evaluate(() => Array.isArray(window.__weftFrameTimes) ? window.__weftFrameTimes.slice() : []);
   const sorted = [...frameTimes].sort((a, b) => a - b);
   const frameTimeMedian = sorted.length ? sorted[Math.floor(sorted.length / 2)] : -1;
   const frameTimeP95 = sorted.length ? sorted[Math.floor(sorted.length * 0.95)] : -1;
@@ -273,13 +284,13 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
     // `[data-agent-canvas]` is the R3F wrapper (a div), not the raw canvas —
     // calling getContext on it throws. The authoritative "is it animating"
     // signal is the frame-time ring buffer exposed by the scene.
-    return (window.__finalismaFrameTimes || []).length > 10;
+    return (window.__weftFrameTimes || []).length > 10;
   });
 
   // Drive the gate refusal so the harness can assert the moat beat.
   const gateAfterTrigger = await desktop.evaluate(() => {
-    if (window.FinalismaScene && typeof window.FinalismaScene.fireGateRefusal === "function") {
-      window.FinalismaScene.fireGateRefusal();
+    if (window.WeftScene && typeof window.WeftScene.fireGateRefusal === "function") {
+      window.WeftScene.fireGateRefusal();
       return true;
     }
     return false;
@@ -289,11 +300,11 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
 
   // Copy interaction (link + tier config).
   await desktop.evaluate(() => {
-    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (v) => { window.__finalismaCopied = v; } } });
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (v) => { window.__weftCopied = v; } } });
   });
   await desktop.locator('[data-copy="link"]').click();
   await desktop.waitForTimeout(200);
-  const linkCopied = await desktop.evaluate(() => window.__finalismaCopied || "");
+  const linkCopied = await desktop.evaluate(() => window.__weftCopied || "");
   await desktop.locator('[data-tier-tab="http"]').click();
   await desktop.waitForTimeout(200);
   const tierSwitched = await desktop.evaluate(() => {
@@ -307,18 +318,67 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
   });
   await desktop.locator('[data-copy="http"]').click();
   await desktop.waitForTimeout(200);
-  const tierCopied = await desktop.evaluate(() => window.__finalismaCopied || "");
+  const tierCopied = await desktop.evaluate(() => window.__weftCopied || "");
 
-  // Cohort form copy builder.
+  // Cohort brief builder (no form element — see Pricing.astro; the widget is
+  // inert without JS so the button is a plain type="button").
   const form = desktop.locator("[data-cohort-form]");
   await form.locator('[name="team"]').fill("Ledger Labs · 24 people");
   await form.locator('[name="contact"]').fill("operator@example.com");
   await form.locator('[name="hosts"]').fill("OpenCode + Claude Code");
   await form.locator('[name="scenario"]').fill("Retry timeout reproduction in a disposable incident mirror.");
-  await form.locator('button[type="submit"]').click();
+  await form.locator('[data-cohort-build]').click();
   await desktop.waitForTimeout(200);
   const cohortStatus = await form.locator("[data-cohort-status]").textContent();
-  const cohortClipboard = await desktop.evaluate(() => window.__finalismaCopied || "");
+  const cohortClipboard = await desktop.evaluate(() => window.__weftCopied || "");
+
+  // No-JS leak gate: the cohort widget must be inert with scripting disabled.
+  // Filling the fields and clicking the build trigger must NOT change
+  // location.search and must NOT navigate. (Regression gate for the external
+  // audit finding that a bare <form> GET-submitted typed data into the URL.)
+  const noJsCohort = await (async () => {
+    const ctx = await browser.newContext({ javaScriptEnabled: false });
+    const noJsPage = await ctx.newPage();
+    try {
+      await noJsPage.goto(siteUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+      const beforeUrl = noJsPage.url();
+      const noJsWidget = noJsPage.locator("[data-cohort-form]");
+      await noJsWidget.locator('[name="team"]').fill("Ledger Labs");
+      await noJsWidget.locator('[name="contact"]').fill("operator@example.com");
+      await noJsWidget.locator('[name="hosts"]').fill("OpenCode");
+      await noJsWidget.locator('[name="scenario"]').fill("Handoff coordination");
+      const trigger = noJsWidget.locator('[data-cohort-build], button[type="submit"]').first();
+      await trigger.click();
+      await noJsPage.waitForTimeout(500);
+      const afterUrl = noJsPage.url();
+      const search = new URL(afterUrl).search;
+      return {
+        locationSearch: search,
+        navigated: afterUrl !== beforeUrl,
+        leakFree: search === "" && afterUrl === beforeUrl,
+      };
+    } finally {
+      await ctx.close();
+    }
+  })();
+  await desktop.waitForTimeout(100);
+  const performanceChecks = await desktop.evaluate(() => {
+    const resources = performance.getEntriesByType("resource");
+    return {
+      cls: window.__weftQaPerf?.cls || 0,
+      lcp: window.__weftQaPerf?.lcp || 0,
+      longTasks: window.__weftQaPerf?.longTasks || [],
+      resourceCount: resources.length,
+      transferBytes: resources.reduce((sum, entry) => sum + (entry.transferSize || 0), 0),
+      domNodes: document.getElementsByTagName("*").length
+    };
+  });
+  // The desktop page has completed all interactive assertions. Close its
+  // continuously-rendering WebGL island before auxiliary page scans so the
+  // headless browser cannot starve the accessibility probes.
+  await desktop.close();
+  await browser.close();
+  browser = await launchBrowser();
 
   const supportingPageChecks = {};
   for (const [name, route, destination, requiredText] of [
@@ -328,7 +388,7 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
     capturePageSignals(page, signals);
     await page.goto(new URL(route, siteUrl).href, { waitUntil: "networkidle" });
-    await page.screenshot({ path: destination });
+    await page.screenshot({ path: destination, animations: "disabled" });
     supportingPageChecks[name] = await page.evaluate((expected) => ({
       oneH1: document.querySelectorAll("h1").length === 1,
       requiredText: document.body.textContent.includes(expected),
@@ -344,7 +404,7 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
     const video = document.querySelector('video');
     return video && video.readyState >= 1 && Number.isFinite(video.duration);
   }, null, { timeout: 45000 });
-  await demoPage.screenshot({ path: screenshots.demo });
+  await demoPage.screenshot({ path: screenshots.demo, animations: "disabled" });
   const demoPageChecks = await demoPage.evaluate(() => {
     const video = document.querySelector('video');
     const sourceTypes = [...document.querySelectorAll('video source')].map((source) => source.type).sort();
@@ -359,7 +419,7 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
       sourceTypes,
       hasMp4AndWebm: sourceTypes.includes('video/mp4') && sourceTypes.includes('video/webm'),
       hasEnglishCaptions: !!track && track.srclang === 'en' && track.hasAttribute('default'),
-      posterSet: video.getAttribute('poster') === 'assets/finalisma-demo-poster.png',
+      posterSet: video.getAttribute('poster') === 'assets/weft-demo-poster.png',
       noHorizontalOverflow: document.documentElement.scrollWidth <= document.documentElement.clientWidth
     };
   });
@@ -381,6 +441,10 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
     capturePageSignals(page, signals);
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
     await page.waitForTimeout(300);
+    await page.waitForFunction(() => {
+      const heroCta = document.querySelector(".hero-ctas");
+      return !heroCta || getComputedStyle(heroCta).opacity === "1";
+    }, null, { timeout: 5000 });
     axeResults.push(await runAxeScan(page, name));
     lighthouseResults.push({ name, url, checks: await lighthouseChecks(page) });
     await page.close();
@@ -391,7 +455,7 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
   try {
     const og = await browser.newPage({ viewport: { width: 1200, height: 630 }, deviceScaleFactor: 1 });
     await og.goto(pathToFileURL(path.join(root, "site", "assets", "og-card.svg")).href, { waitUntil: "load" });
-    await og.screenshot({ path: screenshots.og });
+    await og.screenshot({ path: screenshots.og, animations: "disabled" });
     await og.close();
   } catch (_) {}
 
@@ -405,7 +469,7 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
       + `<div class="comparison"><div class="panel"><div class="label">RENDERED IMPLEMENTATION · 1440 × 900</div><img src="${dataUrl(screenshots.desktop)}"></div></div>`,
       { waitUntil: "load" }
     );
-    await comparison.screenshot({ path: screenshots.comparison, fullPage: true });
+    await comparison.screenshot({ path: screenshots.comparison, fullPage: true, animations: "disabled" });
     await comparison.close();
   } catch (_) {}
 
@@ -418,7 +482,7 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
     const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
     capturePageSignals(page, signals);
     await page.goto(siteUrl, { waitUntil: "networkidle" });
-    await page.screenshot({ path: destination });
+      await page.screenshot({ path: destination, animations: "disabled" });
     const checks = await mobileLayoutChecks(page);
     if (width === 390 && height === 844) {
       const nav = page.locator("#mobile-nav");
@@ -426,29 +490,49 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
       await page.locator(".nav-toggle").click();
       checks.navOpen = await page.locator(".nav-toggle").getAttribute("aria-expanded");
       checks.navOpenInert = await nav.evaluate((element) => element.inert);
+      checks.navFocusOnOpen = await nav.evaluate((element) => element.contains(document.activeElement));
+      checks.navFocusableCount = await nav.evaluate((element) => element.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      ).length);
+      checks.bodyScrollLocked = await page.evaluate(() => document.body.style.overflow === "hidden");
+      checks.backgroundInertWhileOpen = await page.evaluate((navElement) => [...document.body.children]
+        .filter((element) => element !== navElement)
+        .every((element) => element.inert), await nav.elementHandle());
+      await page.keyboard.press("Shift+Tab");
+      checks.shiftTabWraps = await nav.evaluate((element) => {
+        const focusable = [...element.querySelectorAll(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )];
+        return focusable.length > 0 && document.activeElement === focusable.at(-1);
+      });
+      await page.keyboard.press("Tab");
+      checks.tabWraps = await nav.evaluate((element) => {
+        const focusable = [...element.querySelectorAll(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )];
+        return focusable.length > 0 && document.activeElement === focusable[0];
+      });
       await page.keyboard.press("Escape");
       checks.navClosed = await page.locator(".nav-toggle").getAttribute("aria-expanded");
       checks.navClosedInert = await nav.evaluate((element) => element.inert);
+      checks.bodyScrollUnlocked = await page.evaluate(() => document.body.style.overflow === "");
+      checks.backgroundInertRestored = await page.evaluate((navElement) => [...document.body.children]
+        .filter((element) => element !== navElement)
+        .every((element) => !element.inert), await nav.elementHandle());
+      checks.focusRestoredAfterEscape = await page.evaluate(() => document.activeElement?.matches(".nav-toggle"));
+      await page.locator(".nav-toggle").click();
+      await nav.locator(".mobile-close").click();
+      checks.focusRestoredAfterCloseButton = await page.evaluate(() => document.activeElement?.matches(".nav-toggle"));
+      await page.locator(".nav-toggle").click();
+      await nav.locator("a").first().click();
+      checks.focusRestoredAfterLink = await page.evaluate(() => document.activeElement?.matches(".nav-toggle"));
       const auditEl = await page.$("#audit");
       if (auditEl) await auditEl.scrollIntoViewIfNeeded();
-      await page.screenshot({ path: screenshots.mobileAudit });
+      await page.screenshot({ path: screenshots.mobileAudit, animations: "disabled" });
     }
     mobileResults.push(checks);
     await page.close();
   }
-
-  await desktop.waitForTimeout(100);
-  const performanceChecks = await desktop.evaluate(() => {
-    const resources = performance.getEntriesByType("resource");
-    return {
-      cls: window.__finalismaQaPerf?.cls || 0,
-      lcp: window.__finalismaQaPerf?.lcp || 0,
-      longTasks: window.__finalismaQaPerf?.longTasks || [],
-      resourceCount: resources.length,
-      transferBytes: resources.reduce((sum, entry) => sum + (entry.transferSize || 0), 0),
-      domNodes: document.getElementsByTagName("*").length
-    };
-  });
 
   const result = {
     siteUrl,
@@ -463,7 +547,8 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
       tierSwitched,
       tierCopied,
       cohortStatus,
-      cohortApplicationPrepared: cohortClipboard.includes("FINALISMA"),
+      cohortApplicationPrepared: /\bWeft\b/.test(cohortClipboard),
+      noJsCohort,
       gateTriggered: gateAfterTrigger,
       gateStateText,
       mobileResults,
@@ -510,19 +595,19 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
     || !topLevelChecks.generatedLinkNonEmpty
     || topLevelChecks.tierTabsCount < 4
     || topLevelChecks.tierPanelsCount < 4
-    || topLevelChecks.proofItemsCount < 5
     || topLevelChecks.stepsCount < 4
     || topLevelChecks.unlabelledColourRows > 0
     || topLevelChecks.thirdParty.length
     || topLevelChecks.linksWithNoName
     || !topLevelChecks.formLabels
     || !topLevelChecks.revealDefaultVisible
-    || !linkCopied.includes("finalisma.")
+    || !linkCopied.includes("weft.")
     || !tierSwitched.httpVisible
     || !tierSwitched.stdioHidden
     || tierSwitched.selectedTab !== "true"
     || !tierCopied.includes("mcp")
-    || !cohortClipboard.includes("FINALISMA")
+    || !/\bWeft\b/.test(cohortClipboard)
+    || !noJsCohort.leakFree
     || !Object.values(supportingPageChecks).every((checks) => Object.values(checks).every(Boolean))
     || !demoPageChecks.oneH1
     || !demoPageChecks.boundaryVisible
@@ -540,6 +625,17 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
     || !mobileResults[0].navInitiallyInert
     || mobileResults[0].navOpenInert
     || !mobileResults[0].navClosedInert
+    || !mobileResults[0].navFocusOnOpen
+    || mobileResults[0].navFocusableCount < 2
+    || !mobileResults[0].shiftTabWraps
+    || !mobileResults[0].tabWraps
+    || !mobileResults[0].bodyScrollLocked
+    || !mobileResults[0].bodyScrollUnlocked
+    || !mobileResults[0].backgroundInertWhileOpen
+    || !mobileResults[0].backgroundInertRestored
+    || !mobileResults[0].focusRestoredAfterEscape
+    || !mobileResults[0].focusRestoredAfterCloseButton
+    || !mobileResults[0].focusRestoredAfterLink
     || !canvasAnimated
     || frameTimeMedian < 0
     || performanceChecks.cls > 0.1

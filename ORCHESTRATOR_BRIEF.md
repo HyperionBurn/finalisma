@@ -1,11 +1,47 @@
-# FINALISMA — ORCHESTRATOR BRIEF
+# WEFT — ORCHESTRATOR BRIEF
 
-**To:** the primary opencode agent (deepseek-v4-flash) running the Finalisma multi-lane build
+**To:** the primary opencode agent (deepseek-v4-flash) running the Weft multi-lane build
 **Branch:** `isolated` · **Worktree:** `C:\Users\Wasif\Documents\Multiplayer-AI-isolated`
 **Status at brief time:** Wave A (8 LongCat-2.0 lanes) dispatched 12:19, in flight. 180 tests, 6 failures + 14 errors.
 
+---
+
+## PART 0.0 — CURRENT STATE (2026-08-15, supersedes the header for this worktree)
+
+This worktree is **`C:\Users\Wasif\Documents\Multiplayer-AI-perfect`** on branch
+**`feature/product-perfect`**. Everything below PART 0.0 is the original
+isolated-worktree brief and remains historical record; PART 1's "stale
+sections" list described the isolated tree, NOT this one. In this tree:
+`AGENT_HANDOVER.md` §2.1/§2.2 already document FIELD NOTES and §5 already
+describes opencode's `task` tool; only §9 named the wrong worktree (fixed
+2026-08-15). `AGENTS.md` here is itself a stale copy of the isolated rules
+file and must not be treated as ground truth.
+
+**Known-good baseline (measured this session):** `python -B -m unittest
+discover -s tests` → **Ran 960 tests, OK**. Merge-gate PASS. Branch carries
+`b1645d6..a572db3`; the five newest commits are `67c30ae` (seven-scene
+hard-cut film), `c9f4e0e` (SDK drives all 12 hosted room tools, 429
+structured errors, hosted-mode identity-arg stripping), `1e0aa5a` (REST
+`/v1/rooms/receipts` + `/v1/rooms/remove_member`; 400 `invalid_argument` /
+`invalid_cursor` on bad cursors), `d344ebe` (truthful agent-key signout;
+admin cannot mint owner), `a572db3` (film S7 camera docs).
+
+**Lane state:**
+
+| Lane | Scope | State |
+|---|---|---|
+| L1 | Scale proof at 10/50 agents | In flight, separate worktree — no numbers claimed here until it lands with evidence |
+| L2 | Performance gate; owns `docs/PERFORMANCE.md` | Gate red under host-load noise; controlled idle-host rerun pending. Do not restate perf numbers anywhere else |
+| L3 | Interop breadth; writing `docs/INTEROP_VALIDATION_2026-08-15.md` | In flight. Tier transcripts exist: `docs/INTEROP_{HTTP,BRIDGE,SDK}_2026-08-05.md` |
+| L10 | ROADMAP + OPS DOCS (this lane) | Done — see report |
+
+**Do not let any lane claim as done:** scale numbers (L1), perf figures (L2),
+interop breadth (L3), or the Docker image build (untested where Docker
+exists, per `docs/DEPLOY.md`).
+
 Read PART 0 and PART 1 before you touch anything or dispatch another lane. PART 1 contains
-five facts the repository itself asserts that are **false**. If you or a lane trusts them, you
+five facts the repository itself asserts that are **false** for the isolated worktree it
+was written against. If you or a lane trusts them, you
 will destroy correct work.
 
 ---
@@ -43,7 +79,7 @@ tests pass in isolation. Never `git add -A` — it is exactly what created the b
 PART 1.5. Stage explicit paths.
 
 ```bash
-git -C C:/Users/Wasif/Documents/Multiplayer-AI-isolated add src/finalisma_mcp/roster.py tests/test_roster.py
+git -C C:/Users/Wasif/Documents/Multiplayer-AI-isolated add src/weft_mcp/roster.py tests/test_roster.py
 ```
 
 Never run `git reset --hard`, `git checkout --`, or `git clean` in either worktree.
@@ -180,7 +216,7 @@ Known real ones already visible:
   cursor not advancing under concurrent HTTP clients. Contradicts the durability claims.
 
 **S5. Wire Wave A modules in.** `tenancy.py`, `roster.py`, `outbox.py`, `bridge.py`,
-`finalisma_sdk/` are currently orphans — nothing in `core.py` or `server.py` imports them. Until
+`weft_sdk/` are currently orphans — nothing in `core.py` or `server.py` imports them. Until
 you mount them they are dead code that passes its own tests and ships nothing. This is your job,
 not a lane's (correctly scoped that way). Budget real time for it.
 
@@ -198,10 +234,13 @@ For each of A1–A8, in this order, one lane at a time:
 4. **Mount it.** Wire the module into `core.py`/`server.py` and add one integration test that
    exercises it through the real MCP surface, not the module API. A module with only unit tests
    is not integrated.
-5. **Check the invariants.** Run `python -B scripts/finalisma-smoke.py` and require
-   `evidence_passed: true`. Run `scripts/finalisma_performance_gate.py` — the 59.314ms weighted
-   median is a locked, published claim. `tenancy` and `roster` add per-call work on hot paths and
-   are the most likely regressors. If it regresses, that is a blocker, not a footnote.
+5. **Check the invariants.** Run `python -B scripts/weft-smoke.py` and require
+   `evidence_passed: true`. Run
+   `python -B scripts/weft_performance_gate.py --baseline .omx/goals/performance/single-node-coordinator-envelope/baseline.json`.
+   The current reference artifact is 72.221ms; the earlier 59.314ms weighted median is
+   historical evidence, not the current target. `tenancy` and `roster` add per-call work
+   on hot paths and are the most likely regressors. If the gate regresses, that is a
+   blocker, not a footnote.
 6. **Commit** with scoped paths and a message naming the lane.
 
 **Specific things to check per lane:**
@@ -229,7 +268,7 @@ Fix the three real defects from PART 1.5. Restore the `[hidden]` rule. Re-expres
 colour-alone accessibility invariant against FIELD NOTES ASSERT/PROVE. Resolve all internal
 links. Then re-pin the test-count fact. **Explicitly forbid weakening any assertion.**
 
-**B2 — ACTIVATION-INSTRUMENTATION** (owns a new `src/finalisma_mcp/metrics_activation.py`)
+**B2 — ACTIVATION-INSTRUMENTATION** (owns a new `src/weft_mcp/metrics_activation.py`)
 `docs/YC_READINESS.md` names eight metrics that must exist before any fundraising claim. None are
 instrumented. Ship the activation funnel first: `link_created → link_previewed → link_accepted →
 first_task_claimed → first_evidence_verified`, with **time-to-first-verified-handoff** as the
@@ -269,10 +308,11 @@ against `docs/SECURITY_GATES.md`. Priority: the rotation defect, bridge HMAC and
 isolation, token handling in the SDK, and whether any new path logs a secret. Read-only, reports
 findings ranked by severity.
 
-**B8 — PERF-GATE-DEFENCE** (owns `scripts/finalisma_performance_gate.py`, `docs/PERFORMANCE.md`)
-Re-run the locked gate after integration. The 95.31% improvement is published in the YC
-application. Extend the benchmark to cover the new roster/routing and tenancy paths so the
-published number keeps meaning something.
+**B8 — PERF-GATE-DEFENCE** (owns `scripts/weft_performance_gate.py`, `docs/PERFORMANCE.md`)
+Re-run the locked gate after integration. The 95.31% improvement is a historical result
+preserved in the YC application and baseline history; current claims must use the
+re-baselined artifact and the latest controlled-host run. Extend the benchmark to cover
+the new roster/routing and tenancy paths so any published number keeps meaning something.
 
 ---
 
@@ -284,7 +324,7 @@ measured facts, and fabricating them is the one unrecoverable mistake in a YC ap
 **C1 — YC-APPLICATION** (owns `docs/YC_APPLICATION.md`)
 Four `[FILL]` placeholders remain, all in "Who is using it?" — design-partner count, workflow,
 median time to first handoff, four-week repeat rate. The doc's own instruction is correct: until
-those are real, say "we are recruiting design partners," **not** "teams use Finalisma."
+those are real, say "we are recruiting design partners," **not** "teams use Weft."
 
 Rewrite everything that *can* be made true now from B2/B3/B4 output. Strengthen these answers:
 - *What is working today* — replace "65 passing tests" with the measured count, and add the
@@ -380,7 +420,7 @@ NEVER touch C:\Users\Wasif\Documents\Multiplayer-AI (master, separate work).
 Do NOT commit. Do NOT run git reset/checkout/clean.
 
 [2] PROJECT
-Finalisma — evidence-backed handoff/coordination layer for AI agents.
+Weft — evidence-backed handoff/coordination layer for AI agents.
 Python 3.11+, standard library only, SQLite state, zero runtime dependencies,
 no CDN, no global installs. That constraint is a product promise, not a preference.
 
@@ -415,7 +455,7 @@ No mocks for the SQLite layer — this project tests against real storage.
 [8] VERIFY — paste real output for each
   python -B -m unittest tests.<your_module> -v
   python -B -m unittest discover -s tests 2>&1 | Select-Object -Last 5
-  python -B scripts/finalisma-smoke.py     (if you touched core/server)
+  python -B scripts/weft-smoke.py     (if you touched core/server)
 Baseline to compare against: docs/BASELINE_2026-08-05.md
 
 [9] REPORT — exactly this shape, no prose padding
@@ -437,10 +477,10 @@ Baseline to compare against: docs/BASELINE_2026-08-05.md
 A wave is complete only when **all** of these hold, each backed by pasted output:
 
 1. `python -B -m unittest discover -s tests` — 0 failures, 0 errors.
-2. `python -B scripts/finalisma-smoke.py` — `evidence_passed: true`.
+2. `python -B scripts/weft-smoke.py` — `evidence_passed: true`.
 3. `node --check site/app.js` — clean.
 4. `node scripts/capture-site-qa.cjs` — `consoleErrors: []`, all harness booleans true.
-5. `python scripts/finalisma_performance_gate.py` — no regression against the locked baseline.
+5. `python scripts/weft_performance_gate.py` — no regression against the locked baseline.
 6. Every new module is imported by `core.py` or `server.py` and covered by one integration test.
 7. Every number stated in `site/` and `docs/` was measured this session.
 8. `AGENT_HANDOVER.md` updated: new modules in §3, new invariants in §7, new traps in §4.2,

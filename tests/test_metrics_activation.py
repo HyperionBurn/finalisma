@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from finalisma_mcp.metrics_activation import (
+from weft_mcp.metrics_activation import (
     derive_ttfvh,
     funnel_snapshot,
     handoffs_per_workspace,

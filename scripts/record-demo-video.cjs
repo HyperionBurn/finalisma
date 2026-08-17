@@ -3,16 +3,16 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
-const playwrightPath = process.env.FINALISMA_PLAYWRIGHT
+const playwrightPath = process.env.WEFT_PLAYWRIGHT
   || 'C:/Users/Wasif/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright';
 const { chromium } = require(playwrightPath);
 
 const root = path.resolve(__dirname, '..');
-const siteUrl = process.env.FINALISMA_SITE_URL || 'http://127.0.0.1:4175/';
+const siteUrl = process.env.WEFT_SITE_URL || 'http://127.0.0.1:4175/';
 const tempDir = path.join(root, '.tmp', 'demo-video');
-const webmPath = path.join(root, 'site', 'assets', 'finalisma-demo.webm');
-const mp4Path = path.join(root, 'site', 'assets', 'finalisma-demo.mp4');
-const posterPath = path.join(root, 'site', 'assets', 'finalisma-demo-poster.png');
+const webmPath = path.join(root, 'site', 'assets', 'weft-demo.webm');
+const mp4Path = path.join(root, 'site', 'assets', 'weft-demo.mp4');
+const posterPath = path.join(root, 'site', 'assets', 'weft-demo-poster.png');
 
 const findNestedFfmpeg = (directory, depth = 0) => {
   if (!directory || depth > 7 || !fs.existsSync(directory)) return [];
@@ -27,7 +27,7 @@ const findNestedFfmpeg = (directory, depth = 0) => {
 
 const findFfmpegCandidates = () => {
   const candidates = [];
-  if (process.env.FINALISMA_FFMPEG) candidates.push(process.env.FINALISMA_FFMPEG);
+  if (process.env.WEFT_FFMPEG) candidates.push(process.env.WEFT_FFMPEG);
   candidates.push(...findNestedFfmpeg('C:/Program Files/Lenovo/LegionSpace'));
   const playwrightCache = path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'ms-playwright');
   if (fs.existsSync(playwrightCache)) {
@@ -105,7 +105,7 @@ const encodeMp4 = () => {
   fs.rmSync(tempDir, { recursive: true, force: true });
   const result = {
     status: 'ok',
-    duration_seconds: 42,
+    duration_seconds: 43,
     resolution: '1280x720',
     webm: { path: path.relative(root, webmPath), bytes: fs.statSync(webmPath).size },
     mp4: { path: path.relative(root, mp4Path), bytes: fs.statSync(mp4Path).size },

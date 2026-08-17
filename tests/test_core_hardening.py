@@ -1,4 +1,4 @@
-"""Targeted hardening tests for src/finalisma_mcp/core.py."""
+"""Targeted hardening tests for src/weft_mcp/core.py."""
 from __future__ import annotations
 
 import sys
@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from finalisma_mcp.core import FinalismaError, FinalismaStore
+from weft_mcp.core import WeftError, WeftStore
 
 
 class SessionReadNoWriteTest(unittest.TestCase):
@@ -24,7 +24,7 @@ class SessionReadNoWriteTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
-        self.store = FinalismaStore(self.root / ".finalisma" / "state.db", self.root, heartbeat_timeout=30)
+        self.store = WeftStore(self.root / ".weft" / "state.db", self.root, heartbeat_timeout=30)
         self.store.register_agent("t", "a1", "A1", "architect", None, [])
         self.store.register_agent("t", "a2", "A2", "coder", None, [])
         self.pairing = self.store.create_pairing("a1", "t")
@@ -42,8 +42,8 @@ class SessionReadNoWriteTest(unittest.TestCase):
 
         # Force the session to appear expired by mocking _epoch to a far-future time.
         future = 2_000_000_000.0
-        with patch("finalisma_mcp.core._epoch", return_value=future):
-            with self.assertRaises(FinalismaError) as ctx:
+        with patch("weft_mcp.core._epoch", return_value=future):
+            with self.assertRaises(WeftError) as ctx:
                 self.store.session_poll(session_token, "a2", after_seq=0)
             self.assertEqual(ctx.exception.code, "session_expired")
 
@@ -60,8 +60,8 @@ class SessionReadNoWriteTest(unittest.TestCase):
         session_id = self.joined["session_id"]
 
         future = 2_000_000_000.0
-        with patch("finalisma_mcp.core._epoch", return_value=future):
-            with self.assertRaises(FinalismaError) as ctx:
+        with patch("weft_mcp.core._epoch", return_value=future):
+            with self.assertRaises(WeftError) as ctx:
                 self.store.session_status(session_token, "a2")
             self.assertEqual(ctx.exception.code, "session_expired")
 
@@ -76,8 +76,8 @@ class SessionReadNoWriteTest(unittest.TestCase):
         session_token = self.joined["session_token"]
 
         future = 2_000_000_000.0
-        with patch("finalisma_mcp.core._epoch", return_value=future):
-            with self.assertRaises(FinalismaError) as ctx:
+        with patch("weft_mcp.core._epoch", return_value=future):
+            with self.assertRaises(WeftError) as ctx:
                 self.store.session_send(
                     session_token, "a2", "test.event", {"v": 1}, "send-expire-test"
                 )
@@ -87,7 +87,7 @@ class SessionReadNoWriteTest(unittest.TestCase):
         """_require_session_read still rejects closed sessions (no silent pass)."""
         session_token = self.joined["session_token"]
         self.store.close_session(self.pairing["initiator_session_token"], "a1")
-        with self.assertRaises(FinalismaError) as ctx:
+        with self.assertRaises(WeftError) as ctx:
             with self.store._read() as conn:
                 self.store._require_session_read(conn, session_token, "a2")
             self.assertEqual(ctx.exception.code, "session_closed")
@@ -107,7 +107,7 @@ class ConnectionCloseOnTeardownTest(unittest.TestCase):
     def test_close_closes_in_flight_connection_allowing_tempdir_cleanup(self) -> None:
         temp = tempfile.TemporaryDirectory()
         root = Path(temp.name)
-        store = FinalismaStore(root / "state.db", root)
+        store = WeftStore(root / "state.db", root)
         # Acquire a connection and deliberately NOT release it — simulates a
         # thread holding a checked-out connection at teardown. Whether it came
         # from the pool or was freshly created, close() must close it.
@@ -126,7 +126,7 @@ class ConnectionCloseOnTeardownTest(unittest.TestCase):
     def test_close_is_idempotent_and_clears_live_connections(self) -> None:
         temp = tempfile.TemporaryDirectory()
         root = Path(temp.name)
-        store = FinalismaStore(root / "state.db", root)
+        store = WeftStore(root / "state.db", root)
         conn = store._acquire_connection()
         store.close()
         store.close()  # second close is a no-op

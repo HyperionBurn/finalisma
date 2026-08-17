@@ -1,6 +1,6 @@
 # Bridge Adapters for Non-MCP Hosts
 
-Finalisma's core coordination speaks MCP. Many hosts — browser-based agents,
+Weft's core coordination speaks MCP. Many hosts — browser-based agents,
 plain CLI tools, IDE plugins, mobile apps — cannot load an MCP server. The
 bridge adapters make those hosts first-class participants using only HTTP and
 JSON.
@@ -19,14 +19,17 @@ JSON.
 ### WebhookBridge
 
 For hosts that **can receive** HTTP POST callbacks. The host registers a
-per-agent webhook URL. Finalisma delivers signed envelope events to that URL.
+per-agent webhook URL. Weft delivers signed envelope events to that URL.
 
 - **Signature**: HMAC-SHA256 over `{timestamp}.{canonical_json_body}`, sent in
-  the `X-Finalisma-Signature` header as `sha256=<digest>`.
-- **Replay protection**: `X-Finalisma-Timestamp` header; receivers reject
+  the `X-Weft-Signature` header as `sha256=<digest>`.
+- **Replay protection**: `X-Weft-Timestamp` header; receivers reject
   signatures older than `max_age_seconds` (default 300s).
 - **Credential hygiene**: only the SHA-256 hash of the webhook secret is stored.
   The raw secret is never returned after registration.
+- **SSRF boundary**: production delivery rejects loopback, private, link-local,
+  metadata, and other special-use destinations, and never follows redirects.
+  Local test/dev receivers require an explicit `allow_local_webhooks=True` opt-in.
 
 ### PollingBridge
 
@@ -35,8 +38,9 @@ per `(team_id, agent_id)`. The host polls `get_pending(cursor)` and acks
 delivered events.
 
 - **At-most-once delivery**: acked events are not re-delivered.
-- **Cursor checkpoint**: acknowledgements advance the per-agent cursor so
-  reconnects resume from the last processed sequence.
+- **Cursor checkpoint**: acknowledgements advance the per-agent cursor only
+  through the highest contiguous acknowledged sequence, so an out-of-order ack
+  never skips a lower unacknowledged event on reconnect.
 - **Monotonic sequence**: events are numbered per `(team_id, agent_id)` in
   insertion order.
 
@@ -85,7 +89,7 @@ Every bridge call is bound to `(team_id, agent_id)` plus an actor key proof:
 ### Browser host (ChatGPT-like)
 
 1. Register an agent via `HttpBridgeClient` calling the MCP
-   `finalisma_register_agent` tool.
+   `register_agent` tool.
 2. Register a webhook URL via `WebhookBridge.register_webhook`.
 3. On each envelope event, the browser host receives a signed POST, verifies
    the signature with `WebhookBridge.verify_signature`, and applies the event.
@@ -117,7 +121,7 @@ The bridge module exposes clean entry points for wiring into the HTTP server:
 
 - `init_bridge(store)` — idempotent schema creation; call once at startup.
 - `WebhookBridge(store)`, `PollingBridge(store)`,
-  `ClipboardBridge(store)` — callable classes bound to a `FinalismaStore`.
+  `ClipboardBridge(store)` — callable classes bound to a `WeftStore`.
 
 A future integration pass can expose these as HTTP routes (e.g.,
 `POST /v1/bridge/webhook/register`, `GET /v1/bridge/poll`, etc.) without

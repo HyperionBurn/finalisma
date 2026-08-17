@@ -1,6 +1,6 @@
-"""Tests for the Finalisma SDK — stdlib-only Python client.
+"""Tests for the Weft SDK — stdlib-only Python client.
 
-Strategy: spin up the REAL finalisma_mcp HTTP server on an ephemeral localhost
+Strategy: spin up the REAL weft_mcp HTTP server on an ephemeral localhost
 port in setUp, then drive a FULL two-agent flow through the SDK.  This proves
 the SDK speaks the protocol correctly against the production server code.
 """
@@ -13,18 +13,18 @@ import tempfile
 import threading
 import unittest
 from http.client import HTTPConnection
-from http.server import ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from finalisma_mcp.core import FinalismaStore
-from finalisma_mcp.server import FinalismaDispatcher, _MCPRequestHandler, _Metrics, _WindowRateLimiter
+from weft_mcp.core import WeftStore
+from weft_mcp.server import WeftDispatcher, _MCPRequestHandler, _Metrics, _WindowRateLimiter
 
-from finalisma_sdk import (
-    FinalismaClient,
-    FinalismaError,
+from weft_sdk import (
+    WeftClient,
+    WeftError,
     AuthError,
     EvidenceError,
     NotFoundError,
@@ -40,8 +40,8 @@ from finalisma_sdk import (
 class _ServerHarness:
     """Start the real MCP HTTP handler on an ephemeral port."""
 
-    def __init__(self, store: FinalismaStore, allowed_origin: str | None = None):
-        self.dispatcher = FinalismaDispatcher(store)
+    def __init__(self, store: WeftStore, allowed_origin: str | None = None):
+        self.dispatcher = WeftDispatcher(store)
         handler = type("SDKHandler", (_MCPRequestHandler,), {})
         handler.dispatcher = self.dispatcher
         handler.token = None
@@ -70,11 +70,11 @@ class SDKFullFlowTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
-        self.store = FinalismaStore(root / "state.db", root, heartbeat_timeout=60)
+        self.store = WeftStore(root / "state.db", root, heartbeat_timeout=60)
         self.harness = _ServerHarness(self.store)
         # Agent A and B clients
-        self.client_a = FinalismaClient(self.harness.base_url, "agent-a", "demo")
-        self.client_b = FinalismaClient(self.harness.base_url, "agent-b", "demo")
+        self.client_a = WeftClient(self.harness.base_url, "agent-a", "demo")
+        self.client_b = WeftClient(self.harness.base_url, "agent-b", "demo")
 
     def tearDown(self) -> None:
         self.client_a.close()
@@ -89,7 +89,7 @@ class SDKFullFlowTests(unittest.TestCase):
 
     def test_connect_returns_protocol_info(self) -> None:
         info = self.client_a.connect()
-        self.assertEqual(info["protocol"], "finalisma.a2a")
+        self.assertEqual(info["protocol"], "weft.a2a")
         self.assertIn("version", info)
 
     def test_register_issues_actor_token(self) -> None:
@@ -98,9 +98,14 @@ class SDKFullFlowTests(unittest.TestCase):
         self.assertIn("actor_token", result)
         token = result["actor_token"]
         self.assertTrue(token.startswith("fst_actor_"))
-        # Store token on the client for subsequent calls
-        self.client_a._actor_token = token
-        self.assertTrue(self.client_a._actor_token.startswith("fst_actor_"))
+        self.assertEqual(self.client_a._actor_token, token,
+                         "register() must persist the returned actor token")
+
+    def test_register_token_authenticates_followup_room_create(self) -> None:
+        result = self.client_a.register(name="Room owner", role="coordinator")
+        self.assertTrue(result["actor_token"].startswith("fst_actor_"))
+        room = self.client_a.create_room(cap=2, name="register-follow-up")
+        self.assertTrue(room.room_id.startswith("room_"))
 
     def test_repr_never_leaks_token(self) -> None:
         self.client_a._actor_token = "fst_actor_super_secret_value_here_1234567890"
@@ -110,16 +115,16 @@ class SDKFullFlowTests(unittest.TestCase):
         self.assertNotIn("fst_actor", text)
 
     def test_env_var_token_hygiene(self) -> None:
-        # The SDK should pick up FINALISMA_ACTOR_TOKEN from env when not passed
+        # The SDK should pick up WEFT_ACTOR_TOKEN from env when not passed
         import os as _os
-        _os.environ["FINALISMA_TEST_TOKEN"] = "fst_actor_env_token_value_here_1234567890"
+        _os.environ["WEFT_TEST_TOKEN"] = "fst_actor_env_token_value_here_1234567890"
         try:
-            c = FinalismaClient(self.harness.base_url, "env-agent", "demo",
-                                 actor_token=_os.environ["FINALISMA_TEST_TOKEN"])
+            c = WeftClient(self.harness.base_url, "env-agent", "demo",
+                                 actor_token=_os.environ["WEFT_TEST_TOKEN"])
             self.assertEqual(c._actor_token, "fst_actor_env_token_value_here_1234567890")
             self.assertNotIn("env_token", repr(c))
         finally:
-            _os.environ.pop("FINALISMA_TEST_TOKEN", None)
+            _os.environ.pop("WEFT_TEST_TOKEN", None)
 
     # ------------------------------------------------------------------
     # Full two-agent pairing + task lifecycle
@@ -243,7 +248,7 @@ class SDKFullFlowTests(unittest.TestCase):
         self.assertEqual(self.client_a._actor_token, rotation.actor_token)
 
         # Old token should now be rejected — use a separate client with old token
-        stale_client = FinalismaClient(self.harness.base_url, "agent-a", "demo", actor_token=old_token)
+        stale_client = WeftClient(self.harness.base_url, "agent-a", "demo", actor_token=old_token)
         try:
             with self.assertRaises(AuthError):
                 stale_client.heartbeat()
@@ -263,7 +268,7 @@ class SDKFullFlowTests(unittest.TestCase):
         reg = self.client_a.register(role="architect")
         self.client_a._actor_token = reg["actor_token"]  # real token
         # Now create a second client with the SAME agent_id but wrong token
-        malicious = FinalismaClient(self.harness.base_url, "agent-a", "demo",
+        malicious = WeftClient(self.harness.base_url, "agent-a", "demo",
                                       actor_token="fst_actor_wrong_token_value_that_is_long_enough_1234567890")
         try:
             with self.assertRaises(AuthError):
@@ -282,7 +287,7 @@ class SDKFullFlowTests(unittest.TestCase):
         conn.execute("UPDATE pairings SET expires_at = 0 WHERE pairing_id = ?", (pairing.pairing_id,))
         conn.commit()
         conn.close()
-        with self.assertRaises((ConflictError, NotFoundError, FinalismaError)):
+        with self.assertRaises((ConflictError, NotFoundError, WeftError)):
             self.client_b.join_pairing(pairing.join_url, consent=True)
 
     def test_evidence_failure_raises_evidence_error(self) -> None:
@@ -322,7 +327,7 @@ class SDKFullFlowTests(unittest.TestCase):
         self.assertEqual(task.status, "in_progress")
 
     def test_pairing_url_without_token_rejected(self) -> None:
-        with self.assertRaises(FinalismaError) as ctx:
+        with self.assertRaises(WeftError) as ctx:
             self.client_b.join_pairing("http://127.0.0.1:8787/v1/join/pair_abc", consent=True)
         self.assertEqual(ctx.exception.code, "invalid_pairing_url")
 
@@ -363,8 +368,8 @@ class SDKFullFlowTests(unittest.TestCase):
         t = threading.Thread(target=srv.serve_forever, daemon=True)
         t.start()
         try:
-            client = FinalismaClient(f"http://127.0.0.1:{port}/mcp", "agent-a", "demo")
-            with self.assertRaises(FinalismaError) as ctx:
+            client = WeftClient(f"http://127.0.0.1:{port}/mcp", "agent-a", "demo")
+            with self.assertRaises(WeftError) as ctx:
                 client.connect()
             rendered = str(ctx.exception)
             self.assertNotIn(SECRET_TOKEN, rendered)
@@ -404,7 +409,7 @@ class SDKRetryTests(unittest.TestCase):
                 payload = json.dumps({
                     "jsonrpc": "2.0",
                     "id": call_count["n"],
-                    "result": {"content": [{"type": "text", "text": "{}"}], "structuredContent": {"protocol": "finalisma.a2a", "version": "1.0"}},
+                    "result": {"content": [{"type": "text", "text": "{}"}], "structuredContent": {"protocol": "weft.a2a", "version": "1.0"}},
                 }).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -417,10 +422,405 @@ class SDKRetryTests(unittest.TestCase):
         thread.start()
         host, port = server.server_address
         try:
-            client = FinalismaClient(f"http://{host}:{port}/mcp", "agent-a", "demo")
+            client = WeftClient(f"http://{host}:{port}/mcp", "agent-a", "demo")
             result = client.connect()
-            self.assertEqual(result["protocol"], "finalisma.a2a")
+            self.assertEqual(result["protocol"], "weft.a2a")
             self.assertGreaterEqual(call_count["n"], 3)
+        finally:
+            client.close()
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+    def test_mutating_retry_reuses_json_rpc_idempotency_key(self) -> None:
+        """Retries of a deduplicated mutation must carry one stable key."""
+        seen_arguments: list[dict[str, object]] = []
+
+        class FlakyMutationHandler(BaseHTTPRequestHandler):
+            def log_message(self, *a: object) -> None:
+                return
+
+            def do_POST(self) -> None:  # noqa: N802
+                length = int(self.headers.get("Content-Length", "0"))
+                request = json.loads(self.rfile.read(length).decode())
+                seen_arguments.append(request["params"]["arguments"])
+                if len(seen_arguments) < 3:
+                    self.send_response(503)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                payload = json.dumps({
+                    "jsonrpc": "2.0",
+                    "id": request["id"],
+                    "result": {"structuredContent": {"message_id": "msg-1"}},
+                }).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), FlakyMutationHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        host, port = server.server_address
+        client = WeftClient(f"http://{host}:{port}/mcp", "agent-a", "demo")
+        try:
+            result = client.ask("agent-b", "hello")
+            self.assertEqual(result["message_id"], "msg-1")
+            self.assertEqual(len(seen_arguments), 3)
+            keys = [arguments.get("idempotency_key") for arguments in seen_arguments]
+            self.assertIsInstance(keys[0], str)
+            self.assertTrue(keys[0])
+            self.assertEqual(keys, [keys[0]] * len(keys))
+        finally:
+            client.close()
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+    def test_credential_rotation_is_not_retried(self) -> None:
+        """A lost rotation response must not replay the now-invalid token."""
+        call_count = {"n": 0}
+
+        class RotationHandler(BaseHTTPRequestHandler):
+            def log_message(self, *a: object) -> None:
+                return
+
+            def do_POST(self) -> None:  # noqa: N802
+                call_count["n"] += 1
+                length = int(self.headers.get("Content-Length", "0"))
+                self.rfile.read(length)
+                self.send_response(503)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), RotationHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        host, port = server.server_address
+        client = WeftClient(f"http://{host}:{port}/mcp", "agent-a", "demo", actor_token="old-token")
+        try:
+            with self.assertRaises(WeftError):
+                client.rotate_credential()
+            self.assertEqual(call_count["n"], 1)
+            self.assertEqual(client._actor_token, "old-token")
+        finally:
+            client.close()
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+
+class SdkHostedSurfaceAuditTests(unittest.TestCase):
+    """Regression guards for the HOSTED Weft MCP surface (12 room tools).
+
+    The hosted /mcp endpoint (weft_cloud/mcp.py) exposes exactly twelve room
+    tools: room_create, room_join, room_send, room_receipts, room_poll,
+    room_wait, room_info, room_ack, room_heartbeat, room_leave,
+    room_remove_member, room_event_log. The SDK must be able to drive all of
+    them and must not lose the structured error / cursor information that
+    surface emits. Tests in this class are RED on purpose where the SDK has
+    not caught up — they are the TDD contract for the implementer.
+    """
+
+    _HOSTED_TOOL_TO_SDK_METHOD = {
+        "room_create": "create_room",
+        "room_join": "join_room",
+        "room_send": "send",
+        "room_receipts": "room_receipts",
+        "room_poll": "room_poll",
+        "room_wait": "room_wait",
+        "room_info": "room_info",
+        "room_ack": "room_ack",
+        "room_heartbeat": "room_heartbeat",
+        "room_leave": "leave_room",
+        "room_remove_member": "room_remove_member",
+        "room_event_log": "room_event_log",
+    }
+
+    @staticmethod
+    def _serve_stub(handler) -> tuple[ThreadingHTTPServer, threading.Thread, str]:
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        host, port = server.server_address
+        return server, thread, f"http://{host}:{port}/mcp"
+
+    def test_client_exposes_all_twelve_hosted_room_tools(self) -> None:
+        """Every tool the hosted /mcp surface exposes must have an SDK method.
+
+        RED: WeftClient has no room_wait, room_remove_member or
+        room_event_log methods, so an SDK caller cannot drive the hosted
+        surface fully and must fall back to the private _call.
+        """
+        client = WeftClient("http://127.0.0.1:1/mcp", "agent-a", "demo")
+        try:
+            missing = [
+                f"{tool} (needs method '{method}')"
+                for tool, method in self._HOSTED_TOOL_TO_SDK_METHOD.items()
+                if not callable(getattr(client, method, None))
+            ]
+            self.assertEqual(
+                missing,
+                [],
+                "WeftClient is missing methods for hosted room tools: "
+                + "; ".join(missing),
+            )
+        finally:
+            client.close()
+
+    def test_http_429_rate_limited_code_and_retry_after_survive(self) -> None:
+        """A 429 with a structured rate_limited body must surface its code and
+        retry_after — not be flattened into a generic http_error.
+
+        The hosted service refuses with HTTP 429 + {"error":{"code":
+        "rate_limited", ..., "retry_after": N}} + a Retry-After header
+        (weft_cloud/service.py _send_rate_limited). The SDK currently
+        flattens every non-200 into WeftError("http_error", ...), losing both
+        the code and the retry_after an agent needs to back off.
+
+        RED: exc.code == "http_error" and details carry no retry_after.
+        """
+        RETRY_AFTER = 7
+
+        class RateLimitedHandler(BaseHTTPRequestHandler):
+            def log_message(self, *args: object) -> None:
+                return
+
+            def do_POST(self) -> None:  # noqa: N802
+                length = int(self.headers.get("Content-Length", "0"))
+                self.rfile.read(length)
+                body = json.dumps({
+                    "error": {
+                        "code": "rate_limited",
+                        "message": "Rate limit exceeded. Retry after 7 seconds.",
+                        "retry_after": RETRY_AFTER,
+                    }
+                }).encode()
+                self.send_response(429)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Retry-After", str(RETRY_AFTER))
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        server, thread, url = self._serve_stub(RateLimitedHandler)
+        client = WeftClient(url, "agent-a", "demo")
+        try:
+            with self.assertRaises(WeftError) as ctx:
+                # room_poll is a room tool and is not retried, so the 429 is
+                # raised on the first attempt — exactly the hosted-surface path.
+                client._call("room_poll", room_id="room_abc")
+            exc = ctx.exception
+            self.assertEqual(
+                exc.code,
+                "rate_limited",
+                "the structured code must reach the caller; "
+                f"got {exc.code!r} instead (flattened to http_error)",
+            )
+            retry_after = None
+            if isinstance(exc.details, dict):
+                retry_after = exc.details.get("retry_after")
+            self.assertIn(
+                retry_after,
+                (RETRY_AFTER, float(RETRY_AFTER), str(RETRY_AFTER)),
+                "the retry_after must reach the caller so an agent can back off",
+            )
+            # The fix must not regress the redaction contract: the server
+            # message must never be echoed verbatim into the exception.
+            self.assertNotIn("Retry after 7 seconds", str(exc))
+            self.assertNotIn("Rate limit exceeded", str(exc))
+        finally:
+            client.close()
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+    def test_200_tool_error_text_is_redacted(self) -> None:
+        """Malformed 200 tool-error text must not reach the SDK exception."""
+        SECRET_TOKEN = "fst_actor_200_TOOL_ERROR_SECRET_REDACTION_PROBE"
+
+        class ToolErrorHandler(BaseHTTPRequestHandler):
+            def log_message(self, *args: object) -> None:
+                return
+
+            def do_POST(self) -> None:  # noqa: N802
+                length = int(self.headers.get("Content-Length", "0"))
+                self.rfile.read(length)
+                body = json.dumps({
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "result": {
+                        "isError": True,
+                        "content": [{"type": "text", "text": SECRET_TOKEN}],
+                    },
+                }).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        server, thread, url = self._serve_stub(ToolErrorHandler)
+        client = WeftClient(url, "agent-a", "demo")
+        try:
+            with self.assertRaises(WeftError) as ctx:
+                client._call("room_poll", room_id="room_abc")
+            exc = ctx.exception
+            self.assertNotIn(SECRET_TOKEN, str(exc))
+            self.assertNotIn(SECRET_TOKEN, json.dumps(exc.details) if exc.details is not None else "")
+            self.assertEqual(exc.code, "tool_error")
+            self.assertEqual(str(exc), "Tool call failed")
+            self.assertIsNone(exc.details)
+        finally:
+            client.close()
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+    def test_200_structured_tool_error_redacts_message_and_details(self) -> None:
+        """A valid code must not make remote message/details trusted."""
+        SECRET_MESSAGE = "fst_actor_200_STRUCTURED_MESSAGE_SECRET"
+        SECRET_DETAIL = "fst_actor_200_STRUCTURED_DETAIL_SECRET"
+
+        class StructuredToolErrorHandler(BaseHTTPRequestHandler):
+            def log_message(self, *args: object) -> None:
+                return
+
+            def do_POST(self) -> None:  # noqa: N802
+                length = int(self.headers.get("Content-Length", "0"))
+                self.rfile.read(length)
+                body = json.dumps({
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "result": {
+                        "isError": True,
+                        "content": [{
+                            "type": "text",
+                            "text": json.dumps({
+                                "error": {
+                                    "code": "room_not_found",
+                                    "message": SECRET_MESSAGE,
+                                    "details": {"token": SECRET_DETAIL},
+                                }
+                            }),
+                        }],
+                    },
+                }).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        server, thread, url = self._serve_stub(StructuredToolErrorHandler)
+        client = WeftClient(url, "agent-a", "demo")
+        try:
+            with self.assertRaises(NotFoundError) as ctx:
+                client._call("room_poll", room_id="room_abc")
+            exc = ctx.exception
+            self.assertNotIn(SECRET_MESSAGE, str(exc))
+            self.assertNotIn(SECRET_DETAIL, json.dumps(exc.details) if exc.details is not None else "")
+            self.assertEqual(exc.code, "room_not_found")
+            self.assertEqual(str(exc), "Tool call failed")
+            self.assertIsNone(exc.details)
+        finally:
+            client.close()
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+    def test_200_json_rpc_error_redacts_message_and_data(self) -> None:
+        """Top-level HTTP-200 JSON-RPC errors must use safe fields only."""
+        SECRET_MESSAGE = "fst_actor_200_JSONRPC_MESSAGE_SECRET"
+        SECRET_DATA = "fst_actor_200_JSONRPC_DATA_SECRET"
+
+        class JsonRpcErrorHandler(BaseHTTPRequestHandler):
+            def log_message(self, *args: object) -> None:
+                return
+
+            def do_POST(self) -> None:  # noqa: N802
+                length = int(self.headers.get("Content-Length", "0"))
+                self.rfile.read(length)
+                body = json.dumps({
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "error": {
+                        "code": "room_not_found",
+                        "message": SECRET_MESSAGE,
+                        "data": {"token": SECRET_DATA},
+                    },
+                }).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        server, thread, url = self._serve_stub(JsonRpcErrorHandler)
+        client = WeftClient(url, "agent-a", "demo")
+        try:
+            with self.assertRaises(NotFoundError) as ctx:
+                client._call("room_poll", room_id="room_abc")
+            exc = ctx.exception
+            self.assertNotIn(SECRET_MESSAGE, str(exc))
+            self.assertNotIn(SECRET_DATA, json.dumps(exc.details) if exc.details is not None else "")
+            self.assertEqual(exc.code, "room_not_found")
+            self.assertEqual(str(exc), "Remote JSON-RPC error")
+            self.assertIsNone(exc.details)
+        finally:
+            client.close()
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+    def test_room_poll_surfaces_behind_by(self) -> None:
+        """RoomPoll must expose behind_by — the hosted poll reports how many
+        events the caller is skipping between its last ack and its window
+        (weft_cloud/rooms.py poll), so a caller can detect a silently skipped
+        window. The SDK parses poll results but drops the field.
+
+        RED: RoomPoll has no behind_by attribute (AttributeError).
+        """
+        poll_result = {
+            "room_id": "room_abc",
+            "state": "active",
+            "events": [],
+            "next_seq": 5,
+            "cursor_head": 5,
+            "last_ack_seq": 1,
+            "behind_by": 4,
+            "has_more": False,
+        }
+
+        class PollHandler(BaseHTTPRequestHandler):
+            def log_message(self, *args: object) -> None:
+                return
+
+            def do_POST(self) -> None:  # noqa: N802
+                length = int(self.headers.get("Content-Length", "0"))
+                self.rfile.read(length)
+                payload = json.dumps({
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "result": {
+                        "content": [{"type": "text", "text": json.dumps(poll_result)}],
+                        "structuredContent": poll_result,
+                    },
+                }).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+        server, thread, url = self._serve_stub(PollHandler)
+        client = WeftClient(url, "agent-a", "demo")
+        try:
+            poll = client.room_poll("room_abc", after_seq=1)
+            self.assertEqual(poll.behind_by, 4,
+                             "behind_by must surface on RoomPoll")
         finally:
             client.close()
             server.shutdown()

@@ -1,28 +1,28 @@
 # Identity, Tenancy, and the OAuth/OIDC Seam
 
-This document describes how Finalisma's **today** identity model (SHA-256
+This document describes how Weft's **today** identity model (SHA-256
 actor tokens issued once, stored only as hashes) maps to a hosted
 **tomorrow** with OAuth/OIDC in front, and how the tenancy boundary keeps
 orgs isolated when that future arrives.
 
 ## Today: actor credentials in `core.py`
 
-From `src/finalisma_mcp/core.py` (schema v3):
+From `src/weft_mcp/core.py` (schema v3):
 
-- `finalisma_register_agent` issues a raw `actor_token` **once** to a new
+- `register_agent` issues a raw `actor_token` **once** to a new
   identity. Only its SHA-256 hash is stored in `agent_credentials.token_hash`
   (a 64-char hex, `CHECK(length(token_hash) = 64)`). Existing identities
   never receive it again.
-- `finalisma_rotate_agent_credential` atomically replaces the hash and
+- `rotate_agent_credential` atomically replaces the hash and
   invalidates the old value. `rotation_count` is persisted.
-- `finalisma_join_pairing` lets a genuinely new invited identity bootstrap
+- `join_pairing` lets a genuinely new invited identity bootstrap
   its credential through a one-time pair token; an already-registered
   invitee must supply its current `actor_token`, so a pair token cannot
   overwrite an existing identity.
-- Every protected tool (`finalisma_create_task`, `finalisma_claim_task`,
-  `finalisma_update_task`, `finalisma_verify_task`,
-  `finalisma_send_message`, `finalisma_create_pairing`, `finalisma_team_status`,
-  `finalisma_heartbeat`, the `finalisma_session_*` tools) takes an optional
+- Every protected tool (`create_task`, `claim_task`,
+  `update_task`, `verify_task`,
+  `send_message`, `create_pairing`, `team_status`,
+  `heartbeat`, the `session_*` tools) takes an optional
   `actor_token` and validates it against the stored hash via
   `secrets.compare_digest`.
 
@@ -33,7 +33,7 @@ about who the user is.
 
 In the hosted multi-tenant path, an OAuth/OIDC resource server (e.g. a
 gateway, Envoy filter, or ASGI/Starlette middleware) sits **in front of**
-`src/finalisma_mcp/tenancy.py`. The seam contract is:
+`src/weft_mcp/tenancy.py`. The seam contract is:
 
 ```
 +----------------+       +------------------+       +------------------+
@@ -79,7 +79,7 @@ checked by `tenancy.assert_scope`. To bridge OAuth:
 - **Option B (fully deterministic, no mapping table):** derive
   `agent_id = "ext_" + SHA-256(sub)[:16]` and `org_id` from a verified
   `org` claim in the JWT. This is stateless but couples the IdP's `org`
-  claim format to Finalisma's org IDs.
+  claim format to Weft's org IDs.
 
 Option A is preferred because it lets operators rotate IdPs, merge orgs, and
 re-link identities without re-deriving IDs.
@@ -129,7 +129,7 @@ To enforce tenant isolation at the data layer:
 
 ### Actor tokens (today, in `core.py`)
 
-- `finalisma_rotate_agent_credential(team_id, agent_id, current_token)`
+- `rotate_agent_credential(team_id, agent_id, current_token)`
   atomically replaces the hash, bumps `rotation_count`, and clears
   `revoked_at`. The old token stops working immediately.
 - In `--actor-auth required` mode, every protected call re-validates the
@@ -160,7 +160,7 @@ org:
 
 1. Identify the scope: single agent, whole org, or IdP.
 2. For a single agent: `remove_member` + re-add under new `agent_id`, then
-   call `finalisma_rotate_agent_credential` for the corresponding
+   call `rotate_agent_credential` for the corresponding
    `(team_id, agent_id)` in `core.py`.
 3. For a whole org: delete the org row (cascade), recreate, re-link all
    members, rotate all corresponding actor credentials.

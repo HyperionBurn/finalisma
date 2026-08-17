@@ -1,8 +1,8 @@
 """Integration test: ordered replay + per-member cursor + reconnect contract.
 
-RED deliverable for the room tools. Drives the real MCP surface (FinalismaDispatcher)
-with a real SQLite store (require_actor_auth=True). Every finalisma_room_* call here
-MUST fail with FinalismaError("unknown_tool", ...) until the room tools are wired.
+RED deliverable for the room tools. Drives the real MCP surface (WeftDispatcher)
+with a real SQLite store (require_actor_auth=True). Every room_* call here
+MUST fail with WeftError("unknown_tool", ...) until the room tools are wired.
 
 Contracts asserted from docs/ROOMS_DESIGN.md §5 and §8:
   - room_event_log: ordered, append-only, UNIQUE(room_id, seq).
@@ -20,8 +20,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from finalisma_mcp.core import FinalismaStore
-from finalisma_mcp.server import FinalismaDispatcher, TOOLS
+from weft_mcp.core import WeftStore
+from weft_mcp.server import WeftDispatcher, TOOLS
 
 
 class RoomReconnectIntegrationTests(unittest.TestCase):
@@ -30,20 +30,20 @@ class RoomReconnectIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
-        self.store = FinalismaStore(root / "state.db", root, require_actor_auth=True)
-        self.dispatcher = FinalismaDispatcher(self.store)
+        self.store = WeftStore(root / "state.db", root, require_actor_auth=True)
+        self.dispatcher = WeftDispatcher(self.store)
 
         # Register three agents under one team.
         reg_a1 = self.dispatcher.call_tool(
-            "finalisma_register_agent",
+            "register_agent",
             {"team_id": "team-1", "agent_id": "agent-1", "role": "owner"},
         )
         reg_a2 = self.dispatcher.call_tool(
-            "finalisma_register_agent",
+            "register_agent",
             {"team_id": "team-1", "agent_id": "agent-2", "role": "member"},
         )
         reg_a3 = self.dispatcher.call_tool(
-            "finalisma_register_agent",
+            "register_agent",
             {"team_id": "team-1", "agent_id": "agent-3", "role": "member"},
         )
         self.token_a1 = reg_a1["actor_token"]
@@ -52,15 +52,20 @@ class RoomReconnectIntegrationTests(unittest.TestCase):
 
         # Create room (owner = agent-1), cap=5.
         created = self.dispatcher.call_tool(
-            "finalisma_room_create",
-            {"team_id": "team-1", "owner_agent_id": "agent-1", "cap": 5},
+            "room_create",
+            {
+                "team_id": "team-1",
+                "owner_agent_id": "agent-1",
+                "cap": 5,
+                "actor_token": self.token_a1,
+            },
         )
         self.room_id = created["room_id"]
         self.link_token = created["link_token"]
 
         # Owner (agent-1) joins.
         self.dispatcher.call_tool(
-            "finalisma_room_join",
+            "room_join",
             {
                 "team_id": "team-1",
                 "room_id": self.room_id,
@@ -73,7 +78,7 @@ class RoomReconnectIntegrationTests(unittest.TestCase):
 
         # Join agent-2 and agent-3.
         self.dispatcher.call_tool(
-            "finalisma_room_join",
+            "room_join",
             {
                 "team_id": "team-1",
                 "room_id": self.room_id,
@@ -84,7 +89,7 @@ class RoomReconnectIntegrationTests(unittest.TestCase):
             },
         )
         self.dispatcher.call_tool(
-            "finalisma_room_join",
+            "room_join",
             {
                 "team_id": "team-1",
                 "room_id": self.room_id,
@@ -112,11 +117,11 @@ class RoomReconnectIntegrationTests(unittest.TestCase):
             args["after_seq"] = after_seq
         if limit is not None:
             args["limit"] = limit
-        return self.dispatcher.call_tool("finalisma_room_poll", args)
+        return self.dispatcher.call_tool("room_poll", args)
 
     def _ack(self, agent_id: str, actor_token: str, seq: int) -> dict:
         return self.dispatcher.call_tool(
-            "finalisma_room_ack",
+            "room_ack",
             {
                 "team_id": "team-1",
                 "room_id": self.room_id,
@@ -128,7 +133,7 @@ class RoomReconnectIntegrationTests(unittest.TestCase):
 
     def _send(self, sender_agent_id: str, actor_token: str, target_spec, payload: dict) -> dict:
         return self.dispatcher.call_tool(
-            "finalisma_room_send",
+            "room_send",
             {
                 "team_id": "team-1",
                 "room_id": self.room_id,
@@ -276,11 +281,11 @@ class RoomReconnectIntegrationTests(unittest.TestCase):
         """The 5 core room tools exist in the TOOLS list with schemas."""
         schemas = {tool["name"]: tool["inputSchema"] for tool in TOOLS}
         expected = {
-            "finalisma_room_create",
-            "finalisma_room_join",
-            "finalisma_room_poll",
-            "finalisma_room_ack",
-            "finalisma_room_send",
+            "room_create",
+            "room_join",
+            "room_poll",
+            "room_ack",
+            "room_send",
         }
         for tool_name in expected:
             self.assertIn(tool_name, schemas, f"missing schema for {tool_name}")
@@ -289,17 +294,17 @@ class RoomReconnectIntegrationTests(unittest.TestCase):
             self.assertTrue(len(props) > 0, f"{tool_name} has empty properties")
 
         # Spot-check required fields per ROOMS_DESIGN.md §8.
-        self.assertIn("team_id", schemas["finalisma_room_create"]["properties"])
-        self.assertIn("owner_agent_id", schemas["finalisma_room_create"]["properties"])
-        self.assertIn("cap", schemas["finalisma_room_create"]["properties"])
+        self.assertIn("team_id", schemas["room_create"]["properties"])
+        self.assertIn("owner_agent_id", schemas["room_create"]["properties"])
+        self.assertIn("cap", schemas["room_create"]["properties"])
 
-        self.assertIn("room_id", schemas["finalisma_room_join"]["properties"])
-        self.assertIn("link_token", schemas["finalisma_room_join"]["properties"])
-        self.assertIn("consent", schemas["finalisma_room_join"]["properties"])
+        self.assertIn("room_id", schemas["room_join"]["properties"])
+        self.assertIn("link_token", schemas["room_join"]["properties"])
+        self.assertIn("consent", schemas["room_join"]["properties"])
 
-        self.assertIn("actor_token", schemas["finalisma_room_poll"]["properties"])
-        self.assertIn("actor_token", schemas["finalisma_room_ack"]["properties"])
-        self.assertIn("actor_token", schemas["finalisma_room_send"]["properties"])
+        self.assertIn("actor_token", schemas["room_poll"]["properties"])
+        self.assertIn("actor_token", schemas["room_ack"]["properties"])
+        self.assertIn("actor_token", schemas["room_send"]["properties"])
 
 
 if __name__ == "__main__":

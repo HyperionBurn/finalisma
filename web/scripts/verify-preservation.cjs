@@ -44,10 +44,10 @@ check(!fs.existsSync(path.join(SITE, 'agent-canvas.js')), 'site/agent-canvas.js 
 
 console.log('[verify-preservation] checking assets...');
 check(fs.existsSync(path.join(SITE, 'assets', 'og-card.png')), 'assets/og-card.png exists');
-check(fs.existsSync(path.join(SITE, 'assets', 'finalisma-demo-poster.png')), 'assets/finalisma-demo-poster.png exists');
-check(fs.existsSync(path.join(SITE, 'assets', 'finalisma-demo.mp4')), 'assets/finalisma-demo.mp4 exists');
-check(fs.existsSync(path.join(SITE, 'assets', 'finalisma-demo.webm')), 'assets/finalisma-demo.webm exists');
-check(fs.existsSync(path.join(SITE, 'assets', 'finalisma-demo.vtt')), 'assets/finalisma-demo.vtt exists');
+check(fs.existsSync(path.join(SITE, 'assets', 'weft-demo-poster.png')), 'assets/weft-demo-poster.png exists');
+check(fs.existsSync(path.join(SITE, 'assets', 'weft-demo.mp4')), 'assets/weft-demo.mp4 exists');
+check(fs.existsSync(path.join(SITE, 'assets', 'weft-demo.webm')), 'assets/weft-demo.webm exists');
+check(fs.existsSync(path.join(SITE, 'assets', 'weft-demo.vtt')), 'assets/weft-demo.vtt exists');
 check(fs.existsSync(path.join(SITE, 'assets', 'demo-transcript.json')), 'assets/demo-transcript.json exists');
 check(fs.existsSync(path.join(SITE, 'assets', 'favicon.svg')), 'assets/favicon.svg exists');
 check(fs.existsSync(path.join(SITE, 'assets', 'fonts', 'archivo-var-latin.woff2')), 'assets/fonts/archivo-var-latin.woff2 exists');
@@ -60,18 +60,18 @@ check(ogHeader.slice(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0
 check(ogHeader.readUInt32BE(16) === 1200, 'og-card.png width = 1200');
 check(ogHeader.readUInt32BE(20) === 630, 'og-card.png height = 630');
 
-const posterHeader = read('assets/finalisma-demo-poster.png');
-check(posterHeader.slice(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])), 'finalisma-demo-poster.png is PNG');
-check(posterHeader.readUInt32BE(16) === 1280, 'finalisma-demo-poster.png width = 1280');
-check(posterHeader.readUInt32BE(20) === 720, 'finalisma-demo-poster.png height = 720');
+const posterHeader = read('assets/weft-demo-poster.png');
+check(posterHeader.slice(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])), 'weft-demo-poster.png is PNG');
+check(posterHeader.readUInt32BE(16) === 1280, 'weft-demo-poster.png width = 1280');
+check(posterHeader.readUInt32BE(20) === 720, 'weft-demo-poster.png height = 720');
 
 console.log('[verify-preservation] checking media headers...');
-const mp4 = read('assets/finalisma-demo.mp4');
-check(mp4.slice(4, 8).equals(Buffer.from('ftyp', 'ascii')), 'finalisma-demo.mp4 has ftyp');
-const webm = read('assets/finalisma-demo.webm');
-check(webm.slice(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3])), 'finalisma-demo.webm has EBML header');
-const vtt = fs.readFileSync(path.join(SITE, 'assets', 'finalisma-demo.vtt'), 'utf-8');
-check(vtt.startsWith('WEBVTT\n') || vtt.startsWith('WEBVTT\r\n'), 'finalisma-demo.vtt starts with WEBVTT');
+const mp4 = read('assets/weft-demo.mp4');
+check(mp4.slice(4, 8).equals(Buffer.from('ftyp', 'ascii')), 'weft-demo.mp4 has ftyp');
+const webm = read('assets/weft-demo.webm');
+check(webm.slice(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3])), 'weft-demo.webm has EBML header');
+const vtt = fs.readFileSync(path.join(SITE, 'assets', 'weft-demo.vtt'), 'utf-8');
+check(vtt.startsWith('WEBVTT\n') || vtt.startsWith('WEBVTT\r\n'), 'weft-demo.vtt starts with WEBVTT');
 
 console.log('[verify-preservation] checking docs/...');
 const docs = fs.readdirSync(path.join(SITE, 'docs')).filter((f) => f.endsWith('.html'));
@@ -106,7 +106,7 @@ for (const s of requiredStrings) {
 
 console.log('[verify-preservation] checking JSON-LD + meta...');
 check(html.includes('type="application/ld+json"'), 'index.html has JSON-LD');
-check(html.includes('property="og:site_name" content="Finalisma"'), 'index.html has og:site_name');
+check(html.includes('property="og:site_name" content="Weft"'), 'index.html has og:site_name');
 check(html.includes('name="twitter:image" content="/assets/og-card.png"'), 'index.html has twitter:image');
 check(/document\.documentElement\.classList\.add\(['"]js['"]\)/.test(html), 'index.html has js class script');
 

@@ -1,9 +1,9 @@
 {
-  "schema": "finalisma.public-demo/v1",
-  "source": "real local FinalismaStore protocol run",
+  "schema": "weft.public-demo/v1",
+  "source": "real local WeftStore protocol run",
   "boundary": "Agent hosts are deterministic fixtures; coordinator, SQLite state, pairing, session, lease, fencing, artifact hashing, secret scan, evidence gate, and completion are real.",
   "credentials_redacted": true,
-  "duration_seconds": 42,
+  "duration_seconds": 43,
   "proof": {
     "pairing_preview_status": "issued",
     "pairing_status": "consumed",
@@ -35,7 +35,7 @@
     {
       "eyebrow": "The handoff problem",
       "headline": "One agent stalls. Copy-paste destroys the account.",
-      "caption": "Finalisma keeps scope, ownership, ordered progress, and evidence in one inspectable record.",
+      "caption": "Weft keeps scope, ownership, ordered progress, and evidence in one inspectable record.",
       "agent_a": "Incident owner \u00b7 context exhausted",
       "agent_b": "Review agent \u00b7 waiting outside the account",
       "event": "No governed handoff yet",
@@ -74,7 +74,7 @@
       "caption": "The receiver observes sequence 1, acknowledges sequence 1, and can resume from that cursor.",
       "agent_a": "task.offer \u00b7 seq 1",
       "agent_b": "poll \u2192 receive \u2192 ack 1",
-      "event": "finalisma.a2a/1.0 \u00b7 idempotent",
+      "event": "weft.a2a/1.0 \u00b7 idempotent",
       "state": "posted"
     },
     {
@@ -114,11 +114,11 @@
       "state": "balanced"
     },
     {
-      "eyebrow": "Finalisma \u00b7 design-partner preview",
+      "eyebrow": "Weft \u00b7 design-partner preview",
       "headline": "One incident. Two agents. One account of what happened.",
       "caption": "Run the local proof. Then help validate the first real host pair.",
       "agent_a": "9 documented MCP paths",
-      "agent_b": "0 live Finalisma host validations",
+      "agent_b": "0 live Weft host validations",
       "event": "Codex + Claude Code proposed first pair",
       "state": "balanced"
     }

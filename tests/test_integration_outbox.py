@@ -1,19 +1,19 @@
-"""Integration tests for the Finalisma outbox MCP surface.
+"""Integration tests for the Weft outbox MCP surface.
 
-RED-only deliverable: the ``finalisma_outbox_*`` tools are not wired into the
+RED-only deliverable: the ``outbox_*`` tools are not wired into the
 MCP dispatcher yet, so every ``call_tool`` below must fail. The orchestrator
 registers these tools after this file lands.
 
 Contracts asserted (mirrored from the outbox module + PROTOCOL.md v1 envelope):
-  - finalisma_outbox_enqueue  {team_id, envelope, recipients}
+  - outbox_enqueue  {team_id, envelope, recipients}
         -> {entry_ids: [str, ...], envelope_id: str}
-  - finalisma_outbox_claim    {team_id, limit, now}
+  - outbox_claim    {team_id, limit, now}
         -> {entries: [{entry_id, envelope_id, recipient, payload, attempts, next_attempt_at}]}
-  - finalisma_outbox_delivered {team_id, entry_id}
+  - outbox_delivered {team_id, entry_id}
         -> {entry_id, status: "delivered"}
-  - finalisma_outbox_retry    {team_id, entry_id}
+  - outbox_retry    {team_id, entry_id}
         -> {entry_id, attempts, next_attempt_at}
-  - finalisma_outbox_stats    {team_id}
+  - outbox_stats    {team_id}
         -> {queued, in_flight, delivered, dead}
 """
 
@@ -27,14 +27,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from finalisma_mcp.core import FinalismaStore
-from finalisma_mcp.server import FinalismaDispatcher, TOOLS
+from weft_mcp.core import WeftStore
+from weft_mcp.server import WeftDispatcher, TOOLS
 
 
 def _v1_envelope(sender: str = "agent-a", recipient: str = "agent-b", type_: str = "task.progress") -> dict:
     """Build a PROTOCOL.md v1 envelope shape (minimal valid fields)."""
     return {
-        "protocol": "finalisma.a2a",
+        "protocol": "weft.a2a",
         "version": "1.0",
         "message_id": f"msg_{sender}_{recipient}_{int(time.time() * 1000)}",
         "type": type_,
@@ -51,8 +51,8 @@ class OutboxIntegrationTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
         # Mirror test_actor_credentials_server.py harness exactly.
-        self.store = FinalismaStore(root / "state.db", root, require_actor_auth=True)
-        self.dispatcher = FinalismaDispatcher(self.store)
+        self.store = WeftStore(root / "state.db", root, require_actor_auth=True)
+        self.dispatcher = WeftDispatcher(self.store)
         self.team_id = "team-outbox"
 
     def tearDown(self) -> None:
@@ -65,7 +65,7 @@ class OutboxIntegrationTests(unittest.TestCase):
     def test_enqueue_fans_out_per_recipient_with_shared_envelope_id(self) -> None:
         envelope = _v1_envelope(recipient="agent-b")
         result = self.dispatcher.call_tool(
-            "finalisma_outbox_enqueue",
+            "outbox_enqueue",
             {"team_id": self.team_id, "envelope": envelope, "recipients": ["agent-b", "agent-c"]},
         )
         self.assertIn("entry_ids", result)
@@ -83,11 +83,11 @@ class OutboxIntegrationTests(unittest.TestCase):
     def test_claim_due_returns_entries_and_reclaim_is_empty(self) -> None:
         envelope = _v1_envelope(recipient="agent-b")
         enqueued = self.dispatcher.call_tool(
-            "finalisma_outbox_enqueue",
+            "outbox_enqueue",
             {"team_id": self.team_id, "envelope": envelope, "recipients": ["agent-b", "agent-c"]},
         )
         claim = self.dispatcher.call_tool(
-            "finalisma_outbox_claim",
+            "outbox_claim",
             {"team_id": self.team_id, "limit": 10, "now": time.time()},
         )
         self.assertIn("entries", claim)
@@ -100,7 +100,7 @@ class OutboxIntegrationTests(unittest.TestCase):
 
         # Second claim with same entries already in_flight -> empty.
         second = self.dispatcher.call_tool(
-            "finalisma_outbox_claim",
+            "outbox_claim",
             {"team_id": self.team_id, "limit": 10, "now": time.time()},
         )
         self.assertEqual(second["entries"], [])
@@ -111,23 +111,23 @@ class OutboxIntegrationTests(unittest.TestCase):
     def test_mark_delivered_updates_stats(self) -> None:
         envelope = _v1_envelope(recipient="agent-b")
         enqueued = self.dispatcher.call_tool(
-            "finalisma_outbox_enqueue",
+            "outbox_enqueue",
             {"team_id": self.team_id, "envelope": envelope, "recipients": ["agent-b", "agent-c"]},
         )
         claim = self.dispatcher.call_tool(
-            "finalisma_outbox_claim",
+            "outbox_claim",
             {"team_id": self.team_id, "limit": 10, "now": time.time()},
         )
         target = claim["entries"][0]["entry_id"]
 
         delivered = self.dispatcher.call_tool(
-            "finalisma_outbox_delivered",
+            "outbox_delivered",
             {"team_id": self.team_id, "entry_id": target},
         )
         self.assertEqual(delivered["entry_id"], target)
         self.assertEqual(delivered["status"], "delivered")
 
-        stats = self.dispatcher.call_tool("finalisma_outbox_stats", {"team_id": self.team_id})
+        stats = self.dispatcher.call_tool("outbox_stats", {"team_id": self.team_id})
         self.assertIn("delivered", stats)
         self.assertGreaterEqual(stats["delivered"], 1)
 
@@ -137,11 +137,11 @@ class OutboxIntegrationTests(unittest.TestCase):
     def test_mark_retry_increments_attempts_and_reschedules(self) -> None:
         envelope = _v1_envelope(recipient="agent-b")
         enqueued = self.dispatcher.call_tool(
-            "finalisma_outbox_enqueue",
+            "outbox_enqueue",
             {"team_id": self.team_id, "envelope": envelope, "recipients": ["agent-b"]},
         )
         claim = self.dispatcher.call_tool(
-            "finalisma_outbox_claim",
+            "outbox_claim",
             {"team_id": self.team_id, "limit": 10, "now": time.time()},
         )
         entry_id = claim["entries"][0]["entry_id"]
@@ -149,7 +149,7 @@ class OutboxIntegrationTests(unittest.TestCase):
         before_next = claim["entries"][0]["next_attempt_at"]
 
         retried = self.dispatcher.call_tool(
-            "finalisma_outbox_retry",
+            "outbox_retry",
             {"team_id": self.team_id, "entry_id": entry_id},
         )
         self.assertEqual(retried["entry_id"], entry_id)
@@ -163,16 +163,16 @@ class OutboxIntegrationTests(unittest.TestCase):
     def test_tool_schemas_registered_in_tools_list(self) -> None:
         schemas = {tool["name"]: tool["inputSchema"] for tool in TOOLS}
         expected_tools = {
-            "finalisma_outbox_enqueue",
-            "finalisma_outbox_claim",
-            "finalisma_outbox_delivered",
-            "finalisma_outbox_retry",
-            "finalisma_outbox_stats",
+            "outbox_enqueue",
+            "outbox_claim",
+            "outbox_delivered",
+            "outbox_retry",
+            "outbox_stats",
         }
         for tool_name in expected_tools:
             self.assertIn(tool_name, schemas, f"missing schema for {tool_name}")
         # Envelope arg must accept an object payload.
-        enqueue_props = schemas["finalisma_outbox_enqueue"]["properties"]
+        enqueue_props = schemas["outbox_enqueue"]["properties"]
         self.assertIn("team_id", enqueue_props)
         self.assertIn("envelope", enqueue_props)
         self.assertIn("recipients", enqueue_props)
@@ -183,17 +183,17 @@ class OutboxIntegrationTests(unittest.TestCase):
     def test_durability_survives_store_reopen(self) -> None:
         envelope = _v1_envelope(recipient="agent-b")
         self.dispatcher.call_tool(
-            "finalisma_outbox_enqueue",
+            "outbox_enqueue",
             {"team_id": self.team_id, "envelope": envelope, "recipients": ["agent-b", "agent-c"]},
         )
         # Close current store to flush WAL, then reopen a fresh one on the same db.
         self.store.close()
         root = Path(self.temp.name)
-        reopened = FinalismaStore(root / "state.db", root, require_actor_auth=True)
-        new_dispatcher = FinalismaDispatcher(reopened)
+        reopened = WeftStore(root / "state.db", root, require_actor_auth=True)
+        new_dispatcher = WeftDispatcher(reopened)
 
         claim = new_dispatcher.call_tool(
-            "finalisma_outbox_claim",
+            "outbox_claim",
             {"team_id": self.team_id, "limit": 10, "now": time.time()},
         )
         try:

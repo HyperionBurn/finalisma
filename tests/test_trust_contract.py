@@ -12,17 +12,17 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from finalisma_mcp.core import FinalismaError, FinalismaStore
-from finalisma_mcp.server import FinalismaDispatcher, _MCPRequestHandler, _Metrics, _WindowRateLimiter, handle_json_rpc
+from weft_mcp.core import WeftError, WeftStore
+from weft_mcp.server import WeftDispatcher, _MCPRequestHandler, _Metrics, _WindowRateLimiter, handle_json_rpc
 
 
 class StrictConsentTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
-        self.store = FinalismaStore(self.root / "state.db", self.root)
+        self.store = WeftStore(self.root / "state.db", self.root)
         self.store.register_agent("demo", "agent-a", role="architect")
-        self.dispatcher = FinalismaDispatcher(self.store)
+        self.dispatcher = WeftDispatcher(self.store)
 
     def tearDown(self) -> None:
         self.store.close()
@@ -31,12 +31,12 @@ class StrictConsentTests(unittest.TestCase):
     def test_core_requires_literal_boolean_true(self) -> None:
         pairing = self.store.create_pairing("agent-a", "demo")
         for malformed in ("false", "yes", 1, 0, None, [], {}):
-            with self.subTest(consent=malformed), self.assertRaises(FinalismaError) as rejected:
+            with self.subTest(consent=malformed), self.assertRaises(WeftError) as rejected:
                 self.store.join_pairing(pairing["join_token"], "agent-b", consent=malformed)  # type: ignore[arg-type]
             self.assertEqual(rejected.exception.code, "invalid_consent")
             self.assertEqual(self.store.pairing_preview(pairing["join_token"])["status"], "issued")
 
-        with self.assertRaises(FinalismaError) as declined:
+        with self.assertRaises(WeftError) as declined:
             self.store.join_pairing(pairing["join_token"], "agent-b", consent=False)
         self.assertEqual(declined.exception.code, "consent_required")
         self.assertEqual(self.store.join_pairing(pairing["join_token"], "agent-b", consent=True)["state"], "active")
@@ -51,7 +51,7 @@ class StrictConsentTests(unittest.TestCase):
                     "id": request_id,
                     "method": "tools/call",
                     "params": {
-                        "name": "finalisma_join_pairing",
+                        "name": "join_pairing",
                         "arguments": {
                             "token": pairing["join_token"],
                             "agent_id": "agent-b",

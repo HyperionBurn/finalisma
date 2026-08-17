@@ -1,0 +1,26 @@
+# Template for review/installation by the VM owner — nothing in this repo
+# installs or enables this unit automatically.
+#
+# "An untested backup is not a backup." Restores the newest backup to a
+# private temp path, opens the COPY read-only, and asserts the accounts and
+# rooms tables are present and readable with a plausible row count. Never
+# touches the live database or the backup file itself (verified by
+# tests/test_deploy_backup.py). Fails loudly (systemd sees a non-zero exit,
+# which shows up in `systemctl --failed`) if the newest backup is unusable.
+#
+# --min-accounts 1: production should always have at least one account: a
+# drill that "succeeds" against a zero-row restore is not proving anything.
+#
+# Install:
+#   sudo cp scripts/systemd/weft-restore-drill.service scripts/systemd/weft-restore-drill.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now weft-restore-drill.timer
+
+[Unit]
+Description=Restore-drill the newest Weft backup
+After=weft-backup.service
+
+[Service]
+Type=oneshot
+User=azureuser
+ExecStart=/usr/bin/python3 /opt/weft/scripts/restore_drill.py --backup-dir /var/backups/weft --min-accounts 1

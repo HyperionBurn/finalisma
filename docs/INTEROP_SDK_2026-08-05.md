@@ -1,25 +1,32 @@
 # SDK-Tier Interop Validation — 2026-08-05
 
-**Tier:** SDK (`finalisma_sdk.FinalismaClient`) — anything that can run Python.
+**Tier:** SDK (`weft_sdk.WeftClient`) — anything that can run Python.
 **Transport:** Streamable HTTP (`http.client`, stdlib-only), coordinator spawned as a child over `--transport http`.
 **Driver:** `scripts/interop-validate-sdk.py` — Python driver owns the coordinator child via `subprocess.Popen` with `finally` teardown. Run under `timeout 240`.
 **Tests:** `tests/test_interop_sdk.py` — 5 unittest cases, all green in ~1.1s.
 
 ## Honest status
 
-**This proves the SDK tier works end to end, including the N-agent room path, against a real coordinator over HTTP.** Three Python "hosts" each use `FinalismaClient` as their client; room tools are reached via the SDK's private `_call("finalisma_room_*", ...)` (the SDK has no dedicated room helper, so `_call` is the documented escape hatch — it dispatches any tool over JSON-RPC and injects `team_id`/`agent_id`/`actor_token`).
+**This proves the SDK tier works end to end, including the N-agent room path, against a real coordinator over HTTP.** Three Python "hosts" each use `WeftClient` as their client; room tools are reached via the SDK's private `_call("room_*", ...)` (the SDK has no dedicated room helper, so `_call` is the documented escape hatch — it dispatches any tool over JSON-RPC and injects `team_id`/`agent_id`/`actor_token`).
 
 **What is proven:**
 - SDK registration with actor-token binding (token returned once, stored on the client).
-- Two-party pairing + verified handoff through SDK dedicated methods (`create_pairing_link`, `claim`, `submit_evidence`, `complete`) plus `_call`-driven `finalisma_join_pairing`.
+- Two-party pairing + verified handoff through SDK dedicated methods (`create_pairing_link`, `claim`, `submit_evidence`, `complete`) plus `_call`-driven `join_pairing`.
 - N-agent room: 3 agents join one room link; roster shows all 3; state transitions forming→active.
 - Addressing: unicast (receipt for exactly the target), group (create via `room_groups` add, send to group name, receipts for the two members), broadcast `*` (receipts for the other two, sender excluded).
 - Ordered event log + per-member cursors: each member polls from `after_seq=0`, events ascend by `seq`, no duplicate seqs, ack advances a monotonic cursor.
-- Reconnect: a fresh `FinalismaClient` reusing agent-b's `agent_id`+`actor_token` polls from `after_seq=0` → full ordered log with no loss/duplicates; polls from `last_ack_seq` → zero already-acked events replayed.
-- Negative cases: non-member `room_poll` and `room_info` refused with `member_required`; existing-member identity reuse with a **different** actor token refused with `actor_auth_invalid`.
+- Reconnect: a fresh `WeftClient` reusing agent-b's `agent_id`+`actor_token` polls from `after_seq=0` → full ordered log with no loss/duplicates; polls from `last_ack_seq` → zero already-acked events replayed.
+- Negative cases: non-member `room_poll` and `room_info` refused with the
+  non-enumerating `room_not_found`; existing-member identity reuse with a
+  **different** actor token refused with `actor_auth_invalid`.
+
+> **Superseded 2026-08-08 (enumeration fix):** a non-member is now refused with `room_not_found`.
+> on every member-only room tool — identical to a fabricated `room_id` (no existence oracle).
+> `member_required` is retained only for entitled members (e.g. a member adding a non-active
+> *target* to a group). See `docs/ROOMS_DESIGN.md` §8/§9.
 
 **What is NOT proven:**
-- A third-party non-Python client using the SDK. The SDK is Python-only (`src/finalisma_sdk/` is Python); this validation uses Python hosts. The *protocol* (Streamable HTTP + JSON-RPC `tools/call`) is language-agnostic, but no non-Python client is tested here.
+- A third-party non-Python client using the SDK. The SDK is Python-only (`src/weft_sdk/` is Python); this validation uses Python hosts. The *protocol* (Streamable HTTP + JSON-RPC `tools/call`) is language-agnostic, but no non-Python client is tested here.
 - The SDK's public `join_pairing()` helper does **not** inject `actor_token` (a real gap — the driver works around it via `_call`). This is a documented SDK limitation, not a coordinator defect.
 - Rooms via the SDK's dedicated API surface — the SDK has no `room_*` methods yet; `_call` is the only path.
 
@@ -27,8 +34,8 @@
 
 ```
 Python 3.14.6
-Finalisma coordinator: src/finalisma_mcp/ (stdlib-only, SQLite)
-SDK: src/finalisma_sdk/client.py (FinalismaClient)
+Weft coordinator: src/weft_mcp/ (stdlib-only, SQLite)
+SDK: src/weft_sdk/client.py (WeftClient)
 Transport: http.client → http://127.0.0.1:<free-port>/mcp
 ```
 
@@ -39,7 +46,7 @@ Transport: http.client → http://127.0.0.1:<free-port>/mcp
 timeout 240 python -B scripts/interop-validate-sdk.py
 python -B -m unittest tests.test_interop_sdk -v
 netstat -ano | grep <port>   # must show NO LISTENER after exit (only TIME_WAIT)
-python -B scripts/finalisma-smoke.py
+python -B scripts/weft-smoke.py
 ```
 
 ## Full verbatim transcript (room path + key results)
@@ -124,7 +131,7 @@ python -B scripts/finalisma-smoke.py
 {
   "status": "ok",
   "transport": "http",
-  "sdk_tier": "finalisma_sdk.FinalismaClient over Streamable HTTP",
+  "sdk_tier": "weft_sdk.WeftClient over Streamable HTTP",
   "pairing_join_state": "active",
   "task_status": "done",
   "evidence_passed": true,
@@ -164,7 +171,7 @@ python -B scripts/finalisma-smoke.py
 
 `netstat -ano | grep <port>` after exit shows only `TIME_WAIT` client-side sockets — **no LISTENING socket**, coordinator child torn down in `finally` (terminate → wait → kill).
 
-`python -B scripts/finalisma-smoke.py` → `evidence_passed: true`, `task_status: done`.
+`python -B scripts/weft-smoke.py` → `evidence_passed: true`, `task_status: done`.
 
 ## Proven vs not
 
@@ -177,13 +184,13 @@ python -B scripts/finalisma-smoke.py
 | Unicast / group / broadcast receipts | PROVEN |
 | Ordered replay, per-member cursors | PROVEN |
 | Reconnect: no loss, no duplicates | PROVEN |
-| Non-member refused (`member_required`) | PROVEN |
+| Non-member refused (`room_not_found`, non-enumerating) | PROVEN |
 | Actor-overwrite refused (`actor_auth_invalid`) | PROVEN |
 | Non-Python third-party client via SDK | **NOT PROVEN** (SDK is Python-only) |
 | Rooms via SDK dedicated API (not `_call`) | **NOT PROVEN** (SDK has no `room_*` methods) |
 
 ## Risks for the orchestrator to check
 
-1. **SDK `join_pairing()` does not inject `actor_token`.** The driver works around it with `_call("finalisma_join_pairing", ...)`. A real SDK consumer calling the public `join_pairing()` helper against a non-trusted coordinator will get `actor_auth_invalid`. Worth a dedicated `room_*` method set or fixing `join_pairing()` to forward the token.
+1. **SDK `join_pairing()` does not inject `actor_token`.** The driver works around it with `_call("join_pairing", ...)`. A real SDK consumer calling the public `join_pairing()` helper against a non-trusted coordinator will get `actor_auth_invalid`. Worth a dedicated `room_*` method set or fixing `join_pairing()` to forward the token.
 2. **`register()` does not store the returned token.** The driver re-builds each client with the token. A consumer that calls `register()` and then the client's own methods without re-binding will fail auth. This is a footgun worth documenting or fixing.
 3. This validation uses Python hosts; the "any agent" claim (roadmap §3) still needs the bridge-adapter and Streamable-HTTP-remote-host transcripts to be complete. The SDK tier is now proven, but it is one of four.

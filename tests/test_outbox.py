@@ -15,8 +15,13 @@ import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from threading import Thread
+from pathlib import Path
 
-from finalisma_mcp import outbox
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from weft_mcp import outbox
 
 
 class OutboxTests(unittest.TestCase):

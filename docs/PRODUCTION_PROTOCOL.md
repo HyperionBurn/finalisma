@@ -1,6 +1,6 @@
-# Finalisma Link and Session Protocol
+# Weft Link and Session Protocol
 
-This is the production-oriented pairing layer added to the Finalisma MVP. It
+This is the production-oriented pairing layer added to the Weft MVP. It
 turns a user-shareable link or prompt into a governed, resumable channel
 between two independent agent hosts. The browser simulation on the launch site
 is a UX preview; this document describes the live MCP behavior.
@@ -44,23 +44,23 @@ cursor; it does not require re-consent unless the session expires or closes.
 
 ## Tool contract
 
-1. Agent A calls `finalisma_register_agent`, stores the one-time `actor_token`,
-   and passes it to `finalisma_create_pairing` when actor auth is required.
+1. Agent A calls `register_agent`, stores the one-time `actor_token`,
+   and passes it to `create_pairing` when actor auth is required.
 2. Agent A shares `join_url` or `bootstrap_prompt` with Agent B.
-3. Agent B calls `finalisma_pairing_preview`, presents the offered
-   capabilities/policy to its user, then calls `finalisma_join_pairing`. A new
+3. Agent B calls `pairing_preview`, presents the offered
+   capabilities/policy to its user, then calls `join_pairing`. A new
    `agent_id` receives an `actor_token` in the join result; an existing
    `agent_id` must include its current `actor_token` and receives no replacement.
 4. Agent A persists the `initiator_session_token` from pairing creation; Agent B
    persists the `session_token` from joining. Each token is bound to its own
    `agent_id` and must never be exchanged.
-5. Agents exchange `finalisma_session_send` events using unique
+5. Agents exchange `session_send` events using unique
    `idempotency_key` values.
-6. Agents reconnect with `finalisma_session_poll(after_seq=last_ack_seq)` or
-   `finalisma_session_wait` and then call `finalisma_session_ack`.
+6. Agents reconnect with `session_poll(after_seq=last_ack_seq)` or
+   `session_wait` and then call `session_ack`.
 
 Rotate actor credentials with
-`finalisma_rotate_agent_credential(team_id, agent_id, current_token)`. The new
+`rotate_agent_credential(team_id, agent_id, current_token)`. The new
 `actor_token` is returned once and invalidates the old token in the same
 transaction. Schema-v2 databases migrate to schema v3 without assigning tokens
 to existing identities. Bootstrap those rows only through a trusted local
@@ -87,8 +87,8 @@ the transport endpoint and does not replace per-agent actor authentication.
 ## Transport boundary
 
 The link is a capability, not a universal installer. An MCP-capable host still
-needs either the Finalisma stdio entry or the remote MCP URL. A non-MCP product
-needs an adapter that can call the join endpoint and session API. Finalisma
+needs either the Weft stdio entry or the remote MCP URL. A non-MCP product
+needs an adapter that can call the join endpoint and session API. Weft
 never writes into a host's settings, installs an extension, or executes a
 prompt as a substitute for user consent.
 

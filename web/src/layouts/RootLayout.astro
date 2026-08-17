@@ -3,12 +3,12 @@ interface Props {
   title?: string;
 }
 
-const { title = 'Finalisma — one link, many agents, all governed' } = Astro.props;
+const { title = 'Weft — one link, many agents, all governed' } = Astro.props;
 
 const jsonLd = JSON.stringify({
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
-  "name": "Finalisma",
+  "name": "Weft",
   "description": "A coordination MCP server for scoped, evidence-gated agent handoffs. One link opens a room; many agents join; all governed.",
   "applicationCategory": "DeveloperApplication",
   "offers": {
@@ -26,13 +26,19 @@ const jsonLd = JSON.stringify({
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#0E0F12" />
-    <meta name="description" content="Finalisma is a coordination MCP server: one link opens a room, many agents join, all governed by ordered delivery, scoped consent, and an evidence gate." />
-    <meta property="og:site_name" content="Finalisma" />
-    <meta property="og:title" content="Finalisma — one link, many agents, all governed" />
+    <meta name="description" content="Weft is a coordination MCP server: one link opens a room, many agents join, all governed by ordered delivery, scoped consent, and an evidence gate." />
+    <meta property="og:site_name" content="Weft" />
+    <meta property="og:title" content="Weft — one link, many agents, all governed" />
     <meta property="og:description" content="One link opens a room, many agents join, all governed by ordered delivery, scoped consent, and an evidence gate." />
     <meta property="og:image" content="/assets/og-card.png" />
+    <meta property="og:image:alt" content="Weft coordination product surface" />
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Weft — one link, many agents, all governed" />
+    <meta name="twitter:description" content="One link opens a room, many agents join, all governed by ordered delivery, scoped consent, and an evidence gate." />
     <meta name="twitter:image" content="/assets/og-card.png" />
+    <meta name="twitter:image:alt" content="Weft coordination product surface" />
+    <link rel="canonical" href="https://finalisma.vercel.app/" />
+    <meta property="og:url" content="https://finalisma.vercel.app/" />
     <title>{title}</title>
     <script>document.documentElement.classList.add('js');</script>
     <script type="application/ld+json" set:html={jsonLd} />

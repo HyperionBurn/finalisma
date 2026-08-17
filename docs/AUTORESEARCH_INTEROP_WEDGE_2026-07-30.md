@@ -1,4 +1,4 @@
-# Finalisma interoperability wedge autoresearch
+# Weft interoperability wedge autoresearch
 
 As of: 2026-07-30 (Asia/Dubai)  
 Research mode: primary-source protocol and host documentation, repository inspection, and adversarial rubric review  
@@ -10,7 +10,7 @@ Competing or adjacent systems reviewed: 10
 
 Decision: EVIDENCE-BACKED CROSS-HOST INCIDENT-TRIAGE HANDOFF
 
-Finalisma should launch as the **evidence-backed handoff layer for incident triage between two independently operated AI coding hosts**. It should not launch as a universal agent standard, an autonomous model router, or a hosted multi-tenant platform.
+Weft should launch as the **evidence-backed handoff layer for incident triage between two independently operated AI coding hosts**. It should not launch as a universal agent standard, an autonomous model router, or a hosted multi-tenant platform.
 
 The strongest current product is narrower and more defensible than the broad pitch:
 
@@ -20,10 +20,10 @@ This is a falsifiable wedge, not a confirmed market fact. The repository has a c
 
 The new perspective is decisive:
 
-- MCP is the host insertion surface. It exposes Finalisma's coordinator operations to an existing agent; it does not itself create peer-to-peer autonomy.
-- A2A is the closest standard model for independent agent discovery and task exchange. Finalisma does not currently implement the A2A 1.0 wire contract and must not imply conformance.
+- MCP is the host insertion surface. It exposes Weft's coordinator operations to an existing agent; it does not itself create peer-to-peer autonomy.
+- A2A is the closest standard model for independent agent discovery and task exchange. Weft does not currently implement the A2A 1.0 wire contract and must not imply conformance.
 - ACP connects an agent runtime to an editor/client. AG-UI connects agents to user interfaces. Neither is an agent-to-agent substitute.
-- Finalisma's useful IP is the opinionated trust and work-state layer: one-use pairing, recorded consent attestation, identity-bound credentials, leased tasks, fencing, ordered replay, idempotency, workspace-contained artifacts, and evidence records.
+- Weft's useful IP is the opinionated trust and work-state layer: one-use pairing, recorded consent attestation, identity-bound credentials, leased tasks, fencing, ordered replay, idempotency, workspace-contained artifacts, and evidence records.
 - The product should publish an **Interop Profile 0.1** over MCP, with an optional future A2A adapter. It should earn the word “standard” through independent implementations and conformance evidence, not declare it in advance.
 
 ## Evidence policy and hard boundaries
@@ -31,8 +31,8 @@ The new perspective is decisive:
 This report uses four host statuses:
 
 - `verified`: a fresh, versioned, redacted, end-to-end host transcript and expected assertions exist in this repository.
-- `documented-unverified`: current official documentation describes a compatible MCP path, but no fresh Finalisma host run exists here.
-- `adapter-required`: the documented host surface cannot consume Finalisma directly and needs maintained translation code.
+- `documented-unverified`: current official documentation describes a compatible MCP path, but no fresh Weft host run exists here.
+- `adapter-required`: the documented host surface cannot consume Weft directly and needs maintained translation code.
 - `unsupported`: official evidence shows the required path is unavailable.
 
 All nine current rows are `documented-unverified`. Documentation proves only that a host has an MCP client path. It does not prove that the host will preserve actor/session credentials, invoke wait or poll correctly, present consent to a person, honor cancellation, or complete the full evidence workflow.
@@ -42,9 +42,9 @@ The following semantic boundaries are non-negotiable:
 - `finalisma.a2a/1.0` is currently a proprietary repository namespace, not proof of [A2A Protocol 1.0](https://a2a-protocol.org/latest/specification/) conformance.
 - `consent=true` is a type-strict, stored caller attestation. It is not proof that a human saw and approved a host-native consent screen.
 - Registered and offered capabilities are descriptive strings. They are not yet a negotiated, granted, and data-plane-enforced capability set.
-- A `verified` Finalisma task currently proves workspace containment, artifact hashing, secret-pattern screening, and recorded check assertions. The coordinator does not independently execute every submitted check, and an unauthenticated reviewer name is not independent attestation.
+- A `verified` Weft task currently proves workspace containment, artifact hashing, secret-pattern screening, and recorded check assertions. The coordinator does not independently execute every submitted check, and an unauthenticated reviewer name is not independent attestation.
 - Audit rows are append-only through the application API, not tamper-evident against a machine owner who can edit the SQLite file.
-- Model catalog entries are host-recorded route labels. Finalisma does not authenticate to or launch those providers.
+- Model catalog entries are host-recorded route labels. Weft does not authenticate to or launch those providers.
 - The earlier 95.31% benchmark improvement was a same-machine, before/after SQLite hot-path result measured against a 3-scenario harness. The gate was re-baselined on 2026-08-05 (~68.8ms weighted median) against the current extended harness; see docs/PERFORMANCE.md. It says nothing about model speed, network latency, horizontal scale, uptime, or demand.
 
 ## Exactly one launch wedge
@@ -70,7 +70,7 @@ Why this wedge and no other one:
 
 - Incident work has an accountable owner, a clock, and a reason to constrain context and demand evidence.
 - The repository already contains task scope, leases, fencing, replay, credential separation, and an evidence gate. The wedge uses those primitives instead of hiding them behind generic “team” language.
-- [Google's 2025 DORA research](https://cloud.google.com/blog/products/ai-machine-learning/announcing-the-2025-dora-report) reports 90% AI use among nearly 5,000 technology professionals while 30% report little or no trust in AI-generated code. That supports a broad trust problem, not demand for Finalisma or this exact workflow.
+- [Google's 2025 DORA research](https://cloud.google.com/blog/products/ai-machine-learning/announcing-the-2025-dora-report) reports 90% AI use among nearly 5,000 technology professionals while 30% report little or no trust in AI-generated code. That supports a broad trust problem, not demand for Weft or this exact workflow.
 - Native products are rapidly absorbing generic multi-agent features. [Claude Code Agent Teams](https://code.claude.com/docs/en/agent-teams) provides shared tasks and direct teammate messaging inside Claude Code, while [GitHub third-party coding agents](https://docs.github.com/en/copilot/concepts/agents/about-third-party-coding-agents) lets users assign work to Claude or Codex on GitHub. Cross-host evidence and bounded handoff must be better than merely adding another agent.
 
 Disconfirming evidence to seek deliberately:
@@ -100,35 +100,35 @@ The user still has to install or configure the MCP server in each host. A pairin
 
 ## Protocol landscape: do not collapse the layers
 
-| Layer | Current standard or protocol | What it actually covers | Finalisma decision |
+| Layer | Current standard or protocol | What it actually covers | Weft decision |
 |---|---|---|---|
 | Host to tools/context | [MCP 2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25) | A host/client connects to servers over JSON-RPC, negotiates capabilities, and uses tools, resources, prompts, and client features. | Use as the primary installation surface. Prove lifecycle and transport behavior with a real SDK and real hosts. |
 | Independent agent to agent | [A2A 1.0](https://a2a-protocol.org/latest/specification/) | Agent Cards, messages, tasks, artifacts, streaming, push, cancellation, and standard security schemes for opaque agents. | Treat as a future adapter and semantic reference. Do not claim conformance today. |
-| Agent to editor/client | [Agent Client Protocol](https://agentclientprotocol.com/) | A JSON-RPC boundary between coding agents and editing environments, including terminal, plans, tools, and permissions. | Adjacent. Use it where a client forwards MCP to external agents; it is not Finalisma's peer protocol. |
-| Agent to user interface | [AG-UI](https://docs.ag-ui.com/) | Typed lifecycle, message, tool, state, and interruption events for agent-facing applications. | `adapter-required` for a future live dashboard. Current Finalisma events are not AG-UI events. |
-| Durable shared work state | No single standard supplies Finalisma's entire policy | Identity, consent records, leases, fencing, ordered acknowledgements, evidence gates, and retention. | This is the proprietary coordination profile and primary differentiation. |
+| Agent to editor/client | [Agent Client Protocol](https://agentclientprotocol.com/) | A JSON-RPC boundary between coding agents and editing environments, including terminal, plans, tools, and permissions. | Adjacent. Use it where a client forwards MCP to external agents; it is not Weft's peer protocol. |
+| Agent to user interface | [AG-UI](https://docs.ag-ui.com/) | Typed lifecycle, message, tool, state, and interruption events for agent-facing applications. | `adapter-required` for a future live dashboard. Current Weft events are not AG-UI events. |
+| Durable shared work state | No single standard supplies Weft's entire policy | Identity, consent records, leases, fencing, ordered acknowledgements, evidence gates, and retention. | This is the proprietary coordination profile and primary differentiation. |
 
 [MCP's transport specification](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports) provides stdio and Streamable HTTP, optional SSE streams, session identifiers, explicit session termination, and resumability through SSE event IDs. It also states that a transport disconnect is not task cancellation. [MCP authorization](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization) defines OAuth-oriented HTTP authorization and discourages protocol-level authorization for stdio.
 
 [A2A](https://a2a-protocol.org/latest/specification/) is closer to the user's broad vision: it targets independent, opaque agents across frameworks and vendors. It already specifies discovery, task state, artifacts, streaming and push updates, cancellation, context identifiers, and API-key, HTTP, OAuth, OpenID Connect, and mTLS security schemes. A proprietary protocol should therefore add a narrow operational advantage or become an A2A profile/extension rather than reimplement A2A under a confusing name.
 
-## Finalisma Interop Profile 0.1
+## Weft Interop Profile 0.1
 
-This is a proposed product contract, not a ratified public standard. The profile composes MCP for host access, adopts A2A-compatible concepts where practical, and keeps Finalisma-specific trust/work guarantees explicit.
+This is a proposed product contract, not a ratified public standard. The profile composes MCP for host access, adopts A2A-compatible concepts where practical, and keeps Weft-specific trust/work guarantees explicit.
 
 | Contract area | Minimum behavior | Ownership and mapping | Current state |
 |---|---|---|---|
-| Discovery | Host completes MCP initialize and tools/list; Finalisma returns protocol/profile version. Future agent endpoint publishes an A2A Agent Card. | MCP now; A2A adapter later. | MCP surface implemented; no A2A Agent Card. |
-| Identity | Every durable agent identity has a unique actor credential; remote deployments validate OAuth/OIDC audience and tenant ownership. | Finalisma-specific identity over MCP transport auth. | Has one-time actor tokens and rotation; lacks OAuth/OIDC resource-server validation. |
-| Consent | Preview policy, require literal consent attestation, bind it to pairing ID, actor ID, policy digest, timestamp, and host surface. | Finalisma-specific. | Literal boolean and preview exist; no policy digest or proven host UI/human approval. |
-| Capabilities | Advertise versioned capabilities, compute requested/offered/granted sets, and enforce granted operations. | A2A Agent Card concepts plus Finalisma policy. | Free-form metadata only; negotiation and enforcement missing. |
-| Tasks | Create, claim, lease, heartbeat, reassign, review, evidence, complete, fail, and cancel with explicit state transitions. | A2A Task/Artifact semantics plus Finalisma leases and fencing. | Core lifecycle exists; explicit cancel and reassignment are missing. |
-| Ordered events | Every session event has immutable event ID, sequence, origin, trace ID, schema version, and idempotency key. | Finalisma-specific event log; can map task/artifact updates to A2A. | Implemented for the single-node store. |
-| Idempotency | Create/send operations replay the original result for the same scoped key; state mutations use compare-and-swap or fencing. | Finalisma-specific operational guarantee. | Implemented for task, message, and session event creation; claim conflicts rather than replaying. |
-| Reconnect | Client persists last acknowledged sequence, resumes after it, deduplicates at-least-once delivery, and handles expired/closed sessions distinctly. | Finalisma profile; transport may also use MCP/A2A streaming. | Server-side poll/wait/replay exists; no host adapter state machine or retry policy. |
-| Evidence | Record artifact digest, command/check provenance, authenticated submitter/reviewer, timestamps, and immutable outputs; distinguish recorded assertion from independently executed check. | Finalisma-specific. | Hash, containment, secret scan, and submitted checks exist; authenticated independent review and command provenance do not. |
-| Cancellation | User or authorized agent requests task cancellation; workers observe a cancellation state; final event is durable; transport disconnect never implies cancel. | A2A CancelTask semantics plus Finalisma cooperative worker signal. | Status enum exists, but no cancel tool or cooperative signal. |
-| Errors | Versioned registry separates validation, auth, conflict, retryable transport, rate limit, expired state, policy denial, and internal errors. | MCP/A2A error mapping plus Finalisma domain registry. | Structured errors exist; registry and retry guidance are incomplete. |
+| Discovery | Host completes MCP initialize and tools/list; Weft returns protocol/profile version. Future agent endpoint publishes an A2A Agent Card. | MCP now; A2A adapter later. | MCP surface implemented; no A2A Agent Card. |
+| Identity | Every durable agent identity has a unique actor credential; remote deployments validate OAuth/OIDC audience and tenant ownership. | Weft-specific identity over MCP transport auth. | Has one-time actor tokens and rotation; lacks OAuth/OIDC resource-server validation. |
+| Consent | Preview policy, require literal consent attestation, bind it to pairing ID, actor ID, policy digest, timestamp, and host surface. | Weft-specific. | Literal boolean and preview exist; no policy digest or proven host UI/human approval. |
+| Capabilities | Advertise versioned capabilities, compute requested/offered/granted sets, and enforce granted operations. | A2A Agent Card concepts plus Weft policy. | Free-form metadata only; negotiation and enforcement missing. |
+| Tasks | Create, claim, lease, heartbeat, reassign, review, evidence, complete, fail, and cancel with explicit state transitions. | A2A Task/Artifact semantics plus Weft leases and fencing. | Core lifecycle exists; explicit cancel and reassignment are missing. |
+| Ordered events | Every session event has immutable event ID, sequence, origin, trace ID, schema version, and idempotency key. | Weft-specific event log; can map task/artifact updates to A2A. | Implemented for the single-node store. |
+| Idempotency | Create/send operations replay the original result for the same scoped key; state mutations use compare-and-swap or fencing. | Weft-specific operational guarantee. | Implemented for task, message, and session event creation; claim conflicts rather than replaying. |
+| Reconnect | Client persists last acknowledged sequence, resumes after it, deduplicates at-least-once delivery, and handles expired/closed sessions distinctly. | Weft profile; transport may also use MCP/A2A streaming. | Server-side poll/wait/replay exists; no host adapter state machine or retry policy. |
+| Evidence | Record artifact digest, command/check provenance, authenticated submitter/reviewer, timestamps, and immutable outputs; distinguish recorded assertion from independently executed check. | Weft-specific. | Hash, containment, secret scan, and submitted checks exist; authenticated independent review and command provenance do not. |
+| Cancellation | User or authorized agent requests task cancellation; workers observe a cancellation state; final event is durable; transport disconnect never implies cancel. | A2A CancelTask semantics plus Weft cooperative worker signal. | Status enum exists, but no cancel tool or cooperative signal. |
+| Errors | Versioned registry separates validation, auth, conflict, retryable transport, rate limit, expired state, policy denial, and internal errors. | MCP/A2A error mapping plus Weft domain registry. | Structured errors exist; registry and retry guidance are incomplete. |
 
 The first conformance fixture should use two independently launched processes and a real MCP client library. It must assert initialize ordering, protocol version headers, Accept behavior, tools/list, one successful tool call, malformed request handling, pair/join, credential separation, reconnect/replay, duplicate suppression, cancellation, evidence semantics, and provider-secret non-transit. Only then should host runs layer on top.
 
@@ -136,7 +136,7 @@ The first conformance fixture should use two independently launched processes an
 
 The canonical machine-readable matrix is [`research/interop-matrix.json`](../research/interop-matrix.json). It contains 9 host surfaces and 0 verified integrations.
 
-| Host | Official mechanism | Likely Finalisma path | Evidence status | Blocking caveat |
+| Host | Official mechanism | Likely Weft path | Evidence status | Blocking caveat |
 |---|---|---|---|---|
 | OpenAI Codex local clients | [MCP docs](https://developers.openai.com/codex/mcp/) document stdio and Streamable HTTP plus shared local config. | Direct MCP hypothesis | documented-unverified | No real Codex pairing/replay/evidence transcript. |
 | ChatGPT web custom apps | [Developer mode docs](https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt-beta) document remote MCP apps with plan/admin gates. | Remote MCP hypothesis | documented-unverified | Full write support is beta and gated; agent mode does not use custom apps. |
@@ -167,7 +167,7 @@ The relevant market is not empty. The differentiation must be cross-host deploym
 | 9 | [CrewAI](https://docs.crewai.com/) | Workflow framework/control plane | Crews, tasks, processes, flows, persistence, guardrails, and human triggers cover broad orchestration. | Requires adopting CrewAI's application model; not a neutral bridge between existing agent products. |
 | 10 | [Google ADK with A2A](https://developers.googleblog.com/build-cross-language-multi-agent-team-with-google-agent-development-kit-and-a2a/) | Framework plus open protocol | Cross-language remote agent teams can be built and deployed using a standard protocol. | Developer-built services and A2A implementations are prerequisites; it does not turn arbitrary MCP hosts into peers by itself. |
 
-Finalisma's defensible thesis is therefore: **use the MCP surface users already have, add the trust/work-state semantics protocols and host-native teams do not jointly provide, and make one high-value handoff measurable.** If hosts or A2A products add equivalent cross-host state and evidence with simpler onboarding, this thesis is disproved.
+Weft's defensible thesis is therefore: **use the MCP surface users already have, add the trust/work-state semantics protocols and host-native teams do not jointly provide, and make one high-value handoff measurable.** If hosts or A2A products add equivalent cross-host state and evidence with simpler onboarding, this thesis is disproved.
 
 ## Repository gap map
 
@@ -175,31 +175,31 @@ Repository evidence anchors:
 
 | File and symbol | Direct finding | Research implication |
 |---|---|---|
-| [`src/finalisma_mcp/core.py`](../src/finalisma_mcp/core.py) `PROTOCOL_NAME` / `PROTOCOL_VERSION` | The repository labels its proprietary envelope `finalisma.a2a/1.0`. | Rename or qualify the namespace until an A2A Agent Card, standard operations, error mapping, and interoperability tests exist. |
-| [`src/finalisma_mcp/core.py`](../src/finalisma_mcp/core.py) `MODEL_SLOTS` / `model_catalog()` | Entries are route/provider/capability metadata returned by the coordinator. | Describe these as host-recorded route labels, not provider integrations or spawned models. |
-| [`src/finalisma_mcp/core.py`](../src/finalisma_mcp/core.py) `join_pairing()` | The method requires the literal JSON boolean `true` and records the join. | Call this a consent attestation until a real host UI proves policy preview and human approval. |
-| [`src/finalisma_mcp/core.py`](../src/finalisma_mcp/core.py) `create_pairing()` / `register_agent()` | Capability values are stored as free-form strings. | Add offered/requested/granted sets and enforcement before saying capability negotiation. |
-| [`src/finalisma_mcp/core.py`](../src/finalisma_mcp/core.py) `verify_task()` | The store checks artifact containment/hash and records caller-supplied check statuses. | Use “evidence-backed”; require authenticated reviewer or executed-check provenance for independent verification. |
-| [`src/finalisma_mcp/core.py`](../src/finalisma_mcp/core.py) `TASK_STATUSES` / `update_task()` | `cancelled` exists in the data model, but no explicit authorized cancel operation exists. | Cancellation is the clearest protocol-level P0 gap. |
-| [`src/finalisma_mcp/core.py`](../src/finalisma_mcp/core.py) `session_send()` / `session_poll()` / `session_ack()` | The store provides idempotent ordered events, replay, and monotonic acknowledgement. | This is a genuine single-node differentiator to preserve in the profile. |
-| [`src/finalisma_mcp/server.py`](../src/finalisma_mcp/server.py) `handle_json_rpc()` | Internal tests exercise JSON-RPC initialization, discovery, and tool calls. | Add a real MCP SDK lifecycle/transport conformance fixture; internal handler tests are not full host proof. |
-| [`src/finalisma_mcp/server.py`](../src/finalisma_mcp/server.py) `FinalismaDispatcher._apply_team_scope()` | HTTP can hard-scope a coordinator process to one team. | Useful single-workspace defense, but not storage-enforced multi-tenant isolation. |
-| [`src/finalisma_mcp/server.py`](../src/finalisma_mcp/server.py) `_Metrics` / `run_http()` | The server exports transport counters and can bind beyond loopback with a warning. | Add domain funnel metrics, structured logs, and external TLS before a paid remote trial. |
-| [`scripts/finalisma_performance_gate.py`](../scripts/finalisma_performance_gate.py) routing scenario | The benchmark registers synthetic agent rows and runs coordinator operations on one machine. | Preserve the optimization result, but do not describe it as real-agent concurrency, host latency, reliability, or demand. |
+| [`src/weft_mcp/core.py`](../src/weft_mcp/core.py) `PROTOCOL_NAME` / `PROTOCOL_VERSION` | The repository labels its proprietary envelope `finalisma.a2a/1.0`. | Rename or qualify the namespace until an A2A Agent Card, standard operations, error mapping, and interoperability tests exist. |
+| [`src/weft_mcp/core.py`](../src/weft_mcp/core.py) `MODEL_SLOTS` / `model_catalog()` | Entries are route/provider/capability metadata returned by the coordinator. | Describe these as host-recorded route labels, not provider integrations or spawned models. |
+| [`src/weft_mcp/core.py`](../src/weft_mcp/core.py) `join_pairing()` | The method requires the literal JSON boolean `true` and records the join. | Call this a consent attestation until a real host UI proves policy preview and human approval. |
+| [`src/weft_mcp/core.py`](../src/weft_mcp/core.py) `create_pairing()` / `register_agent()` | Capability values are stored as free-form strings. | Add offered/requested/granted sets and enforcement before saying capability negotiation. |
+| [`src/weft_mcp/core.py`](../src/weft_mcp/core.py) `verify_task()` | The store checks artifact containment/hash and records caller-supplied check statuses. | Use “evidence-backed”; require authenticated reviewer or executed-check provenance for independent verification. |
+| [`src/weft_mcp/core.py`](../src/weft_mcp/core.py) `TASK_STATUSES` / `update_task()` | `cancelled` exists in the data model, but no explicit authorized cancel operation exists. | Cancellation is the clearest protocol-level P0 gap. |
+| [`src/weft_mcp/core.py`](../src/weft_mcp/core.py) `session_send()` / `session_poll()` / `session_ack()` | The store provides idempotent ordered events, replay, and monotonic acknowledgement. | This is a genuine single-node differentiator to preserve in the profile. |
+| [`src/weft_mcp/server.py`](../src/weft_mcp/server.py) `handle_json_rpc()` | Internal tests exercise JSON-RPC initialization, discovery, and tool calls. | Add a real MCP SDK lifecycle/transport conformance fixture; internal handler tests are not full host proof. |
+| [`src/weft_mcp/server.py`](../src/weft_mcp/server.py) `WeftDispatcher._apply_team_scope()` | HTTP can hard-scope a coordinator process to one team. | Useful single-workspace defense, but not storage-enforced multi-tenant isolation. |
+| [`src/weft_mcp/server.py`](../src/weft_mcp/server.py) `_Metrics` / `run_http()` | The server exports transport counters and can bind beyond loopback with a warning. | Add domain funnel metrics, structured logs, and external TLS before a paid remote trial. |
+| [`scripts/weft_performance_gate.py`](../scripts/weft_performance_gate.py) routing scenario | The benchmark registers synthetic agent rows and runs coordinator operations on one machine. | Preserve the optimization result, but do not describe it as real-agent concurrency, host latency, reliability, or demand. |
 
 ### P0: required before the 14-day claim can pass
 
 1. **Real host evidence.** There are no captured, versioned runs from two independent hosts. Add a redacted fixture directory per host pair with configuration, host version, timestamps, wire/transcript capture, expected assertions, environment boundary, and SHA-256 manifest. Existing internal handler and socket tests are necessary but insufficient.
-2. **MCP lifecycle conformance.** Audit [`src/finalisma_mcp/server.py`](../src/finalisma_mcp/server.py), especially `handle_json_rpc()` and the HTTP handler, against [MCP lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle) and transport requirements. Add a real MCP SDK test for initialize ordering, protocol headers, Accept negotiation, notifications, malformed input, and errors.
-3. **Explicit cancellation.** `TASK_STATUSES` includes cancellation, and `server.py` recognizes an MCP cancellation notification, but `FinalismaStore` has no `cancel_task` operation/tool. Add authorized task cancellation, durable cancellation events, worker observation, and race tests.
+2. **MCP lifecycle conformance.** Audit [`src/weft_mcp/server.py`](../src/weft_mcp/server.py), especially `handle_json_rpc()` and the HTTP handler, against [MCP lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle) and transport requirements. Add a real MCP SDK test for initialize ordering, protocol headers, Accept negotiation, notifications, malformed input, and errors.
+3. **Explicit cancellation.** `TASK_STATUSES` includes cancellation, and `server.py` recognizes an MCP cancellation notification, but `WeftStore` has no `cancel_task` operation/tool. Add authorized task cancellation, durable cancellation events, worker observation, and race tests.
 4. **Truthful evidence vocabulary.** Change public copy and protocol docs so “evidence-backed” is the default phrase. Reserve “independently verified” for an authenticated reviewer or coordinator-executed check with immutable command output.
 5. **Consent and capability precision.** Store a policy digest and consent timestamp/actor/host. Define requested/offered/granted capability sets and enforce grants, or label them descriptive metadata.
 
 ### P1: required for a credible paid single-node design partner
 
-1. Add task reassignment/unclaim with fencing and audit events in [`src/finalisma_mcp/core.py`](../src/finalisma_mcp/core.py).
+1. Add task reassignment/unclaim with fencing and audit events in [`src/weft_mcp/core.py`](../src/weft_mcp/core.py).
 2. Publish a versioned error registry and client retry/backoff guidance in [`docs/PRODUCTION_PROTOCOL.md`](PRODUCTION_PROTOCOL.md).
-3. Add domain metrics for link creation, acceptance, claim, evidence submission, completion, cancellation, reconnect, and failure. The current `_Metrics` surface in [`src/finalisma_mcp/server.py`](../src/finalisma_mcp/server.py) is mostly transport-oriented.
+3. Add domain metrics for link creation, acceptance, claim, evidence submission, completion, cancellation, reconnect, and failure. The current `_Metrics` surface in [`src/weft_mcp/server.py`](../src/weft_mcp/server.py) is mostly transport-oriented.
 4. Add structured JSON logs with redaction and stable trace/correlation fields; free-form stderr is inadequate for an incident product.
 5. Add an external evidence adapter for CI output or a signed reviewer attestation. Never execute arbitrary agent-submitted shell text inside the coordinator.
 6. Create version-pinned install guides for the first four hosts and a compatibility test manifest generated from the machine-readable matrix.
@@ -282,7 +282,7 @@ Required launch artifact package:
 Safe now:
 
 - “A single-node coordination layer for scoped, replayable, evidence-backed handoffs between MCP-capable agent hosts.”
-- “Finalisma keeps model execution and provider credentials inside each agent host.”
+- “Weft keeps model execution and provider credentials inside each agent host.”
 - “The core has one-use pairing, actor/session credential separation, leased tasks, fencing, ordered replay, idempotency, and artifact hashing.”
 - “Nine host surfaces have an official documented MCP path; none is yet marked verified in our compatibility matrix.”
 
@@ -313,7 +313,7 @@ Unsafe until new evidence exists:
 Run the machine critic from the repository root:
 
 ```powershell
-python -B scripts/finalisma_research_critic.py --report docs/AUTORESEARCH_INTEROP_WEDGE_2026-07-30.md --matrix research/interop-matrix.json
+python -B scripts/weft_research_critic.py --report docs/AUTORESEARCH_INTEROP_WEDGE_2026-07-30.md --matrix research/interop-matrix.json
 ```
 
 The critic enforces all-or-nothing structural gates: host schema/count/status totals, dated official links, exactly one wedge, protocol contract dimensions, competitor count, repository gaps, deployment limitations, source density, and placeholder/overclaim rejection. Its passing output is necessary but not sufficient evidence; the independent professor-critic review still controls final research acceptance.

@@ -1,4 +1,4 @@
-# SITE BUILD PLAN — Wave D3: Awwwards-tier Finalisma Marketing Site
+# SITE BUILD PLAN — Wave D3: Awwwards-tier Weft Marketing Site
 
 > **Status:** BUILD-PLAN lane deliverable. Authoritative implementation spec for the Astro 5 + R3F + GSAP scroll-narrative rebuild.
 > **Scope:** Rebuilds `site/index.html` + `site/styles.css` + `site/app.js` (the marketing surface only) via an Astro 5 source tree in `web/` that builds static output to `site/`. All other committed `site/` content (blog, docs, demo, assets, 404, license, llms, robots, manifest) is PRESERVED byte-for-byte.
@@ -102,7 +102,7 @@ export default defineConfig({
 
 ```json
 {
-  "name": "finalisma-marketing-d3",
+  "name": "weft-marketing-d3",
   "private": true,
   "type": "module",
   "engines": { "node": ">=22" },
@@ -145,13 +145,13 @@ Astro's `outDir` **replaces** the output directory on every build. The committed
 
 **Decision:** Use THREE mechanisms, in order:
 
-1. **Legacy snapshot/restore (`preserve-legacy.cjs`)** — the PRIMARY mechanism. Before the Astro build, snapshot the ENTIRE committed `site/assets/` directory PLUS the hand-authored pages listed in §3.2 into `web/.legacy-staging/`. After the build, restore them byte-for-byte into `site/`. This is the only correct approach because **Astro wipes `outDir` on every build** — `site/assets/` (fonts, og-card.png, finalisma-demo-*.mp4/webm/vtt, poster, favicon, demo-transcript.json) is deleted by the wipe and MUST be restored. Astro 5 writes its OWN bundled JS/CSS into `site/_astro/` (default `build.assets`), so `site/assets/` is the clean restore target with no collision.
+1. **Legacy snapshot/restore (`preserve-legacy.cjs`)** — the PRIMARY mechanism. Before the Astro build, snapshot the ENTIRE committed `site/assets/` directory PLUS the hand-authored pages listed in §3.2 into `web/.legacy-staging/`. After the build, restore them byte-for-byte into `site/`. This is the only correct approach because **Astro wipes `outDir` on every build** — `site/assets/` (fonts, og-card.png, weft-demo-*.mp4/webm/vtt, poster, favicon, demo-transcript.json) is deleted by the wipe and MUST be restored. Astro 5 writes its OWN bundled JS/CSS into `site/_astro/` (default `build.assets`), so `site/assets/` is the clean restore target with no collision.
 
 2. **`public/` passthrough** for ANY genuinely new marketing asset the Astro build needs at build time (e.g. a regenerated og-card if the design requires it). Default: unused. The existing assets live in `site/assets/` and are preserved via mechanism 1, so `public/` stays effectively empty.
 
 3. **`site/assets/fonts/`** — preserved via mechanism 1 (they are part of the `site/assets/` snapshot). The Astro `@font-face` declarations reference `assets/fonts/...` (relative), matching the restored location.
 
-**Why snapshot the whole `site/assets/` (not just files listed in §3.2):** `tests/test_static_launch_bundle_contains_guides_articles_and_social_asset` asserts `site/assets/og-card.png` (1200x630 PNG), `site/assets/finalisma-demo-poster.png` (1280x720), `site/assets/finalisma-demo.mp4` / `.webm` / `.vtt`, and the og/twitter meta reference `/assets/og-card.png`. Any of these landing at the wrong path (e.g. `site/og-card.png`) breaks the test. The whole-directory snapshot makes preservation exhaustive and self-evident.
+**Why snapshot the whole `site/assets/` (not just files listed in §3.2):** `tests/test_static_launch_bundle_contains_guides_articles_and_social_asset` asserts `site/assets/og-card.png` (1200x630 PNG), `site/assets/weft-demo-poster.png` (1280x720), `site/assets/weft-demo.mp4` / `.webm` / `.vtt`, and the og/twitter meta reference `/assets/og-card.png`. Any of these landing at the wrong path (e.g. `site/og-card.png`) breaks the test. The whole-directory snapshot makes preservation exhaustive and self-evident.
 
 ### 3.2 Exact copy source→dest mapping
 
@@ -180,8 +180,8 @@ Astro's `outDir` **replaces** the output directory on every build. The committed
 - Every test-asserted string is present in `site/index.html` (see §9 reconciliation).
 - No test-asserted string is missing from the preserved pages.
 - `site/assets/og-card.png` is 1200x630 PNG (header check).
-- `site/assets/finalisma-demo-poster.png` is 1280x720 PNG.
-- `site/assets/finalisma-demo.mp4` / `.webm` / `.vtt` exist with correct headers.
+- `site/assets/weft-demo-poster.png` is 1280x720 PNG.
+- `site/assets/weft-demo.mp4` / `.webm` / `.vtt` exist with correct headers.
 - `site/docs/` contains exactly the 7 required HTML files.
 - `site/blog/` contains ≥ 4 articles.
 
@@ -433,7 +433,7 @@ Each component emits the exact `data-*` hooks the QA harness and tests target. T
 
 ```html
 <header class="site-header" data-header>
-  <a class="brand" href="/">FINALISMA</a>
+  <a class="brand" href="/">WEFT</a>
   <nav class="nav-links" aria-label="Primary">
     <a href="#problem">Problem</a>
     <a href="#how">How it works</a>
@@ -451,7 +451,7 @@ Hooks: `[data-header]`, `.nav-toggle`, `#mobile-nav`, `.nav-links`.
 ### 8.2 Hero (`HeroWebGL.astro` + `SceneCanvas.tsx`)
 
 ```html
-<section class="hero" id="hero" aria-label="Finalisma — live product preview">
+<section class="hero" id="hero" aria-label="Weft — live product preview">
   <div class="hero-copy">
     <p class="kicker reveal">Agent coordination · evidence-gated</p>
     <h1 class="headline reveal" aria-label="One link. Many agents. All governed.">
@@ -529,10 +529,10 @@ For EVERY assertion: KEEP (passes against built output) or REPLACE with exact ne
 | `test_landing_page_has_truthful_semantic_launch_surface` | exactly one `<h1>` | **KEEP** | Astro renders one `<h1>` in `HeroWebGL.astro`. |
 | | `"One incident. Two agents. One account of what happened."` | **REPLACE** | `"One link. Many agents. All governed."` |
 | | `"9 documented MCP paths"` | **KEEP** | In hero stat strip + proof list. |
-| | `"1 verified Finalisma host integration"` | **KEEP** | In hero stat strip. |
+| | `"1 verified Weft host integration"` | **KEEP** | In hero stat strip. |
 | | `"next proof pair, Claude Code + Cursor"` | **KEEP** | In proof section note. |
 | | `application/ld+json` | **KEEP** | JSON-LD retained in `RootLayout.astro`. |
-| | `og:site_name = "Finalisma"` | **KEEP** | Retained. |
+| | `og:site_name = "Weft"` | **KEEP** | Retained. |
 | | `twitter:image = "/assets/og-card.png"` | **KEEP** | Retained. |
 | | `aria-live="polite"` | **KEEP** | On `[data-agent-readout]` + `[data-agent-events]`. |
 | | `data-sim-label` + `"Simulated account · no credentials · no live session"` | **REPLACE** | `[data-agent-readout]` with seed text `"Ready · simulated demo · no credentials"`. Update assertion string. |
@@ -543,7 +543,7 @@ For EVERY assertion: KEEP (passes against built output) or REPLACE with exact ne
 | | `href="/demo.html"` | **KEEP** | Demo page still exists (preserved). |
 | | `"$500 deposit"` | **KEEP** | In pricing section. |
 | | `assertNotIn "verified agent handoff layer"` | **KEEP** | Still absent. |
-| | `assertNotIn "Finalisma A2A Standard"` | **KEEP** | Still absent. |
+| | `assertNotIn "Weft A2A Standard"` | **KEEP** | Still absent. |
 | | `assertNotIn "gpt-5.5"` | **KEEP** | Still absent. |
 | | `assertNotIn "lorem ipsum"` | **KEEP** | Still absent. |
 | `test_progressive_enhancement_and_gated_story_cta` | `documentElement.classList.add('js')` | **KEEP** | Retained (inline script in `RootLayout.astro`). |
@@ -563,7 +563,7 @@ For EVERY assertion: KEEP (passes against built output) or REPLACE with exact ne
 | | `"One incident. Two agents."` in `/` body | **REPLACE** | `"One link. Many agents."` |
 | | `200` on `/docs/compatibility.html` + `"Documented is not verified."` | **KEEP** | Untouched. |
 | | `200` on `/demo.html` + `"A real coordinator run."` | **KEEP** | Untouched. |
-| | manifest name = "Finalisma" | **KEEP** | Untouched. |
+| | manifest name = "Weft" | **KEEP** | Untouched. |
 | | `200` on demo mp4 | **KEEP** | Untouched. |
 | | og-card.png `Cache-Control` | **KEEP** | Server sets it. |
 | | `404` + `"This path is not in the account."` | **KEEP** | 404 page + message retained. |
@@ -639,7 +639,7 @@ The updated `capture-site-qa.cjs` must assert:
 14. **Hero canvas mounts:** `[data-agent-canvas]` has non-zero dimensions within 2s — NEW.
 15. **Agent graph animates:** at least 3 distinct canvas states captured over 2s — NEW (sample pixels or `window.__agentFrameCount` hook).
 16. **Gate refusal fires:** `[data-gate-state]` reaches "REFUSED" within the demo loop — NEW.
-17. **Link generated:** `[data-generated-link]` is non-empty and matches `finalisma.*/r/` pattern — NEW.
+17. **Link generated:** `[data-generated-link]` is non-empty and matches `weft.*/r/` pattern — NEW.
 18. **Copy works:** clicking `[data-copy]` sets clipboard + visible status — NEW.
 19. **Tier tabs switch:** clicking `[data-tier-tab]` shows the matching `[data-tier-panel]` — NEW.
 20. **No third-party requests** — unchanged.
@@ -647,17 +647,17 @@ The updated `capture-site-qa.cjs` must assert:
 
 ### 10.3 Server strategy for the harness
 
-Per `workflow.md` §7.1, a Python driver MUST own an in-process server and shell out to node. **Decision:** Extend `scripts/finalisma-site.py` to add a `--qa-mode` flag OR write a new driver `scripts/run-site-qa.py`.
+Per `workflow.md` §7.1, a Python driver MUST own an in-process server and shell out to node. **Decision:** Extend `scripts/weft-site.py` to add a `--qa-mode` flag OR write a new driver `scripts/run-site-qa.py`.
 
 **Recommendation:** Write `scripts/run-site-qa.py` — a dedicated driver that:
 1. Starts `QuietSiteHandler` on `("127.0.0.1", 0)` in a daemon thread.
 2. Reads the assigned port.
-3. Shells out to `node scripts/capture-site-qa.cjs` with `FINALISMA_SITE_URL=http://127.0.0.1:<port>/`.
+3. Shells out to `node scripts/capture-site-qa.cjs` with `WEFT_SITE_URL=http://127.0.0.1:<port>/`.
 4. Waits for node to exit.
 5. In `finally`: `server.shutdown()` + `server.server_close()` + `thread.join(timeout=5)`.
 6. Prints the QA result JSON and exits with node's exit code.
 
-This keeps `finalisma-site.py` (the simple dev server) untouched and gives the QA harness a deterministic, self-cleaning driver. The driver uses `subprocess.run` (not `Popen` + pipe) to avoid the background-process trap.
+This keeps `weft-site.py` (the simple dev server) untouched and gives the QA harness a deterministic, self-cleaning driver. The driver uses `subprocess.run` (not `Popen` + pipe) to avoid the background-process trap.
 
 ---
 
@@ -701,7 +701,7 @@ Expected: all pass. `TestCountSyncTests` auto-discovers the live count. If any a
 ### 12.3 Smoke test
 
 ```powershell
-python -B scripts/finalisma-smoke.py
+python -B scripts/weft-smoke.py
 ```
 
 Expected: `evidence_passed: true`.
@@ -734,11 +734,11 @@ Run at both 1440x900 (desktop) and 390x844 (mobile, via `--screen-emulation.mobi
 
 ### 12.6 Frame-time measurement
 
-The scene exposes `window.__finalismaFrameTimes = []` — a ring buffer of the last 120 RAF timestamps (delta ms). The QA harness reads this after 5 seconds of scrolling and computes the median + p95. Expected: median < 4ms, p95 < 16ms (scroll loop budget).
+The scene exposes `window.__weftFrameTimes = []` — a ring buffer of the last 120 RAF timestamps (delta ms). The QA harness reads this after 5 seconds of scrolling and computes the median + p95. Expected: median < 4ms, p95 < 16ms (scroll loop budget).
 
 The harness adds a check:
 ```js
-const ft = window.__finalismaFrameTimes || [];
+const ft = window.__weftFrameTimes || [];
 const median = ft.sort()[Math.floor(ft.length / 2)];
 // assert median < 4, p95 < 16
 ```
@@ -755,7 +755,7 @@ const median = ft.sort()[Math.floor(ft.length / 2)];
 | Font self-hosting fails (CORS / path) | LOW | Fonts in `web/public/fonts/` → copied to `site/fonts/` → served same-origin. |
 | WebGL fallback looks broken on low-end | MEDIUM | Static poster + 5-seed-event fallback is always rendered. |
 | Test count sync drifts | LOW | `TestCountSyncTests` auto-discovers; no hand-maintenance. |
-| `capture-site-qa.cjs` Playwright path missing | LOW | `FINALISMA_PLAYWRIGHT` env var + fallback to installed path. |
+| `capture-site-qa.cjs` Playwright path missing | LOW | `WEFT_PLAYWRIGHT` env var + fallback to installed path. |
 | Astro 5 vs 7 engine requirement | LOW | Node 24 satisfies both; we pin Astro 5. |
 | Truthfulness claim audit incomplete | MEDIUM | The new test (`test_marketing_site_does_not_claim_dependency_free_website`) enforces this automatically. |
 

@@ -1,11 +1,11 @@
-"""Finalisma SDK-tier validation driver.
+"""Weft SDK-tier validation driver.
 
 Spawns the coordinator over Streamable HTTP (the SDK tier's real transport),
-drives it through the SDK (`import finalisma_sdk`), exercises the full two-party
+drives it through the SDK (`import weft_sdk`), exercises the full two-party
 pairing + verified-handoff lifecycle AND the N-agent Room product claim, then
 tears the child down in a finally block.
 
-The SDK is the tier under test: three Python "hosts" each use FinalismaClient
+The SDK is the tier under test: three Python "hosts" each use WeftClient
 as their client over http://127.0.0.1:<port>/mcp. The driver uses ONLY public
 methods — the SDK's private escape-hatch dispatch is never used. Zero private
 dispatch calls is the acceptance criterion for the SDK-ROOMS wave.
@@ -24,10 +24,12 @@ import tempfile
 import time
 from pathlib import Path
 
+from _process_cleanup import cleanup_tempdir, stop_subprocess
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from finalisma_sdk import FinalismaClient, FinalismaError  # noqa: E402
+from weft_sdk import WeftClient, WeftError  # noqa: E402
 
 TEAM_ID = "demo"
 N_ROOM_AGENTS = 3
@@ -58,7 +60,7 @@ def _redact(token: str) -> str:
 
 
 def main() -> int:
-    scratch = tempfile.TemporaryDirectory(prefix="finalisma-sdk-interop-")
+    scratch = tempfile.TemporaryDirectory(prefix="weft-sdk-interop-")
     workspace = Path(scratch.name)
     transcript: list[str] = []
     failures: list[str] = []
@@ -72,7 +74,7 @@ def main() -> int:
         [
             sys.executable,
             "-B",
-            "scripts/finalisma-mcp.py",
+            "scripts/weft-mcp.py",
             "--transport",
             "http",
             "--host",
@@ -84,7 +86,7 @@ def main() -> int:
             "--workspace",
             str(workspace),
             "--state",
-            str(workspace / ".finalisma" / "state.db"),
+            str(workspace / ".weft" / "state.db"),
         ],
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
@@ -110,18 +112,18 @@ def main() -> int:
         log("# coordinator TCP-accepting")
 
         # ---- Build N+1 SDK clients (3 room agents + 1 negative outsider) ----
-        clients: dict[str, FinalismaClient] = {}
+        clients: dict[str, WeftClient] = {}
         tokens: dict[str, str] = {}
 
         for name in ["agent-a", "agent-b", "agent-c", "agent-outsider"]:
             # First registration is unauthenticated and returns a one-time actor_token.
             # The SDK's register() does not store it, so we must build the client with
             # the returned token for all subsequent authenticated calls.
-            bootstrap = FinalismaClient(base_url, name, TEAM_ID)
+            bootstrap = WeftClient(base_url, name, TEAM_ID)
             reg = bootstrap.register(name=name, role="generalist")
             tokens[name] = reg["actor_token"]
             bootstrap.close()
-            clients[name] = FinalismaClient(base_url, name, TEAM_ID, actor_token=tokens[name])
+            clients[name] = WeftClient(base_url, name, TEAM_ID, actor_token=tokens[name])
             log(f"# register {name}: token={_redact(tokens[name])}")
 
         proto = clients["agent-a"].connect()
@@ -257,7 +259,7 @@ def main() -> int:
 
         # Reconnect: a fresh client with agent-b's identity+token (simulate disconnect).
         log("# reconnect: fresh client reusing agent-b identity + actor_token")
-        reconnected_b = FinalismaClient(base_url, "agent-b", TEAM_ID, actor_token=tokens["agent-b"])
+        reconnected_b = WeftClient(base_url, "agent-b", TEAM_ID, actor_token=tokens["agent-b"])
         replay_full = reconnected_b.room_poll(room_id, after_seq=0)
         replay_seqs = [e.seq for e in replay_full.events]
         log(f"# reconnect poll(0): {len(replay_full.events)} events, seqs={replay_seqs}")
@@ -277,42 +279,44 @@ def main() -> int:
         # ==================================================================
         log("=== NEGATIVE cases ===")
 
-        # (N1) Non-member (agent-outsider) calls room_poll → member_required.
+        # (N1) Non-member (agent-outsider) calls room_poll. The coordinator
+        # deliberately returns room_not_found so room existence is not an
+        # oracle to outsiders.
         neg1_refused = False
         neg1_code = ""
         try:
             clients["agent-outsider"].room_poll(room_id, after_seq=0)
             log("  FAIL  outsider poll NOT refused")
-        except FinalismaError as exc:
+        except WeftError as exc:
             neg1_refused = True
             neg1_code = exc.code
             log(f"  PASS  outsider poll refused: code={exc.code} msg={exc.message}")
         check(neg1_refused, "outsider room_poll refused")
-        check(neg1_code == "member_required", f"outsider poll error code == member_required (got {neg1_code})")
+        check(neg1_code == "room_not_found", f"outsider poll error code == room_not_found (got {neg1_code})")
 
-        # (N1b) Non-member calls room_info → member_required.
+        # (N1b) Non-member calls room_info → the same non-oracle refusal.
         neg1b_refused = False
         neg1b_code = ""
         try:
             clients["agent-outsider"].room_info(room_id)
             log("  FAIL  outsider room_info NOT refused")
-        except FinalismaError as exc:
+        except WeftError as exc:
             neg1b_refused = True
             neg1b_code = exc.code
             log(f"  PASS  outsider room_info refused: code={exc.code}")
         check(neg1b_refused, "outsider room_info refused")
-        check(neg1b_code == "member_required", f"outsider room_info error code == member_required (got {neg1b_code})")
+        check(neg1b_code == "room_not_found", f"outsider room_info error code == room_not_found (got {neg1b_code})")
 
         # (N2) Reuse room link under existing member agent-b with DIFFERENT actor_token → actor_auth_invalid.
         bogus_token = "rm_" + secrets.token_urlsafe(32)
         neg2_refused = False
         neg2_code = ""
         try:
-            impostor = FinalismaClient(base_url, "agent-b", TEAM_ID, actor_token=bogus_token)
+            impostor = WeftClient(base_url, "agent-b", TEAM_ID, actor_token=bogus_token)
             impostor.join_room(room_id, link_token, consent=True)
             log("  FAIL  actor-overwrite join NOT refused")
             impostor.close()
-        except FinalismaError as exc:
+        except WeftError as exc:
             neg2_refused = True
             neg2_code = exc.code
             log(f"  PASS  actor-overwrite join refused: code={exc.code} msg={exc.message}")
@@ -324,7 +328,7 @@ def main() -> int:
         result = {
             "status": status,
             "transport": "http",
-            "sdk_tier": "finalisma_sdk.FinalismaClient over Streamable HTTP (public API only)",
+            "sdk_tier": "weft_sdk.WeftClient over Streamable HTTP (public API only)",
             "protocol_version": proto.get("protocolVersion"),
             "server_info": proto.get("serverInfo"),
             "pairing_join_state": jr_b2.state,
@@ -358,7 +362,7 @@ def main() -> int:
         print(json.dumps(result, indent=2))
         return 0 if not failures else 1
 
-    except (FinalismaError, RuntimeError) as exc:
+    except (WeftError, RuntimeError) as exc:
         elapsed = time.monotonic() - started
         print(json.dumps({
             "status": "failed",
@@ -371,13 +375,8 @@ def main() -> int:
     finally:
         for c in clients.values():
             c.close()
-        proc.terminate()
-        try:
-            proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait(timeout=10)
-        scratch.cleanup()
+        stop_subprocess(proc)
+        cleanup_tempdir(scratch)
 
 
 if __name__ == "__main__":

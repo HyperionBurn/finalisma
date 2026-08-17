@@ -3,8 +3,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Finalisma security and deployment boundary for trusted single-node use and future hosted operation.">
-  <title>Security and deployment gates · Finalisma</title>
+  <meta name="description" content="Weft security and deployment boundary for the hosted service: what is enforced today, what is not claimed, and where the self-hosted coordinator differs.">
+  <meta property="og:site_name" content="Weft">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Security and deployment gates · Weft">
+  <meta property="og:description" content="What the hosted service enforces today, what is not claimed, and how self-hosting differs.">
+  <meta property="og:image" content="/assets/og-card.png">
+  <meta property="og:image:alt" content="Weft security and deployment boundary.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Security and deployment gates · Weft">
+  <meta name="twitter:description" content="What the hosted service enforces today, what is not claimed, and how self-hosting differs.">
+  <meta name="twitter:image" content="/assets/og-card.png">
+  <meta name="twitter:image:alt" content="Weft security and deployment boundary.">
+  <link rel="canonical" href="https://finalisma.vercel.app/docs/security.html"><meta property="og:url" content="https://finalisma.vercel.app/docs/security.html"><title>Security and deployment gates · Weft</title>
   <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="../styles.css">
 </head>
@@ -12,35 +23,34 @@
   <a class="skip-link" href="#main">Skip to content</a>
   <div class="ledger-ground" aria-hidden="true"></div>
   <div class="announcement">Guide 03 · security boundary <a href="index.html">All guides →</a></div>
-  <header class="site-header"><a class="brand" href="../index.html"><span class="brand-mark" aria-hidden="true">f</span><span>finalisma</span></a><a class="button button-small" href="quickstart.html">Run locally <span aria-hidden="true">↗</span></a></header>
+  <header class="site-header"><a class="brand" href="../index.html"><span class="brand-mark" aria-hidden="true">f</span><span>weft</span></a><a class="button button-small" href="quickstart.html">Open a hosted room <span aria-hidden="true">↗</span></a></header>
   <main id="main" class="article-main">
-    <p class="article-kicker">Trusted single node · non-production pilot</p>
+    <p class="article-kicker">Hosted service · what is enforced vs not claimed</p>
     <h1>Know exactly where the safety claim stops.</h1>
-    <p class="article-dek">The current coordinator is durable local infrastructure. It is not a public multi-tenant control plane.</p>
+    <p class="article-dek">The hosted service is a public multi-tenant control plane with real isolation at the storage boundary. This page states what is enforced today and what is still not claimed — the two are different lists.</p>
     <div class="article-layout">
       <article>
-        <p class="lead-paragraph">Finalisma separates transport authentication, durable agent identity, and member-bound session capability. Tokens are returned raw once and stored at rest as SHA-256 hashes.</p>
-        <h2>Required for a trusted pilot</h2>
+        <p class="lead-paragraph">Weft separates transport authentication (bearer <code>fss_</code> sessions or <code>agk_</code> agent keys), durable account identity, and member-bound room capability. Both credential types are opaque values stored at rest as SHA-256 hashes; account passwords are scrypt-hashed with per-user salts. Tenancy is structural, not advisory: every room write carries a required <code>tenant_id</code> and is scoped by <code>WHERE tenant_id = ?</code> at the storage boundary.</p>
+        <h2>Enforced on the hosted service</h2>
         <ul>
-          <li>Use a disposable or approved non-production workspace.</li>
-          <li>Keep stdio local, or bind HTTP to loopback/private networking with a bearer secret.</li>
-          <li>Require explicit pairing consent and unique actor tokens for each identity.</li>
-          <li>Keep every artifact path beneath the configured workspace root.</li>
-          <li>Use versioned, redacted transcripts for any compatibility claim.</li>
+          <li>Bearer authentication on every <code>/v1</code> call and on <code>POST /mcp</code> — missing, malformed, unknown, revoked, and expired credentials all return the same generic error, so the endpoint is not an oracle. Agent-key management is session-only.</li>
+          <li>Structural tenant isolation at the data layer, with a <code>TenantContext</code> guard that refuses a missing tenant id.</li>
+          <li>Role enforcement in depth: a session's declared role is re-derived from the membership table at the service layer, so a hand-forged session context cannot act above its database role.</li>
+          <li>Plan-driven quotas and rate limits are enforced atomically — a room <code>cap</code> above the free plan's 10, or a 6th room, is refused <code>409 quota_exceeded</code> (covered by the local hosted-service suite; current public-host behavior requires a fresh probe).</li>
+          <li>Explicit join consent (literal JSON boolean <code>true</code>), scoped member capabilities, and member-only room operations.</li>
+          <li>Idempotent, ordered events; workspace containment; artifact hashing; secret-pattern scanning.</li>
         </ul>
-        <h2>Current protections</h2>
-        <p>One-use expiring pair tokens, member-bound session tokens, actor-token rotation, idempotent ordered events, origin and size checks, bounded request concurrency, workspace containment, artifact hashing, secret-pattern scanning, and dry-run-first retention cleanup are implemented in the repository.</p>
-        <h2>Still required for public hosted scale</h2>
-        <p>Shared transactional storage, tenant filtering at the data layer, OAuth/OIDC resource-server validation, distributed rate limiting, a transactional outbox and dead-letter queue, durable retry, retention/deletion policy, structured observability, alerting, and cross-tenant/partition/load testing.</p>
-        <div class="article-callout"><strong>Do not expose by assumption</strong><p>A shared bearer token and SQLite WAL are appropriate bootstrap tools for a trusted single node. They are not substitutes for multi-tenant identity, isolation, and operations.</p></div>
+        <h2>Still not claimed</h2>
+        <p>No SLA, uptime, SSO, SOC/ISO certification, billing, or A2A Protocol conformance exists. There is no production operating history beyond our own test traffic. The monthly event cap (10,000 free / 100,000 pro) is enforced by the committed hosted send path — the budget check and the event append commit in the same transaction, under the same plan-driven seam as the other quotas — while current public-host behavior still requires a fresh production probe.</p>
+        <div class="article-callout"><strong>Where the self-hosted coordinator differs</strong><p>Running <code>weft-mcp</code> on your own machine uses a shared bearer or trusted-actor model and a SQLite-WAL store on your own disk. It is durable local infrastructure, not a multi-tenant control plane — keep it on a trusted network. The hosted service is the multi-tenant surface; the self-hosted coordinator is the single-node alternative (<a href="quickstart.html#self-hosted">quickstart</a>).</p></div>
         <div class="article-next"><span>Evidence</span><a href="compatibility.html">See which host paths are documented and which are live →</a></div>
       </article>
       <aside class="article-aside">
-        <div class="aside-card"><span class="resource-tag">Safe launch claim</span><p>Single-node design-partner preview on a trusted network with non-production data.</p></div>
-        <div class="aside-card aside-card-dark"><span class="resource-tag">Unsafe launch claim</span><p>Public, horizontally scalable, enterprise-ready, or universally compatible.</p></div>
+        <div class="aside-card"><span class="resource-tag">Hosted claim</span><p>Public multi-tenant service with bearer auth, structural tenancy, enforced quotas, and role re-derivation.</p></div>
+        <div class="aside-card aside-card-dark"><span class="resource-tag">Not claimed</span><p>SLA, uptime, SSO, SOC/ISO, billing, or A2A conformance.</p></div>
       </aside>
     </div>
   </main>
-  <footer class="site-footer"><div class="footer-brand"><span class="brand-mark" aria-hidden="true">f</span><span>finalisma</span></div><p>Security claims follow executable gates.</p></footer>
+  <footer class="site-footer"><div class="footer-brand"><span class="brand-mark" aria-hidden="true">f</span><span>weft</span></div><p>Security claims follow executable gates.</p></footer>
 </body>
 </html>

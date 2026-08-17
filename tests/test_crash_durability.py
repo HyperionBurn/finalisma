@@ -1,4 +1,4 @@
-"""Crash-durability kill tests for the Finalisma cloud spine.
+"""Crash-durability kill tests for the Weft cloud spine.
 
 REAL kill tests — not simulated. Each test spawns the coordinator as a child
 process over stdio (MCP's primary transport), performs writes, KILLS the child
@@ -25,24 +25,26 @@ import time
 import unittest
 from pathlib import Path
 
+from tests._process_cleanup import cleanup_tempdir
+
 # src/ on the path so we can import the coordinator and (eventually) the cloud plane.
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-import finalisma_mcp.outbox as _outbox
-from finalisma_mcp.core import FinalismaStore
-from finalisma_mcp.room import RoomStore
+import weft_mcp.outbox as _outbox
+from weft_mcp.core import WeftStore
+from weft_mcp.room import RoomStore
 
 # RED trigger: this import fails with ModuleNotFoundError until the cloud plane
-# (src/finalisma_cloud/) is implemented. The tests below exercise crash recovery
+# (src/weft_cloud/) is implemented. The tests below exercise crash recovery
 # THROUGH the cloud storage backend — not just the coordinator directly — so the
 # whole file fails to load until the cloud plane exists.
-from finalisma_cloud.storage import SqliteWalBackend  # noqa: F401
-from finalisma_cloud.migrations import apply_migrations  # noqa: F401
+from weft_cloud.storage import SqliteWalBackend  # noqa: F401
+from weft_cloud.migrations import apply_migrations  # noqa: F401
 
 
 TEAM_ID = "crash-team"
-SCRATCH_PREFIX = "finalisma-crash-"
+SCRATCH_PREFIX = "weft-crash-"
 REQUEST_TIMEOUT_S = 30
 
 
@@ -65,7 +67,7 @@ class CrashTestDriver:
             [
                 sys.executable,
                 "-B",
-                "scripts/finalisma-mcp.py",
+                "scripts/weft-mcp.py",
                 "--transport",
                 "stdio",
                 "--team-id",
@@ -115,6 +117,22 @@ class CrashTestDriver:
         except json.JSONDecodeError:
             return {"raw": text}
 
+    def _close_streams(self) -> None:
+        """Close the stdio pipes so no TextIOWrapper/file descriptor is leaked.
+
+        ``Popen.kill()``/``wait()`` release the process but not the pipe file
+        objects; left open they are only reclaimed by ``__del__``, which on
+        Python 3.12+ emits ResourceWarning (observed as ``unclosed file``).
+        """
+        for stream in (getattr(self.proc, "stdin", None),
+                       getattr(self.proc, "stdout", None),
+                       getattr(self.proc, "stderr", None)):
+            if stream is not None:
+                try:
+                    stream.close()
+                except OSError:
+                    pass
+
     def kill(self) -> None:
         """Hard kill — SIGKILL. Never a graceful shutdown."""
         if self.proc is None:
@@ -124,6 +142,7 @@ class CrashTestDriver:
             self.proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
             self.proc.wait(timeout=5)
+        self._close_streams()
         self.proc = None
 
     def terminate(self) -> None:
@@ -136,6 +155,7 @@ class CrashTestDriver:
         except subprocess.TimeoutExpired:
             self.proc.kill()
             self.proc.wait(timeout=5)
+        self._close_streams()
         self.proc = None
 
     def close(self) -> None:
@@ -145,7 +165,7 @@ class CrashTestDriver:
 class TestCrashDurability(unittest.TestCase):
     """Real kill tests for crash durability (design §7.5).
 
-    These tests FAIL now with ModuleNotFoundError for ``finalisma_cloud`` — that
+    These tests FAIL now with ModuleNotFoundError for ``weft_cloud`` — that
     is the RED deliverable. The orchestrator wires the cloud plane to make them
     pass.
     """
@@ -153,16 +173,16 @@ class TestCrashDurability(unittest.TestCase):
     def setUp(self) -> None:
         self.scratch = tempfile.TemporaryDirectory(prefix=SCRATCH_PREFIX)
         self.workspace = Path(self.scratch.name)
-        self.state_path = str(self.workspace / ".finalisma" / "state.db")
-        os.makedirs(self.workspace / ".finalisma", exist_ok=True)
+        self.state_path = str(self.workspace / ".weft" / "state.db")
+        os.makedirs(self.workspace / ".weft", exist_ok=True)
         self.driver = CrashTestDriver(self.workspace, self.state_path)
 
     def tearDown(self) -> None:
         self.driver.close()
-        self.scratch.cleanup()
+        cleanup_tempdir(self.scratch)
 
     def _register_agent(self, agent_id: str, role: str = "tester") -> str:
-        result = self.driver.call_tool("finalisma_register_agent", {
+        result = self.driver.call_tool("register_agent", {
             "team_id": TEAM_ID,
             "agent_id": agent_id,
             "role": role,
@@ -224,7 +244,7 @@ class TestCrashDurability(unittest.TestCase):
         token_b = self._register_agent("crash-b")
 
         # Create a room (owner auto-joins).
-        room = self.driver.call_tool("finalisma_room_create", {
+        room = self.driver.call_tool("room_create", {
             "team_id": TEAM_ID,
             "owner_agent_id": "crash-a",
             "cap": 5,
@@ -234,7 +254,7 @@ class TestCrashDurability(unittest.TestCase):
         link_token = room["link_token"]
 
         # Second agent joins.
-        self.driver.call_tool("finalisma_room_join", {
+        self.driver.call_tool("room_join", {
             "team_id": TEAM_ID,
             "room_id": room_id,
             "link_token": link_token,
@@ -245,7 +265,7 @@ class TestCrashDurability(unittest.TestCase):
         })
 
         # Append an event + enqueue outbox (room_send does both).
-        send_result = self.driver.call_tool("finalisma_room_send", {
+        send_result = self.driver.call_tool("room_send", {
             "team_id": TEAM_ID,
             "room_id": room_id,
             "sender_agent_id": "crash-a",
@@ -257,7 +277,7 @@ class TestCrashDurability(unittest.TestCase):
         observed_event_ids = self._get_event_ids(room_id)
 
         # Ack the events so cursors advance.
-        self.driver.call_tool("finalisma_room_ack", {
+        self.driver.call_tool("room_ack", {
             "team_id": TEAM_ID,
             "room_id": room_id,
             "agent_id": "crash-a",
@@ -277,7 +297,7 @@ class TestCrashDurability(unittest.TestCase):
         try:
             for i in range(50):
                 batch_started = True
-                self.driver.call_tool("finalisma_room_send", {
+                self.driver.call_tool("room_send", {
                     "team_id": TEAM_ID,
                     "room_id": room_id,
                     "sender_agent_id": "crash-b",
@@ -362,7 +382,7 @@ class TestCrashDurability(unittest.TestCase):
         token_a = self._register_agent("ob-a")
         token_b = self._register_agent("ob-b")
 
-        room = self.driver.call_tool("finalisma_room_create", {
+        room = self.driver.call_tool("room_create", {
             "team_id": TEAM_ID,
             "owner_agent_id": "ob-a",
             "cap": 5,
@@ -371,7 +391,7 @@ class TestCrashDurability(unittest.TestCase):
         room_id = room["room_id"]
         link_token = room["link_token"]
 
-        self.driver.call_tool("finalisma_room_join", {
+        self.driver.call_tool("room_join", {
             "team_id": TEAM_ID,
             "room_id": room_id,
             "link_token": link_token,
@@ -382,7 +402,7 @@ class TestCrashDurability(unittest.TestCase):
         })
 
         # Send a message — this enqueues an outbox entry.
-        self.driver.call_tool("finalisma_room_send", {
+        self.driver.call_tool("room_send", {
             "team_id": TEAM_ID,
             "room_id": room_id,
             "sender_agent_id": "ob-a",
@@ -447,7 +467,7 @@ class TestCrashDurability(unittest.TestCase):
         token_a = self._register_agent("wal-a")
         token_b = self._register_agent("wal-b")
 
-        room = self.driver.call_tool("finalisma_room_create", {
+        room = self.driver.call_tool("room_create", {
             "team_id": TEAM_ID,
             "owner_agent_id": "wal-a",
             "cap": 10,
@@ -456,7 +476,7 @@ class TestCrashDurability(unittest.TestCase):
         room_id = room["room_id"]
         link_token = room["link_token"]
 
-        self.driver.call_tool("finalisma_room_join", {
+        self.driver.call_tool("room_join", {
             "team_id": TEAM_ID,
             "room_id": room_id,
             "link_token": link_token,
@@ -473,7 +493,7 @@ class TestCrashDurability(unittest.TestCase):
         killed = False
         for i in range(100):
             try:
-                self.driver.call_tool("finalisma_room_send", {
+                self.driver.call_tool("room_send", {
                     "team_id": TEAM_ID,
                     "room_id": room_id,
                     "sender_agent_id": "wal-a" if i % 2 == 0 else "wal-b",
@@ -518,7 +538,7 @@ class TestCrashDurability(unittest.TestCase):
         """The cloud plane's SqliteWalBackend must survive a kill and replay WAL.
 
         This test is the RED trigger for the cloud plane — the module-level import
-        of ``finalisma_cloud.storage`` fails with ModuleNotFoundError until the
+        of ``weft_cloud.storage`` fails with ModuleNotFoundError until the
         cloud plane is implemented.
         """
         backend = SqliteWalBackend(self.state_path)

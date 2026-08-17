@@ -644,7 +644,7 @@
   }
 
   /* ============================================================
-     Live demo
+     Demo
      ============================================================ */
   .demo {
     background: var(--color-ink);
@@ -1123,6 +1123,11 @@
   .eyebrow--glass {
     background: rgba(255, 255, 255, 0.05);
   }
+  @media (max-width: 768px) {
+    .eyebrow {
+      font-size: 11px;
+    }
+  }
   .eyebrow__dot {
     width: 6px;
     height: 6px;
@@ -1145,6 +1150,11 @@
       Scroll-entry utilities (opt-in, separate from .reveal)
       ============================================================ */
   .scroll-in {
+    /* Progressive enhancement: content must remain readable without JS. */
+    opacity: 1;
+    transform: none;
+  }
+  .js .scroll-in {
     opacity: 0;
     transform: translateY(4rem) blur(6px);
     transition:
@@ -1153,7 +1163,7 @@
       filter 800ms var(--ease-fluid);
     will-change: opacity, transform;
   }
-  .scroll-in.in {
+  .js .scroll-in.in {
     opacity: 1;
     transform: translateY(0) blur(0);
   }
@@ -1181,6 +1191,37 @@
     background: rgba(0, 0, 0, 0.04);
   }
   [data-theme="light"] .nav-toggle span { background: var(--color-text); }
+
+  /* ============================================================
+     Mobile touch-target floor (44px) + eyebrow legibility floor.
+     Hit area only — visible type, colours and spacing unchanged.
+     Placed last so these overrides win over the base rules above.
+     ============================================================ */
+  @media (max-width: 768px) {
+    .brand {
+      min-height: 44px;
+      display: inline-flex;
+      align-items: center;
+    }
+    .site-footer nav a {
+      min-height: 44px;
+      display: inline-flex;
+      align-items: center;
+    }
+    .tier-tab {
+      min-height: 44px;
+    }
+    .mobile-nav a {
+      min-height: 44px;
+      display: inline-flex;
+      align-items: center;
+    }
+    .skip-link {
+      min-height: 44px;
+      display: inline-flex;
+      align-items: center;
+    }
+  }
 
   /* ============================================================
      Reduced motion

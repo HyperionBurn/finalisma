@@ -2,7 +2,7 @@
 
 > **Status:** design-locked. Implementation lanes build from this document.
 > **Scope:** the Room product object, built by composition over existing primitives
-> in `src/finalisma_mcp/roster.py`, `outbox.py`, and `core.py`. Coordinator plane
+> in `src/weft_mcp/roster.py`, `outbox.py`, and `core.py`. Coordinator plane
 > only — stdlib, SQLite, zero new runtime dependencies.
 > **Author:** ARCH-ROOMS (Wave E lead architect). Doc-only lane; this file touches
 > nothing else.
@@ -21,7 +21,7 @@ actor credential. Tasks created inside a room still run through `create_task` /
 `claim_task` / `verify_task` / `complete_task` with their leases, fencing tokens,
 and evidence gates intact. A room survives disconnects: members resume from their
 cursor with **no loss and no duplicates**. The room is **additive** — the existing
-one-use two-party pairing path (`finalisma_create_pairing` / `finalisma_join_pairing`)
+one-use two-party pairing path (`create_pairing` / `join_pairing`)
 keeps working unchanged.
 
 ---
@@ -40,12 +40,12 @@ keeps working unchanged.
 
 | From | To | Trigger | Guard |
 | --- | --- | --- | --- |
-| *(none)* | `forming` | `finalisma_room_create` | — |
-| `forming` | `active` | `finalisma_room_join` (first non-owner join) | link valid, cap not reached, consent=true |
-| `forming` | `closed` | `finalisma_room_close` | caller is owner |
-| `active` | `closed` | `finalisma_room_close` | caller is `owner_agent_id` |
+| *(none)* | `forming` | `room_create` | — |
+| `forming` | `active` | `room_join` (first non-owner join) | link valid, cap not reached, consent=true |
+| `forming` | `closed` | `room_close` | caller is owner |
+| `active` | `closed` | `room_close` | caller is `owner_agent_id` |
 | `active` | `closed` | expiry tick (`expires_at < now`) | TTL elapsed |
-| `active` | `active` | `finalisma_room_join` | link valid, cap not reached, consent=true |
+| `active` | `active` | `room_join` | link valid, cap not reached, consent=true |
 
 A `closed` room **refuses joins** (`room_closed`) and **refuses new sends**
 (`room_closed`). Existing members with in-flight tasks may continue to
@@ -87,15 +87,21 @@ delta: the blast radius is bounded by the cap, not by one-shot consumption.
    bound to that identity on first join (mirror `core.join_pairing` and
    `SECURITY_GATES.md` §1: a pair token cannot overwrite an existing identity).
    The room wrapper previews the room summary **before** consent, exactly as
-   `finalisma_pairing_preview` does for pairing.
+   `pairing_preview` does for pairing.
 2. **Cap bounds blast radius.** The cap is the hard upper bound on distinct
    members. Even with a fully leaked link, an attacker can create at most `cap`
    attributable identities.
 3. **Expiry.** Every room link has `expires_at`. The expiry is checked on every
    join; an expired link is refused with `link_expired`.
-4. **Revocation.** `finalisma_room_close` and an explicit
-   `finalisma_room_revoke_link` flip a `revoked` flag on the link row. A
+4. **Revocation.** `room_close` and an explicit
+   `room_revoke_link` flip a `revoked` flag on the link row. A
    revoked/expired link cannot admit anyone (`link_revoked`).
+   `room_revoke_link` reports success **only** when a row actually flipped: an
+   unknown / already-revoked / wrong-room `link_id` is refused with
+   `link_not_found` (byte-identical to a link that never existed — no link-id
+   existence oracle), and a malformed one with `invalid_argument`. The room
+   owner can rediscover `link_id` (and confirm `link_revoked`) from
+   `room_info`, which exposes the link control surface to the owner only.
 5. **Attributable membership.** Every join is bound to `agent_id` + actor
    credential. A leaked link yields **attributable** members, never anonymous
    readers. The roster records who joined and when.
@@ -112,7 +118,7 @@ insert MUST run inside a single `BEGIN IMMEDIATE` transaction
 
 ```
 SELECT COUNT(*) FROM room_members WHERE room_id = ? AND status = 'active'
-→ if count >= cap: raise FinalismaError("room_full", ...)
+→ if count >= cap: raise WeftError("room_full", ...)
 → else: INSERT the new member
 ```
 
@@ -148,9 +154,9 @@ The multi-use link lives in a **new** `room_links` table — it does **not** mod
 
 Presence is derived directly from `roster.heartbeat` and
 `STALE_AFTER_SECONDS = 1800` (roster.py:30, 236-242). A member calls
-`finalisma_room_heartbeat` (or any room activity touches `last_seen`).
+`room_heartbeat` (or any room activity touches `last_seen`).
 
-A member calling `finalisma_room_info` sees, for **its own room only**:
+A member calling `room_info` sees, for **its own room only**:
 
 ```json
 {
@@ -227,11 +233,15 @@ This is the same monotonic-ack pattern as `core.session_ack` (core.py:1829).
 
 ### 5.3 Replay invariant
 
-- **At-least-once delivery.** `room_poll` returns all events with `seq > after_seq`
-  (default `after_seq = last_ack_seq`). Events are never removed by poll. A
-  consumer that crashes after processing but before acking re-receives the same
-  events on the next poll — consumers must be idempotent (the per-sender
-  `idempotency_key` UNIQUE constraint deduplicates replays).
+- **At-least-once delivery.** `room_poll` normally returns all events with
+  `seq > after_seq` (default `after_seq = last_ack_seq`). The returned
+  `next_seq` is persisted as a per-member resume marker; while that
+  unacknowledged marker is supplied again, it is rechecked inclusively so a
+  truncated page or idle reconnect cannot skip its boundary event. Events are
+  never removed by poll. A consumer that crashes after
+  processing but before acking re-receives the same events on the next poll —
+  consumers must be idempotent (the per-sender `idempotency_key` UNIQUE
+  constraint deduplicates replays).
 - **No loss.** Events are append-only; `seq` is a room-wide monotonic assigned
   under `BEGIN IMMEDIATE` (read `cursor_head`, +1, insert). Reconnect resumes
   from `last_ack_seq` — every event with higher seq is still in the table.
@@ -254,9 +264,16 @@ Compose three existing primitives:
 
 1. **`roster.route_targets(roster_id, target_spec)`** (roster.py:304-354)
    expands `target_spec` — an `agent_id`, a group name, `"*"` (broadcast to
-   active members), or a mixed list — into a de-duplicated, stale-excluded
-   recipient list. Stale members are excluded. The sender is **not**
-   auto-excluded; the room wrapper decides (see below).
+   members), or a mixed list — into a de-duplicated recipient list. The room
+   wrapper does **not** copy the roster primitive's stale-exclusion: an idle
+   (`stale`) member is a member who still holds a seat, and the event log is
+   the delivery mechanism, so a unicast/broadcast to an idle member creates a
+   durable delivery row and a receipt and stays readable when that member
+   returns — deliverability is keyed on **membership**, not on current
+   presence. Only `left` members and non-members are unroutable, and a send
+   that names one is refused with `recipient_not_found` (never a silent
+   `receipts: []`). The sender is **not** auto-excluded; the room wrapper
+   decides (see below).
 2. **`roster.build_envelope_v2(sender, targets, type, payload, capabilities)`**
    (roster.py:413-454) assembles the v2 envelope with a per-target
    `idempotency_key` so the same logical message fans out without cross-recipient
@@ -278,11 +295,16 @@ Each recipient's `outbox_entries` row carries a `status`:
 | `delivered` | acked by the recipient host |
 | `dead` | exceeded `max_attempts`; moved to `outbox_dlq` |
 
-`finalisma_room_send` returns, for each target, the `entry_id` and its initial
-status. A sender queries receipt status with `finalisma_room_receipts`
-(`entry_id` → `{status, attempts, next_attempt_at, last_error}`). Delivery is
-driven by the existing `claim_due` / `mark_delivered` / `mark_retry` loop
-(outbox.py:224-330); the room does not add a delivery loop.
+`room_send` returns, for each target, the `entry_id`, its initial delivery
+`status`, and `read_status: "queued"`. `status` is the outbox delivery
+lifecycle; `read_status` is the separate durable recipient-consumption
+lifecycle and becomes `"read"` when that recipient acknowledges the sequence.
+A sender queries both states with `room_receipts`
+(`entry_id` → `{status, read_status, attempts, next_attempt_at, last_error}`).
+The sender may replay its own targeted message for audit, while every other
+non-addressee receives only the redacted envelope. Delivery is driven by the
+existing `claim_due` / `mark_delivered` / `mark_retry` loop (outbox.py:224-330);
+the room does not add a delivery loop.
 
 ### 6.2 Sender exclusion
 
@@ -310,7 +332,7 @@ Tasks inside a room use the **existing** task methods unchanged:
   complete it.
 
 **The room does not weaken any existing invariant.** The existing one-use two-party
-pairing path (`finalisma_create_pairing` / `finalisma_join_pairing`) keeps working
+pairing path (`create_pairing` / `join_pairing`) keeps working
 unchanged — the room is **additive**. Existing pairing tests must stay green.
 
 ---
@@ -318,36 +340,56 @@ unchanged — the room is **additive**. Existing pairing tests must stay green.
 ## 8. New MCP tool surface
 
 All tools are member-only and require `actor_token` (mutations and reads alike —
-a room is not publicly readable). They are dispatched by `FinalismaDispatcher`
+a room is not publicly readable). They are dispatched by `WeftDispatcher`
 (server.py:746) and scoped by `_apply_team_scope` (server.py:713).
 
 | # | Tool | Required args | Returns | Notes |
 | --- | --- | --- | --- | --- |
-| 1 | `finalisma_room_create` | `team_id, owner_agent_id, cap` | `{room_id, link_token, expires_at, cap, state}` | `name?`, `ttl_seconds?` (default 86400). Owner joins automatically. `cap` ≥ 2. |
-| 2 | `finalisma_room_join` | `team_id, room_id, link_token, agent_id, consent, actor_token` | `{room_id, agent_id, status, joined_at, cursor}` | `capabilities?`. `consent` must be literal boolean `true`. Link is consumed for THIS identity only. |
-| 3 | `finalisma_room_info` | `team_id, room_id, agent_id, actor_token` | `{room_id, state, cap, member_count, members:[{agent_id, status, capabilities, last_seen, joined_at}], owner_agent_id}` | Member-only. |
-| 4 | `finalisma_room_leave` | `team_id, room_id, agent_id, actor_token` | `{room_id, agent_id, status: "left"}` | Emits `room.left`. |
-| 5 | `finalisma_room_close` | `team_id, room_id, owner_agent_id, actor_token` | `{room_id, state: "closed"}` | Owner only. Invalidates all links. Emits `room.closed`. |
-| 6 | `finalisma_room_send` | `team_id, room_id, sender_agent_id, target_spec, payload, actor_token` | `{envelope, receipts:[{agent_id, entry_id, status}], seq}` | `exclude_sender?`. Emits `room.message`. |
-| 7 | `finalisma_room_poll` | `team_id, room_id, agent_id, actor_token` | `{events, next_seq, cursor_head, last_ack_seq, has_more, state}` | `after_seq?` (default `last_ack_seq`), `limit?` (default 100, max 200). |
-| 8 | `finalisma_room_ack` | `team_id, room_id, agent_id, seq, actor_token` | `{room_id, agent_id, last_ack_seq}` | Monotonic. |
-| 9 | `finalisma_room_heartbeat` | `team_id, room_id, agent_id, actor_token` | `{room_id, agent_id, last_seen, status}` | Refreshes presence. |
-| 10 | `finalisma_room_groups` | `team_id, room_id, agent_id, group_name, action, actor_token` | `{room_id, group_name, members}` | `action` ∈ `add`, `remove`, `list`. Wraps `roster.add_to_group` / `remove_from_group` / `list_group`. |
-| 11 | `finalisma_room_receipts` | `team_id, room_id, agent_id, entry_ids, actor_token` | `{receipts:[{entry_id, status, attempts, next_attempt_at, last_error}]}` | Member-only. |
-| 12 | `finalisma_room_revoke_link` | `team_id, room_id, owner_agent_id, link_id, actor_token` | `{link_id, revoked: true}` | Owner only. Flips `revoked`. |
+| 1 | `room_create` | `team_id, owner_agent_id, cap` | `{room_id, link_token, shareable_link, expires_at, cap, state}` | `name?`, `ttl_seconds?` (default 86400). Owner joins automatically. `cap` ≥ 2. `shareable_link` is an absolute `{origin}/j/{link_token}` URL an agent can fetch to discover the join endpoint and protocol. |
+| 2 | `room_join` | `team_id, room_id, link_token, agent_id, consent, actor_token` | `{room_id, agent_id, status, joined_at, cursor}` | `capabilities?`. `consent` must be literal boolean `true`. Link is consumed for THIS identity only. Re-join of an already-active member is a presence refresh — `joined_at` is never rewritten and `cursor` reports the member's ACTUAL `last_ack_seq`, not 0. |
+| 3 | `room_info` | `team_id, room_id, agent_id, actor_token` | `{room_id, state, cap, member_count, members:[{agent_id, status, capabilities, last_seen, joined_at}], owner_agent_id}` | Member-only. The ROOM OWNER additionally sees `link_id` (the identifier `room_revoke_link` needs) and `link_revoked` (confirmation the revocation landed). Ordinary members never see them, and `link_token` is never exposed. |
+| 4 | `room_leave` | `team_id, room_id, agent_id, actor_token` | `{room_id, agent_id, status: "left"}` | Emits `room.left`. |
+| 5 | `room_close` | `team_id, room_id, owner_agent_id, actor_token` | `{room_id, state: "closed"}` | Owner only. Invalidates all links. Emits `room.closed`. |
+| 6 | `room_send` | `team_id, room_id, sender_agent_id, target_spec, payload, actor_token` | `{envelope, receipts:[{agent_id, entry_id, status, read_status}], seq}` | `exclude_sender?`. Emits `room.message`; the sender can audit its own targeted event, other non-addressees see a redacted envelope. |
+| 7 | `room_poll` | `team_id, room_id, agent_id, actor_token` | `{events, next_seq, cursor_head, last_ack_seq, behind_by, has_more, state}` | `after_seq?` (default `last_ack_seq`), `limit?` (default 100, clamped to 1-200), `message_kinds?`. **Cursor guards** (implemented in `room.py` poll): `after_seq < 0` → `invalid_cursor`; `after_seq > cursor_head + 1` → `invalid_cursor` (a window beyond the head is never silently echoed); `behind_by = max(0, after_seq - last_ack_seq)` reports how many unacked events the caller's window skips. |
+| 8 | `room_ack` | `team_id, room_id, agent_id, seq, actor_token` | `{room_id, agent_id, last_ack_seq, receipts_read}` | Monotonic MAX; marks this recipient's durable receipt rows read through `seq`. `seq > cursor_head` is refused with `invalid_cursor` — an ack of an event that does not exist is the caller's error, never a silent success. |
+| 9 | `room_heartbeat` | `team_id, room_id, agent_id, actor_token` | `{room_id, agent_id, last_seen, status}` | Refreshes presence. |
+| 10 | `room_groups` | `team_id, room_id, agent_id, group_name, action, actor_token` | `{room_id, group_name, members}` | `action` ∈ `add`, `remove`, `list`. Wraps `roster.add_to_group` / `remove_from_group` / `list_group`. |
+| 11 | `room_receipts` | `team_id, room_id, agent_id, entry_ids, actor_token` | `{receipts:[{entry_id, status, read_status, attempts, next_attempt_at, last_error}]}` | Member-only. `status` is delivery; `read_status` is recipient acknowledgement. |
+| 12 | `room_revoke_link` | `team_id, room_id, owner_agent_id, link_id, actor_token` | `{link_id, revoked: true}` | Owner only. Flips `revoked`. An unknown / already-revoked / wrong-room `link_id` is refused with `link_not_found` (byte-identical to a never-existing link — no oracle), a malformed one with `invalid_argument`. Success is only reported when a row actually flipped. |
 
 ### 8.1 Error codes
 
 `room_not_found`, `room_closed`, `room_full`, `invalid_link`, `link_expired`,
-`link_revoked`, `member_required`, `consent_required`, `cross_room_forbidden`,
+`link_revoked`, `link_not_found`, `member_required`, `consent_required`,
+`cross_room_forbidden`,
 `stale_fencing_token` (reused from core), `actor_auth_invalid`, `invalid_argument`,
+`invalid_cursor` (negative `after_seq`, a window beyond `cursor_head + 1`, or an
+`ack` beyond the room head — the cursor-guard refusals added to `room_poll` /
+`room_ack`; the cloud plane's `rooms.py` mirrors the same vocabulary on both
+its REST and MCP surfaces),
 `team_scope_forbidden` (from `_apply_team_scope`).
+
+**No existence oracle for non-members:** for every member-only tool, a caller
+who is authenticated but is NOT an active member receives `room_not_found` —
+the same code as a room that never existed. This matches the hosted cloud
+plane's no-oracle 404 (see `_resolve_room_tenant`). Only entitled members can
+reach the precise errors (`owner_required` for a non-owner, `member_required`
+for a non-active *target* member in `room_groups` add).
+
+**No token-validity oracle either:** on every member-only tool, credential
+validation runs BEFORE room resolution (see `_require_authenticated_member`).
+A caller with a bad or missing token gets `actor_auth_invalid` regardless of
+whether the room exists — the same response for a real room and a fabricated
+one. An unauthenticated caller learns nothing about room existence.
 
 ### 8.2 Which tools need `actor_token`
 
-**All of them.** Every room read and mutation is member-only. A call without a
-valid `actor_token` bound to a member `agent_id` gets `actor_auth_invalid` or
-`member_required`.
+**All of them.** Every room read and mutation is member-only. A call with a
+bad or missing `actor_token` gets `actor_auth_invalid` (identical whether or
+not the room exists — auth is validated before the room is resolved); a valid
+`actor_token` on a non-member `agent_id` gets `room_not_found` (no existence
+oracle); an entitled member keeps precise errors.
 
 ---
 
@@ -361,17 +403,26 @@ These are the product. Each is a required security-integration test.
 | 2 | `room_join` with a revoked link | `link_revoked` | Revocation is effective. |
 | 3 | `room_join` with an expired link | `link_expired` | TTL is enforced. |
 | 4 | `room_join` with a link for a different room | `invalid_link` | Link is room-scoped. |
-| 5 | `room_poll` / `room_info` by a non-member | `member_required` | Room is member-only. |
-| 6 | `room_poll` on room B by a room A member (spoofed `room_id`) | `room_not_found` or `member_required` | Cross-room isolation. |
-| 7 | `room_send` by a non-member | `member_required` | Only members address the room. |
+| 5 | `room_poll` / `room_info` by a non-member | `room_not_found` | Room is member-only AND the room's existence is hidden from non-members (identical to a fabricated `room_id`). |
+| 6 | `room_poll` on room B by a room A member (spoofed `room_id`) | `room_not_found` | Cross-room isolation — room B is invisible to non-members of B. |
+| 7 | `room_send` by a non-member | `room_not_found` | Only members address the room; non-members cannot tell the room exists. |
 | 8 | `complete_task` with a stale `fencing_token` on a room task | `stale_fencing_token` | Governance unchanged. |
 | 9 | `room_join` reusing an existing `agent_id` with a **different** `actor_token` | `actor_auth_invalid` | Link cannot overwrite an identity. |
 | 10 | `room_join` with `consent: "yes"` (string) | `consent_required` | Consent must be literal boolean. |
-| 11 | `room_close` by a non-owner | `member_required` (or a new `owner_required`) | Only the owner closes. |
+| 11 | `room_close` by a non-owner | `owner_required` | Only the owner closes. A *non-member* gets `room_not_found` (no existence oracle) before the owner check. |
 | 12 | `room_join` after `room_close` | `room_closed` | Closed rooms refuse joins. |
 | 13 | `room_send` after `room_closed` | `room_closed` | Closed rooms refuse new events. |
 | 14 | `room_join` reusing an existing `agent_id` with the **same** credential | idempotent re-join (no overwrite) | Replay does not overwrite identity. |
 | 15 | Concurrent `room_join` × (cap + 5) | exactly `cap - owner` succeed, rest `room_full` | Atomic cap enforcement. |
+| 16 | `room_leave` / `room_ack` / `room_heartbeat` / `room_groups` / `room_receipts` / `room_revoke_link` by a non-member | `room_not_found` | Non-members get the no-oracle code across every member-only tool. |
+| 17 | any member-only tool with a bad or missing token | `actor_auth_invalid` | Auth validates before room resolution — identical for a real and a fabricated room (no token-validity oracle). |
+| 18 | `room_revoke_link` with an unknown / already-revoked `link_id` | `link_not_found` | Success must mean the link was actually revoked; a control that reports 200 while revoking nothing manufactures false confidence at the moment an owner is cutting off a leaked link. |
+| 19 | `room_revoke_link` with a `link_id` belonging to another room/tenant vs a `link_id` that never existed | `link_not_found`, byte-identical | No link-id existence oracle: the two refusals MUST produce the same wire body, or this endpoint confirms which link_ids exist (the codebase has already shipped three such oracles). |
+| 20 | `room_revoke_link` with a malformed `link_id` | `invalid_argument` | The caller's error is named before any lookup. |
+| 21 | `room_info` for a non-owner member | no `link_id` / `link_revoked` keys | Least exposure: only whoever can revoke may see the control identifier. |
+| 22 | `room_poll` with `after_seq < 0` | `invalid_cursor` | A negative cursor is the caller's error, never silently clamped. |
+| 23 | `room_poll` with `after_seq > cursor_head + 1` | `invalid_cursor` | An impossible read window is refused, never silently echoed back as `next_seq`. |
+| 24 | `room_ack` with `seq > cursor_head` | `invalid_cursor` | An ack of a nonexistent event is refused — silence must never mean success. |
 
 ---
 
@@ -449,11 +500,11 @@ change to `tasks`.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> forming : finalisma_room_create
-    forming --> active : finalisma_room_join<br/>(first non-owner, consent, cap ok)
-    forming --> closed : finalisma_room_close (owner)
-    active --> active : finalisma_room_join / send / poll / ack / heartbeat
-    active --> closed : finalisma_room_close (owner)
+    [*] --> forming : room_create
+    forming --> active : room_join<br/>(first non-owner, consent, cap ok)
+    forming --> closed : room_close (owner)
+    active --> active : room_join / send / poll / ack / heartbeat
+    active --> closed : room_close (owner)
     active --> closed : expires_at elapsed
     closed --> [*]
 ```
@@ -503,8 +554,8 @@ sequenceDiagram
 FILES CHANGED: docs/ROOMS_DESIGN.md
 SECURITY-MODEL DELTA: A room link is multi-use up to the cap, so a leaked link grants anyone holding it the ability to join as a new attributable member until the cap is reached, the link expires, or it is revoked — unlike the one-use roster link where a leak grants at most one join. Compensating controls: (1) per-join consent with preview-before-consent and a fresh actor credential bound to the joining agent_id, so the link alone never grants read access; (2) the cap bounds blast radius; (3) expiry checked on every join; (4) explicit revocation and room-close invalidation; (5) every member is attributable (agent_id + actor_token_hash); (6) token hygiene mirrors roster.py — only SHA-256(token) stored, raw token returned once, token-bearing URL paths rejected.
 NEW PRIMITIVES REQUIRED: none — pure composition over roster.py (create_roster/join_roster/leave_roster/heartbeat/route_targets/build_envelope_v2/groups), outbox.py (enqueue/claim_due/mark_delivered/mark_retry), and core.py (create_task/claim_task/verify_task/complete_task with leases/fencing/evidence). New tables only: room_rooms, room_members, room_links, room_event_log, room_cursors, room_groups, room_group_members (all room_-prefixed, additive, no existing table modified).
-TOOL SURFACE COUNT: 12 finalisma_room_* tools (create, join, info, leave, close, send, poll, ack, heartbeat, groups, receipts, revoke_link).
-NEGATIVE CASES SPECIFIED: 15 (see §9 table).
+TOOL SURFACE COUNT: 12 room_* tools (create, join, info, leave, close, send, poll, ack, heartbeat, groups, receipts, revoke_link).
+NEGATIVE CASES SPECIFIED: 21 at Wave-E lock (see §9 table), plus 3 cursor-guard rows (§9 #22-#24) added when the cursor guards landed in `room.py` — 24 total. The cursor guards are implemented in `src/weft_mcp/room.py` (`poll`/`ack`) and mirrored by the cloud plane's `src/weft_cloud/rooms.py` with the same error vocabulary.
 NOT DONE: implementation (this is the doc-only lane); the optional tasks.room_id column decision is deferred to the implementation lane (metadata={room_id} works with zero schema change).
 RISKS: (1) the cap-enforcement read-then-insert MUST run under BEGIN IMMEDIATE to prevent N concurrent joins overshooting — verify the implementation does not use a plain read-then-write without the writer lock; (2) room_event_log must be a NEW table, not a reuse of session_events — the orchestrator must confirm the implementation lane does not rewrite core's session tables; (3) the link token must be returned exactly once and only its SHA-256 stored — any design that persists the raw token or returns it on info/poll is a regression; (4) actor_token is required on ALL room tools — a lane that makes info or poll anonymous breaks member-only isolation; (5) the existing two-party pairing tests must stay green — the room is additive, never a replacement.
 ```

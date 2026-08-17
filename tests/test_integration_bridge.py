@@ -1,8 +1,8 @@
-"""Integration tests for the Finalisma Bridge MCP surface.
+"""Integration tests for the Weft Bridge MCP surface.
 
 These tests drive the bridge adapters (WebhookBridge, PollingBridge,
 ClipboardBridge) THROUGH the real MCP JSON-RPC dispatcher — never via the
-bridge.py Python API directly. The finalisma_bridge_* tools are registered by
+bridge.py Python API directly. The bridge_* tools are registered by
 the orchestrator; this file asserts the contract those tools must satisfy.
 
 RED-only: this file is the failing-test deliverable. The orchestrator wires
@@ -19,28 +19,28 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from finalisma_mcp.core import FinalismaError, FinalismaStore
-from finalisma_mcp.server import FinalismaDispatcher, TOOLS
+from weft_mcp.core import WeftError, WeftStore
+from weft_mcp.server import WeftDispatcher, TOOLS
 
 
 class BridgeIntegrationTests(unittest.TestCase):
-    """End-to-end bridge contract exercised via FinalismaDispatcher.call_tool."""
+    """End-to-end bridge contract exercised via WeftDispatcher.call_tool."""
 
     BRIDGE_TOOL_NAMES = {
-        "finalisma_bridge_poll",
-        "finalisma_bridge_ack",
-        "finalisma_bridge_webhook_register",
-        "finalisma_bridge_bootstrap",
+        "bridge_poll",
+        "bridge_ack",
+        "bridge_webhook_register",
+        "bridge_bootstrap",
     }
 
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
-        self.store = FinalismaStore(root / "state.db", root, require_actor_auth=True)
-        self.dispatcher = FinalismaDispatcher(self.store)
+        self.store = WeftStore(root / "state.db", root, require_actor_auth=True)
+        self.dispatcher = WeftDispatcher(self.store)
         # Real registration flow to obtain a bound actor token.
         registered = self.dispatcher.call_tool(
-            "finalisma_register_agent",
+            "register_agent",
             {"team_id": "team-1", "agent_id": "agent-1", "role": "architect"},
         )
         self.actor_token = registered["actor_token"]
@@ -61,32 +61,32 @@ class BridgeIntegrationTests(unittest.TestCase):
     def test_webhook_register_returns_webhook_id_and_hides_secret(self) -> None:
         secret_ref = "whsec_live_secret_value_do_not_leak_12345"
         result = self._call_bridge(
-            "finalisma_bridge_webhook_register",
+            "bridge_webhook_register",
             team_id=self.team_id,
             agent_id=self.agent_id,
             actor_token=self.actor_token,
-            url="https://example.com/finalisma/webhook",
+            url="https://example.com/weft/webhook",
             secret_ref=secret_ref,
         )
         self.assertIn("webhook_id", result)
         self.assertTrue(result["webhook_id"].startswith("wh_"))
-        self.assertEqual(result["url"], "https://example.com/finalisma/webhook")
+        self.assertEqual(result["url"], "https://example.com/weft/webhook")
         self.assertTrue(result["active"])
         # The secret_ref value must NEVER appear in the result JSON.
         serialized = json.dumps(result)
         self.assertNotIn(secret_ref, serialized)
 
     # ------------------------------------------------------------------
-    # 2. webhook_register with WRONG actor_token raises FinalismaError.
+    # 2. webhook_register with WRONG actor_token raises WeftError.
     # ------------------------------------------------------------------
     def test_webhook_register_wrong_token_raises(self) -> None:
-        with self.assertRaises(FinalismaError) as ctx:
+        with self.assertRaises(WeftError) as ctx:
             self._call_bridge(
-                "finalisma_bridge_webhook_register",
+                "bridge_webhook_register",
                 team_id=self.team_id,
                 agent_id=self.agent_id,
                 actor_token="fst_actor_wrong_token_value_that_is_long_enough_123456",
-                url="https://example.com/finalisma/webhook",
+                url="https://example.com/weft/webhook",
                 secret_ref="whsec_live_secret_value_do_not_leak_12345",
             )
         self.assertEqual(ctx.exception.code, "actor_auth_invalid")
@@ -97,7 +97,7 @@ class BridgeIntegrationTests(unittest.TestCase):
     def test_poll_ack_poll_no_repeats_at_most_once(self) -> None:
         # First poll returns a cursor (even if empty).
         first_poll = self._call_bridge(
-            "finalisma_bridge_poll",
+            "bridge_poll",
             team_id=self.team_id,
             agent_id=self.agent_id,
             actor_token=self.actor_token,
@@ -111,7 +111,7 @@ class BridgeIntegrationTests(unittest.TestCase):
         if first_poll["events"]:
             event_ids = [e["event_id"] for e in first_poll["events"]]
             ack_result = self._call_bridge(
-                "finalisma_bridge_ack",
+                "bridge_ack",
                 team_id=self.team_id,
                 agent_id=self.agent_id,
                 actor_token=self.actor_token,
@@ -121,7 +121,7 @@ class BridgeIntegrationTests(unittest.TestCase):
 
             # Poll again after ack — must not return the same events.
             second_poll = self._call_bridge(
-                "finalisma_bridge_poll",
+                "bridge_poll",
                 team_id=self.team_id,
                 agent_id=self.agent_id,
                 actor_token=self.actor_token,
@@ -138,7 +138,7 @@ class BridgeIntegrationTests(unittest.TestCase):
     def test_bootstrap_returns_parseable_snippet_no_cleartext_secret(self) -> None:
         endpoint = "https://bridge.example.com"
         result = self._call_bridge(
-            "finalisma_bridge_bootstrap",
+            "bridge_bootstrap",
             team_id=self.team_id,
             agent_id=self.agent_id,
             actor_token=self.actor_token,
@@ -178,9 +178,9 @@ class BridgeIntegrationTests(unittest.TestCase):
     # 6. Wrong-token negative: bridge_poll with bad token raises.
     # ------------------------------------------------------------------
     def test_bridge_poll_wrong_token_raises(self) -> None:
-        with self.assertRaises(FinalismaError) as ctx:
+        with self.assertRaises(WeftError) as ctx:
             self._call_bridge(
-                "finalisma_bridge_poll",
+                "bridge_poll",
                 team_id=self.team_id,
                 agent_id=self.agent_id,
                 actor_token="fst_actor_wrong_token_value_that_is_long_enough_123456",

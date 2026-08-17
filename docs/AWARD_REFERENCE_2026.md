@@ -1,7 +1,7 @@
 # Award-tier reference — what actually wins in 2026
 
 Researched 2026-08-06. Source-backed patterns from Awwwards Q1 2026 Site of the Day winners and
-judged retrospectives. This is the bar for the Finalisma marketing site. Cited so nobody has to
+judged retrospectives. This is the bar for the Weft marketing site. Cited so nobody has to
 re-derive it.
 
 ---
@@ -70,7 +70,7 @@ Non-negotiable for a winning entry:
 | **Uncommon Studio** | A confident grid that breaks at exactly the right moments; GSAP section transitions that "feel like camera moves". | Break the grid deliberately and rarely. Transitions should read as cinematography. |
 | **Minh Pham** | GSAP motion system layered over Three.js; "3D never overwhelms the work it's meant to frame". | The 3D serves the product. Ours frames the agent network — it is not the subject. |
 
-## 7. How this maps to Finalisma specifically
+## 7. How this maps to Weft specifically
 
 Our unfair advantage: **the 3D scene is the actual product, and the product does something no
 competitor can demonstrate.** Most award sites render an abstract sculpture. Ours renders a real

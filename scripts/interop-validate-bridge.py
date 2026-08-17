@@ -1,8 +1,8 @@
-"""Finalisma bridge-adapter interop validation driver.
+"""Weft bridge-adapter interop validation driver.
 
 Spawns the REAL coordinator over stdio (MCP's primary transport), registers
 an agent through its MCP surface, then exercises the REAL bridge adapters
-(WebhookBridge, PollingBridge, ClipboardBridge) from src/finalisma_mcp/bridge.py
+(WebhookBridge, PollingBridge, ClipboardBridge) from src/weft_mcp/bridge.py
 against that live coordinator's database. This is the "hosts with no MCP"
 path: the bridge adapters are how non-MCP AI products reach the coordinator.
 
@@ -23,11 +23,14 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from _process_cleanup import cleanup_tempdir, stop_subprocess
+from _transcript_safety import redact_transcript_line
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from finalisma_mcp.core import FinalismaStore, FinalismaError
-from finalisma_mcp.bridge import (
+from weft_mcp.core import WeftStore, WeftError
+from weft_mcp.bridge import (
     WebhookBridge,
     PollingBridge,
     ClipboardBridge,
@@ -97,8 +100,8 @@ def _make_handler_class():
             length = int(self.headers.get("Content-Length", "0"))
             raw = self.rfile.read(length) if length else b""
             WebhookReceiver  # reference to keep linter calm
-            sig = self.headers.get("X-Finalisma-Signature", "")
-            ts = self.headers.get("X-Finalisma-Timestamp", "")
+            sig = self.headers.get("X-Weft-Signature", "")
+            ts = self.headers.get("X-Weft-Timestamp", "")
             try:
                 body = json.loads(raw.decode("utf-8")) if raw else None
             except json.JSONDecodeError:
@@ -122,9 +125,9 @@ def _make_handler_class():
 # ---------------------------------------------------------------------------
 
 def main() -> int:
-    scratch = tempfile.TemporaryDirectory(prefix="finalisma-interop-bridge-")
+    scratch = tempfile.TemporaryDirectory(prefix="weft-interop-bridge-")
     workspace = Path(scratch.name)
-    state_path = workspace / ".finalisma" / "state.db"
+    state_path = workspace / ".weft" / "state.db"
     transcript: list[str] = []
     started = time.monotonic()
 
@@ -132,7 +135,7 @@ def main() -> int:
         [
             sys.executable,
             "-B",
-            "scripts/finalisma-mcp.py",
+            "scripts/weft-mcp.py",
             "--transport",
             "stdio",
             "--team-id",
@@ -156,14 +159,14 @@ def main() -> int:
         if params is not None:
             payload["params"] = params
         line_out = json.dumps(payload, separators=(",", ":"))
-        transcript.append(f"> {line_out}")
+        transcript.append(f"> {redact_transcript_line(line_out)}")
         assert proc.stdin is not None and proc.stdout is not None
         proc.stdin.write(line_out + "\n")
         proc.stdin.flush()
         line = proc.stdout.readline()
         if not line:
             raise InteropError("server closed stdin without a reply")
-        transcript.append(f"< {line.strip()}")
+        transcript.append(f"< {redact_transcript_line(line.strip())}")
         reply = json.loads(line)
         if "error" in reply:
             raise InteropError(f"JSON-RPC error {reply['error']}")
@@ -184,7 +187,7 @@ def main() -> int:
     # coordinator uses. WAL mode allows a second process to open it
     # concurrently; the coordinator owns writes, the driver's store is the
     # bridge adapters' view of state.
-    bridge_store: FinalismaStore | None = None
+    bridge_store: WeftStore | None = None
     webhook_receiver: WebhookReceiver | None = None
 
     try:
@@ -199,20 +202,20 @@ def main() -> int:
         tools = rpc(2, "tools/list").get("tools", [])
         tool_names = [t["name"] for t in tools]
         transcript.append(f"# tools/list: {len(tools)} tools")
-        if "finalisma_register_agent" not in tool_names:
-            raise InteropError("tools/list missing finalisma_register_agent")
+        if "register_agent" not in tool_names:
+            raise InteropError("tools/list missing register_agent")
 
         # ---- 1. register agent over MCP --------------------------------
         reg = call_tool(
             3,
-            "finalisma_register_agent",
+            "register_agent",
             {"team_id": TEAM_ID, "agent_id": "bridge-agent", "role": "generalist", "name": "Bridge Agent"},
         )
         actor_token = reg["actor_token"]
-        transcript.append(f"# register_agent: agent_id=bridge-agent token={actor_token[:8]}...")
+        transcript.append("# register_agent: agent_id=bridge-agent token=***")
 
         # ---- open bridge store against the coordinator's DB -----------
-        bridge_store = FinalismaStore(
+        bridge_store = WeftStore(
             str(state_path),
             str(workspace),
             require_actor_auth=True,
@@ -226,7 +229,7 @@ def main() -> int:
         # bootstrap snippet references a real pairing.
         pairing = call_tool(
             4,
-            "finalisma_create_pairing",
+            "create_pairing",
             {
                 "initiator_id": "bridge-agent",
                 "team_id": TEAM_ID,
@@ -257,7 +260,7 @@ def main() -> int:
                 transcript.append("# clipboard.parse_bootstrap (1st): accepted, nonce consumed")
             else:
                 transcript.append("# clipboard.parse_bootstrap (1st): unexpected payload")
-        except FinalismaError as exc:
+        except WeftError as exc:
             transcript.append(f"# clipboard.parse_bootstrap (1st) FAILED unexpectedly: {exc}")
 
         # Second parse refused (one-shot enforcement)
@@ -266,7 +269,7 @@ def main() -> int:
         try:
             clipboard.parse_bootstrap(bootstrap_raw)
             transcript.append("# clipboard.parse_bootstrap (2nd): NOT refused (unexpected)")
-        except FinalismaError as exc:
+        except WeftError as exc:
             clipboard_one_shot_refused = True
             clipboard_refusal_text = str(exc)
             transcript.append(f"# clipboard.parse_bootstrap (2nd) refused: {exc}")
@@ -329,7 +332,7 @@ def main() -> int:
                 actor_token="wrong-token-not-valid",
             )
             transcript.append("# polling.get_pending (wrong token): NOT refused (unexpected)")
-        except (FinalismaError, BridgeAuthError) as exc:
+        except (WeftError, BridgeAuthError) as exc:
             polling_wrong_token_refused = True
             polling_wrong_token_text = str(exc)
             transcript.append(f"# polling.get_pending (wrong token) refused: {exc}")
@@ -345,7 +348,7 @@ def main() -> int:
                 actor_token=actor_token,
             )
             transcript.append("# polling.get_pending (non-member): NOT refused (unexpected)")
-        except (FinalismaError, BridgeAuthError) as exc:
+        except (WeftError, BridgeAuthError) as exc:
             polling_nonmember_refused = True
             polling_nonmember_text = str(exc)
             transcript.append(f"# polling.get_pending (non-member) refused: {exc}")
@@ -418,7 +421,7 @@ def main() -> int:
                 signing_secret=None,
             )
             transcript.append("# webhook.deliver (no signing_secret): NOT refused (unexpected — HIGH-1 regression)")
-        except FinalismaError as exc:
+        except WeftError as exc:
             webhook_no_secret_refused = True
             webhook_no_secret_text = str(exc)
             transcript.append(f"# webhook.deliver (no signing_secret) refused: {exc}")
@@ -483,13 +486,8 @@ def main() -> int:
                 bridge_store.close()
             except Exception:
                 pass
-        proc.terminate()
-        try:
-            proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait(timeout=10)
-        scratch.cleanup()
+        stop_subprocess(proc, close_stdin=True)
+        cleanup_tempdir(scratch)
 
 
 if __name__ == "__main__":

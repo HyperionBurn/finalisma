@@ -1,11 +1,11 @@
-# DESIGN SYSTEM V2 — Wave D2: Finalisma Marketing Site
+# DESIGN SYSTEM V2 — Wave D2: Weft Marketing Site
 
 > **Status:** ART-DIRECTION lane deliverable. Authoritative spec for implementation.
 > **Supersedes:** The "FIELD NOTES" editorial framing (Wave A/C). That framing is
 > deliberately retired. This document defines the replacement — a product landing
 > page, not a magazine feature.
 > **Scope:** `site/index.html`, `site/styles.css`, `site/app.js` (+ new canvas engine
-> module). Does NOT touch `src/finalisma_mcp/`.
+> module). Does NOT touch `src/weft_mcp/`.
 > **Tone:** Engineering-premium restraint. Linear / Vercel / Resend / Stripe tier.
 > Near-black graphite base. One confident accent. ASSERT/PROVE semantic colours carry
 > product meaning. Motion is mandatory and disciplined.
@@ -270,7 +270,7 @@ data-attribute hooks the QA harness will target.
 - **Structure:**
   ```html
   <header class="site-header" data-header>
-    <a class="brand" href="/">FINALISMA</a>
+    <a class="brand" href="/">WEFT</a>
     <nav class="nav-links" aria-label="Primary">
       <a href="#problem">Problem</a>
       <a href="#how">How it works</a>
@@ -310,7 +310,7 @@ data-attribute hooks the QA harness will target.
   product.
 - **Structure:**
   ```html
-  <section class="hero" id="hero" aria-label="Finalisma — live product preview">
+  <section class="hero" id="hero" aria-label="Weft — live product preview">
     <div class="hero-copy">
       <p class="kicker reveal">Agent coordination · evidence-gated</p>
       <h1 class="headline reveal" aria-label="One link. Many agents. All governed.">
@@ -384,7 +384,7 @@ data-attribute hooks the QA harness will target.
       <pre class="terminal" data-terminal role="log" aria-live="polite"></pre>
       <div class="demo-output">
         <div class="link-out" data-link-output>
-          <code data-generated-link>finalisma.test/r/...</code>
+          <code data-generated-link>weft.test/r/...</code>
           <button class="btn btn-sm" data-copy="link">Copy link</button>
         </div>
         <div class="gate" data-gate>
@@ -482,7 +482,7 @@ data-attribute hooks the QA harness will target.
 - **Structure:**
   ```html
   <footer class="site-footer" data-footer>
-    <span>Finalisma v0.1.0 · single-node preview</span>
+    <span>Weft v0.1.0 · single-node preview</span>
     <nav aria-label="Footer">
       <a href="/docs/index.html">Docs</a>
       <a href="/docs/protocol.html">Protocol</a>
@@ -631,7 +631,7 @@ Every product claim, its source, and where it appears.
 | --- | --- | --- |
 | "One link. Many agents. All governed." | PRODUCT_ROADMAP §2 (the Room concept) | Hero headline |
 | "9 documented MCP paths" | `index.html` current + compatibility page | Hero stat strip, proof list |
-| "1 verified Finalisma host integration (OpenCode 1.18.13)" | INTEROP_VALIDATION §1, §3 | Hero stat strip, proof list |
+| "1 verified Weft host integration (OpenCode 1.18.13)" | INTEROP_VALIDATION §1, §3 | Hero stat strip, proof list |
 | "0 provider credentials stored" | PRODUCT_ROADMAP §4 truthfulness + current page | Hero stat strip, proof list |
 | "0 runtime dependencies (stdlib + SQLite)" | AGENTS.md "dependency-free" promise | Proof list |
 | "1 coordinator node (single-node preview)" | PRODUCT_ROADMAP §4 (honest boundary) | Proof list |
@@ -643,12 +643,12 @@ Every product claim, its source, and where it appears.
 | "MCP is the tool protocol your hosts already speak" | Current page body | Problem / how-it-works |
 | "ordered, idempotent, replayable from the last cursor" | Current page body (event log) | How-it-works |
 | "scoped consent, fencing lease, evidence gate" | Current page body + INTEROP | How-it-works |
-| Real tool names: `finalisma_register_agent`, `finalisma_create_pairing`, `finalisma_join_pairing`, `finalisma_claim_task`, `finalisma_verify_task`, `finalisma_complete_task`, `finalisma_room_*` | INTEROP_HTTP §verbatim transcript | Connect tier config blocks |
+| Real tool names: `register_agent`, `create_pairing`, `join_pairing`, `claim_task`, `verify_task`, `complete_task`, `room_*` | INTEROP_HTTP §verbatim transcript | Connect tier config blocks |
 | Real error strings: `pairing_unavailable / "Pairing is consumed"`, `member_required / "Only room members can access this room"`, `actor_auth_invalid / "Actor token is invalid"`, `bootstrap_reused`, `Actor token mismatch` | INTEROP_HTTP §negative, INTEROP_SDK §negative, INTEROP_BRIDGE §negative | Live demo refusal section |
 | `protocolVersion: 2025-11-25` | INTEROP_HTTP §initialize | Connect tier (HTTP panel) |
-| `serverInfo: finalisma-mcp/0.1.0` | INTEROP_HTTP §initialize | Connect tier (HTTP panel) |
+| `serverInfo: weft-mcp/0.1.0` | INTEROP_HTTP §initialize | Connect tier (HTTP panel) |
 | `mcp.json` config shape (stdio) | INTEROP_VALIDATION §3 (opencode schema) | Connect tier (stdio panel) |
-| SDK: `FinalismaClient`, `_call("finalisma_room_*")` | INTEROP_SDK §honest status | Connect tier (SDK panel) |
+| SDK: `WeftClient`, `_call("room_*")` | INTEROP_SDK §honest status | Connect tier (SDK panel) |
 | Bridge: `ClipboardBridge`, `PollingBridge`, `WebhookBridge` | INTEROP_BRIDGE §summary | Connect tier (bridge panel) |
 
 ### 7.1 Hero headline + tagline (PROPOSED)
@@ -690,10 +690,10 @@ Same for `capture-site-qa.cjs` hooks.
 | Exactly one `<h1>` | **KEEP AS-IS** | Still one h1 (hero headline). |
 | `"One incident. Two agents. One account of what happened."` | **REPLACE** | New headline: `"One link. Many agents. All governed."` — update assertion string. |
 | `"9 documented MCP paths"` | **KEEP AS-IS** | Still in hero stat strip + proof list. |
-| `"1 verified Finalisma host integration"` | **KEEP AS-IS** | Still in hero stat strip. |
+| `"1 verified Weft host integration"` | **KEEP AS-IS** | Still in hero stat strip. |
 | `"next proof pair, Claude Code + Cursor"` | **KEEP AS-IS** | In proof section note. |
 | `type="application/ld+json"` | **KEEP AS-IS** | JSON-LD retained (updated description). |
-| `og:site_name = "Finalisma"` | **KEEP AS-IS** | Retained. |
+| `og:site_name = "Weft"` | **KEEP AS-IS** | Retained. |
 | `twitter:image = "/assets/og-card.png"` | **KEEP AS-IS** | Retained (asset still shipped). |
 | `aria-live="polite"` | **KEEP AS-IS** | On `[data-agent-readout]` + `[data-agent-events]`. |
 | `data-sim-label` + `"Simulated account · no credentials · no live session"` | **REPLACE** | New hook: `[data-agent-readout]` with seed text `"Ready · simulated demo · no credentials"`. Update assertion. |
@@ -704,7 +704,7 @@ Same for `capture-site-qa.cjs` hooks.
 | `href="/demo.html"` | **KEEP AS-IS** | Demo page still exists. |
 | `"$500 deposit"` | **KEEP AS-IS** | In pricing section. |
 | `assertNotIn "verified agent handoff layer"` | **KEEP AS-IS** | Still absent. |
-| `assertNotIn "Finalisma A2A Standard"` | **KEEP AS-IS** | Still absent. |
+| `assertNotIn "Weft A2A Standard"` | **KEEP AS-IS** | Still absent. |
 | `assertNotIn "gpt-5.5"` | **KEEP AS-IS** | Still absent. |
 | `assertNotIn "lorem ipsum"` | **KEEP AS-IS** | Still absent. |
 
@@ -758,7 +758,7 @@ Untouched by the landing-page redesign.
 | `"One incident. Two agents."` in `/` body | **REPLACE** | New hero copy. Update assertion to `"One link. Many agents."` |
 | `200` on `/docs/compatibility.html` + `"Documented is not verified."` | **KEEP AS-IS** | Untouched. |
 | `200` on `/demo.html` + `"A real coordinator run."` | **KEEP AS-IS** | Demo page untouched. |
-| `site.webmanifest` name = "Finalisma" | **KEEP AS-IS** | Untouched. |
+| `site.webmanifest` name = "Weft" | **KEEP AS-IS** | Untouched. |
 | `200` on demo mp4 | **KEEP AS-IS** | Untouched. |
 | og-card.png `Cache-Control` | **KEEP AS-IS** | Untouched. |
 | `404` + `"This path is not in the account."` | **KEEP AS-IS** | 404 page + message retained (may update wording to product voice but keep the test string, OR update both). |
@@ -808,7 +808,7 @@ The updated `capture-site-qa.cjs` must assert:
 14. **Hero canvas mounts:** `[data-agent-canvas]` has non-zero dimensions within 2s — NEW.
 15. **Agent graph animates:** at least 3 distinct canvas states captured over 2s — NEW (sample pixels or a `window.__agentFrameCount` hook).
 16. **Gate refusal fires:** `[data-gate-state]` reaches "REFUSED" within the demo loop — NEW.
-17. **Link generated:** `[data-generated-link]` is non-empty and matches `finalisma.*/r/` pattern — NEW.
+17. **Link generated:** `[data-generated-link]` is non-empty and matches `weft.*/r/` pattern — NEW.
 18. **Copy works:** clicking `[data-copy]` sets clipboard + visible status — NEW (replaces old copy-status string check).
 19. **Tier tabs switch:** clicking `[data-tier-tab]` shows the matching `[data-tier-panel]` — NEW.
 20. **No third-party requests** — unchanged.

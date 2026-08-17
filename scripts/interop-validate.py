@@ -1,4 +1,4 @@
-"""Finalisma real-MCP stdio protocol validation driver.
+"""Weft real-MCP stdio protocol validation driver.
 
 Spawns the coordinator itself over STDIO (MCP's primary transport), speaks
 real MCP JSON-RPC (initialize / tools/list / tools/call), exercises the full
@@ -17,6 +17,8 @@ import tempfile
 import time
 from pathlib import Path
 
+from _transcript_safety import redact_transcript_line
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
@@ -29,7 +31,7 @@ class InteropError(RuntimeError):
 
 
 def main() -> int:
-    scratch = tempfile.TemporaryDirectory(prefix="finalisma-interop-")
+    scratch = tempfile.TemporaryDirectory(prefix="weft-interop-")
     workspace = Path(scratch.name)
     transcript: list[str] = []
     started = time.monotonic()
@@ -38,7 +40,7 @@ def main() -> int:
         [
             sys.executable,
             "-B",
-            "scripts/finalisma-mcp.py",
+            "scripts/weft-mcp.py",
             "--transport",
             "stdio",
             "--team-id",
@@ -46,7 +48,7 @@ def main() -> int:
             "--workspace",
             str(workspace),
             "--state",
-            str(workspace / ".finalisma" / "state.db"),
+            str(workspace / ".weft" / "state.db"),
         ],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -61,14 +63,15 @@ def main() -> int:
         payload = {"jsonrpc": "2.0", "id": request_id, "method": method}
         if params is not None:
             payload["params"] = params
-        transcript.append(f"> {json.dumps(payload, separators=(",", ":"))}")
+        encoded_payload = json.dumps(payload, separators=(",", ":"))
+        transcript.append(f"> {redact_transcript_line(encoded_payload)}")
         assert proc.stdin is not None and proc.stdout is not None
-        proc.stdin.write(json.dumps(payload, separators=(",", ":")) + "\n")
+        proc.stdin.write(encoded_payload + "\n")
         proc.stdin.flush()
         line = proc.stdout.readline()
         if not line:
             raise InteropError("server closed stdin without a reply")
-        transcript.append(f"< {line.strip()}")
+        transcript.append(f"< {redact_transcript_line(line.strip())}")
         reply = json.loads(line)
         if "error" in reply:
             raise InteropError(f"JSON-RPC error {reply['error']}")
@@ -99,61 +102,61 @@ def main() -> int:
         tool_names = [t["name"] for t in tools]
         transcript.append(f"# tools/list: {len(tools)} tools")
         required_tools = {
-            "finalisma_register_agent",
-            "finalisma_create_pairing",
-            "finalisma_pairing_preview",
-            "finalisma_join_pairing",
-            "finalisma_create_task",
-            "finalisma_claim_task",
-            "finalisma_verify_task",
-            "finalisma_complete_task",
+            "register_agent",
+            "create_pairing",
+            "pairing_preview",
+            "join_pairing",
+            "create_task",
+            "claim_task",
+            "verify_task",
+            "complete_task",
         }
         missing = required_tools - set(tool_names)
         if missing:
             raise InteropError(f"tools/list missing required tools: {missing}")
 
         # 3. register two agents (stdio auto = trusted, but pass tokens explicitly)
-        reg_a = call_tool(3, "finalisma_register_agent", {"team_id": TEAM_ID, "agent_id": "agent-a", "role": "architect", "name": "Planner"})
+        reg_a = call_tool(3, "register_agent", {"team_id": TEAM_ID, "agent_id": "agent-a", "role": "architect", "name": "Planner"})
         token_a = reg_a["actor_token"]
-        reg_b = call_tool(4, "finalisma_register_agent", {"team_id": TEAM_ID, "agent_id": "agent-b", "role": "builder", "name": "Builder"})
+        reg_b = call_tool(4, "register_agent", {"team_id": TEAM_ID, "agent_id": "agent-b", "role": "builder", "name": "Builder"})
         token_b = reg_b["actor_token"]
 
         # pairing link + preview + join with consent=true
-        pairing = call_tool(5, "finalisma_create_pairing", {"initiator_id": "agent-a", "team_id": TEAM_ID, "capabilities_offered": ["read", "comment"], "actor_token": token_a})
+        pairing = call_tool(5, "create_pairing", {"initiator_id": "agent-a", "team_id": TEAM_ID, "capabilities_offered": ["read", "comment"], "actor_token": token_a})
         join_token = pairing["join_token"]
-        preview = call_tool(6, "finalisma_pairing_preview", {"token": join_token})
+        preview = call_tool(6, "pairing_preview", {"token": join_token})
         if preview.get("status") != "issued":
             raise InteropError(f"pairing preview status != issued: {preview}")
-        joined = call_tool(7, "finalisma_join_pairing", {"token": join_token, "agent_id": "agent-b", "consent": True, "actor_token": token_b})
+        joined = call_tool(7, "join_pairing", {"token": join_token, "agent_id": "agent-b", "consent": True, "actor_token": token_b})
         if joined.get("state") not in ("active", "open"):
             raise InteropError(f"join state not active/open: {joined}")
 
         # 4. create task, claim, write artifact, verify evidence, complete
         task_result = call_tool(
             8,
-            "finalisma_create_task",
+            "create_task",
             {"team_id": TEAM_ID, "created_by": "agent-a", "title": "Interop review", "description": "Verify the retry boundary in handoff.txt", "scope": ["handoff.txt"], "preferred_agent": "agent-b", "idempotency_key": "interop-task-v1", "actor_token": token_a},
         )
         task_id = task_result["task"]["task_id"]
-        claimed = call_tool(9, "finalisma_claim_task", {"team_id": TEAM_ID, "agent_id": "agent-b", "task_id": task_id, "actor_token": token_b})
+        claimed = call_tool(9, "claim_task", {"team_id": TEAM_ID, "agent_id": "agent-b", "task_id": task_id, "actor_token": token_b})
         fencing = claimed["fencing_token"]
         artifact = workspace / "handoff.txt"
         artifact.write_text("synthetic interop evidence\n", encoding="utf-8")
         verified = call_tool(
             10,
-            "finalisma_verify_task",
+            "verify_task",
             {"team_id": TEAM_ID, "agent_id": "agent-b", "task_id": task_id, "fencing_token": fencing, "files": ["handoff.txt"], "checks": [{"name": "interop-check", "status": "passed", "evidence": "artifact present"}], "actor_token": token_b},
         )
         if not verified.get("passed"):
             raise InteropError(f"evidence gate did not pass: {verified}")
-        completed = call_tool(11, "finalisma_complete_task", {"team_id": TEAM_ID, "agent_id": "agent-b", "task_id": task_id, "fencing_token": fencing, "summary": "Interop verified", "actor_token": token_b})
+        completed = call_tool(11, "complete_task", {"team_id": TEAM_ID, "agent_id": "agent-b", "task_id": task_id, "fencing_token": fencing, "summary": "Interop verified", "actor_token": token_b})
         if completed.get("status") != "done":
             raise InteropError(f"complete status != done: {completed}")
 
         # 5. NEGATIVE case: reuse the one-use pairing link
         negative_transcript = []
         try:
-            call_tool(12, "finalisma_join_pairing", {"token": join_token, "agent_id": "agent-c", "consent": True})
+            call_tool(12, "join_pairing", {"token": join_token, "agent_id": "agent-c", "consent": True})
             negative_transcript.append("JOIN_REUSE: NOT refused (unexpected)")
             refused = False
         except InteropError as exc:
@@ -181,12 +184,27 @@ def main() -> int:
         print(json.dumps({"status": "failed", "error": str(exc), "transcript": transcript}, indent=2))
         return 1
     finally:
-        proc.terminate()
+        # Let the stdio reader observe EOF so __main__.finally can close the
+        # store cleanly. TerminateProcess on Windows skips Python finally
+        # blocks and can leave SQLite handles open long enough to make
+        # TemporaryDirectory.cleanup raise WinError 32.
+        if proc.stdin is not None:
+            try:
+                proc.stdin.close()
+            except OSError:
+                pass
         try:
             proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait(timeout=10)
+            proc.terminate()
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=10)
+        for stream in (proc.stdout, proc.stderr):
+            if stream is not None:
+                stream.close()
         scratch.cleanup()
 
 
