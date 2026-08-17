@@ -7,12 +7,12 @@ compatibility claim.
 ## Latest regression evidence
 
 Measured locally on the current source/test stack (branch
-`codex/weft-sdk-transport-hardening-2026-08-17`):
+`codex/weft-session-renewal-clean-2026-08-17`):
 
 - Command: `python -B -m unittest discover -s tests -p "test_*.py"`
-- Result: **1144 tests discovered; 1143 passed; 1 skipped**
-- Duration: 456.610 seconds on the local Windows runner
-- Focused SDK/interop/count-guard suite: 33 tests passed locally
+- Result: **1153 tests discovered; 1152 passed; 1 skipped**
+- Duration: 458.033 seconds on the local Windows runner
+- Focused hosted identity/REST/browser/count suite: 37 tests passed locally
 - Site build: not rerun in this SDK-only local command; prior site evidence
   remains on the earlier stacked PRs
 - `git diff --check`: passed

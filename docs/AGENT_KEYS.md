@@ -9,7 +9,7 @@ self-hosted actor and pairing credentials.
 | Prefix | Plane | Purpose | Storage contract |
 | --- | --- | --- | --- |
 | `agk_` | Hosted cloud identity | Long-lived agent key for client configuration | Raw token is returned once; only its SHA-256 hash is stored. |
-| `fss_` | Hosted cloud identity | Interactive browser/API session | Session credential with expiry/revocation; raw value is not recoverable from storage. |
+| `fss_` | Hosted cloud identity | Interactive browser/API session | Session credential with expiry/revocation; an unexpired session may be rotated once; raw value is not recoverable from storage. |
 | `fst_actor_` | Legacy self-hosted MCP | Local actor credential | Self-hosted only; not a hosted cloud credential. |
 | `fst_pair` / `fst_session` | Legacy self-hosted pairing | Local pairing/session credentials | Separate from hosted `agk_` and `fss_` credentials. |
 

@@ -113,6 +113,66 @@ def validate(backend: Any, raw_token: str) -> SessionContext:
     )
 
 
+def rotate(backend: Any, current_raw_token: str,
+           ttl_seconds: int = DEFAULT_TTL_SECONDS) -> tuple[str, str]:
+    """Atomically replace one active session with a fresh session.
+
+    The presented credential is accepted only when it is an active, unexpired
+    ``fss_`` session. Tenant and account identity come from that stored session
+    row; the replacement role is re-derived from the current membership in the
+    same transaction. The old row is conditionally revoked before the new
+    hashed token row is inserted, so replay and concurrent rotation attempts
+    fail with the same generic ``invalid_session`` error.
+    """
+    ensure_schema(backend)
+    if not isinstance(current_raw_token, str) or not current_raw_token.startswith("fss_"):
+        raise AuthError("invalid_session")
+
+    current_token_hash = hash_token(current_raw_token)
+    new_session_id = _new_id("ses")
+    new_raw_token = generate_token("fss")
+    new_token_hash = hash_token(new_raw_token)
+    now = _time.time()
+
+    with backend.transaction() as tx:
+        row = tx.execute(
+            "SELECT session_id, tenant_id, account_id, expires_at, revoked_at, role_snapshot "
+            "FROM cloud_identity_sessions WHERE token_hash = ?",
+            (current_token_hash,),
+        ).fetchone()
+        if row is None or row["revoked_at"] is not None or row["expires_at"] <= now:
+            raise AuthError("invalid_session")
+
+        membership = tx.execute(
+            "SELECT role FROM cloud_identity_members "
+            "WHERE tenant_id = ? AND account_id = ?",
+            (row["tenant_id"], row["account_id"]),
+        ).fetchone()
+        if membership is None:
+            raise AuthError("invalid_session")
+        if membership["role"] != row["role_snapshot"]:
+            raise AuthError("invalid_session")
+
+        revoked = tx.execute(
+            "UPDATE cloud_identity_sessions SET revoked_at = ? "
+            "WHERE session_id = ? AND token_hash = ? AND revoked_at IS NULL "
+            "AND expires_at > ?",
+            (now, row["session_id"], current_token_hash, now),
+        )
+        if revoked.rowcount != 1:
+            raise AuthError("invalid_session")
+
+        tx.execute(
+            "INSERT INTO cloud_identity_sessions("
+            " session_id, tenant_id, account_id, token_hash, created_at, expires_at, role_snapshot"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (new_session_id, row["tenant_id"], row["account_id"], new_token_hash,
+             utc_now_iso(), now + ttl_seconds, row["role_snapshot"]),
+        )
+        tx.commit()
+    return new_session_id, new_raw_token
+
+
 def revoke(backend: Any, session_id: str) -> None:
     ensure_schema(backend)
     now = _time.time()
@@ -191,6 +251,9 @@ class SessionStore:
 
     def validate(self, backend, raw_token):
         return validate(backend, raw_token)
+
+    def rotate(self, backend, current_raw_token, ttl_seconds=DEFAULT_TTL_SECONDS):
+        return rotate(backend, current_raw_token, ttl_seconds=ttl_seconds)
 
     def revoke(self, backend, session_id):
         return revoke(backend, session_id)

@@ -47,6 +47,7 @@ from weft_cloud.identity import (
     ensure_identity_schema,
 )
 from weft_cloud.identity.schema import ensure_schema as _ensure_identity_schema
+from weft_cloud.identity.sessions import DEFAULT_TTL_SECONDS
 from weft_cloud.mcp import (
     HostedMCPAuthError,
     HostedMCPDispatcher,
@@ -443,6 +444,26 @@ class WeftCloudService:
             "tenant_id": tenant_id,
             "session_token": session_token,
             "role": role,
+        })
+
+    def handle_refresh(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
+        """Rotate one live hosted session into a fresh one-time bearer.
+
+        Refresh is deliberately session-only: agent keys are the stable
+        connector credential and must never become refreshable through this
+        endpoint. The body is consumed before authentication so a rejected
+        request cannot leave unread bytes on a persistent HTTP connection.
+        """
+        _read_body(handler)
+        token = _bearer_token(handler)
+        self._authenticate_session(handler)
+        enforce_auth_rate_limit(
+            self.backend, handler, "refresh", limits=self.auth_rate_limits,
+        )
+        _session_id, new_token = self.sessions.rotate(self.backend, token or "")
+        return _json_response(HTTPStatus.OK, {
+            "session_token": new_token,
+            "expires_in": DEFAULT_TTL_SECONDS,
         })
 
     def handle_signout(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
@@ -1491,6 +1512,7 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
         routes = {
             "/v1/auth/signup": self.service.handle_signup,
             "/v1/auth/signin": self.service.handle_signin,
+            "/v1/auth/refresh": self.service.handle_refresh,
             "/v1/auth/signout": self.service.handle_signout,
             "/v1/rooms/create": self.service.handle_create_room,
             "/v1/rooms/connect": self.service.handle_connect_room,

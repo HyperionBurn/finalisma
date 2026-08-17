@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from weft_cloud.storage import StorageBackend, SqliteWalBackend
 
 # The identity package does not exist yet — this import is the RED gate.
-from weft_cloud.identity import accounts, sessions
+from weft_cloud.identity import accounts, agent_keys, sessions
 from weft_cloud.identity.context import SessionContext, RoleError
 from weft_cloud.identity.tokens import AuthError
 
@@ -243,6 +243,131 @@ class SessionContractTests(unittest.TestCase):
         # Old token still fails.
         with self.assertRaises(AuthError):
             sessions.validate(self.backend, old_token)
+
+    def test_rotate_reissues_session_and_refuses_old_token(self) -> None:
+        old_session_id, old_token = sessions.create(
+            self.backend, self.tenant_id, self.account_id, role="member"
+        )
+
+        new_session_id, new_token = sessions.rotate(self.backend, old_token)
+
+        self.assertNotEqual(new_session_id, old_session_id)
+        self.assertNotEqual(new_token, old_token)
+        self.assertEqual(sessions.validate(self.backend, new_token).role, "member")
+        with self.assertRaises(AuthError) as cm:
+            sessions.validate(self.backend, old_token)
+        self.assertEqual(cm.exception.code, "invalid_session")
+
+        with self.backend.transaction() as tx:
+            old_row = tx.execute(
+                "SELECT revoked_at FROM cloud_identity_sessions WHERE session_id = ?",
+                (old_session_id,),
+            ).fetchone()
+            new_row = tx.execute(
+                "SELECT revoked_at FROM cloud_identity_sessions WHERE session_id = ?",
+                (new_session_id,),
+            ).fetchone()
+        self.assertIsNotNone(old_row["revoked_at"])
+        self.assertIsNone(new_row["revoked_at"])
+
+    def test_rotate_stores_only_hashes_for_new_session(self) -> None:
+        _, old_token = sessions.create(
+            self.backend, self.tenant_id, self.account_id, role="member"
+        )
+        new_session_id, new_token = sessions.rotate(self.backend, old_token)
+
+        with self.backend.transaction() as tx:
+            row = tx.execute(
+                "SELECT token_hash FROM cloud_identity_sessions WHERE session_id = ?",
+                (new_session_id,),
+            ).fetchone()
+            all_rows = tx.execute("SELECT * FROM cloud_identity_sessions").fetchall()
+        self.assertEqual(row["token_hash"], _sha256(new_token))
+        self.assertNotEqual(row["token_hash"], new_token)
+        for stored_row in all_rows:
+            self.assertNotIn(new_token, tuple(stored_row))
+            self.assertNotIn(old_token, tuple(stored_row))
+
+    def test_rotate_refuses_expired_revoked_agent_key_and_replayed_credentials(self) -> None:
+        _, expired_token = sessions.create(
+            self.backend, self.tenant_id, self.account_id, role="member"
+        )
+        with self.backend.transaction() as tx:
+            tx.execute(
+                "UPDATE cloud_identity_sessions SET expires_at = ? WHERE token_hash = ?",
+                (time.time() - 1, _sha256(expired_token)),
+            )
+            tx.commit()
+
+        _, revoked_token = sessions.create(
+            self.backend, self.tenant_id, self.account_id, role="member"
+        )
+        with self.backend.transaction() as tx:
+            revoked_row = tx.execute(
+                "SELECT session_id FROM cloud_identity_sessions WHERE token_hash = ?",
+                (_sha256(revoked_token),),
+            ).fetchone()
+        sessions.revoke(self.backend, revoked_row["session_id"])
+
+        _, agent_key_token = agent_keys.create(
+            self.backend, self.tenant_id, self.account_id, label="rotate-test"
+        )
+        _, replay_token = sessions.create(
+            self.backend, self.tenant_id, self.account_id, role="member"
+        )
+        sessions.rotate(self.backend, replay_token)
+
+        for invalid_token in (expired_token, revoked_token, agent_key_token, replay_token):
+            with self.assertRaises(AuthError) as cm:
+                sessions.rotate(self.backend, invalid_token)
+            self.assertEqual(cm.exception.code, "invalid_session")
+            self.assertNotIn(invalid_token, str(cm.exception))
+
+    def test_rotate_concurrent_replay_allows_exactly_one_winner(self) -> None:
+        from concurrent.futures import ThreadPoolExecutor
+
+        _, old_token = sessions.create(
+            self.backend, self.tenant_id, self.account_id, role="member"
+        )
+
+        def attempt() -> str:
+            try:
+                sessions.rotate(self.backend, old_token)
+            except AuthError:
+                return "rejected"
+            return "rotated"
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            outcomes = list(pool.map(lambda _: attempt(), range(2)))
+        self.assertEqual(outcomes.count("rotated"), 1)
+        self.assertEqual(outcomes.count("rejected"), 1)
+
+    def test_rotate_preserves_role_snapshot_and_requires_membership(self) -> None:
+        _, old_token = sessions.create(
+            self.backend, self.tenant_id, self.account_id, role="member"
+        )
+
+        _, new_token = sessions.rotate(self.backend, old_token)
+
+        context = sessions.validate(self.backend, new_token)
+        self.assertEqual(context.tenant_id, self.tenant_id)
+        self.assertEqual(context.account_id, self.account_id)
+        self.assertEqual(context.role, "member")
+
+        self._set_membership_role("admin")
+        with self.assertRaises(AuthError) as cm:
+            sessions.rotate(self.backend, new_token)
+        self.assertEqual(cm.exception.code, "invalid_session")
+
+        with self.backend.transaction() as tx:
+            tx.execute(
+                "DELETE FROM cloud_identity_members WHERE tenant_id = ? AND account_id = ?",
+                (self.tenant_id, self.account_id),
+            )
+            tx.commit()
+        with self.assertRaises(AuthError) as cm:
+            sessions.rotate(self.backend, new_token)
+        self.assertEqual(cm.exception.code, "invalid_session")
 
     # --- 7. SessionContext.require_role ---
     def test_require_role_raises_for_lower_role_passes_for_equal(self) -> None:

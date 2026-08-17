@@ -6,7 +6,7 @@ enforcement calls ``limiter.check()`` / ``limiter.enforce()`` only.
 
 Authoritative spec: docs/CLOUD_SPINE_DESIGN.md section 5.3.
 
-Auth endpoints (signup, signin, reset-request) are enforced through the SAME
+Auth endpoints (signup, signin, reset-request, refresh) are enforced through the SAME
 ``RateLimiter`` here — one mechanism, reused. ``enforce_auth_rate_limit``
 maps each public auth action onto a fixed-window limit keyed on the client IP
 and on the normalized email. The email tier is counted REGARDLESS of whether
@@ -35,6 +35,7 @@ DEFAULT_AUTH_RATE_LIMITS: dict[str, dict[str, Any]] = {
     "signup": {"ip": 20, "email": 5, "window_seconds": 900},
     "signin": {"ip": 40, "email": 20, "window_seconds": 900},
     "reset_request": {"ip": 10, "email": 3, "window_seconds": 900},
+    "refresh": {"ip": 60, "email": 60, "window_seconds": 900},
 }
 
 

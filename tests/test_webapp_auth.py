@@ -251,6 +251,43 @@ class TestLogin(unittest.TestCase):
         self.assertEqual(headers2["Location"], "/login")
         self.driver.cookies = saved
 
+    def test_refresh_rotates_browser_cookie_with_csrf(self):
+        status, _, _ = self.driver.post(
+            "/login", {"email": self.email, "password": self.password}
+        )
+        self.assertEqual(status, 303)
+        old_cookie = self.driver.cookies["fss_session"]
+        status, body, _ = self.driver.get("/")
+        self.assertEqual(status, 200)
+        csrf = self.driver.extract_csrf(body)
+        self.assertIsNotNone(csrf)
+
+        status, _, headers = self.driver.post("/refresh", {"_csrf": csrf})
+        self.assertEqual(status, 303)
+        self.assertEqual(headers["Location"], "/")
+        new_cookie = self.driver.cookies["fss_session"]
+        self.assertNotEqual(new_cookie, old_cookie)
+
+        self.driver.cookies = {"fss_session": old_cookie}
+        old_status, _, old_headers = self.driver.get("/")
+        self.assertEqual(old_status, 303)
+        self.assertEqual(old_headers["Location"], "/login")
+        self.driver.cookies = {"fss_session": new_cookie}
+        new_status, _, _ = self.driver.get("/")
+        self.assertEqual(new_status, 200)
+
+    def test_refresh_wrong_csrf_preserves_browser_session(self):
+        status, _, _ = self.driver.post(
+            "/login", {"email": self.email, "password": self.password}
+        )
+        self.assertEqual(status, 303)
+        old_cookie = self.driver.cookies["fss_session"]
+        status, _, _ = self.driver.post("/refresh", {"_csrf": "wrong"})
+        self.assertEqual(status, 403)
+        self.assertEqual(self.driver.cookies["fss_session"], old_cookie)
+        status, _, _ = self.driver.get("/")
+        self.assertEqual(status, 200)
+
 
 class TestVerify(unittest.TestCase):
     def setUp(self):

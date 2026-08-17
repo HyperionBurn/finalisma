@@ -203,6 +203,7 @@ CREATE INDEX IF NOT EXISTS idx_identity_sessions_token
 | --- | --- | --- |
 | Create | `sessions.create(backend, tenant_id, account_id, role, ttl_seconds=86400) -> (session_id, raw_token)` | Issues session. Raw token returned once. |
 | Validate | `sessions.validate(backend, raw_token) -> SessionContext` | Looks up by hash, checks expiry + revocation. Returns `SessionContext` or raises `AuthError("invalid_session")`. |
+| Rotate | `sessions.rotate(backend, current_raw_token, ttl_seconds=86400) -> (session_id, raw_token)` | Atomically revokes one live session and issues a fresh one with the stored tenant/account/role. Expired, revoked, replayed, and agent-key credentials fail. |
 | Revoke | `sessions.revoke(backend, session_id) -> None` | Sets `revoked_at`. |
 | Revoke-all | `sessions.revoke_all_for_account(backend, account_id) -> None` | Sets `revoked_at` on ALL sessions for the account. Used by password change/reset. |
 | Revoke-all-for-tenant | `sessions.revoke_all_for_tenant(backend, tenant_id) -> None` | Nuclear option: revokes every session in a tenant. |
@@ -212,6 +213,15 @@ CREATE INDEX IF NOT EXISTS idx_identity_sessions_token
 **Policy: revoke-all + re-issue.** When an account's role changes (e.g., member → admin), ALL existing sessions for that account are revoked. The next request fails validation, forcing re-authentication, which creates a new session with the updated `role_snapshot`.
 
 **Why revoke (not update in place):** Sessions carry a `role_snapshot` captured at creation. Updating it in place would require either mutating sessions (fragile, race-prone) or re-validating role on every request (defeats the purpose of the snapshot). Revoke-all is simple, deterministic, and the re-auth cost is negligible (one login).
+
+An explicitly authenticated, unexpired session may also be rotated once through
+`POST /v1/auth/refresh`. Rotation is one-time and atomic: the old token is
+revoked before the new token is committed, and the new row copies only the
+server-derived tenant, account, and role. Refresh never resurrects an expired
+session and never accepts an `agk_` agent key. The browser adapter exposes the
+same operation at `POST /refresh` behind the existing CSRF double-submit check;
+static MCP connectors continue to use long-lived `agk_` keys instead of
+embedding a refresh secret.
 
 ### 4.5 Constant-time session lookup
 
@@ -224,9 +234,10 @@ row = tx.execute("SELECT * FROM cloud_identity_sessions WHERE token_hash = ?", (
 ### 4.6 Agent keys (`agk_`) — the long-lived sibling credential
 
 Added after the Wave-G lock (migration `cloud_012_identity_agent_keys`; canonical
-spec `docs/AGENT_KEYS.md`). Browser sessions die after 24h with no refresh path;
-a desktop MCP client holds a STATIC bearer token in a config file and never signs
-in, so it needs a credential with no expiry clock: the agent key.
+spec `docs/AGENT_KEYS.md`). Browser/API sessions expire after 24h but can be
+rotated while still live; a desktop MCP client holds a STATIC bearer token in a
+config file and never signs in, so it needs a credential with no expiry clock:
+the agent key.
 
 - **Raw token:** `agk_{secrets.token_urlsafe(32)}`, returned EXACTLY ONCE at
   creation (`agent_keys.create(backend, tenant_id, account_id, label)`).
