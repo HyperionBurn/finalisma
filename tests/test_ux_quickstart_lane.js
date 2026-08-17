@@ -48,6 +48,15 @@ test('quickstart states the hosted/self-hosted tool boundary and bridge prerequi
     assert.doesNotMatch(document, /coordinator_db=|nonce=/);
   }
 
+  for (const document of [connectSource, renderedBridge]) {
+    assert.match(
+      document,
+      /coordinator_url=["']http:\/\/127\.0\.0\.1:8787\/mcp["']|coordinator_url=&(?:#34;|quot;)http:\/\/127\.0\.0\.1:8787\/mcp(?:&#34;|&quot;)/,
+      'the SDK example must target the CLI default coordinator port'
+    );
+    assert.doesNotMatch(document, /127\.0\.0\.1:18787/, 'the SDK example must not ship a stale coordinator port');
+  }
+
   const hostedTools = [
     'room_create', 'room_join', 'room_send', 'room_receipts', 'room_poll',
     'room_wait', 'room_info', 'room_ack', 'room_heartbeat',
