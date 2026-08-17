@@ -426,7 +426,7 @@ The published test count is guarded automatically by
 same loader and pattern as `unittest discover -s tests` and fails if any
 published instance in `docs/` or `site/` claims a count ABOVE the live count
 (the guard protects against deleted tests; adding tests never invalidates a
-published number). The latest local count is **1136 discovered, 1135 passed,
+published number). The latest local count is **1139 discovered, 1138 passed,
 1 skipped**, measured 2026-08-17 and recorded in `docs/RELEASE_EVIDENCE.md`.
 If you delete tests, that guard will tell you what to update. Do not
 hand-maintain the number, and do not confuse the test count with the permanent
