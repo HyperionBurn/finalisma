@@ -263,8 +263,11 @@ The app reuses `site/styles.css` tokens and the `site/assets/fonts/` font files.
 > table in `rooms.py` is the cloud room service's link table: `token_hash`
 > only, no raw token, no `owner_actor_token`), no per-tenant coordinator DB is
 > opened, and `bind_room` is not called. Consequences: (a) the link token
-> cannot be re-rendered after a web-server restart until the room is touched
-> again — an accepted v1 tradeoff; (b) org membership (not room membership)
+> cannot be re-rendered after a web-server restart because the raw secret is
+> never persisted; the owner can use the CSRF-protected
+> `POST /room/{room_id}/regenerate-link` action to atomically replace the hash,
+> invalidate the old token, and repopulate the current process cache; (b) org
+> membership (not room membership)
 > gates the room pages, with payload redaction still applied per viewer
 > (`_filter_payload_for_agent`); (c) room ownership is the creating account,
 > so close/revoke-link use `CloudRoomService`'s `owner_required` check.
