@@ -478,6 +478,16 @@ class HostedMCPDispatcher:
                     "content": [{"type": "text", "text": json.dumps(
                         {"error": error}, ensure_ascii=False, allow_nan=False)}],
                 }
+            except AuthError as exc:
+                # A credential can be revoked or expire after pre-auth but
+                # before a room transaction validates it again. That is an
+                # actionable auth race, not a server defect.
+                tool_result = {
+                    "isError": True,
+                    "content": [{"type": "text", "text": json.dumps(
+                        {"error": {"code": exc.code, "message": str(exc)}},
+                        ensure_ascii=False, allow_nan=False)}],
+                }
             except Exception as exc:  # pragma: no cover - defensive last-resort boundary
                 print(f"weft-cloud MCP internal error: {type(exc).__name__}", file=sys.stderr)
                 tool_result = {
