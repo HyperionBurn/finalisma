@@ -1118,7 +1118,16 @@ class CloudRoomService:
             # transaction. Re-check the credential under the same writer lock
             # as the membership write so a key revoked after HTTP auth cannot
             # finish an in-flight join. A session is checked by its account
-            # identity; a key is checked by its own key identity.
+            # identity; a key is checked by its own key identity. The
+            # lower-level service API also permits an owning account session
+            # to authorize a key identity, which is used by cross-tenant
+            # offboarding flows; that path still requires the key itself to be
+            # active.
+            key_identity = tx.execute(
+                "SELECT account_id, revoked_at FROM cloud_identity_agent_keys "
+                "WHERE tenant_id = ? AND key_id = ?",
+                (tenant_id, agent_id),
+            ).fetchone()
             key_row = tx.execute(
                 "SELECT revoked_at FROM cloud_identity_agent_keys "
                 "WHERE tenant_id = ? AND key_id = ? AND token_hash = ?",
@@ -1136,9 +1145,20 @@ class CloudRoomService:
                 ).fetchone()
                 if (
                     session_row is None
-                    or session_row["account_id"] != agent_id
                     or session_row["revoked_at"] is not None
                     or float(session_row["expires_at"]) <= now_epoch
+                    or (
+                        key_identity is None
+                        and session_row["account_id"] != agent_id
+                    )
+                    or (
+                        key_identity is not None
+                        and key_identity["account_id"] != session_row["account_id"]
+                    )
+                    or (
+                        key_identity is not None
+                        and key_identity["revoked_at"] is not None
+                    )
                 ):
                     raise RoomError("actor_auth_invalid", "Actor token is invalid", 401)
             if room["state"] != "closed" and float(room["expires_at"] or 0.0) > 0 \
