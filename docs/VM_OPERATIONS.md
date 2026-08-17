@@ -158,7 +158,9 @@ failure so `systemctl --failed` surfaces the outage.
   of scope for this task. The MainPID decision logic, the line-ending
   fix, the gate's 3-outcome classifier, the backup, and the restore drill
   — everything that *can* be tested without a VM — is.
-- **`weft-outbox.service` is restarted-and-proven if it already exists on
-  the box, but its unit definition is not authored here** — there is no
-  confirmed `ExecStart` for a standalone outbox worker in this codebase to
-  write one correctly from scratch.
+- **`weft-outbox.service` is now authored as a secret-free template** in
+  `scripts/systemd/weft-outbox.service`. It is not installed or enabled by
+  this repository; the VM owner must create `/etc/weft/weft-email.env` with
+  mode 600, install the unit, and perform a controlled mailbox smoke test.
+  Live SMTP delivery, worker health, and queued/failed counts remain
+  deployment evidence rather than local claims.

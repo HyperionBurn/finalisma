@@ -414,6 +414,15 @@ class RedeployBackupSafetyTests(unittest.TestCase):
         self.assertIn("condition: service_healthy", block)
         self.assertIn("WEFT_WEB_PUBLIC_ORIGIN", compose)
 
+    def test_outbox_systemd_template_keeps_smtp_secrets_external(self):
+        unit = (SCRIPTS_DIR / "systemd" / "weft-outbox.service").read_text(encoding="utf-8")
+        self.assertIn("EnvironmentFile=-/etc/weft/weft-email.env", unit)
+        self.assertIn("Environment=WEFT_DB_PATH=/var/lib/finalisma/cloud.db", unit)
+        self.assertIn("weft_cloud.identity.outbox_worker", unit)
+        self.assertIn("Requires=weft-cloud.service weft-web.service", unit)
+        self.assertIn("Restart=on-failure", unit)
+        self.assertNotIn("WEFT_SMTP_PASSWORD=", unit)
+
 
 if __name__ == "__main__":
     unittest.main()

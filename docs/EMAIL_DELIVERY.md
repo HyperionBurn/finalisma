@@ -105,6 +105,12 @@ profile. After setting the SMTP variables above, run:
 docker compose --profile delivery up -d --build
 ```
 
+For the hosted VM, install `scripts/systemd/weft-outbox.service` and place
+only the `WEFT_SMTP_*` values in `/etc/weft/weft-email.env` with mode 600. The
+unit uses the canonical `/var/lib/finalisma/cloud.db` path and is included by
+the deploy restart proof when present; installation, enablement, and a real
+mailbox smoke test remain operator-controlled.
+
 ## Delivery contract
 
 - **At-least-once with idempotency.** A row is claimed with a conditional
