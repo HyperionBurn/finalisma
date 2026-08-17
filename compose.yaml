@@ -56,6 +56,7 @@ services:
       WEFT_WEB_PORT: "18789"
       WEFT_WEB_DB_PATH: "/data/weft-cloud.db"
       WEFT_WEB_STATE_DIR: "/data"
+      WEFT_PUBLIC_ORIGIN: "${WEFT_PUBLIC_ORIGIN:-http://127.0.0.1:18788}"
       WEFT_WEB_PUBLIC_ORIGIN: "${WEFT_WEB_PUBLIC_ORIGIN:-http://127.0.0.1:18789}"
     volumes:
       - weft-cloud-data:/data
