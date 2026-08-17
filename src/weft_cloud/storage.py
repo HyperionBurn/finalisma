@@ -155,18 +155,20 @@ class StorageBackend(ABC):
         """
 
     @abstractmethod
-    def mark_outbox_delivered(self, tenant_id: str, entry_id: str) -> None:
-        """Terminal state: mark a claimed outbox row delivered."""
+    def mark_outbox_delivered(self, tenant_id: str, entry_id: str,
+                              worker_id: str | None = None) -> bool:
+        """Terminal state, only for the worker that owns the current lease."""
 
     @abstractmethod
     def mark_outbox_retry(self, tenant_id: str, entry_id: str, attempts: int,
-                          next_attempt_at: float, error: str) -> None:
-        """Return a claimed row to ``queued`` with backoff after a transient failure."""
+                          next_attempt_at: float, error: str,
+                          worker_id: str | None = None) -> bool:
+        """Return a claimed row to ``queued`` only for its current lease owner."""
 
     @abstractmethod
     def mark_outbox_dead(self, tenant_id: str, entry_id: str, attempts: int,
-                         error: str) -> None:
-        """Terminal dead-letter state after repeated failure."""
+                         error: str, worker_id: str | None = None) -> bool:
+        """Terminal dead-letter state, fenced to the current lease owner."""
 
     # --- audit ---
     @abstractmethod
@@ -557,33 +559,43 @@ class SqliteWalBackend(StorageBackend):
             return [dict(r, **{"status": "claimed", "claimed_at": now,
                                "claimed_by": worker_id}) for r in rows]
 
-    def mark_outbox_delivered(self, tenant_id: str, entry_id: str) -> None:
+    def mark_outbox_delivered(self, tenant_id: str, entry_id: str,
+                              worker_id: str | None = None) -> bool:
         with self._transaction() as conn:
-            conn.execute(
+            cursor = conn.execute(
                 "UPDATE cloud_outbox SET status = 'delivered', dispatched_at = ?, "
-                "last_error = NULL WHERE tenant_id = ? AND entry_id = ? AND status = 'claimed'",
-                (utc_now_iso(), tenant_id, entry_id),
+                "last_error = NULL WHERE tenant_id = ? AND entry_id = ? "
+                "AND status = 'claimed' "
+                "AND ((claimed_by = ?) OR (claimed_by IS NULL AND ? IS NULL))",
+                (utc_now_iso(), tenant_id, entry_id, worker_id, worker_id),
             )
+            return cursor.rowcount == 1
 
     def mark_outbox_retry(self, tenant_id: str, entry_id: str, attempts: int,
-                          next_attempt_at: float, error: str) -> None:
+                          next_attempt_at: float, error: str,
+                          worker_id: str | None = None) -> bool:
         with self._transaction() as conn:
-            conn.execute(
+            cursor = conn.execute(
                 "UPDATE cloud_outbox SET status = 'queued', attempts = ?, next_attempt_at = ?, "
                 "claimed_at = NULL, claimed_by = NULL, last_error = ? "
-                "WHERE tenant_id = ? AND entry_id = ? AND status = 'claimed'",
-                (attempts, next_attempt_at, error, tenant_id, entry_id),
+                "WHERE tenant_id = ? AND entry_id = ? AND status = 'claimed' "
+                "AND ((claimed_by = ?) OR (claimed_by IS NULL AND ? IS NULL))",
+                (attempts, next_attempt_at, error, tenant_id, entry_id,
+                 worker_id, worker_id),
             )
+            return cursor.rowcount == 1
 
     def mark_outbox_dead(self, tenant_id: str, entry_id: str, attempts: int,
-                         error: str) -> None:
+                         error: str, worker_id: str | None = None) -> bool:
         with self._transaction() as conn:
-            conn.execute(
+            cursor = conn.execute(
                 "UPDATE cloud_outbox SET status = 'dead', attempts = ?, "
                 "claimed_at = NULL, claimed_by = NULL, last_error = ? "
-                "WHERE tenant_id = ? AND entry_id = ? AND status = 'claimed'",
-                (attempts, error, tenant_id, entry_id),
+                "WHERE tenant_id = ? AND entry_id = ? AND status = 'claimed' "
+                "AND ((claimed_by = ?) OR (claimed_by IS NULL AND ? IS NULL))",
+                (attempts, error, tenant_id, entry_id, worker_id, worker_id),
             )
+            return cursor.rowcount == 1
 
     def append_audit(self, tenant_id: str, action: str, actor: str, object_id: str, payload: str) -> None:
         with self._transaction() as conn:
