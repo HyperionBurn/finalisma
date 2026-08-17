@@ -352,6 +352,34 @@ class CloudOutboxMigrationTests(unittest.TestCase):
         for col in ("claimed_at", "claimed_by", "last_error", "dispatched_at"):
             self.assertTrue(self._has_column(col),
                             f"cloud_010 must add {col}")
+
+        import sqlite3
+        conn = sqlite3.connect(self.cloud_path)
+        try:
+            for table, index_name in (
+                ("cloud_outbox", "idx_cloud_outbox_claim"),
+                ("cloud_identity_outbox", "idx_cloud_identity_outbox_claim"),
+            ):
+                indexes = {
+                    row[1]
+                    for row in conn.execute(f"PRAGMA index_list('{table}')").fetchall()
+                }
+                self.assertIn(index_name, indexes,
+                              f"cloud_015 must create {index_name}")
+                plan = conn.execute(
+                    f"EXPLAIN QUERY PLAN SELECT entry_id FROM {table} "
+                    "WHERE (status = ? OR "
+                    "       (status = ? AND claimed_at IS NOT NULL AND claimed_at < ?)) "
+                    "AND next_attempt_at <= ? ORDER BY created_at LIMIT ?",
+                    ("queued", "claimed", 0.0, 0.0, 50),
+                ).fetchall()
+                details = " | ".join(row[3] for row in plan)
+                self.assertIn(index_name, details,
+                              f"claim plan for {table} must use {index_name}: {details}")
+                self.assertNotIn(f"SCAN {table}", details,
+                                 f"claim plan for {table} must not full-scan: {details}")
+        finally:
+            conn.close()
         self._apply()  # idempotent second run must not raise
 
 
