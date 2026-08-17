@@ -510,6 +510,8 @@ class TestConnectPage(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn(".muted{color:#707070;}", body)
         self.assertNotIn(".muted{color:#777;}", body)
+        self.assertIn("border:1px solid #767676;", body)
+        self.assertIn("border:1px solid #707070;", body)
 
     def test_connect_page_documents_a_working_join(self):
         """The page must document everything a working /v1/rooms/join needs.
