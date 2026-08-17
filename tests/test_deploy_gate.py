@@ -417,7 +417,10 @@ class RedeployBackupSafetyTests(unittest.TestCase):
             'WEFT_PUBLIC_ORIGIN: "${WEFT_PUBLIC_ORIGIN:-http://127.0.0.1:18788}"',
             web_block,
         )
-        self.assertIn("WEFT_WEB_PUBLIC_ORIGIN", web_block)
+        self.assertIn(
+            'WEFT_WEB_PUBLIC_ORIGIN: "${WEFT_WEB_PUBLIC_ORIGIN:-${WEFT_PUBLIC_ORIGIN:-http://127.0.0.1:18789}}"',
+            web_block,
+        )
         start = compose.index("  weft-outbox:")
         block = compose[start:compose.index("\nvolumes:", start)]
         self.assertIn('profiles: ["delivery"]', block)
