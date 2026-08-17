@@ -21,6 +21,7 @@ import os
 import re
 import secrets
 import ssl
+import threading
 import time as _time
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -297,6 +298,7 @@ class WeftWebApp:
         self.invites = InviteStore(backend)
         self.rooms = CloudRoomService(backend)
         self._link_token_cache: dict[str, str] = {}
+        self._link_token_lock = threading.RLock()
         self.secure_cookies = _resolve_cookie_secure_flag()
         _ensure_identity_schema(backend)
         self.rooms._ensure_room_schema()
@@ -735,10 +737,12 @@ class WeftWebApp:
         return events
 
     def _get_room_link_token(self, room_id: str) -> str | None:
-        return self._link_token_cache.get(room_id)
+        with self._link_token_lock:
+            return self._link_token_cache.get(room_id)
 
     def _store_link_token(self, room_id: str, raw_token: str) -> None:
-        self._link_token_cache[room_id] = raw_token
+        with self._link_token_lock:
+            self._link_token_cache[room_id] = raw_token
 
     # ------------------------------------------------------------------
     # Route handlers — public pre-auth
@@ -2067,12 +2071,19 @@ class WeftWebApp:
                             _page("Forbidden", '<p>CSRF validation failed.</p>'))
             return
         try:
-            result = self.rooms.regenerate_link(ctx.tenant_id, room_id, ctx.account_id)
+            # Keep the database replacement and the process-local cache update
+            # in one critical section. Otherwise two owner clicks can leave
+            # the UI holding the first token after the database has accepted
+            # the second one.
+            with self._link_token_lock:
+                result = self.rooms.regenerate_link(
+                    ctx.tenant_id, room_id, ctx.account_id
+                )
+                self._store_link_token(room_id, result["link_token"])
         except RoomError as exc:
             self._send_html(handler, exc.status,
                             _page("Regenerate link failed", f'<p>{_esc(exc.message)}</p>'))
             return
-        self._store_link_token(room_id, result["link_token"])
         self._redirect(handler, f"/room/{room_id}")
 
     def handle_post_room_close(self, handler: BaseHTTPRequestHandler, room_id: str) -> None:
@@ -2334,7 +2345,7 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
                 room_id = regenerate_match.group(1)
                 if method == "POST":
                     app.handle_post_room_regenerate_link(self, room_id)
-                return
+                    return
 
             # Static files
             if method == "GET" and app.static_dir:
