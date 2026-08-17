@@ -81,17 +81,29 @@ Authorization: Bearer &lt;agk_ agent key&gt;
 
 {&quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;id&quot;:1,&quot;method&quot;:&quot;initialize&quot;,&quot;params&quot;:{}}</code><span class="code-block__caret" aria-hidden="true" data-astro-cid-ssg75jnq></span></pre> <button class="btn btn-sm group" data-copy="http" type="button" data-astro-cid-ssg75jnq>Copy config<span class="btn__icon" aria-hidden="true" data-astro-cid-ssg75jnq>→</span></button> </div> </div><div class="bezel tier-panel" role="tabpanel" id="tier-panel-bridge" aria-labelledby="tier-tab-bridge" tabindex="0" data-tier-panel="bridge" data-astro-cid-ssg75jnq> <div class="bezel__core" data-astro-cid-ssg75jnq> <pre class="code-block is-typewriter" data-code-block data-full="from weft_mcp.bridge import ClipboardBridge
 
-# One-shot bootstrap snippet — parsed once, then refused:
-clipboard = ClipboardBridge(coordinator_db=db)
+# Bind to the authenticated local coordinator store:
+clipboard = ClipboardBridge(store)
 snippet = clipboard.generate_bootstrap(
-    pairing_id=&#34;pair_...&#34;, nonce=&#34;d67ec2fe...&#34;)
-# 2nd parse refused: &#34;Bootstrap snippet has already been consumed&#34;" data-astro-cid-ssg75jnq><code data-astro-cid-ssg75jnq>from weft_mcp.bridge import ClipboardBridge
+    team_id=&#34;demo&#34;,
+    agent_id=&#34;agent-a&#34;,
+    endpoint=&#34;http://127.0.0.1:8787&#34;,
+    pairing_id=pairing[&#34;pairing_id&#34;],
+    join_token=pairing[&#34;join_token&#34;],
+    actor_token=actor_token,
+)
+# Parse once; a second parse is refused by the nonce guard." data-astro-cid-ssg75jnq><code data-astro-cid-ssg75jnq>from weft_mcp.bridge import ClipboardBridge
 
-# One-shot bootstrap snippet — parsed once, then refused:
-clipboard = ClipboardBridge(coordinator_db=db)
+# Bind to the authenticated local coordinator store:
+clipboard = ClipboardBridge(store)
 snippet = clipboard.generate_bootstrap(
-    pairing_id=&quot;pair_...&quot;, nonce=&quot;d67ec2fe...&quot;)
-# 2nd parse refused: &quot;Bootstrap snippet has already been consumed&quot;</code><span class="code-block__caret" aria-hidden="true" data-astro-cid-ssg75jnq></span></pre> <button class="btn btn-sm group" data-copy="bridge" type="button" data-astro-cid-ssg75jnq>Copy config<span class="btn__icon" aria-hidden="true" data-astro-cid-ssg75jnq>→</span></button> </div> </div><div class="bezel tier-panel" role="tabpanel" id="tier-panel-sdk" aria-labelledby="tier-tab-sdk" tabindex="0" data-tier-panel="sdk" data-astro-cid-ssg75jnq> <div class="bezel__core" data-astro-cid-ssg75jnq> <pre class="code-block is-typewriter" data-code-block data-full="from weft_sdk import WeftClient
+    team_id=&quot;demo&quot;,
+    agent_id=&quot;agent-a&quot;,
+    endpoint=&quot;http://127.0.0.1:8787&quot;,
+    pairing_id=pairing[&quot;pairing_id&quot;],
+    join_token=pairing[&quot;join_token&quot;],
+    actor_token=actor_token,
+)
+# Parse once; a second parse is refused by the nonce guard.</code><span class="code-block__caret" aria-hidden="true" data-astro-cid-ssg75jnq></span></pre> <button class="btn btn-sm group" data-copy="bridge" type="button" data-astro-cid-ssg75jnq>Copy config<span class="btn__icon" aria-hidden="true" data-astro-cid-ssg75jnq>→</span></button> </div> </div><div class="bezel tier-panel" role="tabpanel" id="tier-panel-sdk" aria-labelledby="tier-tab-sdk" tabindex="0" data-tier-panel="sdk" data-astro-cid-ssg75jnq> <div class="bezel__core" data-astro-cid-ssg75jnq> <pre class="code-block is-typewriter" data-code-block data-full="from weft_sdk import WeftClient
 
 client = WeftClient(
     coordinator_url=&#34;http://127.0.0.1:18787/mcp&#34;,

@@ -40,11 +40,17 @@ Authorization: Bearer <agk_ agent key>
     label: 'Bridge adapters',
     code: `from weft_mcp.bridge import ClipboardBridge
 
-# One-shot bootstrap snippet — parsed once, then refused:
-clipboard = ClipboardBridge(coordinator_db=db)
+# Bind to the authenticated local coordinator store:
+clipboard = ClipboardBridge(store)
 snippet = clipboard.generate_bootstrap(
-    pairing_id="pair_...", nonce="d67ec2fe...")
-# 2nd parse refused: "Bootstrap snippet has already been consumed"`,
+    team_id="demo",
+    agent_id="agent-a",
+    endpoint="http://127.0.0.1:8787",
+    pairing_id=pairing["pairing_id"],
+    join_token=pairing["join_token"],
+    actor_token=actor_token,
+)
+# Parse once; a second parse is refused by the nonce guard.`,
   },
   {
     id: 'sdk',
