@@ -394,6 +394,12 @@ class RedeployBackupSafetyTests(unittest.TestCase):
         self.assertIn("location /mcp", script,
                       "nginx must continue forwarding hosted MCP to weft-cloud")
 
+    def test_healthcheck_template_probes_edge_separately(self):
+        unit = (SCRIPTS_DIR / "systemd" / "weft-healthcheck.service").read_text(encoding="utf-8")
+        self.assertIn("Environment=WEFT_EDGE_URL=http://127.0.0.1", unit)
+        self.assertIn("--base-url http://127.0.0.1:18788", unit)
+        self.assertIn("--edge-url ${WEFT_EDGE_URL}", unit)
+
 
 if __name__ == "__main__":
     unittest.main()
