@@ -34,7 +34,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from weft_cloud.identity.tokens import hash_token
+from weft_cloud.identity.tokens import AuthError, hash_token
 from weft_cloud.mcp import MAX_JSON_RPC_BYTES
 from weft_cloud.service import WeftCloudService, _CloudHTTPHandler
 from weft_cloud.storage import SqliteWalBackend
@@ -273,6 +273,34 @@ class HostedMCPHandshakeTests(HostedMCPTestBase):
         status, pong = _mcp(self.base, "ping", None, token=token, request_id=3)
         self.assertEqual(status, HTTPStatus.OK)
         self.assertEqual(pong["result"], {})
+
+    def test_auth_failure_during_tool_transaction_is_structured(self) -> None:
+        """A session race must be actionable, not an internal server error."""
+        account = self._signup("tool-auth-race@example.com")
+        original_create_room = self.service.rooms.create_room
+
+        def fail_after_preauth(*args, **kwargs):
+            raise AuthError("invalid_session")
+
+        self.service.rooms.create_room = fail_after_preauth
+        try:
+            response = self._mcp_call(account["session_token"], "room_create", {"cap": 4})
+        finally:
+            self.service.rooms.create_room = original_create_room
+
+        self.assertTrue(response["isError"])
+        self.assertEqual(response["error"]["code"], "invalid_session")
+        with self.service.backend.transaction() as tx:
+            room_count = tx.execute(
+                "SELECT COUNT(*) AS n FROM cloud_rooms WHERE tenant_id = ?",
+                (account["tenant_id"],),
+            ).fetchone()["n"]
+            room_counter = tx.execute(
+                "SELECT value FROM cloud_counters WHERE tenant_id = ? AND counter = 'rooms'",
+                (account["tenant_id"],),
+            ).fetchone()
+        self.assertEqual(room_count, 0)
+        self.assertEqual(int(room_counter["value"]) if room_counter else 0, 0)
 
     def test_hosted_surface_is_a_small_correct_set(self) -> None:
         """The hosted surface exposes ONLY the room tools, never the full
