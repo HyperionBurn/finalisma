@@ -184,21 +184,25 @@ class CloudOutboxDrainer:
             ).fetchall()
         return [dict(r) for r in owned]
 
-    def mark_delivered(self, tenant_id: str, entry_id: str, now: float | None = None) -> None:
+    def mark_delivered(self, tenant_id: str, entry_id: str, now: float | None = None) -> bool:
         del now  # dispatched_at is written as ISO by the backend
-        self.backend.mark_outbox_delivered(tenant_id, entry_id)
+        return self.backend.mark_outbox_delivered(tenant_id, entry_id, self.worker_id)
 
     def mark_retry(self, tenant_id: str, entry_id: str, attempts: int,
-                   next_attempt_at: float, error: str) -> None:
-        self.backend.mark_outbox_retry(tenant_id, entry_id, attempts, next_attempt_at, error)
+                   next_attempt_at: float, error: str) -> bool:
+        return self.backend.mark_outbox_retry(
+            tenant_id, entry_id, attempts, next_attempt_at, error, self.worker_id
+        )
 
-    def mark_dead(self, tenant_id: str, entry_id: str, attempts: int, error: str) -> None:
-        self.backend.mark_outbox_dead(tenant_id, entry_id, attempts, error)
+    def mark_dead(self, tenant_id: str, entry_id: str, attempts: int, error: str) -> bool:
+        return self.backend.mark_outbox_dead(
+            tenant_id, entry_id, attempts, error, self.worker_id
+        )
 
     def drain_once(self, now: float | None = None) -> dict[str, int]:
         """One pass: claim due rows, deliver each exactly once, record outcomes."""
         now = _time.time() if now is None else now
-        result = {"claimed": 0, "sent": 0, "retried": 0, "dead": 0}
+        result = {"claimed": 0, "sent": 0, "retried": 0, "dead": 0, "lost": 0}
         for row in self.claim_due(now):
             result["claimed"] += 1
             tenant_id = row["tenant_id"]
@@ -209,24 +213,33 @@ class CloudOutboxDrainer:
                 attempts = row["attempts"] + 1
                 classification = _classify_error(exc)
                 if classification == "permanent" or attempts >= self.max_attempts:
-                    self.mark_dead(tenant_id, entry_id, attempts, classification)
-                    result["dead"] += 1
-                    logger.warning(
-                        "outbox delivery terminal entry_id=%s attempts=%d status=%s",
-                        entry_id, attempts, classification,
-                    )
+                    if self.mark_dead(tenant_id, entry_id, attempts, classification):
+                        result["dead"] += 1
+                        logger.warning(
+                            "outbox delivery terminal entry_id=%s attempts=%d status=%s",
+                            entry_id, attempts, classification,
+                        )
+                    else:
+                        result["lost"] += 1
+                        logger.warning("outbox lease lost before dead-letter entry_id=%s", entry_id)
                 else:
                     next_at = now + self.backoff_seconds * attempts
-                    self.mark_retry(tenant_id, entry_id, attempts, next_at, classification)
-                    result["retried"] += 1
-                    logger.info(
-                        "outbox delivery retry entry_id=%s attempts=%d next_attempt_at=%s",
-                        entry_id, attempts, next_at,
-                    )
+                    if self.mark_retry(tenant_id, entry_id, attempts, next_at, classification):
+                        result["retried"] += 1
+                        logger.info(
+                            "outbox delivery retry entry_id=%s attempts=%d next_attempt_at=%s",
+                            entry_id, attempts, next_at,
+                        )
+                    else:
+                        result["lost"] += 1
+                        logger.warning("outbox lease lost before retry entry_id=%s", entry_id)
                 continue
-            self.mark_delivered(tenant_id, entry_id)
-            result["sent"] += 1
-            logger.info("outbox delivered entry_id=%s", entry_id)
+            if self.mark_delivered(tenant_id, entry_id):
+                result["sent"] += 1
+                logger.info("outbox delivered entry_id=%s", entry_id)
+            else:
+                result["lost"] += 1
+                logger.warning("outbox lease lost before delivery completion entry_id=%s", entry_id)
         return result
 
 

@@ -182,6 +182,16 @@ class DeliveryDrainerTests(unittest.TestCase):
         self.assertEqual(row["status"], "claimed")
         self.assertEqual(row["claimed_by"], "worker-b")
 
+        # A late worker must not finalize or reschedule the newer claim.
+        self.assertFalse(worker_a.mark_delivered(self.tenant_id, entry_id))
+        self.assertFalse(worker_a.mark_retry(self.tenant_id, entry_id, 1, 1200.0, "stale"))
+        self.assertFalse(worker_a.mark_dead(self.tenant_id, entry_id, 1, "stale"))
+        row = self._row(entry_id)
+        self.assertEqual(row["status"], "claimed")
+        self.assertEqual(row["claimed_by"], "worker-b")
+        self.assertTrue(worker_b.mark_delivered(self.tenant_id, entry_id))
+        self.assertEqual(self._row(entry_id)["status"], "delivered")
+
     # -- 2. retry / terminal semantics --------------------------------------
 
     def test_transient_failure_retried_with_backoff_then_succeeds(self) -> None:
