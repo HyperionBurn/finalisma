@@ -536,6 +536,82 @@ class EndToEndSseStubTests(unittest.TestCase):
             _stop_proc(proc)
 
 
+class StaleSessionRecoveryTests(unittest.TestCase):
+    """A restarted upstream must not permanently poison a stdio client."""
+
+    class _StubHandler(BaseHTTPRequestHandler):
+        seen_session_ids: list[str | None] = []
+        request_count = 0
+
+        def log_message(self, format, *args):  # noqa: N802
+            return
+
+        def do_POST(self):  # noqa: N802
+            length = int(self.headers.get("Content-Length", "0"))
+            request = json.loads(self.rfile.read(length))
+            type(self).request_count += 1
+            type(self).seen_session_ids.append(self.headers.get("Mcp-Session-Id"))
+
+            if self.headers.get("Mcp-Session-Id") == "sid-old":
+                self.send_response(HTTPStatus.BAD_REQUEST)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+
+            if request.get("method") == "initialize":
+                result = {"protocolVersion": "2025-11-25"}
+                session_id = "sid-old" if type(self).request_count == 1 else "sid-new"
+            else:
+                result = {"echoed_method": request.get("method")}
+                session_id = None
+
+            payload = {"jsonrpc": "2.0", "id": request.get("id"), "result": result}
+            body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            if session_id:
+                self.send_header("Mcp-Session-Id", session_id)
+            self.end_headers()
+            self.wfile.write(body)
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._httpd = ThreadingHTTPServer(("127.0.0.1", 0), cls._StubHandler)
+        cls.port = cls._httpd.server_address[1]
+        cls.base = f"http://127.0.0.1:{cls.port}"
+        cls._StubHandler.seen_session_ids = []
+        cls._StubHandler.request_count = 0
+        cls.thread = threading.Thread(target=cls._httpd.serve_forever, daemon=True)
+        cls.thread.start()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls._httpd.shutdown()
+        cls._httpd.server_close()
+
+    def test_stale_session_reinitializes_then_retries_once(self) -> None:
+        bridge = StdioHttpBridge(self.base, "WEFT_STALE_SESSION_TOKEN")
+        with patch.dict(os.environ, {"WEFT_STALE_SESSION_TOKEN": "fss_stub-token"}):
+            first = bridge.exchange({
+                "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {"protocolVersion": "2025-11-25", "capabilities": {}},
+            })
+            self.assertEqual(first["result"]["protocolVersion"], "2025-11-25")
+            self.assertEqual(bridge.session_id, "sid-old")
+
+            second = bridge.exchange({
+                "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {},
+            })
+            self.assertEqual(second["result"]["echoed_method"], "tools/list")
+            self.assertEqual(bridge.session_id, "sid-new")
+
+        self.assertEqual(
+            self._StubHandler.seen_session_ids,
+            [None, "sid-old", None, "sid-new"],
+        )
+
+
 class EndToEndLocalCloudTests(StdioBridgeHostedTestBase):
     """Full stdio session against a LOCAL instance of our own hosted service."""
 
