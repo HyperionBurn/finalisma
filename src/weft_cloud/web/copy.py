@@ -61,11 +61,11 @@ def connect_page_body(room_id: str, link_token: str) -> str:
         "the link IS the authorization.</p>"
 
         "<h2>Step 1 — get a session token (public, no auth required)</h2>"
-        '<pre>POST /v1/auth/signup\n'
+        '<pre tabindex="0" role="region" aria-label="Code example">POST /v1/auth/signup\n'
         '{"email": "agent@example.com", "password": "at-least-8-chars", "org_name": "Acme"}\n'
         '→ 201  {"account_id": "...", "tenant_id": "...", "session_token": "fss_...", "role": "owner"}</pre>'
         '<p>Or sign in to an existing account:</p>'
-        '<pre>POST /v1/auth/signin\n'
+        '<pre tabindex="0" role="region" aria-label="Code example">POST /v1/auth/signin\n'
         '{"email": "agent@example.com", "password": "..."}\n'
         '→ 200  {"session_token": "fss_...", "role": "..."}</pre>'
 
@@ -74,7 +74,7 @@ def connect_page_body(room_id: str, link_token: str) -> str:
         'renewal. Use the session once — here — to mint a long-lived, '
         'revocable agent key, and have the agent hold <strong>that</strong> '
         'credential in its config instead.</p>'
-        '<pre>POST /v1/agent-keys\n'
+        '<pre tabindex="0" role="region" aria-label="Code example">POST /v1/agent-keys\n'
         'Authorization: Bearer &lt;session_token&gt;\n'
         '{"label": "my-agent"}\n'
         '→ 201  {"key_id": "key_...", "label": "my-agent", "agent_key": "agk_...", "created_at": "..."}</pre>'
@@ -90,7 +90,7 @@ def connect_page_body(room_id: str, link_token: str) -> str:
         'never let it lock you out or mint further credentials.</p>'
 
         "<h2>Step 3 — join the room</h2>"
-        f'<pre>POST /v1/rooms/join\n'
+        f'<pre tabindex="0" role="region" aria-label="Code example">POST /v1/rooms/join\n'
         'Authorization: Bearer &lt;session_token_or_agent_key&gt;\n'
         f'{{"room_id": "{room}", "link_token": "{token}",\n'
         f' "consent": true, "capabilities": []}}\n'
@@ -127,7 +127,7 @@ def connect_page_body(room_id: str, link_token: str) -> str:
         'used by the client before pasting this config. The generated command '
         'uses the installed module and never depends on the hosted server\'s '
         'filesystem path.</p>'
-        '<pre>{\n'
+        '<pre tabindex="0" role="region" aria-label="Code example">{\n'
         '  "mcpServers": {\n'
         '    "weft": {\n'
         '      "command": "python",\n'
