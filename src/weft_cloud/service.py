@@ -1341,15 +1341,18 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
             self._send_json(HTTPStatus.BAD_REQUEST, _json_rpc_error(None, -32700, "Parse error"))
             return
         method = request.get("method") if isinstance(request, dict) else None
+        request_id = request.get("id") if isinstance(request, dict) else None
         header_method = self.headers.get("Mcp-Method")
         header_name = self.headers.get("Mcp-Name")
         if header_method and header_method != method:
             self._send_json(HTTPStatus.BAD_REQUEST, _json_rpc_error(
-                request.get("id"), -32600, "Mcp-Method does not match the JSON-RPC method"))
+                request_id, -32600, "Mcp-Method does not match the JSON-RPC method"))
             return
-        if method == "tools/call" and header_name and header_name != ((request.get("params") or {}).get("name")):
+        params = request.get("params") if isinstance(request, dict) else None
+        method_name = params.get("name") if isinstance(params, dict) else None
+        if method == "tools/call" and header_name and header_name != method_name:
             self._send_json(HTTPStatus.BAD_REQUEST, _json_rpc_error(
-                request.get("id"), -32600, "Mcp-Name does not match params.name"))
+                request_id, -32600, "Mcp-Name does not match params.name"))
             return
         dispatcher = HostedMCPDispatcher(self.service)
         bearer = _bearer_token(self)
