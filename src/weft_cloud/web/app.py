@@ -1690,6 +1690,11 @@ class WeftWebApp:
             self._send_html(handler, HTTPStatus.BAD_REQUEST,
                             _page("Create room failed", f"<p>{_esc(str(exc))}</p>"))
             return
+        except RoomError as exc:
+            self._send_html(handler, exc.status,
+                            _page("Create room failed",
+                                  f"<p>{_esc(exc.message)}</p>"))
+            return
         room_id = result["room_id"]
         self._store_link_token(room_id, result["link_token"])
         self._redirect(handler, f"/room/{room_id}")
