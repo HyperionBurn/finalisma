@@ -414,6 +414,13 @@ ALTER TABLE cloud_room_event_log ADD COLUMN message_kind TEXT;
 """
 
 
+_ROOM_CURSOR_RESUME_MARKER_SQL = """
+-- Persist the next_seq paging marker per member so a later poll can use it
+-- inclusively without confusing it with a normal current-head cursor.
+ALTER TABLE cloud_room_cursors ADD COLUMN resume_marker_seq INTEGER;
+"""
+
+
 _ROOM_RECEIPTS_SQL = """
 -- Durable per-recipient consumption state. ``cloud_outbox.status`` remains
 -- delivery state (queued/claimed/delivered/dead); ``read_status`` records the
@@ -444,6 +451,17 @@ def _has_room_message_kind(execute: Callable[[str, tuple], Any]) -> bool:
     try:
         row = execute(
             "SELECT 1 FROM pragma_table_info('cloud_room_event_log') WHERE name = 'message_kind'"
+        ).fetchone()
+        return row is not None
+    except Exception:
+        return False
+
+
+def _has_room_cursor_resume_marker(execute: Callable[[str, tuple], Any]) -> bool:
+    """True when cloud_room_cursors has the durable resume-marker column."""
+    try:
+        row = execute(
+            "SELECT 1 FROM pragma_table_info('cloud_room_cursors') WHERE name = 'resume_marker_seq'"
         ).fetchone()
         return row is not None
     except Exception:
@@ -715,6 +733,12 @@ MIGRATIONS: list[Migration] = [
         "cloud_015_outbox_claim_indexes",
         "indexes for queued/retry/lease claim selectors",
         _CLOUD_OUTBOX_CLAIM_INDEXES_SQL,
+    ),
+    Migration(
+        "cloud_016_room_cursor_resume_marker",
+        "durable per-member room cursor resume marker",
+        _ROOM_CURSOR_RESUME_MARKER_SQL,
+        already_applied=_has_room_cursor_resume_marker,
     ),
 ]
 

@@ -295,6 +295,12 @@ that is what makes the reconnect in step 6 resume from the correct cursor.
 | `close_room(room_id)` | `room_close` | Owner only; emits `room.closed`, invalidates all links. |
 | `revoke_link(room_id, link_id)` | `room_revoke_link` | Owner only; revoke one link without closing the room. An unknown / already-revoked / wrong-room `link_id` raises `NotFoundError` (`link_not_found`); a malformed one raises `invalid_argument`. The owner can rediscover `link_id` from `room_info` (owner-only view, together with `link_revoked`); `link_token` is never exposed there. |
 
+`next_seq` is the resume marker for the returned page. Passing that marker
+back before acknowledging it is safe: the server rechecks the boundary
+inclusively, which prevents both truncated-page gaps and idle-tail loss. A
+normal current-head cursor remains exclusive, and the durable `room_ack()`
+cursor remains the source of at-least-once replay after a crash.
+
 ### RoomPoll: `behind_by` and `timed_out`
 
 `room_poll()` and `room_wait()` both return a typed `RoomPoll` carrying two

@@ -229,6 +229,7 @@ CREATE TABLE IF NOT EXISTS room_cursors (
     room_id TEXT NOT NULL,
     agent_id TEXT NOT NULL,
     last_ack_seq INTEGER NOT NULL,
+    resume_marker_seq INTEGER,
     updated_at TEXT NOT NULL,
     PRIMARY KEY (room_id, agent_id)
 );
@@ -316,6 +317,7 @@ class RoomStore:
             connection.execute("PRAGMA journal_mode = WAL")
             connection.executescript(_ROOM_SCHEMA_SQL)
             self._ensure_message_kind_column(connection)
+            self._ensure_resume_marker_column(connection)
         finally:
             connection.close()
 
@@ -326,6 +328,14 @@ class RoomStore:
         ).fetchone()
         if row is None:
             conn.execute("ALTER TABLE room_event_log ADD COLUMN message_kind TEXT")
+
+    def _ensure_resume_marker_column(self, conn: sqlite3.Connection) -> None:
+        """Add the durable resume marker to pre-marker cursor tables."""
+        row = conn.execute(
+            "SELECT 1 FROM pragma_table_info('room_cursors') WHERE name = 'resume_marker_seq'"
+        ).fetchone()
+        if row is None:
+            conn.execute("ALTER TABLE room_cursors ADD COLUMN resume_marker_seq INTEGER")
 
     # ------------------------------------------------------------------
     # Room lifecycle
@@ -818,10 +828,16 @@ class RoomStore:
             room = self._require_authenticated_member(conn, team_id, room_id, agent_id, actor_token)
             self._touch_member(conn, room_id, agent_id)
             cursor_row = conn.execute(
-                "SELECT last_ack_seq FROM room_cursors WHERE room_id = ? AND agent_id = ?",
+                "SELECT last_ack_seq, resume_marker_seq FROM room_cursors "
+                "WHERE room_id = ? AND agent_id = ?",
                 (room_id, agent_id),
             ).fetchone()
             last_ack = int(cursor_row["last_ack_seq"]) if cursor_row else 0
+            resume_marker = (
+                int(cursor_row["resume_marker_seq"])
+                if cursor_row is not None and cursor_row["resume_marker_seq"] is not None
+                else None
+            )
             if after_seq is None:
                 after_seq = last_ack
             after_seq = int(after_seq)
@@ -840,17 +856,30 @@ class RoomStore:
                     f"after_seq {after_seq} is beyond the next valid cursor {int(room['cursor_head']) + 1}",
                 )
             behind_by = max(0, after_seq - last_ack)
+            # ``next_seq`` is the first sequence after the page. Persist that
+            # resume marker per member so a later poll can use it inclusively:
+            # this avoids skipping an event that was already present at a
+            # truncated page boundary, or that later occupies an idle tail.
+            # A normal current-head cursor remains exclusive because it is not
+            # the previously returned resume marker.
+            resume_marker_catch_up = (
+                resume_marker == after_seq
+                and after_seq > last_ack
+            )
+            sequence_operator = ">=" if resume_marker_catch_up else ">"
             limit = max(1, min(int(limit), 200))
             if kind_filter:
                 placeholders = ", ".join("?" for _ in kind_filter)
                 rows = conn.execute(
-                    "SELECT * FROM room_event_log WHERE room_id = ? AND seq > ? "
+                    "SELECT * FROM room_event_log WHERE room_id = ? AND seq "
+                    + sequence_operator + " ? "
                     "AND message_kind IN (" + placeholders + ") ORDER BY seq ASC LIMIT ?",
                     (room_id, after_seq, *kind_filter, limit),
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    "SELECT * FROM room_event_log WHERE room_id = ? AND seq > ? ORDER BY seq ASC LIMIT ?",
+                    "SELECT * FROM room_event_log WHERE room_id = ? AND seq "
+                    + sequence_operator + " ? ORDER BY seq ASC LIMIT ?",
                     (room_id, after_seq, limit),
                 ).fetchall()
             events = []
@@ -875,10 +904,17 @@ class RoomStore:
             # A filtered read scans the full stream even when no matching row
             # is returned (or when fewer than ``limit`` matches remain). Report
             # the last scanned sequence so callers do not repeatedly replay
-            # old non-matching events; a future event at head+1 remains visible
-            # because cursors are exclusive.
+            # old non-matching events; a future event at the resume marker
+            # remains visible because the unacknowledged marker is rechecked
+            # inclusively at the page boundary.
             if kind_filter and len(rows) < limit:
                 next_seq = max(next_seq, int(room["cursor_head"]))
+            if rows or next_seq == int(room["cursor_head"]) + 1:
+                conn.execute(
+                    "UPDATE room_cursors SET resume_marker_seq = ?, updated_at = ? "
+                    "WHERE room_id = ? AND agent_id = ?",
+                    (next_seq, _utc_now(), room_id, agent_id),
+                )
             return {
                 "room_id": room_id,
                 "state": room["state"],
@@ -904,6 +940,12 @@ class RoomStore:
                 "ON CONFLICT(room_id, agent_id) DO UPDATE SET "
                 "last_ack_seq = MAX(last_ack_seq, excluded.last_ack_seq), updated_at = excluded.updated_at",
                 (room_id, agent_id, seq, now),
+            )
+            conn.execute(
+                "UPDATE room_cursors SET resume_marker_seq = NULL "
+                "WHERE room_id = ? AND agent_id = ? "
+                "AND resume_marker_seq IS NOT NULL AND resume_marker_seq <= last_ack_seq",
+                (room_id, agent_id),
             )
             conn.execute(
                 "UPDATE room_receipts SET read_status = 'read', updated_at = ? "

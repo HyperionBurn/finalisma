@@ -110,7 +110,13 @@ class CloudCursorGuardTests(unittest.TestCase):
         cls._httpd = ThreadingHTTPServer(("127.0.0.1", 0), _CloudHTTPHandler)
         cls.port = cls._httpd.server_address[1]
         cls.base = f"http://127.0.0.1:{cls.port}"
-        cls.service = WeftCloudService(SqliteWalBackend(cls.db_path))
+        # This class exercises cursor behavior, not signup throttling. Keep
+        # the shared fixture below the production code path while allowing
+        # the full cursor matrix to create its deliberately isolated users.
+        cls.service = WeftCloudService(
+            SqliteWalBackend(cls.db_path),
+            auth_rate_limits={"signup": {"ip": 100, "email": 100}},
+        )
         _CloudHTTPHandler.service = cls.service
         cls.server_thread = threading.Thread(
             target=cls._httpd.serve_forever, daemon=True,
@@ -236,6 +242,47 @@ class CloudCursorGuardTests(unittest.TestCase):
         self.assertEqual(second["events"], [])
         self.assertEqual(second["next_seq"], head + 1,
                          "an empty page at the tail must echo the stable end-of-stream marker")
+
+    def test_resume_marker_catches_first_event_after_idle_poll(self) -> None:
+        owner, member, created = self._pair("tail-catch-up")
+        first = self._assert_ok(member["session_token"], "room_poll",
+                                {"room_id": created["room_id"], "after_seq": 0},
+                                request_id=10)
+        marker = first["next_seq"]
+        empty = self._assert_ok(member["session_token"], "room_poll",
+                                {"room_id": created["room_id"], "after_seq": marker},
+                                request_id=11)
+        self.assertEqual(empty["events"], [])
+        sent = self._assert_ok(owner["session_token"], "room_send",
+                               {"room_id": created["room_id"], "target_spec": "*",
+                                "payload": {"text": "tail-catch-up"}},
+                               request_id=12)
+        self.assertEqual(sent["seq"], marker)
+        resumed = self._assert_ok(member["session_token"], "room_poll",
+                                   {"room_id": created["room_id"], "after_seq": marker},
+                                   request_id=13)
+        self.assertEqual([event["seq"] for event in resumed["events"]], [marker])
+        replayed = self._assert_ok(member["session_token"], "room_poll",
+                                   {"room_id": created["room_id"]}, request_id=14)
+        self.assertIn(marker, [event["seq"] for event in replayed["events"]])
+        self._assert_ok(member["session_token"], "room_ack",
+                        {"room_id": created["room_id"], "seq": marker}, request_id=15)
+        after_ack = self._assert_ok(member["session_token"], "room_poll",
+                                    {"room_id": created["room_id"], "after_seq": marker},
+                                    request_id=16)
+        self.assertEqual(after_ack["events"], [])
+
+    def test_resume_marker_does_not_skip_truncated_page(self) -> None:
+        owner, member, created = self._pair("truncated-page")
+        first = self._assert_ok(member["session_token"], "room_poll",
+                                {"room_id": created["room_id"], "after_seq": 0,
+                                 "limit": 1}, request_id=10)
+        marker = first["next_seq"]
+        self.assertEqual(len(first["events"]), 1)
+        second = self._assert_ok(member["session_token"], "room_poll",
+                                 {"room_id": created["room_id"], "after_seq": marker,
+                                  "limit": 1}, request_id=11)
+        self.assertEqual([event["seq"] for event in second["events"]], [marker])
 
     def test_filtered_empty_page_reports_full_stream_cursor(self) -> None:
         owner, member, created = self._pair("filtered-empty")
@@ -394,6 +441,59 @@ class CoordinatorCursorGuardTests(unittest.TestCase):
         })
         self.assertEqual(second["events"], [])
         self.assertEqual(second["next_seq"], first["next_seq"])
+
+    def test_resume_marker_catches_first_event_after_idle_poll(self) -> None:
+        first = self.dispatcher.call_tool("room_poll", {
+            "team_id": self.team, "room_id": self.room_id,
+            "agent_id": "A2", "actor_token": self.tokens["A2"], "after_seq": 0,
+        })
+        marker = first["next_seq"]
+        empty = self.dispatcher.call_tool("room_poll", {
+            "team_id": self.team, "room_id": self.room_id,
+            "agent_id": "A2", "actor_token": self.tokens["A2"], "after_seq": marker,
+        })
+        self.assertEqual(empty["events"], [])
+        sent = self.dispatcher.call_tool("room_send", {
+            "team_id": self.team, "room_id": self.room_id,
+            "sender_agent_id": "OWNER", "target_spec": "*",
+            "payload": {"text": "tail-catch-up"},
+            "actor_token": self.tokens["OWNER"],
+        })
+        self.assertEqual(sent["seq"], marker)
+        resumed = self.dispatcher.call_tool("room_poll", {
+            "team_id": self.team, "room_id": self.room_id,
+            "agent_id": "A2", "actor_token": self.tokens["A2"], "after_seq": marker,
+        })
+        self.assertEqual([event["seq"] for event in resumed["events"]], [marker])
+        replayed = self.dispatcher.call_tool("room_poll", {
+            "team_id": self.team, "room_id": self.room_id,
+            "agent_id": "A2", "actor_token": self.tokens["A2"],
+        })
+        self.assertIn(marker, [event["seq"] for event in replayed["events"]])
+        self.dispatcher.call_tool("room_ack", {
+            "team_id": self.team, "room_id": self.room_id,
+            "agent_id": "A2", "seq": marker, "actor_token": self.tokens["A2"],
+        })
+        after_ack = self.dispatcher.call_tool("room_poll", {
+            "team_id": self.team, "room_id": self.room_id,
+            "agent_id": "A2", "actor_token": self.tokens["A2"], "after_seq": marker,
+        })
+        self.assertEqual(after_ack["events"], [])
+
+    def test_resume_marker_does_not_skip_truncated_page(self) -> None:
+        first = self.dispatcher.call_tool("room_poll", {
+            "team_id": self.team, "room_id": self.room_id,
+            "agent_id": "A2", "actor_token": self.tokens["A2"],
+            "after_seq": 0, "limit": 1,
+        })
+        marker = first["next_seq"]
+        self.assertEqual(len(first["events"]), 1)
+        second = self.dispatcher.call_tool("room_poll", {
+            "team_id": self.team, "room_id": self.room_id,
+            "agent_id": "A2", "actor_token": self.tokens["A2"],
+            "after_seq": marker, "limit": 1,
+        })
+        self.assertEqual([event["seq"] for event in second["events"]], [marker])
 
     def test_filtered_empty_page_reports_full_stream_cursor(self) -> None:
         self.dispatcher.call_tool("room_send", {

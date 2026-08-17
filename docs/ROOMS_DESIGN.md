@@ -233,11 +233,15 @@ This is the same monotonic-ack pattern as `core.session_ack` (core.py:1829).
 
 ### 5.3 Replay invariant
 
-- **At-least-once delivery.** `room_poll` returns all events with `seq > after_seq`
-  (default `after_seq = last_ack_seq`). Events are never removed by poll. A
-  consumer that crashes after processing but before acking re-receives the same
-  events on the next poll — consumers must be idempotent (the per-sender
-  `idempotency_key` UNIQUE constraint deduplicates replays).
+- **At-least-once delivery.** `room_poll` normally returns all events with
+  `seq > after_seq` (default `after_seq = last_ack_seq`). The returned
+  `next_seq` is persisted as a per-member resume marker; while that
+  unacknowledged marker is supplied again, it is rechecked inclusively so a
+  truncated page or idle reconnect cannot skip its boundary event. Events are
+  never removed by poll. A consumer that crashes after
+  processing but before acking re-receives the same events on the next poll —
+  consumers must be idempotent (the per-sender `idempotency_key` UNIQUE
+  constraint deduplicates replays).
 - **No loss.** Events are append-only; `seq` is a room-wide monotonic assigned
   under `BEGIN IMMEDIATE` (read `cursor_head`, +1, insert). Reconnect resumes
   from `last_ack_seq` — every event with higher seq is still in the table.
