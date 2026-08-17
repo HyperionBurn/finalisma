@@ -46,8 +46,14 @@ class BackoffPolicy:
         """Seconds to wait before the retry for the given attempt number."""
         raw = self.base * (self.factor ** attempt)
         bounded = min(raw, self.cap)
-        # Full jitter: uniform in [0, bounded).
-        return random.uniform(0.0, bounded) if bounded > 0 else 0.0
+        # Full jitter with a tiny positive floor. A zero-delay retry can create
+        # a hot loop and makes the persisted deadline indistinguishable from
+        # "now" on fast CI hosts; never schedule earlier than the configured
+        # backoff window allows.
+        if bounded <= 0:
+            return 0.0
+        floor = min(0.001, bounded)
+        return max(random.uniform(floor, bounded), floor)
 
     @classmethod
     def from_dict(cls, overrides: dict[str, Any] | None) -> "BackoffPolicy":
