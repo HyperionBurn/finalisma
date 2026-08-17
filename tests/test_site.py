@@ -876,6 +876,17 @@ class WebsiteCriticCurrentContractTests(unittest.TestCase):
             "navOpenInert": False,
             "navClosed": "false",
             "navClosedInert": True,
+            "navFocusOnOpen": True,
+            "navFocusableCount": 8,
+            "shiftTabWraps": True,
+            "tabWraps": True,
+            "bodyScrollLocked": True,
+            "bodyScrollUnlocked": True,
+            "backgroundInertWhileOpen": True,
+            "backgroundInertRestored": True,
+            "focusRestoredAfterEscape": True,
+            "focusRestoredAfterCloseButton": True,
+            "focusRestoredAfterLink": True,
         })
         return {
             "linkCopied": "weft.test/r/room_test",

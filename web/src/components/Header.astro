@@ -36,7 +36,7 @@ import { APP_LOGIN_URL, APP_SIGNUP_URL } from '../lib/app';
 </header>
 
 <!-- Mobile nav overlay -->
-<div class="mobile-nav" id="mobile-nav" aria-hidden="true" data-mobile-nav inert>
+<div class="mobile-nav" id="mobile-nav" role="dialog" aria-modal="true" aria-label="Mobile navigation" aria-hidden="true" data-mobile-nav inert>
   <button class="mobile-close" aria-label="Close menu">&times;</button>
   <nav aria-label="Mobile">
     <a href="#problem">Problem</a>
@@ -59,44 +59,128 @@ import { APP_LOGIN_URL, APP_SIGNUP_URL } from '../lib/app';
     const toggle = document.querySelector('.nav-toggle');
     const mobileNav = document.getElementById('mobile-nav');
     const closeBtn = document.querySelector('.mobile-close');
+    const focusableSelector = [
+      'a[href]',
+      'button:not([disabled])',
+      'input:not([disabled])',
+      'select:not([disabled])',
+      'textarea:not([disabled])',
+      '[tabindex]:not([tabindex="-1"])'
+    ].join(',');
+    const backgroundInertState = new Map();
+    let backgroundInertApplied = false;
+
+    function getFocusable() {
+      if (!mobileNav) return [];
+      return [...mobileNav.querySelectorAll(focusableSelector)].filter((element) => {
+        if (element.hasAttribute('hidden') || element.getAttribute('aria-hidden') === 'true') return false;
+        const style = window.getComputedStyle(element);
+        return style.display !== 'none' && style.visibility !== 'hidden';
+      });
+    }
+
+    function setBackgroundInert(isInert) {
+      if (!mobileNav?.parentElement) return;
+      if (isInert) {
+        if (backgroundInertApplied) return;
+        [...mobileNav.parentElement.children]
+          .filter((element) => element !== mobileNav)
+          .forEach((element) => {
+            backgroundInertState.set(element, element.inert);
+            element.inert = true;
+          });
+        backgroundInertApplied = true;
+        return;
+      }
+      if (!backgroundInertApplied) return;
+      backgroundInertState.forEach((wasInert, element) => {
+        if (element.isConnected) element.inert = wasInert;
+      });
+      backgroundInertState.clear();
+      backgroundInertApplied = false;
+    }
 
     function openNav() {
-      if (!mobileNav || !toggle) return;
+      if (!mobileNav) return;
       mobileNav.classList.add('is-open');
       mobileNav.setAttribute('aria-hidden', 'false');
       mobileNav.inert = false;
-      toggle.classList.add('is-open');
-      toggle.setAttribute('aria-expanded', 'true');
-      document.body.style.overflow = 'hidden';
+      if (toggle) {
+        toggle.classList.add('is-open');
+        toggle.setAttribute('aria-expanded', 'true');
+      }
+      setBackgroundInert(true);
+      if (document.body) document.body.style.overflow = 'hidden';
+      const firstFocusable = getFocusable()[0];
+      if (firstFocusable) {
+        firstFocusable.focus();
+      } else {
+        mobileNav.setAttribute('tabindex', '-1');
+        mobileNav.focus();
+      }
     }
 
     function closeNav() {
-      if (!mobileNav || !toggle) return;
+      if (!mobileNav) return;
       mobileNav.classList.remove('is-open');
       mobileNav.setAttribute('aria-hidden', 'true');
       mobileNav.inert = true;
-      toggle.classList.remove('is-open');
-      toggle.setAttribute('aria-expanded', 'false');
-      document.body.style.overflow = '';
+      mobileNav.removeAttribute('tabindex');
+      setBackgroundInert(false);
+      if (toggle) {
+        toggle.classList.remove('is-open');
+        toggle.setAttribute('aria-expanded', 'false');
+      }
+      if (document.body) document.body.style.overflow = '';
+      if (toggle?.isConnected) toggle.focus();
     }
 
-    toggle?.addEventListener('click', () => {
-      const isOpen = toggle.getAttribute('aria-expanded') === 'true';
-      if (isOpen) closeNav();
-      else openNav();
-    });
+    // Bind the modal controls once; Astro dev navigation can re-run scripts.
+    if (mobileNav && mobileNav.dataset.keyboardModalBound !== 'true') {
+      mobileNav.dataset.keyboardModalBound = 'true';
 
-    closeBtn?.addEventListener('click', closeNav);
+      toggle?.addEventListener('click', () => {
+        const isOpen = toggle.getAttribute('aria-expanded') === 'true';
+        if (isOpen) closeNav();
+        else openNav();
+      });
 
-    // Close on anchor click
-    mobileNav?.querySelectorAll('a').forEach((a) => {
-      a.addEventListener('click', closeNav);
-    });
+      closeBtn?.addEventListener('click', closeNav);
 
-    // Close on Escape
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') closeNav();
-    });
+      // Close on anchor click.
+      mobileNav.querySelectorAll('a').forEach((a) => {
+        a.addEventListener('click', closeNav);
+      });
+
+      document.addEventListener('keydown', (e) => {
+        if (!mobileNav || mobileNav.getAttribute('aria-hidden') !== 'false') return;
+
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          closeNav();
+          return;
+        }
+
+        if (e.key !== 'Tab') return;
+        const focusable = getFocusable();
+        if (!focusable.length) {
+          e.preventDefault();
+          mobileNav.focus();
+          return;
+        }
+
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        const active = document.activeElement;
+        if (e.shiftKey && (active === first || !mobileNav.contains(active))) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && (active === last || !mobileNav.contains(active))) {
+          e.preventDefault();
+          first.focus();
+        }
+      });
+    }
 
     // Scrolled state via rAF-throttled passive listener (NEVER raw scroll handler)
     let ticking = false;
