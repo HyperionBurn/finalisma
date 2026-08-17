@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -29,6 +30,7 @@ import urllib.error
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest.mock import patch
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
@@ -36,7 +38,11 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from weft_cloud.service import WeftCloudService, _CloudHTTPHandler  # noqa: E402
 from weft_cloud.storage import SqliteWalBackend  # noqa: E402
 from weft_mcp.__main__ import build_parser  # noqa: E402
-from weft_mcp.stdio_bridge import run_stdio_bridge, unwrap_response_body  # noqa: E402
+from weft_mcp.stdio_bridge import (  # noqa: E402
+    StdioHttpBridge,
+    run_stdio_bridge,
+    unwrap_response_body,
+)
 
 
 def _post(base: str, path: str, body: dict, token: str | None = None) -> tuple[int, dict]:
@@ -264,6 +270,48 @@ class UnwrapTests(unittest.TestCase):
 
     def test_empty_body_returns_none(self) -> None:
         self.assertIsNone(unwrap_response_body(b"", "application/json"))
+
+
+class UpstreamRateLimitTests(unittest.TestCase):
+    """Structured hosted rate-limit errors survive the stdio transport."""
+
+    def test_http_429_preserves_rate_limit_data_and_retry_after(self) -> None:
+        class Response:
+            status = HTTPStatus.TOO_MANY_REQUESTS
+
+            def read(self) -> bytes:
+                return b'{"error":{"code":"rate_limited","message":"retry later"}}'
+
+            def getheader(self, name: str) -> str | None:
+                return "7" if name == "Retry-After" else None
+
+        class Connection:
+            def request(self, *_args, **_kwargs) -> None:
+                return None
+
+            def getresponse(self) -> Response:
+                return Response()
+
+            def close(self) -> None:
+                return None
+
+        connection = Connection()
+        with patch.dict(os.environ, {"WEFT_STDIO_TEST_TOKEN": "fss_test"}):
+            bridge = StdioHttpBridge("http://audit.example", "WEFT_STDIO_TEST_TOKEN")
+            bridge._connect = lambda: connection  # type: ignore[method-assign]
+            reply = bridge.exchange(
+                {"jsonrpc": "2.0", "id": 9, "method": "tools/list"}
+            )
+
+        self.assertIsNotNone(reply)
+        self.assertEqual(reply["id"], 9)
+        error = reply["error"]
+        self.assertEqual(error["code"], -32000)
+        self.assertEqual(error["message"], "retry later")
+        self.assertEqual(
+            error["data"],
+            {"code": "rate_limited", "message": "retry later", "retry_after": 7},
+        )
 
 
 class Cp1252InputDecodeTests(unittest.TestCase):
