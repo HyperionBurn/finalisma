@@ -10,7 +10,7 @@ Measured against commit `ff45b1b` on branch
 `codex/weft-site-tool-count-contract-2026-08-17`:
 
 - Command: `python -B -m unittest discover -s tests -p "test_*.py"`
-- Result: **1138 tests discovered; 1137 passed; 1 skipped**
+- Result: **1139 tests discovered; 1138 passed; 1 skipped**
 - Duration: 458.282 seconds
 - Focused room/deploy/recovery suite: 140 tests passed
 - Homepage build: Astro build and legacy-preservation checks passed

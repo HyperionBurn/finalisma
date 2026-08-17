@@ -505,6 +505,12 @@ class TestConnectPage(unittest.TestCase):
             )
             self.assertEqual(body.count('<main id="main" tabindex="-1">'), 1, path)
 
+    def test_authenticated_metadata_text_meets_wcag_aa_contrast(self):
+        status, body, _ = self.driver.get("/")
+        self.assertEqual(status, 200)
+        self.assertIn(".muted{color:#707070;}", body)
+        self.assertNotIn(".muted{color:#777;}", body)
+
     def test_connect_page_documents_a_working_join(self):
         """The page must document everything a working /v1/rooms/join needs.
 
