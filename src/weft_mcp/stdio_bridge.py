@@ -81,8 +81,16 @@ def unwrap_response_body(body: bytes, content_type: str) -> dict[str, Any] | Non
     return json.loads(text)
 
 
-def _json_rpc_error(request_id: Any, code: int, message: str) -> dict[str, Any]:
-    return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
+def _json_rpc_error(
+    request_id: Any,
+    code: int,
+    message: str,
+    data: Any | None = None,
+) -> dict[str, Any]:
+    error: dict[str, Any] = {"code": code, "message": message}
+    if data is not None:
+        error["data"] = data
+    return {"jsonrpc": "2.0", "id": request_id, "error": error}
 
 
 # ---------------------------------------------------------------------------
@@ -155,6 +163,7 @@ class StdioHttpBridge:
                 status = resp.status
                 body = resp.read()
                 content_type = resp.getheader("Content-Type") or "application/json"
+                retry_after = resp.getheader("Retry-After")
                 session_id = resp.getheader("Mcp-Session-Id")
                 if session_id:
                     self.session_id = session_id
@@ -187,6 +196,28 @@ class StdioHttpBridge:
                 "with POST /v1/agent-keys; export the new credential in the "
                 "environment variable used for this bridge (the --token-env name) "
                 "and restart this client",
+            )
+        if status == 429:
+            details: dict[str, Any] = {}
+            try:
+                decoded = json.loads(body.decode("utf-8")) if body else None
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                decoded = None
+            if isinstance(decoded, dict) and isinstance(decoded.get("error"), dict):
+                details.update(decoded["error"])
+            if retry_after:
+                try:
+                    details["retry_after"] = max(1, int(retry_after))
+                except (TypeError, ValueError):
+                    details["retry_after"] = retry_after
+            message = details.get("message")
+            if not isinstance(message, str) or not message:
+                message = f"the Weft hosted endpoint at {self.origin} returned HTTP 429"
+            return _json_rpc_error(
+                request.get("id") if isinstance(request, dict) else None,
+                -32000,
+                message,
+                details or None,
             )
         if status == 202:
             return None
