@@ -297,7 +297,7 @@ class UpstreamRateLimitTests(unittest.TestCase):
 
         connection = Connection()
         with patch.dict(os.environ, {"WEFT_STDIO_TEST_TOKEN": "fss_test"}):
-            bridge = StdioHttpBridge("http://audit.example", "WEFT_STDIO_TEST_TOKEN")
+            bridge = StdioHttpBridge("https://audit.example", "WEFT_STDIO_TEST_TOKEN")
             bridge._connect = lambda: connection  # type: ignore[method-assign]
             reply = bridge.exchange(
                 {"jsonrpc": "2.0", "id": 9, "method": "tools/list"}
@@ -639,6 +639,10 @@ class ParserTests(unittest.TestCase):
             ["--remote", "https://weft.example.com", "--token-env", "WEFT_TOKEN"])
         self.assertEqual(args_remote.remote, "https://weft.example.com")
         self.assertEqual(args_remote.token_env, "WEFT_TOKEN")
+        with self.assertRaisesRegex(ValueError, "https://"):
+            StdioHttpBridge("http://weft.example.com", "WEFT_TOKEN")
+        local_http = StdioHttpBridge("http://127.0.0.1:8787", "WEFT_TOKEN")
+        self.assertEqual(local_http.scheme, "http")
 
 
 if __name__ == "__main__":

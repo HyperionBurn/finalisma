@@ -35,7 +35,8 @@ weft-mcp --remote https://weft.switzerlandnorth.cloudapp.azure.com --token-env W
 - `--remote <origin>` — base URL of the hosted service; the bridge POSTs to
   `<origin>/mcp`. No `--state`/`--workspace`/`--team-id` are used in this mode:
   there is no local coordinator and no local database. Tenancy comes from the
-  token, exactly as on the hosted REST surface.
+  token, exactly as on the hosted REST surface. Remote bearer transport must
+  use `https://`; cleartext `http://` is accepted only for loopback testing.
 - `--token-env <NAME>` — the **name of an environment variable** that holds the
   bearer token. This reuses the existing `--token-env` flag from the local HTTP
   mode; in remote mode it is required. **The token is read from the

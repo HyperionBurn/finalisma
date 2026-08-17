@@ -107,6 +107,11 @@ class StdioHttpBridge:
         parts = urlsplit(remote if "://" in remote else "https://" + remote)
         if parts.scheme not in ("http", "https") or not parts.hostname:
             raise ValueError(f"invalid --remote URL: {remote!r}")
+        if parts.scheme == "http" and parts.hostname.lower() not in {"127.0.0.1", "localhost", "::1"}:
+            raise ValueError(
+                "--remote must use https:// for non-loopback hosts; "
+                "cleartext HTTP is allowed only for local testing"
+            )
         self.scheme = parts.scheme
         self.host = parts.hostname
         self.port = parts.port or (443 if parts.scheme == "https" else 80)
