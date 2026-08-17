@@ -55,6 +55,11 @@ Claude Desktop / Cursor / Claude Code / Codex all use the same `command` +
 `args` shape. Set the token in the environment of the client process (or the
 shell that launches it) as `WEFT_TOKEN`.
 
+Install the versioned `weft-mcp` package in the Python environment used by the
+client before pasting this block. For a source checkout, the developer-only
+setup is `python -m pip install -e .`; the hosted generator deliberately emits
+the installed module entry point rather than a server-local checkout path.
+
 ```json
 {
   "mcpServers": {
@@ -62,7 +67,8 @@ shell that launches it) as `WEFT_TOKEN`.
       "command": "python",
       "args": [
         "-B",
-        "<absolute-path-to-repo>/scripts/weft-mcp.py",
+        "-m",
+        "weft_mcp",
         "--remote",
         "https://weft.switzerlandnorth.cloudapp.azure.com",
         "--token-env",

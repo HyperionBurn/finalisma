@@ -1524,14 +1524,6 @@ class WeftWebApp:
     # Connector-config generator (session-gated)
     # ------------------------------------------------------------------
 
-    def _weft_mcp_script_path(self) -> str:
-        """Absolute path to the stdio bridge script shipped with the product.
-
-        The generated configs launch this script on the user's machine, so the
-        path is resolved from the installed package, not guessed.
-        """
-        return str(Path(__file__).resolve().parents[3] / "scripts" / "weft-mcp.py")
-
     def handle_get_config(self, handler: BaseHTTPRequestHandler) -> None:
         ctx = self._require_auth(handler)
         if ctx is None:
@@ -1545,11 +1537,13 @@ class WeftWebApp:
             )
         body_html = (
             '<h1>Connector config generator</h1>'
-            '<p>Generate a complete, working stdio MCP config for your client '
+            '<p>Generate a ready-to-paste stdio MCP config for your client '
             'with a <strong>freshly minted agent key already embedded</strong>. '
-            'The config launches the Weft stdio bridge (<code>weft-mcp.py '
-            '--remote … --token-env WEFT_TOKEN</code>) so your client reaches '
-            'the hosted rooms — these clients speak stdio MCP '
+            'Install the <code>weft-mcp</code> package in the same Python '
+            'environment used by your client first. The config launches the '
+            'installed bridge module (<code>python -m weft_mcp --remote … '
+            '--token-env WEFT_TOKEN</code>) so your client reaches the hosted '
+            'rooms — these clients speak stdio MCP '
             '(<code>command</code> + <code>args</code>), not an HTTP '
             '<code>url</code>.</p>'
             '<p>Hosted endpoint: <code>{}</code></p>'.format(_esc(origin))
@@ -1611,7 +1605,6 @@ class WeftWebApp:
                 client,
                 agent_key=raw_token,
                 origin=public_origin(),
-                script_path=self._weft_mcp_script_path(),
             )
         except ValueError as exc:
             self._send_html(handler, HTTPStatus.BAD_REQUEST,
@@ -1626,8 +1619,12 @@ class WeftWebApp:
             'that agent, and <strong>revoking the key invalidates the '
             'config</strong>. It is shown here exactly once.</p>'
             + '<h2>Install</h2>'
-            + f'<p>Save this as <code>{_esc(config["file"])}</code> and restart '
-            'your client. The token is in the <code>env</code> block — never in '
+            + f'<p>Install the <code>weft-mcp</code> package in the Python '
+            'environment used by your client, then save this as '
+            f'<code>{_esc(config["file"])}</code> and restart your client. '
+            'The config invokes <code>python -m weft_mcp</code> and does not '
+            'depend on the server checkout path. The token is in the '
+            '<code>env</code> block — never in '
             '<code>args</code> (argv is visible to every process on the '
             'machine). The <code>PYTHONUTF8=1</code> entry is required on '
             'Windows: without it the client&#39;s UTF-8 JSON-RPC is decoded as '
