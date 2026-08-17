@@ -6,12 +6,12 @@ compatibility claim.
 
 ## Latest regression evidence
 
-Measured by hosted CI against commit `74b3ae1` on branch
-`codex/weft-dashboard-contrast-2026-08-17`:
+Measured by hosted CI on PR #28's final source/test stack (branch
+`codex/weft-dashboard-contrast-2026-08-17`):
 
 - Command: `python -B -m unittest discover -s tests -p "test_*.py"`
 - Result: **1139 tests discovered; 1138 passed; 1 skipped**
-- Duration: 342.937 seconds on the CI runner
+- Duration: 351.238 seconds on the CI runner
 - Focused bridge/identity/auth/web suite: 86 tests passed locally
 - Homepage build: Astro build and legacy-preservation checks passed
 - `git diff --check`: passed
