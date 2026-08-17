@@ -110,6 +110,17 @@ class WebAppDriver:
         assert token is not None, f"no _csrf token found on {path}"
         return token
 
+    def accept_invite(self, token, email, password):
+        """Accept an invite through its form, including the public CSRF token."""
+        status, body, _ = self.get(f"/invite/{token}")
+        assert status == 200, f"invite form expected 200, got {status}"
+        csrf = self.extract_csrf(body)
+        assert csrf is not None, "invite form did not include _csrf"
+        return self.post(
+            f"/invite/{token}",
+            {"email": email, "password": password, "_csrf": csrf},
+        )
+
     def last_outbox_body(self, to_email):
         with self.backend.transaction() as tx:
             row = tx.execute(
@@ -248,11 +259,27 @@ class TestInviteFlow(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn('name="email"', body)
         self.assertIn('name="password"', body)
-        self.assertIsNotNone(self.driver.extract_csrf(body))
-        # POST accept.
-        status, _, headers = self.driver.post(
+        invite_csrf = self.driver.extract_csrf(body)
+        self.assertIsNotNone(invite_csrf)
+        session_before = self.driver.cookies.get("fss_session")
+        # Missing and wrong CSRF tokens must not consume the invite or issue a
+        # new session; the same invite remains available for the valid submit.
+        status, _, _ = self.driver.post(
             f"/invite/{token}",
             {"email": invitee_email, "password": invitee_password},
+        )
+        self.assertEqual(status, 403)
+        self.assertEqual(self.driver.cookies.get("fss_session"), session_before)
+        status, _, _ = self.driver.post(
+            f"/invite/{token}",
+            {"email": invitee_email, "password": invitee_password, "_csrf": "wrong"},
+        )
+        self.assertEqual(status, 403)
+        self.assertEqual(self.driver.cookies.get("fss_session"), session_before)
+        # POST accept with the form token.
+        status, _, headers = self.driver.post(
+            f"/invite/{token}",
+            {"email": invitee_email, "password": invitee_password, "_csrf": invite_csrf},
         )
         self.assertEqual(status, 303)
         self.assertTrue(headers["Location"].startswith("/"))
@@ -283,10 +310,7 @@ class TestRoleManagement(unittest.TestCase):
         token = re.search(
             r"(fiv_[A-Za-z0-9_-]+)", self.driver.last_outbox_body(self.member_email)
         ).group(1)
-        self.driver.post(
-            f"/invite/{token}",
-            {"email": self.member_email, "password": self.member_password},
-        )
+        self.driver.accept_invite(token, self.member_email, self.member_password)
         # Re-login as owner (invite-accept set the session to the new member).
         self.driver.cookies.clear()
         self.driver.post("/login", {"email": self.owner_email, "password": self.owner_password})
@@ -337,10 +361,7 @@ class TestRemoveMember(unittest.TestCase):
         token = re.search(
             r"(fiv_[A-Za-z0-9_-]+)", self.driver.last_outbox_body(self.member_email)
         ).group(1)
-        self.driver.post(
-            f"/invite/{token}",
-            {"email": self.member_email, "password": self.member_password},
-        )
+        self.driver.accept_invite(token, self.member_email, self.member_password)
         self.member_acct = self.driver.account_id_for_email(self.tenant_id, self.member_email)
         # Log in as the member to establish their session.
         self.member_cookies = dict(self.driver.cookies)
@@ -390,10 +411,7 @@ class TestOwnerLeave(unittest.TestCase):
         token = re.search(
             r"(fiv_[A-Za-z0-9_-]+)", self.driver.last_outbox_body(self.member_email)
         ).group(1)
-        self.driver.post(
-            f"/invite/{token}",
-            {"email": self.member_email, "password": self.member_password},
-        )
+        self.driver.accept_invite(token, self.member_email, self.member_password)
         # Re-login as owner.
         self.driver.cookies.clear()
         self.driver.post("/login", {"email": self.owner_email, "password": self.owner_password})
@@ -450,10 +468,7 @@ class TestMemberLeave(unittest.TestCase):
         token = re.search(
             r"(fiv_[A-Za-z0-9_-]+)", self.driver.last_outbox_body(self.member_email)
         ).group(1)
-        self.driver.post(
-            f"/invite/{token}",
-            {"email": self.member_email, "password": self.member_password},
-        )
+        self.driver.accept_invite(token, self.member_email, self.member_password)
         self.member_cookies = dict(self.driver.cookies)
         self.member_token = self.member_cookies["fss_session"]
         self.member_acct = self.driver.account_id_for_email(self.tenant_id, self.member_email)
@@ -540,10 +555,7 @@ class TestMemberCannotAdmin(unittest.TestCase):
         token = re.search(
             r"(fiv_[A-Za-z0-9_-]+)", self.driver.last_outbox_body(self.member_email)
         ).group(1)
-        self.driver.post(
-            f"/invite/{token}",
-            {"email": self.member_email, "password": self.member_password},
-        )
+        self.driver.accept_invite(token, self.member_email, self.member_password)
         self.member_acct = self.driver.account_id_for_email(self.tenant_id, self.member_email)
         # Log in as the member.
         self.driver.cookies.clear()
@@ -626,10 +638,7 @@ class TestOneOrgPerAccount(unittest.TestCase):
             r"(fiv_[A-Za-z0-9_-]+)", self.driver.last_outbox_body(owner_a)
         ).group(1)
         # Owner A accepts the invite to org B — must be refused (already in org A).
-        status, _, _ = self.driver.post(
-            f"/invite/{token_b}",
-            {"email": owner_a, "password": password_a},
-        )
+        status, _, _ = self.driver.accept_invite(token_b, owner_a, password_a)
         self.assertEqual(status, 400)
         # Owner A still has exactly one membership (org A).
         self.assertEqual(self.driver.membership_count(acct_a), 1)

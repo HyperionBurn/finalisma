@@ -1291,6 +1291,12 @@ class WeftWebApp:
 
     def handle_post_invite(self, handler: BaseHTTPRequestHandler, token: str) -> None:
         form = self._read_form(handler)
+        try:
+            self._validate_csrf(handler, form)
+        except _WebError:
+            self._send_html(handler, HTTPStatus.FORBIDDEN,
+                            _page("Forbidden", '<p>CSRF validation failed.</p>'))
+            return
         email = (form.get("email") or "").strip()
         password = form.get("password", "")
         if len(password) < _MIN_PASSWORD_LEN or not email:
