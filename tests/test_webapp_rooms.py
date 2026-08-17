@@ -25,6 +25,7 @@ import tempfile
 import threading
 import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -419,6 +420,26 @@ class TestConnectPage(unittest.TestCase):
         regenerated_token = re.search(r"rm_[A-Za-z0-9_-]+", regenerated_body).group(0)
         self.assertNotEqual(regenerated_token, initial_token)
         self.assertIsNone(self.driver.app.rooms.resolve_room_by_link_token(initial_token))
+
+        # Concurrent owner clicks must leave the process cache aligned with
+        # whichever hash was committed last, not with an already-invalid token.
+        csrf = self.driver.extract_csrf(self.driver.get(f"/room/{self.room_id}")[1])
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            responses = list(pool.map(
+                lambda _: self.driver.post(
+                    f"/room/{self.room_id}/regenerate-link", {"_csrf": csrf}
+                ),
+                range(2),
+            ))
+        self.assertEqual([response[0] for response in responses], [303, 303])
+        cached_token = self.driver.app._get_room_link_token(self.room_id)
+        self.assertIsNotNone(cached_token)
+        self.assertEqual(
+            self.driver.app.rooms.resolve_room_by_link_token(cached_token),
+            self.room_id,
+        )
+        status, _, _ = self.driver.get(f"/room/{self.room_id}/regenerate-link")
+        self.assertEqual(status, 404)
 
         status, body, _ = self.driver.get(f"/room/{self.room_id}/connect")
         self.assertEqual(status, 200)
