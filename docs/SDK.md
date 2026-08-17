@@ -122,6 +122,15 @@ code and the numeric retry hint reach the caller. Idempotent methods retry a
 429 with backoff before raising; a non-idempotent call raises on the first
 429 so the caller can decide what (if anything) to repeat.
 
+### HTTP 200 tool errors
+
+The SDK validates the JSON-RPC tool-error envelope before raising a
+`WeftError`. A correctly structured `{"error": {"code", "message", "details"}}`
+payload preserves its structured fields and typed error mapping.
+Malformed content, non-text content, invalid JSON, or invalid error fields use
+the fixed `tool_error` / `Tool call failed` fallback; the raw tool content is
+never copied into the exception or its details.
+
 ## Error mapping
 
 Server error codes are mapped to typed exceptions:

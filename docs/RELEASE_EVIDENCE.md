@@ -10,7 +10,7 @@ Measured locally on PR #35's current source/test stack (branch
 `codex/weft-live-outbox-lease-heartbeat-2026-08-17`):
 
 - Command: `python -B -m unittest discover -s tests -p "test_*.py"`
-- Result: **1141 tests discovered; 1140 passed; 1 skipped**
+- Result: **1142 tests discovered; 1141 passed; 1 skipped**
 - Duration: 487.830 seconds on the local Windows runner
 - Focused SDK/interop/count-guard suite: 29 tests passed locally
 - Site build: not rerun in this SDK-only local command; prior site evidence
