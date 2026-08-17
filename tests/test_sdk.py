@@ -637,6 +637,48 @@ class SdkHostedSurfaceAuditTests(unittest.TestCase):
             server.server_close()
             thread.join(timeout=5)
 
+    def test_200_tool_error_text_is_redacted(self) -> None:
+        """Malformed 200 tool-error text must not reach the SDK exception."""
+        SECRET_TOKEN = "fst_actor_200_TOOL_ERROR_SECRET_REDACTION_PROBE"
+
+        class ToolErrorHandler(BaseHTTPRequestHandler):
+            def log_message(self, *args: object) -> None:
+                return
+
+            def do_POST(self) -> None:  # noqa: N802
+                length = int(self.headers.get("Content-Length", "0"))
+                self.rfile.read(length)
+                body = json.dumps({
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "result": {
+                        "isError": True,
+                        "content": [{"type": "text", "text": SECRET_TOKEN}],
+                    },
+                }).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        server, thread, url = self._serve_stub(ToolErrorHandler)
+        client = WeftClient(url, "agent-a", "demo")
+        try:
+            with self.assertRaises(WeftError) as ctx:
+                client._call("room_poll", room_id="room_abc")
+            exc = ctx.exception
+            self.assertNotIn(SECRET_TOKEN, str(exc))
+            self.assertNotIn(SECRET_TOKEN, json.dumps(exc.details) if exc.details is not None else "")
+            self.assertEqual(exc.code, "tool_error")
+            self.assertEqual(str(exc), "Tool call failed")
+            self.assertIsNone(exc.details)
+        finally:
+            client.close()
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
     def test_room_poll_surfaces_behind_by(self) -> None:
         """RoomPoll must expose behind_by — the hosted poll reports how many
         events the caller is skipping between its last ack and its window
