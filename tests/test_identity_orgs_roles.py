@@ -265,6 +265,32 @@ class OrgsRolesStructuralEnforcementTests(unittest.TestCase):
             orgs.remove_member(self.owner_ctx, self.owner_id)
         self.assertEqual(ctx_exc.exception.code, "forbidden")
 
+    def test_admin_cannot_demote_existing_owner(self) -> None:
+        """Changing an owner's role is an owner-only ownership operation."""
+        admin_id, _ = _accept_member_invite(
+            self.backend,
+            self.owner_ctx,
+            "owner-demotion-admin@example.com",
+            "Owner-Demotion-Admin-Strong-Password!42",
+            role="admin",
+        )
+        _, admin_token = sessions.create(
+            self.backend, self.tenant_a, admin_id, role="admin"
+        )
+        admin_ctx = sessions.validate(self.backend, admin_token)
+
+        with self.assertRaises(RoleError) as ctx_exc:
+            orgs.set_role(admin_ctx, self.owner_id, "member")
+        self.assertEqual(ctx_exc.exception.code, "forbidden")
+
+        with self.backend.transaction() as tx:
+            owner_row = tx.execute(
+                "SELECT role FROM cloud_identity_members "
+                "WHERE tenant_id = ? AND account_id = ?",
+                (self.tenant_a, self.owner_id),
+            ).fetchone()
+        self.assertEqual(owner_row["role"], "owner")
+
     # -- 7. role change revokes the target's existing sessions (rotation) --
     def test_set_role_revokes_target_sessions(self) -> None:
         promotee_id, _ = _accept_member_invite(
@@ -286,6 +312,16 @@ class OrgsRolesStructuralEnforcementTests(unittest.TestCase):
         with self.assertRaises(AuthError) as ctx_exc:
             sessions.validate(self.backend, old_token)
         self.assertEqual(ctx_exc.exception.code, "invalid_session")
+
+    def test_last_owner_cannot_demote_self(self) -> None:
+        """A tenant must not be left without an owner by a role change."""
+        with self.assertRaises(RoleError) as ctx_exc:
+            orgs.set_role(self.owner_ctx, self.owner_id, "admin")
+        self.assertEqual(ctx_exc.exception.code, "forbidden")
+
+        members = orgs.list_members(self.owner_ctx)
+        owner_row = [m for m in members if m["account_id"] == self.owner_id]
+        self.assertEqual(owner_row[0]["role"], "owner")
 
     # -- 8. An org IS a tenant: cloud_tenants has exactly one row for the org --
     def test_org_is_tenant_single_row_in_cloud_tenants(self) -> None:

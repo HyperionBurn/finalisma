@@ -194,6 +194,13 @@ class TestAuthRefusals(unittest.TestCase):
         tenant = "t_exp"
         self.d.backend.create_tenant(tenant, "exp@example.com", "free")
         acct = accounts._create_account(self.d.backend, tenant, "exp@example.com", "Password123!")
+        with self.d.backend.transaction() as tx:
+            tx.execute(
+                "INSERT INTO cloud_identity_members(tenant_id, account_id, role, joined_at) "
+                "VALUES (?, ?, 'owner', datetime('now'))",
+                (tenant, acct),
+            )
+            tx.commit()
         sid, raw = id_sessions.create(self.d.backend, tenant, acct, "owner", ttl_seconds=1)
         time.sleep(1.2)
         status, body, hdrs = self.d.get("/", extra_cookie=f"fss_session={raw}")

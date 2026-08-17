@@ -194,6 +194,17 @@ class LaunchSurfaceTests(unittest.TestCase):
         self.assertRegex(css, r"\.reveal\{opacity:\s*1[^}]*transform:\s*none")
         self.assertRegex(css, r"\.js \.reveal")
         self.assertRegex(css, r"\.js \.reveal\.in\{opacity:\s*1[^}]*transform:\s*none")
+        # Scroll-entry effects are progressive enhancement too: without JS
+        # all content is visible; JS adds the only hidden/reveal state.
+        self.assertRegex(css, r"\.scroll-in\{opacity:\s*1[^}]*transform:\s*none")
+        self.assertRegex(css, r"\.js \.scroll-in\{opacity:\s*0")
+        self.assertRegex(css, r"\.js \.scroll-in\.in\{opacity:\s*1[^}]*transform:\s*translateY\(0\)")
+        # The transport switcher keeps every panel in the no-JS document and
+        # lets the hydrated script own the interactive hiding.
+        self.assertIn('aria-controls="tier-panel-stdio"', html)
+        self.assertIn('id="tier-panel-stdio"', html)
+        self.assertIn('aria-labelledby="tier-tab-stdio"', html)
+        self.assertNotRegex(html, r'data-tier-panel="stdio"[^>]*\bhidden(?:=|\s|>)')
         # Wave D3 replacement invariant: the JS-gated hero canvas is always
         # mounted server-side and carries a ≥5-row text fallback, so no-JS and
         # screen readers see the full event sequence (old `data-story-next`
@@ -509,6 +520,7 @@ class LaunchSurfaceTests(unittest.TestCase):
         self.assertIn('property="og:site_name" content="Weft"', demo)
         self.assertIn('name="twitter:image" content="/assets/weft-demo-poster.png"', demo)
         self.assertEqual(transcript["schema"], "weft.public-demo/v1")
+        self.assertEqual(transcript["duration_seconds"], 43)
         self.assertEqual(len(transcript["frames"]), 10)
         self.assertTrue(transcript["credentials_redacted"])
         self.assertFalse(transcript["proof"]["raw_credentials_in_output"])
@@ -518,6 +530,7 @@ class LaunchSurfaceTests(unittest.TestCase):
         self.assertEqual(transcript["proof"]["secret_scan"], "passed")
         self.assertEqual(transcript["proof"]["task_status"], "done")
         self.assertEqual(build["status"], "ok")
+        self.assertEqual(build["duration_seconds"], 43)
         self.assertEqual(build["resolution"], "1280x720")
         self.assertTrue(build["credentials_redacted"])
 
@@ -1006,6 +1019,26 @@ class DeployproofReleaseContentTests(unittest.TestCase):
             with self.subTest(page=rel):
                 self.assertIn(f'<link rel="canonical" href="{url}">', text)
                 self.assertIn(f'<meta property="og:url" content="{url}">', text)
+                self.assertRegex(text, r'<meta name="description" content="[^"]+">')
+                self.assertIn('<meta property="og:site_name" content="Weft">', text)
+                self.assertRegex(text, r'<meta property="og:title" content="[^"]+">')
+                self.assertRegex(text, r'<meta property="og:description" content="[^"]+">')
+                self.assertRegex(text, r'<meta property="og:image" content="/assets/[^"]+">')
+                self.assertRegex(text, r'<meta property="og:image:alt" content="[^"]+">')
+                self.assertIn('<meta name="twitter:card" content="summary_large_image">', text)
+                self.assertRegex(text, r'<meta name="twitter:title" content="[^"]+">')
+                self.assertRegex(text, r'<meta name="twitter:description" content="[^"]+">')
+                self.assertRegex(text, r'<meta name="twitter:image" content="/assets/[^"]+">')
+                self.assertRegex(text, r'<meta name="twitter:image:alt" content="[^"]+">')
+
+    def test_non_indexable_source_pages_declare_noindex(self) -> None:
+        for relative in sorted(self.NOINDEX):
+            text = (SITE / relative).read_text(encoding="utf-8")
+            with self.subTest(page=relative):
+                self.assertRegex(
+                    text,
+                    r'<meta\s+name="robots"\s+content="[^"]*noindex[^"]*"',
+                )
 
     def test_committed_sitemap_lists_only_existing_pages(self) -> None:
         sitemap = (SITE / "sitemap.xml").read_text(encoding="utf-8")
@@ -1016,6 +1049,14 @@ class DeployproofReleaseContentTests(unittest.TestCase):
             target = SITE / "index.html" if rel == "/" else SITE / rel.lstrip("/")
             with self.subTest(loc=loc):
                 self.assertTrue(target.is_file(), f"sitemap URL points at a missing page: {loc}")
+
+        expected = {
+            f"{self.ORIGIN}/" if page.relative_to(SITE).as_posix() == "index.html"
+            else f"{self.ORIGIN}/{page.relative_to(SITE).as_posix()}"
+            for page in SITE.rglob("*.html")
+            if page.relative_to(SITE).name not in self.NOINDEX
+        }
+        self.assertEqual(set(locs), expected)
 
     def test_materializer_robots_sitemap_line_is_single_and_origin_scoped(self) -> None:
         temp_root = ROOT / ".tmp"
@@ -1031,6 +1072,48 @@ class DeployproofReleaseContentTests(unittest.TestCase):
             sitemap_lines = [ln for ln in robots.splitlines() if ln.strip().startswith("Sitemap:")]
             self.assertEqual(len(sitemap_lines), 1, f"exactly one Sitemap line, got {sitemap_lines}")
             self.assertEqual(sitemap_lines[0].strip(), "Sitemap: https://weft.test/sitemap.xml")
+
+    def test_materializer_emits_origin_scoped_og_twitter_and_caption_manifest(self) -> None:
+        temp_root = ROOT / ".tmp"
+        temp_root.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="weft-share-contract-", dir=temp_root) as temporary:
+            output = Path(temporary) / "site"
+            _RELEASE_MODULE.build_release(
+                origin="https://weft.test",
+                contact_url="mailto:founder@example.invalid",
+                output=output,
+            )
+            for relative in (
+                "index.html",
+                "docs/index.html",
+                "docs/quickstart.html",
+                "demo.html",
+                "blog/secure-agent-handoffs.html",
+            ):
+                document = (output / relative).read_text(encoding="utf-8")
+                with self.subTest(page=relative):
+                    self.assertIn('property="og:site_name" content="Weft"', document)
+                    self.assertIn('property="og:title"', document)
+                    self.assertIn('property="og:description"', document)
+                    self.assertIn('property="og:image" content="https://weft.test/assets/', document)
+                    self.assertIn('name="twitter:card" content="summary_large_image"', document)
+                    self.assertIn('name="twitter:title"', document)
+                    self.assertIn('name="twitter:description"', document)
+                    self.assertIn('name="twitter:image" content="https://weft.test/assets/', document)
+                    self.assertIn('property="og:image:alt"', document)
+                    self.assertIn('name="twitter:image:alt"', document)
+
+            demo = (output / "demo.html").read_text(encoding="utf-8")
+            self.assertIn(
+                '<meta property="og:title" content="Watch a real Weft coordinator run">',
+                demo,
+            )
+
+            manifest = json.loads((output / "release-manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(
+                set(manifest["media_sha256"]),
+                {"weft-demo.mp4", "weft-demo.webm", "weft-demo.vtt", "weft-demo-poster.png"},
+            )
 
 
 class TestCountSyncTests(unittest.TestCase):

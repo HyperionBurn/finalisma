@@ -259,6 +259,36 @@ class RoomNonMemberNoOracleTests(unittest.TestCase):
         )
         self.assertEqual(hb["status"], "active")
 
+    def test_join_short_token_is_a_normal_invalid_link_error(self) -> None:
+        with self.assertRaises(WeftError) as ctx:
+            self.dispatcher.call_tool("room_join", {
+                "team_id": "team-1",
+                "room_id": self.room_id,
+                "link_token": "short",
+                "agent_id": "outsider-3",
+                "consent": True,
+                "actor_token": self.outsider,
+            })
+        self.assertEqual(ctx.exception.code, "invalid_link")
+
+    def test_join_bad_actor_does_not_reveal_room_existence(self) -> None:
+        def code(room_id: str) -> str:
+            with self.assertRaises(WeftError) as ctx:
+                self.dispatcher.call_tool("room_join", {
+                    "team_id": "team-1",
+                    "room_id": room_id,
+                    "link_token": self.link_token,
+                    "agent_id": "outsider-3",
+                    "consent": True,
+                    "actor_token": BAD_TOKEN,
+                })
+            return ctx.exception.code
+
+        real = code(self.room_id)
+        fake = code(FAKE_ROOM_ID)
+        self.assertEqual(real, fake)
+        self.assertEqual(real, "actor_auth_invalid")
+
         sent = self.dispatcher.call_tool(
             "room_send",
             {"team_id": "team-1", "room_id": self.room_id, "sender_agent_id": "member-2",

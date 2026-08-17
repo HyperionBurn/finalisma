@@ -70,30 +70,66 @@ class _ContractHandler(BaseHTTPRequestHandler):
                 200,
                 f'<link rel="canonical" href="{self.origin}/">'
                 f'<meta property="og:url" content="{self.origin}/">'
+                '<meta property="og:site_name" content="Weft">'
+                '<meta property="og:title" content="Weft home">'
+                '<meta property="og:description" content="Governed agent rooms.">'
                 '<meta property="og:image" content="/assets/og-card.png">'
+                '<meta property="og:image:alt" content="Weft social card.">'
+                '<meta name="twitter:card" content="summary_large_image">'
+                '<meta name="twitter:title" content="Weft home">'
+                '<meta name="twitter:description" content="Governed agent rooms.">'
+                '<meta name="twitter:image" content="/assets/og-card.png">'
+                '<meta name="twitter:image:alt" content="Weft social card.">'
                 f'<button data-cohort-build>Build</button><a href="{self.api_origin}/signup">Open a room</a>',
             ),
             "/docs": (
                 200,
                 f'<link rel="canonical" href="{self.origin}/docs/index.html">'
                 f'<meta property="og:url" content="{self.origin}/docs/index.html">'
-                '<meta property="og:image" content="../assets/og-card.png">',
+                '<meta property="og:site_name" content="Weft">'
+                '<meta property="og:title" content="Weft docs">'
+                '<meta property="og:description" content="Governed agent room docs.">'
+                '<meta property="og:image" content="/assets/og-card.png">'
+                '<meta property="og:image:alt" content="Weft social card.">'
+                '<meta name="twitter:card" content="summary_large_image">'
+                '<meta name="twitter:title" content="Weft docs">'
+                '<meta name="twitter:description" content="Governed agent room docs.">'
+                '<meta name="twitter:image" content="/assets/og-card.png">'
+                '<meta name="twitter:image:alt" content="Weft social card.">',
             ),
             "/docs/quickstart": (
                 200,
                 f'<link rel="canonical" href="{self.origin}/docs/quickstart.html">'
                 f'<meta property="og:url" content="{self.origin}/docs/quickstart.html">'
-                '<meta property="og:image" content="../assets/og-card.png">',
+                '<meta property="og:site_name" content="Weft">'
+                '<meta property="og:title" content="Weft quickstart">'
+                '<meta property="og:description" content="Open a governed room.">'
+                '<meta property="og:image" content="/assets/og-card.png">'
+                '<meta property="og:image:alt" content="Weft social card.">'
+                '<meta name="twitter:card" content="summary_large_image">'
+                '<meta name="twitter:title" content="Weft quickstart">'
+                '<meta name="twitter:description" content="Open a governed room.">'
+                '<meta name="twitter:image" content="/assets/og-card.png">'
+                '<meta name="twitter:image:alt" content="Weft social card.">',
             ),
             "/demo": (
                 200,
                 f'<link rel="canonical" href="{self.origin}/demo.html">'
                 f'<meta property="og:url" content="{self.origin}/demo.html">'
+                '<meta property="og:site_name" content="Weft">'
+                '<meta property="og:title" content="Weft demo">'
+                '<meta property="og:description" content="Recorded proof.">'
                 '<meta property="og:image" content="/assets/weft-demo-poster.png">'
-                '<video poster="/assets/weft-demo-poster.png">'
-                '<source src="/assets/weft-demo.mp4" type="video/mp4">'
-                '<source src="/assets/weft-demo.webm" type="video/webm">'
-                '<track kind="captions" src="/assets/weft-demo.vtt">'
+                '<meta property="og:image:alt" content="Weft social card.">'
+                '<meta name="twitter:card" content="summary_large_image">'
+                '<meta name="twitter:title" content="Weft demo">'
+                '<meta name="twitter:description" content="Recorded proof.">'
+                '<meta name="twitter:image" content="/assets/weft-demo-poster.png">'
+                '<meta name="twitter:image:alt" content="Weft social card.">'
+                '<video poster="assets/weft-demo-poster.png">'
+                '<source src="assets/weft-demo.mp4" type="video/mp4">'
+                '<source src="assets/weft-demo.webm" type="video/webm">'
+                '<track default kind="captions" srclang="en" src="assets/weft-demo.vtt">'
                 '</video>',
             ),
         }
@@ -116,7 +152,10 @@ class _ContractHandler(BaseHTTPRequestHandler):
         if self.path == "/sitemap.xml":
             self._reply(
                 200,
-                f"<urlset><url><loc>{self.origin}/</loc></url></urlset>".encode(),
+                f"<urlset><url><loc>{self.origin}/</loc></url>"
+                f"<url><loc>{self.origin}/docs/index.html</loc></url>"
+                f"<url><loc>{self.origin}/docs/quickstart.html</loc></url>"
+                f"<url><loc>{self.origin}/demo.html</loc></url></urlset>".encode(),
                 content_type="application/xml",
             )
             return
@@ -130,7 +169,8 @@ class _ContractHandler(BaseHTTPRequestHandler):
                 "media_sha256": {
                     "weft-demo.mp4": "a" * 64,
                     "weft-demo.webm": "b" * 64,
-                    "weft-demo-poster.png": "c" * 64,
+                    "weft-demo.vtt": "c" * 64,
+                    "weft-demo-poster.png": "d" * 64,
                 },
             }
             if self.mode == "manifest-drift":

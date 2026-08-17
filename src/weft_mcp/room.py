@@ -69,6 +69,19 @@ def _validate_message_kind(value: Any, field: str = "message_kind") -> str | Non
     return value
 
 
+def _normalize_target_specs(value: Any) -> list[str]:
+    """Validate and normalize the room-send target specification."""
+    if isinstance(value, str):
+        specs = [value]
+    elif isinstance(value, (list, tuple)):
+        specs = list(value)
+    else:
+        raise RoomError("invalid_argument", "target_spec must be a string or a list of strings")
+    if not specs or any(not isinstance(spec, str) or not spec.strip() for spec in specs):
+        raise RoomError("invalid_argument", "target_spec must contain non-empty strings")
+    return specs
+
+
 # Presence freshness threshold (seconds). A member whose last_seen is older
 # than this is displayed "stale" in room_info. ONE named constant — every
 # presence surface MUST agree, so the literal is never duplicated (the status
@@ -401,8 +414,10 @@ class RoomStore:
         a recipient list fails closed for every other viewer; broadcasts remain
         readable to every room member.
         """
+        # Valid room.message envelopes are objects. A malformed or legacy row
+        # must fail closed rather than leaking a scalar to every member.
         if not isinstance(payload, dict):
-            return payload
+            return {"redacted": True, "reason": "not_the_addressee"}
         if payload.get("target_spec") == "*" or origin_agent == agent_id:
             return payload
         targets = payload.get("targets")
@@ -460,6 +475,9 @@ class RoomStore:
         """
         self._validate_actor(conn, team_id, agent_id, actor_token, None)
         room = self._require_room(conn, room_id)
+        if room["team_id"] != team_id:
+            # Preserve the no-oracle contract across coordinator teams.
+            raise RoomError("room_not_found", "Room not found")
         self._require_member(conn, room_id, agent_id)
         return room
 
@@ -496,12 +514,22 @@ class RoomStore:
         if consent is not True:
             raise RoomError("consent_required", "consent must be the literal JSON boolean true")
         with self._transaction() as conn:
+            # Authenticate before resolving room/link state. A bad credential
+            # must not learn whether a room exists or whether its link is
+            # closed, revoked, or otherwise meaningful.
+            self._validate_actor(conn, team_id, agent_id, actor_token, actor_token_hash)
             room = self._require_room(conn, room_id)
+            if room["team_id"] != team_id:
+                raise RoomError("room_not_found", "Room not found")
             if room["state"] == "closed":
                 raise RoomError("room_closed", "Room is closed")
+            try:
+                link_hash = _token_hash(link_token)
+            except (TypeError, ValueError):
+                raise RoomError("invalid_link", "Link is not valid for this room") from None
             link = conn.execute(
                 "SELECT * FROM room_links WHERE room_id = ? AND token_hash = ?",
-                (room_id, _token_hash(link_token)),
+                (room_id, link_hash),
             ).fetchone()
             if link is None:
                 raise RoomError("invalid_link", "Link is not valid for this room")
@@ -509,8 +537,6 @@ class RoomStore:
                 raise RoomError("link_revoked", "Link has been revoked")
             if float(link["expires_at"]) < _epoch():
                 raise RoomError("link_expired", "Link has expired")
-
-            self._validate_actor(conn, team_id, agent_id, actor_token, actor_token_hash)
 
             existing = conn.execute(
                 "SELECT * FROM room_members WHERE room_id = ? AND agent_id = ?",
@@ -791,6 +817,13 @@ class RoomStore:
                     "created_at": r["created_at"],
                 })
                 next_seq = r["seq"] + 1
+            # A filtered read scans the full stream even when no matching row
+            # is returned (or when fewer than ``limit`` matches remain). Report
+            # the last scanned sequence so callers do not repeatedly replay
+            # old non-matching events; a future event at head+1 remains visible
+            # because cursors are exclusive.
+            if kind_filter and len(rows) < limit:
+                next_seq = max(next_seq, int(room["cursor_head"]))
             return {
                 "room_id": room_id,
                 "state": room["state"],
@@ -806,26 +839,28 @@ class RoomStore:
         with self._transaction() as conn:
             room = self._require_authenticated_member(conn, team_id, room_id, agent_id, actor_token)
             self._touch_member(conn, room_id, agent_id)
-            if int(seq) > int(room["cursor_head"]):
+            if isinstance(seq, bool) or not isinstance(seq, int) or seq < 0:
+                raise RoomError("invalid_cursor", "seq must be a non-negative integer")
+            if seq > int(room["cursor_head"]):
                 raise RoomError("invalid_cursor", "Cannot acknowledge an event beyond the room head")
             now = _utc_now()
             conn.execute(
                 "INSERT INTO room_cursors(room_id, agent_id, last_ack_seq, updated_at) VALUES (?, ?, ?, ?) "
                 "ON CONFLICT(room_id, agent_id) DO UPDATE SET "
                 "last_ack_seq = MAX(last_ack_seq, excluded.last_ack_seq), updated_at = excluded.updated_at",
-                (room_id, agent_id, int(seq), now),
+                (room_id, agent_id, seq, now),
             )
             conn.execute(
                 "UPDATE room_receipts SET read_status = 'read', updated_at = ? "
                 "WHERE room_id = ? AND recipient_agent_id = ? AND seq <= ? "
                 "AND read_status = 'queued'",
-                (now, room_id, agent_id, int(seq)),
+                (now, room_id, agent_id, seq),
             )
             read_row = conn.execute(
                 "SELECT COUNT(*) AS c FROM room_receipts "
                 "WHERE room_id = ? AND recipient_agent_id = ? AND seq <= ? "
                 "AND read_status = 'read'",
-                (room_id, agent_id, int(seq)),
+                (room_id, agent_id, seq),
             ).fetchone()
             row = conn.execute(
                 "SELECT last_ack_seq FROM room_cursors WHERE room_id = ? AND agent_id = ?",
@@ -934,16 +969,16 @@ class RoomStore:
         def _expand(spec: str) -> set[str]:
             if spec == "*":
                 return set(active_ids)
+            if spec in active_ids:
+                # Agent identities are authoritative. A member may create a
+                # group with the same name as another agent, but that must not
+                # turn an exact unicast into a group send.
+                return {spec}
             if spec in groups:
                 return groups[spec] & active_ids
-            if spec in active_ids:
-                return {spec}
             return set()
 
-        if isinstance(target_spec, str):
-            specs = [target_spec]
-        else:
-            specs = list(target_spec or [])
+        specs = _normalize_target_specs(target_spec)
 
         result: set[str] = set()
         for spec in specs:
@@ -961,10 +996,7 @@ class RoomStore:
         members and never-joined ids both hit this: they are genuinely
         undeliverable.
         """
-        if isinstance(target_spec, str):
-            specs = [target_spec]
-        else:
-            specs = list(target_spec or [])
+        specs = _normalize_target_specs(target_spec)
         group_rows = conn.execute(
             "SELECT group_name FROM room_groups WHERE room_id = ?", (room_id,),
         ).fetchall()
@@ -984,6 +1016,7 @@ class RoomStore:
         entry_ids = _validate_entry_ids(entry_ids)
         with self._transaction() as conn:
             self._require_authenticated_member(conn, team_id, room_id, agent_id, actor_token)
+            self._touch_member(conn, room_id, agent_id)
             receipt_rows = conn.execute(
                 "SELECT entry_id, read_status FROM room_receipts "
                 "WHERE room_id = ? AND sender_agent_id = ? AND entry_id IN ("

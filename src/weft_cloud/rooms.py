@@ -128,6 +128,25 @@ def _validate_message_kind(value: Any, field: str = "message_kind") -> str | Non
     return value
 
 
+def _normalize_target_specs(value: Any) -> list[str]:
+    """Validate and normalize a room-send target specification.
+
+    JSON callers may address one member/group (a string) or several (a list of
+    strings). Treating arbitrary iterables as a target list would let dicts
+    become keys, let scalars raise internal errors, and let an empty list
+    create an event with no delivery receipts.
+    """
+    if isinstance(value, str):
+        specs = [value]
+    elif isinstance(value, (list, tuple)):
+        specs = list(value)
+    else:
+        raise RoomError("invalid_argument", "target_spec must be a string or a list of strings", 400)
+    if not specs or any(not isinstance(spec, str) or not spec.strip() for spec in specs):
+        raise RoomError("invalid_argument", "target_spec must contain non-empty strings", 400)
+    return specs
+
+
 # Idempotency keys are validated at the request boundary, BEFORE they are used
 # as a database key anywhere. Max 256 characters: room for namespaced keys
 # (e.g. ``dispatch:<task_id>``) and a full UUID, while bounding the stored
@@ -626,7 +645,7 @@ class CloudRoomService:
         )
 
     @staticmethod
-    def _filter_payload_for_agent(payload: dict, agent_id: str,
+    def _filter_payload_for_agent(payload: Any, agent_id: str,
                                   origin_agent: str | None = None) -> dict:
         """Redact message payloads not addressed to ``agent_id``.
 
@@ -636,8 +655,10 @@ class CloudRoomService:
         redacted envelope so the ordered event sequence stays visible without
         leaking the body.
         """
+        # Valid room.message envelopes are objects. A malformed or legacy row
+        # must fail closed rather than leaking a scalar to every member.
         if not isinstance(payload, dict):
-            return payload
+            return {"redacted": True, "reason": "not_the_addressee"}
         if payload.get("target_spec") == "*" or origin_agent == agent_id:
             return payload
         targets = payload.get("targets")
@@ -705,16 +726,16 @@ class CloudRoomService:
         def _expand(spec: str) -> set[str]:
             if spec == "*":
                 return set(active_ids)
+            if spec in active_ids:
+                # Agent identities are authoritative. A member may create a
+                # group with the same name as another agent, but that must not
+                # turn an exact unicast into a group send.
+                return {spec}
             if spec in groups:
                 return groups[spec] & active_ids
-            if spec in active_ids:
-                return {spec}
             return set()
 
-        if isinstance(target_spec, str):
-            specs = [target_spec]
-        else:
-            specs = list(target_spec or [])
+        specs = _normalize_target_specs(target_spec)
 
         result: set[str] = set()
         for spec in specs:
@@ -734,10 +755,7 @@ class CloudRoomService:
         The caller is a member, so naming a non-member of THIS room leaks
         nothing the caller could not already read from the room's roster.
         """
-        if isinstance(target_spec, str):
-            specs = [target_spec]
-        else:
-            specs = list(target_spec or [])
+        specs = _normalize_target_specs(target_spec)
         group_rows = tx.execute(
             "SELECT group_name FROM cloud_room_groups WHERE tenant_id = ? AND room_id = ?",
             (tenant_id, room_id),
@@ -1340,6 +1358,13 @@ class CloudRoomService:
                     "created_at": r["created_at"],
                 })
                 next_seq = r["seq"] + 1
+            # A filtered read scans the full stream even when no matching row
+            # is returned (or when fewer than ``limit`` matches remain). Report
+            # the last scanned sequence so callers do not repeatedly replay
+            # old non-matching events; a future event at head+1 remains visible
+            # because cursors are exclusive.
+            if kind_filter and len(rows) < limit:
+                next_seq = max(next_seq, int(room["cursor_head"]))
             return {
                 "room_id": room_id,
                 "state": room["state"],
@@ -1432,7 +1457,9 @@ class CloudRoomService:
             room = self._require_room(tx, tenant_id, room_id)
             self._require_member(tx, tenant_id, room_id, agent_id)
             self._touch_member(tx, tenant_id, room_id, agent_id)
-            if int(seq) > int(room["cursor_head"]):
+            if isinstance(seq, bool) or not isinstance(seq, int) or seq < 0:
+                raise RoomError("invalid_cursor", "seq must be a non-negative integer", 400)
+            if seq > int(room["cursor_head"]):
                 raise RoomError("invalid_cursor", "Cannot acknowledge an event beyond the room head", 400)
             now = utc_now_iso()
             tx.execute(
@@ -1440,7 +1467,7 @@ class CloudRoomService:
                 "VALUES (?, ?, ?, ?, ?) "
                 "ON CONFLICT(tenant_id, room_id, agent_id) DO UPDATE SET "
                 "last_ack_seq = MAX(last_ack_seq, excluded.last_ack_seq), updated_at = excluded.updated_at",
-                (tenant_id, room_id, agent_id, int(seq), now),
+                (tenant_id, room_id, agent_id, seq, now),
             )
             # Read-receipt lifecycle: acking past an event's seq means the
             # recipient has processed it — its receipt transitions queued ->
@@ -1450,13 +1477,13 @@ class CloudRoomService:
                 "UPDATE cloud_room_receipts SET read_status = 'read', updated_at = ? "
                 "WHERE tenant_id = ? AND room_id = ? AND recipient_agent_id = ? "
                 "AND seq <= ? AND read_status = 'queued'",
-                (now, tenant_id, room_id, agent_id, int(seq)),
+                (now, tenant_id, room_id, agent_id, seq),
             )
             read_row = tx.execute(
                 "SELECT COUNT(*) AS c FROM cloud_room_receipts "
                 "WHERE tenant_id = ? AND room_id = ? AND recipient_agent_id = ? "
                 "AND seq <= ? AND read_status = 'read'",
-                (tenant_id, room_id, agent_id, int(seq)),
+                (tenant_id, room_id, agent_id, seq),
             ).fetchone()
             row = tx.execute(
                 "SELECT last_ack_seq FROM cloud_room_cursors WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",

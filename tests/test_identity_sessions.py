@@ -67,6 +67,13 @@ class SessionContractTests(unittest.TestCase):
         self.account_id, self.verification_token = accounts.signup(
             self.backend, self.tenant_id, "alice@example.com", "correct horse battery staple"
         )
+        with self.backend.transaction() as tx:
+            tx.execute(
+                "INSERT INTO cloud_identity_members(tenant_id, account_id, role, joined_at) "
+                "VALUES (?, ?, 'member', datetime('now'))",
+                (self.tenant_id, self.account_id),
+            )
+            tx.commit()
 
     def tearDown(self) -> None:
         if hasattr(self.backend, "close"):
@@ -120,6 +127,15 @@ class SessionContractTests(unittest.TestCase):
             """)
             tx.commit()
 
+    def _set_membership_role(self, role: str) -> None:
+        with self.backend.transaction() as tx:
+            tx.execute(
+                "UPDATE cloud_identity_members SET role = ? "
+                "WHERE tenant_id = ? AND account_id = ?",
+                (role, self.tenant_id, self.account_id),
+            )
+            tx.commit()
+
     # --- 1. create returns raw fss_ token + session_id; raw NOT stored ---
     def test_create_returns_raw_token_and_session_id_raw_not_stored(self) -> None:
         session_id, raw_token = sessions.create(
@@ -149,6 +165,7 @@ class SessionContractTests(unittest.TestCase):
 
     # --- 2. validate returns SessionContext with correct role; tampered fails ---
     def test_validate_returns_context_with_role_tampered_fails(self) -> None:
+        self._set_membership_role("admin")
         session_id, raw_token = sessions.create(
             self.backend, self.tenant_id, self.account_id, role="admin"
         )
@@ -194,6 +211,7 @@ class SessionContractTests(unittest.TestCase):
         _, token_a = sessions.create(
             self.backend, self.tenant_id, self.account_id, role="member"
         )
+        self._set_membership_role("admin")
         _, token_b = sessions.create(
             self.backend, self.tenant_id, self.account_id, role="admin"
         )
@@ -215,6 +233,7 @@ class SessionContractTests(unittest.TestCase):
         )
         sessions.revoke_all_for_account(self.backend, self.account_id)
 
+        self._set_membership_role("admin")
         _, new_token = sessions.create(
             self.backend, self.tenant_id, self.account_id, role="admin"
         )
@@ -239,6 +258,7 @@ class SessionContractTests(unittest.TestCase):
         member_ctx.require_role("member")  # must not raise
 
         # Admin can require admin but not owner.
+        self._set_membership_role("admin")
         _, admin_token = sessions.create(
             self.backend, self.tenant_id, self.account_id, role="admin"
         )
@@ -247,6 +267,18 @@ class SessionContractTests(unittest.TestCase):
         with self.assertRaises(RoleError):
             admin_ctx.require_role("owner")
 
+    def test_require_role_rejects_unknown_role_without_key_error(self) -> None:
+        forged_ctx = SessionContext(
+            tenant_id=self.tenant_id,
+            account_id=self.account_id,
+            role="not-a-role",
+            backend=self.backend,
+        )
+
+        with self.assertRaises(RoleError) as ctx_exc:
+            forged_ctx.require_role("member")
+        self.assertEqual(ctx_exc.exception.code, "forbidden")
+
     # --- 8. raw token never appears in SessionContext repr ---
     def test_session_context_repr_never_contains_raw_token(self) -> None:
         _, raw_token = sessions.create(
@@ -254,3 +286,46 @@ class SessionContractTests(unittest.TestCase):
         )
         ctx = sessions.validate(self.backend, raw_token)
         self.assertNotIn("fss_", repr(ctx))
+
+    def test_create_rejects_cross_tenant_account(self) -> None:
+        other_tenant = "tenant_other"
+        self.backend.create_tenant(other_tenant, "Other Org")
+
+        with self.assertRaises(AuthError) as cm:
+            sessions.create(self.backend, other_tenant, self.account_id, role="owner")
+        self.assertEqual(cm.exception.args[0], "invalid_session")
+
+    def test_create_rejects_non_member_account(self) -> None:
+        account_id = accounts._create_account(
+            self.backend,
+            self.tenant_id,
+            "nonmember@example.com",
+            "nonmember-password",
+            email_verified=1,
+        )
+
+        with self.assertRaises(AuthError) as cm:
+            sessions.create(self.backend, self.tenant_id, account_id, role="member")
+        self.assertEqual(cm.exception.args[0], "invalid_session")
+
+    def test_create_rejects_role_mismatch(self) -> None:
+        with self.assertRaises(AuthError) as cm:
+            sessions.create(self.backend, self.tenant_id, self.account_id, role="admin")
+        self.assertEqual(cm.exception.args[0], "invalid_session")
+
+    def test_create_preserves_fresh_signup_bootstrap(self) -> None:
+        tenant_id = "tenant_bootstrap"
+        self.backend.create_tenant(tenant_id, "Bootstrap Org")
+        account_id, _ = accounts.signup(
+            self.backend, tenant_id, "bootstrap@example.com", "bootstrap-password"
+        )
+
+        _, raw_token = sessions.create(self.backend, tenant_id, account_id, role="owner")
+        self.assertEqual(sessions.validate(self.backend, raw_token).role, "owner")
+        with self.backend.transaction() as tx:
+            row = tx.execute(
+                "SELECT role FROM cloud_identity_members WHERE tenant_id = ? AND account_id = ?",
+                (tenant_id, account_id),
+            ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(row["role"], "owner")

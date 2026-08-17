@@ -146,6 +146,33 @@ def set_role(ctx: SessionContext, account_id: str, new_role: str) -> None:
         ctx.require_role("owner")
         require_db_role(ctx.backend, ctx.tenant_id, ctx.account_id, "owner")
     with ctx.backend.transaction() as tx:
+        target = tx.execute(
+            "SELECT role FROM cloud_identity_members "
+            "WHERE tenant_id = ? AND account_id = ?",
+            (ctx.tenant_id, account_id),
+        ).fetchone()
+        if target is not None and target["role"] == "owner" and new_role != "owner":
+            # Demoting an owner is itself an ownership operation.  An admin
+            # must not be able to remove the only owner (or demote an owner at
+            # all), even though admins may otherwise set member/admin roles.
+            # Re-check the live DB role inside this transaction so a forged
+            # SessionContext or a concurrent role change cannot bypass the
+            # owner-only boundary.
+            ctx.require_role("owner")
+            actor = tx.execute(
+                "SELECT role FROM cloud_identity_members "
+                "WHERE tenant_id = ? AND account_id = ?",
+                (ctx.tenant_id, ctx.account_id),
+            ).fetchone()
+            if actor is None or actor["role"] != "owner":
+                raise RoleError("forbidden")
+            owner_count = tx.execute(
+                "SELECT COUNT(*) AS count FROM cloud_identity_members "
+                "WHERE tenant_id = ? AND role = 'owner'",
+                (ctx.tenant_id,),
+            ).fetchone()["count"]
+            if owner_count <= 1:
+                raise RoleError("forbidden")
         tx.execute(
             "UPDATE cloud_identity_members SET role = ? WHERE tenant_id = ? AND account_id = ?",
             (new_role, ctx.tenant_id, account_id),

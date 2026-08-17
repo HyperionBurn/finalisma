@@ -76,7 +76,7 @@ result = client.join_room(
         service your agent connects via Streamable HTTP, or via an MCP stdio
         bridge configured for remote mode; bridge-adapter and SDK examples
         target a self-hosted coordinator. Tool count depends on the surface: the hosted
-        <code>POST /mcp</code> exposes 9 room tools; the self-hosted coordinator
+        <code>POST /mcp</code> exposes 11 room tools; the self-hosted coordinator
         exposes 58.
       </p>
     </div>
@@ -86,6 +86,8 @@ result = client.join_room(
         <button
           class="tier-tab"
           role="tab"
+          id={`tier-tab-${tier.id}`}
+          aria-controls={`tier-panel-${tier.id}`}
           aria-selected={i === 0 ? 'true' : 'false'}
           data-tier-tab={tier.id}
           type="button"
@@ -100,8 +102,10 @@ result = client.join_room(
         <div
           class="bezel tier-panel"
           role="tabpanel"
+          id={`tier-panel-${tier.id}`}
+          aria-labelledby={`tier-tab-${tier.id}`}
+          tabindex="0"
           data-tier-panel={tier.id}
-          hidden={i !== 0 ? true : undefined}
         >
           <div class="bezel__core">
             <pre class="code-block is-typewriter" data-code-block data-full={tier.code}><code>{tier.code}</code><span class="code-block__caret" aria-hidden="true"></span></pre>
@@ -208,6 +212,10 @@ result = client.join_room(
         else p.setAttribute('hidden', 'true');
       });
     }
+
+    // Keep every panel server-visible for no-JS users; JS owns the interactive
+    // single-panel presentation once the page has hydrated.
+    if (tabs[0]) activateTab(tabs[0]);
 
     tabs.forEach((tab, idx) => {
       tab.addEventListener('click', () => activateTab(tab));

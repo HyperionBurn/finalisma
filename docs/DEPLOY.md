@@ -230,7 +230,7 @@ Executed and confirmed on the authoring machine:
   `weft-web: WEFT_WEB_PORT must be an integer`.
 - Both processes started against one shared database file; the shared-store
   suite `tests/test_webapp_entrypoint.py` (6 tests) passes.
- - 929 tests pass in the current integration tree; the historical 524-test,
+ - 984 tests pass in the current integration tree; the historical 524-test,
   two branch-drift-failure snapshot above is retained only as provenance for
   that earlier deployment run and is not the current release gate.
 

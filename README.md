@@ -298,8 +298,9 @@ distributed rate limiting, and an outbox are required for that deployment tier.
  to avoid reopening the database for every handoff operation. Long-lived library
  callers should use `with WeftStore(...) as store:` or call `store.close()`
  during shutdown. The performance reference file records a ~72.2ms weighted
-median, and the latest full gate run measured 72.433ms weighted median /
-95.985ms p95 across 929 tests. Quality, smoke, credential redaction, and
+median. The current verified suite is 984 tests. The latest recorded performance
+gate (2026-08-14; historical 929-test artifact) measured 72.433ms weighted median /
+95.985ms p95. Its quality, smoke, credential redaction, and
 semantic digests passed; weighted-median, routing-fanout, and session-relay
 timing guards were red while OpenCode was active. A previous 928-test run
 passed all timing guards at 65.473ms / 70.630ms. The baseline was not

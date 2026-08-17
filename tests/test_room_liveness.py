@@ -636,6 +636,27 @@ class CoordinatorRoomLivenessTests(unittest.TestCase):
         self.assertGreater(after, before,
                            "coordinator room_ack must refresh the caller's last_seen")
 
+    def test_receipts_refresh_last_seen(self) -> None:
+        sent = self.dispatcher.call_tool("room_send", {
+            "team_id": self.team, "room_id": self.room_id,
+            "sender_agent_id": "A2", "target_spec": "OWNER",
+            "payload": {"text": "receipt-liveness"},
+            "actor_token": self.tokens["A2"],
+        })
+        entry_id = sent["receipts"][0]["entry_id"]
+        self._backdate("A2")
+        before = self._last_seen("A2")
+        time.sleep(0.02)
+        with self._touch_interval(0.0001):
+            self.dispatcher.call_tool("room_receipts", {
+                "team_id": self.team, "room_id": self.room_id,
+                "agent_id": "A2", "entry_ids": [entry_id],
+                "actor_token": self.tokens["A2"],
+            })
+        after = self._last_seen("A2")
+        self.assertGreater(after, before,
+                           "coordinator room_receipts must refresh the caller's last_seen")
+
     def test_member_cannot_refresh_another_members_last_seen(self) -> None:
         a2_before = self._last_seen("A2")
         with self._touch_interval(0.0001):

@@ -26,7 +26,7 @@ Official documentation currently supports nine plausible MCP host paths. One his
 ## Source links
 
 - Product: /index.html
-- Recorded 42-second protocol proof: /demo.html
+- Recorded 43-second protocol proof: /demo.html
 - Website guides: /docs/index.html
 - Quickstart: /docs/quickstart.html
 - Protocol preview: /docs/protocol.html

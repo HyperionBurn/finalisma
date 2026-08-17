@@ -1,0 +1,58 @@
+name: Weft CI
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # Keep both runtimes project-local. Python has no runtime dependencies;
+      # npm ci installs only the locked web dependencies under web/node_modules.
+      - name: Create Python virtual environment
+        run: python -m venv .venv
+
+      - name: Install locked web dependencies
+        working-directory: web
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Compile Python
+        run: .venv/bin/python -B -m compileall -q src scripts tests
+
+      - name: Run count guard
+        run: .venv/bin/python -B -m unittest tests.test_site.TestCountSyncTests
+
+      - name: Run Python unit tests
+        run: .venv/bin/python -B -m unittest discover -s tests
+
+      - name: Run Node syntax and static UX checks
+        run: |
+          node --check site/app.js
+          node --check scripts/capture-site-qa.cjs
+          node web/scripts/verify-preservation.cjs
+        # The rendered browser harness imports Playwright from a machine-local
+        # Codex cache, and Playwright is intentionally absent from web/package.json.
+        # CI therefore runs the supported deterministic static UX guard above;
+        # full rendered browser QA remains a separately provisioned local check.
+
+      - name: Check patch whitespace
+        run: git diff --check

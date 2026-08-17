@@ -61,7 +61,14 @@ class SessionContext:
 
     def require_role(self, required: str) -> None:
         """Layer-1 guard: refuse if the session's role is below ``required``."""
-        if ROLE_RANK[self.role] < ROLE_RANK[required]:
+        try:
+            actual_rank = ROLE_RANK[self.role]
+            required_rank = ROLE_RANK[required]
+        except KeyError:
+            # Invalid context/requirement values must fail closed through the
+            # identity error contract, not escape as a handler-level KeyError.
+            raise RoleError("forbidden") from None
+        if actual_rank < required_rank:
             raise RoleError("forbidden")
 
 

@@ -16,7 +16,7 @@ import sys
 from http.client import HTTPException
 from html.parser import HTMLParser
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 DEFAULT_API_ORIGIN = "https://weft.switzerlandnorth.cloudapp.azure.com"
@@ -38,7 +38,12 @@ _MEDIA = {
     "site_demo_captions": ("/assets/weft-demo.vtt", "text/vtt"),
     "site_demo_poster": ("/assets/weft-demo-poster.png", "image/png"),
 }
-_MANIFEST_MEDIA = ("weft-demo.mp4", "weft-demo.webm", "weft-demo-poster.png")
+_MANIFEST_MEDIA = (
+    "weft-demo.mp4",
+    "weft-demo.webm",
+    "weft-demo.vtt",
+    "weft-demo-poster.png",
+)
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -118,10 +123,21 @@ class _PageFacts(HTMLParser):
         self.canonical: list[str] = []
         self.og_urls: list[str] = []
         self.og_images: list[str] = []
+        self.og_site_names: list[str] = []
+        self.og_titles: list[str] = []
+        self.og_descriptions: list[str] = []
+        self.og_image_alts: list[str] = []
+        self.twitter_cards: list[str] = []
+        self.twitter_titles: list[str] = []
+        self.twitter_descriptions: list[str] = []
+        self.twitter_images: list[str] = []
+        self.twitter_image_alts: list[str] = []
         self.links: list[str] = []
         self.video_posters: list[str] = []
         self.sources: list[str] = []
         self.captions: list[str] = []
+        self.caption_languages: list[str] = []
+        self.caption_defaults: list[bool] = []
 
     def handle_starttag(self, tag: str, attrs) -> None:
         values = {name.lower(): value or "" for name, value in attrs}
@@ -135,6 +151,24 @@ class _PageFacts(HTMLParser):
                 self.og_urls.append(values["content"])
             elif property_name == "og:image" and values.get("content"):
                 self.og_images.append(values["content"])
+            elif property_name == "og:site_name" and values.get("content"):
+                self.og_site_names.append(values["content"])
+            elif property_name == "og:title" and values.get("content"):
+                self.og_titles.append(values["content"])
+            elif property_name == "og:description" and values.get("content"):
+                self.og_descriptions.append(values["content"])
+            elif property_name == "og:image:alt" and values.get("content"):
+                self.og_image_alts.append(values["content"])
+            elif values.get("name", "").lower() == "twitter:card" and values.get("content"):
+                self.twitter_cards.append(values["content"])
+            elif values.get("name", "").lower() == "twitter:title" and values.get("content"):
+                self.twitter_titles.append(values["content"])
+            elif values.get("name", "").lower() == "twitter:description" and values.get("content"):
+                self.twitter_descriptions.append(values["content"])
+            elif values.get("name", "").lower() == "twitter:image" and values.get("content"):
+                self.twitter_images.append(values["content"])
+            elif values.get("name", "").lower() == "twitter:image:alt" and values.get("content"):
+                self.twitter_image_alts.append(values["content"])
         elif tag == "a" and values.get("href"):
             self.links.append(values["href"])
         elif tag == "video":
@@ -145,6 +179,8 @@ class _PageFacts(HTMLParser):
         elif tag == "track" and "captions" in values.get("kind", "").lower().split():
             if values.get("src"):
                 self.captions.append(values["src"])
+                self.caption_languages.append(values.get("srclang", "").lower())
+                self.caption_defaults.append("default" in values)
 
 
 def _page_facts(response: dict) -> _PageFacts:
@@ -157,15 +193,39 @@ def _page_facts(response: dict) -> _PageFacts:
     return facts
 
 
-def _metadata_ok(response: dict, expected_url: str) -> bool:
+def _site_asset(value: str, site_origin: str) -> bool:
+    parsed = urlsplit(value)
+    return (not parsed.scheme and not parsed.netloc and value.startswith("/")) or (
+        value.startswith(f"{site_origin}/")
+    )
+
+
+def _metadata_ok(response: dict, expected_url: str, site_origin: str) -> bool:
     if response.get("status") != 200:
         return False
     facts = _page_facts(response)
     return (
         expected_url in facts.canonical
         and expected_url in facts.og_urls
+        and facts.og_site_names == ["Weft"]
+        and bool(facts.og_titles)
+        and bool(facts.og_descriptions)
         and bool(facts.og_images)
+        and all(_site_asset(image, site_origin) for image in facts.og_images)
+        and bool(facts.og_image_alts)
+        and facts.twitter_cards == ["summary_large_image"]
+        and facts.twitter_titles == facts.og_titles
+        and facts.twitter_descriptions == facts.og_descriptions
+        and bool(facts.twitter_images)
+        and all(_site_asset(image, site_origin) for image in facts.twitter_images)
+        and bool(facts.twitter_image_alts)
     )
+
+
+def _resolved_references(values: list[str], page_url: str) -> set[str]:
+    """Resolve page-relative media references before comparing contracts."""
+
+    return {urljoin(page_url, value) for value in values}
 
 
 def _json_body(response: dict) -> dict | None:
@@ -178,11 +238,21 @@ def _json_body(response: dict) -> dict | None:
     return value if isinstance(value, dict) else None
 
 
-def _manifest_ok(response: dict, site_origin: str) -> bool:
+def _sitemap_urls(response: dict, site_origin: str) -> list[str]:
+    if response.get("status") != 200:
+        return []
+    return re.findall(
+        rf"(?is)<loc>\s*({re.escape(site_origin)}/[^<\s]*)\s*</loc>",
+        response.get("body", ""),
+    )
+
+
+def _manifest_ok(response: dict, site_origin: str, sitemap_response: dict) -> bool:
     manifest = _json_body(response)
     if manifest is None:
         return False
     media_hashes = manifest.get("media_sha256")
+    sitemap_urls = _sitemap_urls(sitemap_response, site_origin)
     return (
         manifest.get("schema") == "weft.site-release/v1"
         and manifest.get("origin") == site_origin
@@ -191,6 +261,8 @@ def _manifest_ok(response: dict, site_origin: str) -> bool:
         and isinstance(manifest.get("sitemap_url_count"), int)
         and manifest["sitemap_url_count"] > 0
         and manifest["sitemap_url_count"] <= manifest["page_count"]
+        and manifest["sitemap_url_count"] == len(sitemap_urls)
+        and manifest["page_count"] == len(sitemap_urls)
         and isinstance(media_hashes, dict)
         and all(
             isinstance(media_hashes.get(name), str)
@@ -203,6 +275,10 @@ def _manifest_ok(response: dict, site_origin: str) -> bool:
 def _media_ok(response: dict, expected_content_type: str) -> bool:
     content_type = response.get("headers", {}).get("content-type", "").split(";", 1)[0].strip().lower()
     return response.get("status") == 200 and response.get("bytes", 0) > 0 and content_type == expected_content_type
+
+
+def _captions_ok(response: dict) -> bool:
+    return _media_ok(response, "text/vtt") and response.get("body", "").lstrip().startswith("WEBVTT")
 
 
 def _summary(response: dict) -> dict:
@@ -265,6 +341,7 @@ def probe(api_origin: str, site_origin: str, timeout: float = 20.0) -> dict:
             for marker in ('rel="canonical"', 'og:url', 'data-cohort-build')
         )
     )
+    sitemap_urls = _sitemap_urls(endpoints["site_sitemap"], site_origin)
     site_indexing_ok = (
         endpoints["site_robots"]["status"] == 200
         and bool(
@@ -275,8 +352,12 @@ def probe(api_origin: str, site_origin: str, timeout: float = 20.0) -> dict:
         )
         and endpoints["site_sitemap"]["status"] == 200
         and _has(endpoints["site_sitemap"], "<urlset")
+        and bool(sitemap_urls)
+        and all(url.startswith(f"{site_origin}/") for url in sitemap_urls)
     )
-    site_manifest_ok = _manifest_ok(endpoints["site_manifest"], site_origin)
+    site_manifest_ok = _manifest_ok(
+        endpoints["site_manifest"], site_origin, endpoints["site_sitemap"]
+    )
     expected_metadata = {
         "site_home": f"{site_origin}/",
         "site_docs": f"{site_origin}/docs/index.html",
@@ -284,18 +365,28 @@ def probe(api_origin: str, site_origin: str, timeout: float = 20.0) -> dict:
         "site_demo": f"{site_origin}/demo.html",
     }
     site_metadata_ok = all(
-        _metadata_ok(endpoints[name], expected_url)
+        _metadata_ok(endpoints[name], expected_url, site_origin)
         for name, expected_url in expected_metadata.items()
     )
     site_signup_cta_ok = f"{api_origin}/signup" in _page_facts(endpoints["site_home"]).links
     demo_facts = _page_facts(endpoints["site_demo"])
+    demo_url = f"{site_origin}/demo.html"
+    demo_sources = _resolved_references(demo_facts.sources, demo_url)
+    demo_captions = _resolved_references(demo_facts.captions, demo_url)
+    demo_posters = _resolved_references(demo_facts.video_posters, demo_url)
     site_demo_media_ok = (
         site_demo_ok
-        and "/assets/weft-demo.mp4" in demo_facts.sources
-        and "/assets/weft-demo.webm" in demo_facts.sources
-        and "/assets/weft-demo.vtt" in demo_facts.captions
-        and "/assets/weft-demo-poster.png" in demo_facts.video_posters
-        and all(_media_ok(endpoints[name], content_type) for name, (_path, content_type) in _MEDIA.items())
+        and f"{site_origin}/assets/weft-demo.mp4" in demo_sources
+        and f"{site_origin}/assets/weft-demo.webm" in demo_sources
+        and f"{site_origin}/assets/weft-demo.vtt" in demo_captions
+        and f"{site_origin}/assets/weft-demo-poster.png" in demo_posters
+        and "en" in demo_facts.caption_languages
+        and any(demo_facts.caption_defaults)
+        and all(
+            _captions_ok(endpoints[name]) if name == "site_demo_captions"
+            else _media_ok(endpoints[name], content_type)
+            for name, (_path, content_type) in _MEDIA.items()
+        )
     )
     site_404_content_ok = (
         site_404_ok and _has(endpoints["site_404"], "This path is not in the account.")

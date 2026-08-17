@@ -62,7 +62,16 @@ class _ProbeHandler(BaseHTTPRequestHandler):
                 (
                     f'<link rel="canonical" href="{self.server.site_origin}/">'
                     f'<meta property="og:url" content="{self.server.site_origin}/">'
+                    '<meta property="og:site_name" content="Weft">'
+                    '<meta property="og:title" content="Weft home">'
+                    '<meta property="og:description" content="Governed agent rooms.">'
                     '<meta property="og:image" content="/assets/weft-demo-poster.png">'
+                    '<meta property="og:image:alt" content="Weft social card.">'
+                    '<meta name="twitter:card" content="summary_large_image">'
+                    '<meta name="twitter:title" content="Weft home">'
+                    '<meta name="twitter:description" content="Governed agent rooms.">'
+                    '<meta name="twitter:image" content="/assets/weft-demo-poster.png">'
+                    '<meta name="twitter:image:alt" content="Weft social card.">'
                     f'<a href="{self.api_origin}/signup">Build</a>'
                     '<button data-cohort-build>Build</button>'
                 ).encode(),
@@ -79,14 +88,23 @@ class _ProbeHandler(BaseHTTPRequestHandler):
             body = (
                 f'<link rel="canonical" href="{expected_url}">'
                 f'<meta property="og:url" content="{expected_url}">'
+                '<meta property="og:site_name" content="Weft">'
+                '<meta property="og:title" content="Weft page">'
+                '<meta property="og:description" content="Governed agent rooms.">'
                 '<meta property="og:image" content="/assets/weft-demo-poster.png">'
+                '<meta property="og:image:alt" content="Weft social card.">'
+                '<meta name="twitter:card" content="summary_large_image">'
+                '<meta name="twitter:title" content="Weft page">'
+                '<meta name="twitter:description" content="Governed agent rooms.">'
+                '<meta name="twitter:image" content="/assets/weft-demo-poster.png">'
+                '<meta name="twitter:image:alt" content="Weft social card.">'
             )
             if self.path == "/demo":
                 body += (
                     '<video poster="/assets/weft-demo-poster.png">'
                     '<source src="/assets/weft-demo.mp4" type="video/mp4">'
                     '<source src="/assets/weft-demo.webm" type="video/webm">'
-                    '<track kind="captions" src="/assets/weft-demo.vtt">'
+                    '<track default kind="captions" srclang="en" src="/assets/weft-demo.vtt">'
                     '</video>'
                 )
             self._reply(
@@ -109,17 +127,28 @@ class _ProbeHandler(BaseHTTPRequestHandler):
                 site=True,
             )
         elif self.path == "/sitemap.xml" and not self.drift:
-            self._reply(200, b"<urlset></urlset>", content_type="application/xml", site=True)
+            self._reply(
+                200,
+                (
+                    f"<urlset><url><loc>{self.server.site_origin}/</loc></url>"
+                    f"<url><loc>{self.server.site_origin}/docs/index.html</loc></url>"
+                    f"<url><loc>{self.server.site_origin}/docs/quickstart.html</loc></url>"
+                    f"<url><loc>{self.server.site_origin}/demo.html</loc></url></urlset>"
+                ).encode(),
+                content_type="application/xml",
+                site=True,
+            )
         elif self.path == "/release-manifest.json" and not self.drift:
             manifest = {
                 "schema": "weft.site-release/v1",
                 "origin": self.server.site_origin,
                 "page_count": 4,
-                "sitemap_url_count": 1,
+                "sitemap_url_count": 4,
                 "media_sha256": {
                     "weft-demo.mp4": "0" * 64,
                     "weft-demo.webm": "1" * 64,
-                    "weft-demo-poster.png": "2" * 64,
+                    "weft-demo.vtt": "2" * 64,
+                    "weft-demo-poster.png": "3" * 64,
                 },
             }
             self._reply(

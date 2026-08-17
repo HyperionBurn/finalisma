@@ -163,6 +163,88 @@ class IdentityInvitesContractTests(unittest.TestCase):
         )
         self.assertEqual(authenticated, new_account_id)
 
+    def test_accept_migrates_existing_member_and_rotates_legacy_credentials(self) -> None:
+        """An old bootstrap member can adopt a private password via invite."""
+        from weft_cloud.identity import accounts
+
+        legacy_password = "legacy-bootstrap-password"
+        private_password = "private-password-after-invite"
+        account_id = accounts._create_account(
+            self.backend,
+            self.tenant_id,
+            "legacy@example.com",
+            legacy_password,
+            email_verified=1,
+        )
+        with self.backend.transaction() as tx:
+            tx.execute(
+                "INSERT INTO cloud_identity_members(tenant_id, account_id, role, joined_at) "
+                "VALUES (?, ?, 'member', datetime('now'))",
+                (self.tenant_id, account_id),
+            )
+            tx.commit()
+        _, old_session = sessions.create(
+            self.backend, self.tenant_id, account_id, role="member"
+        )
+
+        _, invite_token = invites.create(
+            self.owner_ctx, "legacy@example.com", role="member"
+        )
+        migrated_id, _ = invites.accept(
+            self.backend, invite_token, "legacy@example.com", private_password
+        )
+
+        self.assertEqual(migrated_id, account_id)
+        self.assertEqual(
+            accounts.authenticate(
+                self.backend, self.tenant_id, "legacy@example.com", private_password
+            ),
+            account_id,
+        )
+        with self.assertRaises(accounts.AuthError):
+            accounts.authenticate(
+                self.backend, self.tenant_id, "legacy@example.com", legacy_password
+            )
+        with self.assertRaises(sessions.AuthError):
+            sessions.validate(self.backend, old_session)
+
+    def test_existing_member_cannot_use_invite_to_change_role(self) -> None:
+        """Migration is role-preserving; role changes stay in orgs.set_role."""
+        from weft_cloud.identity import accounts
+
+        account_id = accounts._create_account(
+            self.backend,
+            self.tenant_id,
+            "role-locked@example.com",
+            "existing-password",
+            email_verified=1,
+        )
+        with self.backend.transaction() as tx:
+            tx.execute(
+                "INSERT INTO cloud_identity_members(tenant_id, account_id, role, joined_at) "
+                "VALUES (?, ?, 'member', datetime('now'))",
+                (self.tenant_id, account_id),
+            )
+            tx.commit()
+        _, invite_token = invites.create(
+            self.owner_ctx, "role-locked@example.com", role="admin"
+        )
+
+        with self.assertRaises(AuthError) as exc:
+            invites.accept(
+                self.backend, invite_token, "role-locked@example.com", "new-password"
+            )
+        self.assertEqual(exc.exception.code, "already_in_org")
+        self.assertEqual(
+            accounts.authenticate(
+                self.backend,
+                self.tenant_id,
+                "role-locked@example.com",
+                "existing-password",
+            ),
+            account_id,
+        )
+
     # -- 4. wrong email refused with invite_mismatch --
 
     def test_accept_wrong_email_raises_invite_mismatch(self) -> None:

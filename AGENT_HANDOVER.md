@@ -409,7 +409,7 @@ To regenerate the social card after editing `site/assets/og-card.svg`:
 node .\scripts\render-og-card.cjs
 ```
 
-**Verified for the current launch pass:** 929/929 Python tests and
+**Verified for the current launch pass:** 984/984 Python tests and
 `evidence_passed: true` on the smoke. The last recorded DOUBLE ENTRY harness run had
 `consoleErrors: []` and all 13 harness boolean checks true — `allPinned` with the five
 checkpoints at exactly 64px
@@ -421,7 +421,7 @@ verified with the `@supports` branch forced off (§4.1): checkpoints still pin a
 account still reaches `7 / balanced`. Blog index, article, mobile article and 404 were
 captured clean with zero console errors and zero serif declarations.
 
-The site copy and audit total now state 929 tests, with the same assertion in
+The site copy and audit total now state 984 tests, with the same assertion in
 `tests/test_site.py`. **That number is a measured fact stated on the page** — if you
 add or remove a test, update `site/index.html` (the microcopy in folio 00 and the total
 in folio 04) and the assertion in `tests/test_site.py`. Do not confuse this test count
@@ -439,14 +439,14 @@ The locked single-node evaluator is `scripts/weft_performance_gate.py`; its
 baseline and OMX ledger live under
 `.omx/goals/performance/single-node-coordinator-envelope/`. The current reference
 artifact is 72.221 ms; the latest complete local gate measured 72.433 ms /
-95.985 ms p95 across 929 tests. Its quality, smoke, semantic-digest, and
+95.985 ms p95 (latest recorded gate on 2026-08-14; historical 929-test artifact). Its quality, smoke, semantic-digest, and
 credential-output checks passed; weighted-median, routing-fanout, and
 session-relay timing guards were red while OpenCode was active. A previous
 928-test run passed all timing guards at 65.473 ms / 70.630 ms. An idle
 controlled-host rerun is required.
 The older ~68.8 ms and 1,265.771 ms -> 59.314 ms (95.31%) results are historical
 evidence preserved in the baseline `history` array. The gate requires the current
-929-test suite to pass, smoke passing, and no raw credential in evaluator output.
+984-test suite to pass, smoke passing, and no raw credential in evaluator output.
 Read `docs/PERFORMANCE.md` before changing the
 harness, baseline, connection pooling, routing query, or session cursor path.
 
