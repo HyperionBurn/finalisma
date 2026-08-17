@@ -622,6 +622,14 @@ _CLOUD_OUTBOX_LIFECYCLE_STATEMENTS = [
 ]
 
 
+_CLOUD_OUTBOX_CLAIM_INDEXES_SQL = """
+CREATE INDEX IF NOT EXISTS idx_cloud_outbox_claim
+    ON cloud_outbox(status, next_attempt_at, claimed_at, created_at);
+CREATE INDEX IF NOT EXISTS idx_cloud_identity_outbox_claim
+    ON cloud_identity_outbox(status, next_attempt_at, claimed_at, created_at);
+"""
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         "cloud_001_init",
@@ -702,6 +710,11 @@ MIGRATIONS: list[Migration] = [
         "the consumption column 'status'; the deployed canonical column is "
         "'read_status'. Guarded both ways: a no-op when read_status exists.",
         up_fn=_rename_receipt_status_column,
+    ),
+    Migration(
+        "cloud_015_outbox_claim_indexes",
+        "indexes for queued/retry/lease claim selectors",
+        _CLOUD_OUTBOX_CLAIM_INDEXES_SQL,
     ),
 ]
 
