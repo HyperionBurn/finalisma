@@ -280,7 +280,11 @@ class UpstreamRateLimitTests(unittest.TestCase):
             status = HTTPStatus.TOO_MANY_REQUESTS
 
             def read(self) -> bytes:
-                return b'{"error":{"code":"rate_limited","message":"retry later"}}'
+                return (
+                    b'{"error":{"code":"rate_limited",'
+                    b'"message":"upstream secret fst_actor_BRIDGE_SECRET",'
+                    b'"details":{"token":"fss_REMOTE_SECRET"}}}'
+                )
 
             def getheader(self, name: str) -> str | None:
                 return "7" if name == "Retry-After" else None
@@ -307,11 +311,49 @@ class UpstreamRateLimitTests(unittest.TestCase):
         self.assertEqual(reply["id"], 9)
         error = reply["error"]
         self.assertEqual(error["code"], -32000)
-        self.assertEqual(error["message"], "retry later")
+        self.assertEqual(
+            error["message"],
+            "the Weft hosted endpoint returned HTTP 429; retry later",
+        )
         self.assertEqual(
             error["data"],
-            {"code": "rate_limited", "message": "retry later", "retry_after": 7},
+            {"code": "rate_limited", "retry_after": 7},
         )
+        serialized = json.dumps(reply)
+        self.assertNotIn("fst_actor_BRIDGE_SECRET", serialized)
+        self.assertNotIn("fss_REMOTE_SECRET", serialized)
+
+    def test_http_429_ignores_unbounded_retry_hint(self) -> None:
+        class Response:
+            status = HTTPStatus.TOO_MANY_REQUESTS
+
+            def read(self) -> bytes:
+                return b'{"error":{"details":{"retry_after":"fss_RETRY_SECRET"}}}'
+
+            def getheader(self, name: str) -> str | None:
+                return "fss_HEADER_SECRET" if name == "Retry-After" else None
+
+        class Connection:
+            def request(self, *_args, **_kwargs) -> None:
+                return None
+
+            def getresponse(self) -> Response:
+                return Response()
+
+            def close(self) -> None:
+                return None
+
+        with patch.dict(os.environ, {"WEFT_STDIO_TEST_TOKEN": "fss_test"}):
+            bridge = StdioHttpBridge("https://audit.example", "WEFT_STDIO_TEST_TOKEN")
+            bridge._connect = lambda: Connection()  # type: ignore[method-assign]
+            reply = bridge.exchange(
+                {"jsonrpc": "2.0", "id": 10, "method": "tools/list"}
+            )
+
+        self.assertEqual(reply["error"]["data"], {"code": "rate_limited"})
+        serialized = json.dumps(reply)
+        self.assertNotIn("fss_RETRY_SECRET", serialized)
+        self.assertNotIn("fss_HEADER_SECRET", serialized)
 
 
 class Cp1252InputDecodeTests(unittest.TestCase):
