@@ -9,12 +9,12 @@ const read = (file) => fs.readFileSync(path.join(ROOT, file), 'utf8');
 test('quickstart states the hosted/self-hosted tool boundary and bridge prerequisite', () => {
   const html = read('site/docs/quickstart.html');
 
-  assert.match(html, /11 MCP tools on POST \/mcp/);
-  assert.doesNotMatch(html, /\b9 MCP tools\b|No local install/);
+  assert.match(html, /12 MCP tools on POST \/mcp/);
+  assert.doesNotMatch(html, /\b9 MCP tools\b|No local install|&lt;absolute-path-to-repo&gt;/);
   assert.match(html, /Python 3\.11\+/);
-  assert.match(html, /checkout of this repository/);
-  assert.match(html, /&lt;absolute-path-to-repo&gt;/);
-  assert.match(html, /full <strong>58-tool<\/strong> surface/);
+  assert.match(html, /Install the <code>weft-mcp<\/code> package/);
+  assert.match(html, /"-B",\s*"-m",\s*"weft_mcp"/);
+  assert.match(html, /full <strong>59-tool<\/strong> surface/);
 
   const hostedTools = [
     'room_create', 'room_join', 'room_send', 'room_receipts', 'room_poll',

@@ -3,9 +3,9 @@
 The hosted Weft service is only reachable as a Streamable-HTTP ``POST /mcp``
 endpoint with a Bearer token. Real MCP hosts — Claude Desktop, Cursor, Claude
 Code, Codex — launch servers as ``command`` + ``args`` stdio subprocesses and
-have NO ``url`` form, so this generator emits the stdio bridge invocation
-(``scripts/weft-mcp.py --remote <origin> --token-env WEFT_TOKEN``) wired into
-each host's native config shape:
+have NO ``url`` form, so this generator emits the installed-module bridge
+invocation (``python -B -m weft_mcp --remote <origin> --token-env WEFT_TOKEN``)
+wired into each host's native config shape:
 
 - Claude Desktop -> JSON ``mcpServers`` (``claude_desktop_config.json``)
 - Cursor        -> JSON ``mcpServers`` (``.cursor/mcp.json``)
@@ -63,19 +63,18 @@ def _toml_str(value: str) -> str:
     ) + '"'
 
 
-def build_config(client_id: str, agent_key: str, origin: str,
-                 script_path: str) -> dict:
+def build_config(client_id: str, agent_key: str, origin: str) -> dict:
     """Return the full generated config for ``client_id``.
 
     ``agent_key`` is the freshly minted ``agk_`` credential. ``origin`` is the
-    hosted service base URL (``--remote``). ``script_path`` is the absolute
-    path to ``scripts/weft-mcp.py``. Returns metadata plus the ready-to-paste
-    config text.
+    hosted service base URL (``--remote``). The customer must install the
+    ``weft_mcp`` package in the Python environment used by the MCP host.
+    Returns metadata plus the ready-to-paste config text.
     """
     if client_id not in CLIENTS:
         raise ValueError(f"unknown client: {client_id}")
     meta = CLIENTS[client_id]
-    args = ["-B", script_path, "--remote", origin, "--token-env", TOKEN_ENV_VAR]
+    args = ["-B", "-m", "weft_mcp", "--remote", origin, "--token-env", TOKEN_ENV_VAR]
     if meta["language"] == "toml":
         config_text = (
             "[mcp_servers.weft]\n"

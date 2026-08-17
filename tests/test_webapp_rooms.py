@@ -378,6 +378,35 @@ class TestConnectPage(unittest.TestCase):
         self.assertIn("Streamable HTTP", body)   # Tier 2 — MCP Streamable HTTP
         self.assertIn("bridge", body)            # Tier 3 — bridge/webhook
         self.assertIn("WeftClient", body)   # Tier 4 — SDK
+        self._assert_connector_configs_use_portable_entrypoint()
+
+    def _assert_connector_configs_use_portable_entrypoint(self):
+        from html import unescape
+
+        for client in ("claude-desktop", "cursor", "codex"):
+            csrf = self.driver.csrf("/config")
+            status, body, headers = self.driver.post(
+                "/config", {"client": client, "_csrf": csrf}
+            )
+            self.assertEqual(status, 200, client)
+            self.assertEqual(headers.get("Cache-Control"), "no-store")
+            match = re.search(r"<pre><code>(.*?)</code></pre>", body, re.S)
+            self.assertIsNotNone(match, client)
+            config_text = unescape(match.group(1))
+            self.assertIn("-m", config_text)
+            self.assertIn("weft_mcp", config_text)
+            self.assertNotIn("scripts/weft-mcp.py", config_text)
+            self.assertNotIn("/app/", config_text)
+            self.assertNotIn("\\scripts\\", config_text)
+            if client != "codex":
+                payload = json.loads(config_text)
+                args = payload["mcpServers"]["weft"]["args"]
+                self.assertEqual(args[:3], ["-B", "-m", "weft_mcp"])
+                self.assertFalse(any(arg.startswith("agk_") for arg in args))
+                self.assertIn("WEFT_TOKEN", payload["mcpServers"]["weft"]["env"])
+            else:
+                self.assertIn('args = ["-B", "-m", "weft_mcp"', config_text)
+                self.assertIn("WEFT_TOKEN", config_text)
 
     def test_connect_page_documents_a_working_join(self):
         """The page must document everything a working /v1/rooms/join needs.
