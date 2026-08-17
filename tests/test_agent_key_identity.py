@@ -318,10 +318,45 @@ class KeyIdentityRevocationTests(AgentKeyIdentityTestBase):
         self.assertEqual(status, HTTPStatus.UNAUTHORIZED)
         self.assertEqual(resp["error"]["code"], "invalid_session")
 
-        # A sibling key of the SAME account is unaffected.
-        status, _ = self._send(coder["agent_key"], room["room_id"], {"text": "still alive"})
-        self.assertEqual(status, HTTPStatus.OK,
-                         "revoking one key must not affect another key of the same account")
+        # A sibling key of the SAME account remains authenticated, but the
+        # ownerless room is fail-closed rather than left consuming quota.
+        status, me = _get(self.base, "/v1/me", token=coder["agent_key"])
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertEqual(me["agent_id"], coder["key_id"])
+        status, closed = self._send(coder["agent_key"], room["room_id"], {"text": "still alive"})
+        self.assertEqual(status, HTTPStatus.CONFLICT)
+        self.assertEqual(closed["error"]["code"], "room_closed")
+
+    def test_revoking_room_owner_key_closes_room_and_releases_quota(self) -> None:
+        acct = self._signup("revoke-owner-room@example.com")
+        session = acct["session_token"]
+        planner = self._mint_key(session, "planner")
+        coder = self._mint_key(session, "coder")
+        reviewer = self._mint_key(session, "reviewer")
+
+        room = self._create_room(planner["agent_key"], name="owner-revocation")
+        status, joined = self._join_room(coder["agent_key"], room["room_id"], room["link_token"])
+        self.assertEqual(status, HTTPStatus.OK, f"coder join failed: {joined}")
+
+        status, revoked = _post(self.base, "/v1/agent-keys/revoke",
+                                {"key_id": planner["key_id"]}, token=session)
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertIs(revoked["revoked"], True)
+
+        status, info = self._room_info(coder["agent_key"], room["room_id"])
+        self.assertEqual(status, HTTPStatus.OK, f"room_info failed: {info}")
+        self.assertEqual(info["state"], "closed")
+
+        status, join_error = self._join_room(
+            reviewer["agent_key"], room["room_id"], room["link_token"],
+        )
+        self.assertEqual(status, HTTPStatus.CONFLICT)
+        self.assertEqual(join_error["error"]["code"], "room_closed")
+
+        # The closed owner room no longer consumes the tenant's room quota.
+        for index in range(5):
+            replacement = self._create_room(session, name=f"replacement-{index}")
+            self.assertTrue(replacement["room_id"].startswith("room_"))
 
 
 class KeyIdentityRegressionTests(AgentKeyIdentityTestBase):
