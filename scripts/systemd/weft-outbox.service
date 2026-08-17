@@ -1,0 +1,37 @@
+# Template for review/installation by the VM owner — nothing in this repo
+# installs or enables this unit automatically.
+#
+# The SMTP values belong in /etc/weft/weft-email.env (mode 600), never in this
+# repository or this unit. The worker reads the same SQLite file as the cloud
+# and web services. Install after the API/web units and run one controlled
+# delivery smoke test before enabling it.
+#
+# Install:
+#   sudo install -d -m 700 /etc/weft
+#   sudo install -m 600 /path/to/weft-email.env /etc/weft/weft-email.env
+#   sudo cp scripts/systemd/weft-outbox.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now weft-outbox.service
+
+[Unit]
+Description=Weft identity email outbox worker
+Requires=weft-cloud.service weft-web.service
+After=network.target weft-cloud.service weft-web.service
+
+[Service]
+Type=simple
+User=azureuser
+WorkingDirectory=/opt/weft
+Environment=PYTHONPATH=/opt/weft/src
+Environment=PYTHONUNBUFFERED=1
+Environment=WEFT_DB_PATH=/var/lib/finalisma/cloud.db
+EnvironmentFile=-/etc/weft/weft-email.env
+ExecStart=/usr/bin/python3 -B -m weft_cloud.identity.outbox_worker
+Restart=on-failure
+RestartSec=5
+PrivateTmp=true
+NoNewPrivileges=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
