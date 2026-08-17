@@ -51,7 +51,7 @@ class WebhookBridgeTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.store = _make_store(self.temp.name)
-        self.bridge = WebhookBridge(self.store)
+        self.bridge = WebhookBridge(self.store, allow_local_webhooks=True)
         cred = _register_agent(self.store, "team-1", "agent-1")
         self.actor_token = cred["actor_token"]
 
@@ -93,6 +93,15 @@ class WebhookBridgeTests(unittest.TestCase):
                 team_id="team-1",
                 agent_id="agent-1",
                 url="ftp://example.com/hook",
+                secret_ref="whsec_test",
+                actor_token=self.actor_token,
+            )
+        secure_bridge = WebhookBridge(self.store)
+        with self.assertRaises(WeftError):
+            secure_bridge.register_webhook(
+                team_id="team-1",
+                agent_id="agent-1",
+                url="http://127.0.0.1:8080/hook",
                 secret_ref="whsec_test",
                 actor_token=self.actor_token,
             )
