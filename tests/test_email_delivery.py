@@ -310,6 +310,34 @@ class OutboxDrainerTests(unittest.TestCase):
         self.assertEqual(FakeSMTP.total_sent(), 1)
         self.assertEqual(self._row()["status"], "sent")
 
+    def test_reclaimed_worker_cannot_finalize_newer_claim(self) -> None:
+        self._seed()
+        drainer_a = self._drainer(lease_seconds=60)
+        drainer_b = self._drainer(lease_seconds=60)
+        drainer_a.worker_id = "worker-a"
+        drainer_b.worker_id = "worker-b"
+        test_case = self
+
+        class ReclaimingMailer:
+            def send(self, *_args) -> None:
+                test_case.assertEqual(len(drainer_b.claim_due(now=1061)), 1)
+
+        drainer_a.mailer = ReclaimingMailer()
+        result = drainer_a.drain_once(now=1000)
+        self.assertEqual(result["claimed"], 1)
+        self.assertEqual(result["sent"], 0)
+        self.assertEqual(result["lost"], 1)
+
+        row = self._row()
+        entry_id = row["entry_id"]
+        self.assertEqual(row["status"], "claimed")
+        self.assertEqual(row["claimed_by"], "worker-b")
+        self.assertFalse(drainer_a.mark_sent(entry_id, now=1062))
+        self.assertFalse(drainer_a.mark_retry(entry_id, 1, 1122, "stale"))
+        self.assertFalse(drainer_a.mark_failed(entry_id, 1, "stale"))
+        self.assertTrue(drainer_b.mark_sent(entry_id, now=1063))
+        self.assertEqual(self._row()["status"], "sent")
+
     # -- 4. retry / terminal semantics --
 
     def test_transient_failure_retried_with_backoff_then_succeeds(self) -> None:

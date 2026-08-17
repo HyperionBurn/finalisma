@@ -170,40 +170,43 @@ class OutboxDrainer:
             ).fetchall()
         return [dict(r) for r in owned]
 
-    def _mark(self, sql: str, params: tuple) -> None:
+    def _mark(self, sql: str, params: tuple) -> bool:
         with self.backend.transaction() as tx:
-            tx.execute(sql, params)
+            cursor = tx.execute(sql, params)
+            updated = cursor.rowcount
             tx.commit()
+        return updated == 1
 
-    def mark_sent(self, entry_id: str, now: float | None = None) -> None:
+    def mark_sent(self, entry_id: str, now: float | None = None) -> bool:
         now = _time.time() if now is None else now
-        self._mark(
+        return self._mark(
             "UPDATE cloud_identity_outbox SET status = ?, dispatched_at = ?, last_error = NULL "
-            "WHERE entry_id = ? AND status = ?",
-            (STATUS_SENT, now, entry_id, STATUS_CLAIMED),
+            "WHERE entry_id = ? AND status = ? AND claimed_by = ?",
+            (STATUS_SENT, now, entry_id, STATUS_CLAIMED, self.worker_id),
         )
 
     def mark_retry(self, entry_id: str, attempts: int, next_attempt_at: float,
-                   error: str) -> None:
-        self._mark(
+                   error: str) -> bool:
+        return self._mark(
             "UPDATE cloud_identity_outbox SET status = ?, attempts = ?, next_attempt_at = ?, "
             "claimed_at = NULL, claimed_by = NULL, last_error = ? "
-            "WHERE entry_id = ? AND status = ?",
-            (STATUS_QUEUED, attempts, next_attempt_at, error, entry_id, STATUS_CLAIMED),
+            "WHERE entry_id = ? AND status = ? AND claimed_by = ?",
+            (STATUS_QUEUED, attempts, next_attempt_at, error, entry_id, STATUS_CLAIMED,
+             self.worker_id),
         )
 
-    def mark_failed(self, entry_id: str, attempts: int, error: str) -> None:
-        self._mark(
+    def mark_failed(self, entry_id: str, attempts: int, error: str) -> bool:
+        return self._mark(
             "UPDATE cloud_identity_outbox SET status = ?, attempts = ?, "
             "claimed_at = NULL, claimed_by = NULL, last_error = ? "
-            "WHERE entry_id = ? AND status = ?",
-            (STATUS_FAILED, attempts, error, entry_id, STATUS_CLAIMED),
+            "WHERE entry_id = ? AND status = ? AND claimed_by = ?",
+            (STATUS_FAILED, attempts, error, entry_id, STATUS_CLAIMED, self.worker_id),
         )
 
     def drain_once(self, now: float | None = None) -> dict[str, int]:
         """One pass: claim due rows, send each exactly once, record outcomes."""
         now = _time.time() if now is None else now
-        result = {"claimed": 0, "sent": 0, "retried": 0, "failed": 0}
+        result = {"claimed": 0, "sent": 0, "retried": 0, "failed": 0, "lost": 0}
         for row in self.claim_due(now):
             result["claimed"] += 1
             entry_id = row["entry_id"]
@@ -215,24 +218,33 @@ class OutboxDrainer:
                 attempts = row["attempts"] + 1
                 classification = _classify_smtp_error(exc)
                 if classification == "permanent" or attempts >= self.max_attempts:
-                    self.mark_failed(entry_id, attempts, classification)
-                    result["failed"] += 1
-                    logger.warning(
-                        "outbox send terminal entry_id=%s attempts=%d status=%s",
-                        entry_id, attempts, classification,
-                    )
+                    if self.mark_failed(entry_id, attempts, classification):
+                        result["failed"] += 1
+                        logger.warning(
+                            "outbox send terminal entry_id=%s attempts=%d status=%s",
+                            entry_id, attempts, classification,
+                        )
+                    else:
+                        result["lost"] += 1
+                        logger.warning("outbox lease lost entry_id=%s outcome=failed", entry_id)
                 else:
                     next_at = now + self.backoff_seconds * attempts
-                    self.mark_retry(entry_id, attempts, next_at, classification)
-                    result["retried"] += 1
-                    logger.info(
-                        "outbox send retry entry_id=%s attempts=%d next_attempt_at=%s",
-                        entry_id, attempts, next_at,
-                    )
+                    if self.mark_retry(entry_id, attempts, next_at, classification):
+                        result["retried"] += 1
+                        logger.info(
+                            "outbox send retry entry_id=%s attempts=%d next_attempt_at=%s",
+                            entry_id, attempts, next_at,
+                        )
+                    else:
+                        result["lost"] += 1
+                        logger.warning("outbox lease lost entry_id=%s outcome=retry", entry_id)
                 continue
-            self.mark_sent(entry_id)
-            result["sent"] += 1
-            logger.info("outbox delivered entry_id=%s", entry_id)
+            if self.mark_sent(entry_id):
+                result["sent"] += 1
+                logger.info("outbox delivered entry_id=%s", entry_id)
+            else:
+                result["lost"] += 1
+                logger.warning("outbox lease lost entry_id=%s outcome=sent", entry_id)
         return result
 
 
