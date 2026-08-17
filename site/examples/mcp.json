@@ -4,7 +4,8 @@
       "command": "python",
       "args": [
         "-B",
-        "C:\\ABSOLUTE\\PATH\\Multiplayer-AI\\scripts\\weft-mcp.py",
+        "-m",
+        "weft_mcp",
         "--remote",
         "https://weft.switzerlandnorth.cloudapp.azure.com",
         "--token-env",
