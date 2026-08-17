@@ -20,6 +20,7 @@ Only status codes, timing, and error class/message are recorded.
 Usage::
 
     python3 healthcheck.py --base-url http://127.0.0.1:18788 \\
+        --edge-url https://rooms.example.test \\
         --log /var/log/weft/healthcheck.jsonl
 
 Exit 0: both probes behaved as expected.
@@ -124,12 +125,21 @@ def probe_unauth_mcp(base_url: str, *, timeout: float = 5.0) -> ProbeResult:
     return ProbeResult(False, status, round(latency_ms, 1), f"unexpected status {status}")
 
 
-def run(base_url: str, *, timeout: float = 5.0) -> "tuple[bool, dict]":
+def run(base_url: str, *, edge_url: str | None = None,
+        timeout: float = 5.0) -> "tuple[bool, dict]":
+    """Probe the backend health and the public edge independently.
+
+    ``edge_url`` defaults to ``base_url`` for existing callers, but a hosted
+    installation should point it at nginx/public routing so a catch-all login
+    redirect cannot make the timer report a false green.
+    """
+    edge_url = edge_url or base_url
     healthz = probe_healthz(base_url, timeout=timeout)
-    mcp = probe_unauth_mcp(base_url, timeout=timeout)
+    mcp = probe_unauth_mcp(edge_url, timeout=timeout)
     record = {
         "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "base_url": base_url,
+        "edge_url": edge_url,
         "healthz": asdict(healthz),
         "mcp_unauth": asdict(mcp),
     }
@@ -144,12 +154,15 @@ def append_log(log_path: Path, record: dict) -> None:
 
 def _main(argv: "list[str]") -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--base-url", required=True, help="e.g. http://127.0.0.1:18788")
+    parser.add_argument("--base-url", required=True,
+                        help="backend URL for /healthz, e.g. http://127.0.0.1:18788")
+    parser.add_argument("--edge-url", default=None,
+                        help="nginx/public URL for /mcp; defaults to --base-url")
     parser.add_argument("--log", type=Path, default=None, help="append a JSON line here")
     parser.add_argument("--timeout", type=float, default=5.0)
     args = parser.parse_args(argv)
 
-    ok, record = run(args.base_url, timeout=args.timeout)
+    ok, record = run(args.base_url, edge_url=args.edge_url, timeout=args.timeout)
 
     if args.log is not None:
         append_log(args.log, record)

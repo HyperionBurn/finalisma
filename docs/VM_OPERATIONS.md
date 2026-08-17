@@ -25,7 +25,7 @@ not been pointed at the live VM as part of writing it.
 | `scripts/restart_proof.py` | VM | MainPID-before/after decision logic — the actual proof a restart happened. |
 | `scripts/backup_cloud_db.py` | VM | WAL-safe online backup (`sqlite3.Connection.backup()`) with rotation. |
 | `scripts/restore_drill.py` | VM | Restores a backup to a temp copy and proves it is actually usable. |
-| `scripts/healthcheck.py` | VM | `/healthz` + unauthenticated `POST /mcp` probe, dependency-free, local. |
+| `scripts/healthcheck.py` | VM | Backend `/healthz` plus unauthenticated edge `POST /mcp` probe, dependency-free. |
 | `scripts/mail_error_detail.py` | (library) | Structured SMTP failure detail — see "Known gaps" below. |
 | `scripts/systemd/*` | VM (templates) | Timer/service units for backup, restore-drill, healthcheck. Not installed by anything in this repo — review and `cp` them in yourself. |
 
@@ -118,15 +118,17 @@ tables each fail loudly with a distinct, specific message.
 
 ## Outage visibility
 
-`healthcheck.py` probes `GET /healthz` and an unauthenticated
-`POST /mcp`, which must be 401. A 303/302 means the request fell through
-nginx's catch-all into the web app's login redirect instead of reaching the
-MCP surface — the exact bug that once made the hosted service unreachable
-from MCP clients — and is treated as a failure, not a pass. Stdlib
-`urllib` only, no third-party service, no outbound call other than to the
-target itself. Appends one JSON line per run (timestamp, status, latency,
-short error detail — never a response body or credentials) and exits
-non-zero on any failure so `systemctl --failed` surfaces the outage.
+`healthcheck.py` probes backend `GET /healthz` and an unauthenticated edge
+`POST /mcp`, which must be 401. The systemd template keeps the backend URL at
+`127.0.0.1:18788` and sends the MCP probe through `WEFT_EDGE_URL` (set it to
+the public HTTPS origin when that is the customer path). A 303/302 means the
+request fell through nginx's catch-all into the web app's login redirect
+instead of reaching the MCP surface — the exact bug that once made the hosted
+service unreachable from MCP clients — and is treated as a failure, not a
+pass. Stdlib `urllib` only, no third-party monitoring service. Appends one
+JSON line per run (timestamp, backend/edge URLs, status, latency, short error
+detail — never a response body or credentials) and exits non-zero on any
+failure so `systemctl --failed` surfaces the outage.
 `scripts/systemd/weft-healthcheck.timer` runs it every minute.
 
 ## Known gaps (stated, not hidden)

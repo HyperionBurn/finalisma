@@ -8,6 +8,10 @@
 # no third-party monitoring service, no outbound call other than to the
 # service itself.
 #
+# The backend URL is local, while the MCP probe goes through the nginx/public
+# edge. Set WEFT_EDGE_URL to the public HTTPS origin if local nginx routing is
+# not the same path customers use.
+#
 # A failed probe makes systemd mark this unit failed, which is what makes the
 # outage visible: `systemctl --failed` lists it, and (if wired up)
 # `OnFailure=` below can forward that to something the owner actually looks
@@ -27,7 +31,8 @@ After=network.target
 [Service]
 Type=oneshot
 User=azureuser
-ExecStart=/usr/bin/python3 /opt/weft/scripts/healthcheck.py --base-url http://127.0.0.1:18788 --log /var/log/weft/healthcheck.jsonl
+Environment=WEFT_EDGE_URL=http://127.0.0.1
+ExecStart=/usr/bin/python3 /opt/weft/scripts/healthcheck.py --base-url http://127.0.0.1:18788 --edge-url ${WEFT_EDGE_URL} --log /var/log/weft/healthcheck.jsonl
 # Uncomment to forward a failed probe to another unit (e.g. one that pages
 # someone) once the owner decides how they want to be notified:
 # OnFailure=weft-healthcheck-alert.service

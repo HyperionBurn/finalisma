@@ -92,6 +92,41 @@ class HealthcheckHappyPathTests(_ServerCase):
         self.assertEqual(record["mcp_unauth"]["status"], 401)
 
 
+class HealthcheckEdgeBoundaryTests(_ServerCase):
+    """The periodic probe must exercise nginx, not only the backend socket."""
+
+    healthz_status = 200
+    mcp_status = 401
+
+    def setUp(self):
+        super().setUp()
+        handler = type("EdgeHandler", (_FakeApp,), {
+            "healthz_status": 200,
+            "mcp_status": 303,
+        })
+        self.edge_server = HTTPServer(("127.0.0.1", 0), handler)
+        self.edge_port = self.edge_server.server_address[1]
+        self.edge_thread = threading.Thread(
+            target=self.edge_server.serve_forever, daemon=True,
+        )
+        self.edge_thread.start()
+        self.addCleanup(self.edge_server.server_close)
+        self.addCleanup(self.edge_thread.join, 2)
+        self.addCleanup(self.edge_server.shutdown)
+
+    @property
+    def edge_url(self) -> str:
+        return f"http://127.0.0.1:{self.edge_port}"
+
+    def test_healthy_backend_and_broken_edge_fail_overall_probe(self):
+        ok, record = run(self.base_url, edge_url=self.edge_url)
+        self.assertFalse(ok)
+        self.assertTrue(record["healthz"]["ok"])
+        self.assertFalse(record["mcp_unauth"]["ok"])
+        self.assertEqual(record["mcp_unauth"]["status"], 303)
+        self.assertEqual(record["edge_url"], self.edge_url)
+
+
 class HealthcheckMcpFallthroughTests(_ServerCase):
     healthz_status = 200
     mcp_status = 303  # the exact real-world bug: falls through to the web app's login
