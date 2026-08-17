@@ -48,10 +48,12 @@ jobs:
         run: |
           node --check site/app.js
           node --check scripts/capture-site-qa.cjs
+          node --test tests/test_ux_a11y.js tests/test_ux_quickstart_lane.js
           node web/scripts/verify-preservation.cjs
         # The rendered browser harness imports Playwright from a machine-local
         # Codex cache, and Playwright is intentionally absent from web/package.json.
-        # CI therefore runs the supported deterministic static UX guard above;
+        # CI therefore runs the supported deterministic static UX tests and
+        # preservation guard above;
         # full rendered browser QA remains a separately provisioned local check.
 
       - name: Check patch whitespace
