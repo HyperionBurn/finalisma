@@ -24,6 +24,20 @@ test('quickstart states the hosted/self-hosted tool boundary and bridge prerequi
   assert.equal(example.mcpServers.weft.env.PYTHONUTF8, '1');
   assert.match(read('site/index.html'), /PYTHONUTF8/);
 
+  const connectSource = read('web/src/components/ConnectTiers.astro');
+  const renderedBridge = read('site/index.html')
+    .replaceAll('&#34;', '"')
+    .replaceAll('&quot;', '"');
+  for (const document of [connectSource, renderedBridge]) {
+    assert.match(document, /ClipboardBridge\(store\)/);
+    assert.match(document, /team_id=["']demo["']/);
+    assert.match(document, /agent_id=["']agent-a["']/);
+    assert.match(document, /endpoint=["']http:\/\/127\.0\.0\.1:8787["']/);
+    assert.match(document, /pairing\[?["']pairing_id["']\]?/);
+    assert.match(document, /pairing\[?["']join_token["']\]?/);
+    assert.doesNotMatch(document, /coordinator_db=|nonce=/);
+  }
+
   const hostedTools = [
     'room_create', 'room_join', 'room_send', 'room_receipts', 'room_poll',
     'room_wait', 'room_info', 'room_ack', 'room_heartbeat',
