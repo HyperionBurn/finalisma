@@ -7,7 +7,7 @@
 
 const terminalLines = [
   '$ python -B scripts/weft-mcp.py --transport stdio --team-id demo',
-  'weft-mcp/0.1.0 ready · 58 tools · protocol 2025-11-25',
+  'weft-mcp/0.1.0 ready · 59 tools · protocol 2025-11-25',
   '',
   '> register_agent(team_id="demo", agent_id="agent-a", role="architect")',
   '  → {"agent_id": "agent-a", "status": "active", "actor_token": "fst_***"}',
@@ -34,7 +34,7 @@ const terminalText = terminalLines.join('\n');
       <div class="bezel__core demo-shell" data-demo-shell>
         <pre class="terminal is-typewriter" data-terminal role="log" aria-live="polite" data-full={terminalText}><code set:html={terminalText}></code><span class="terminal__caret" aria-hidden="true"></span></pre>
 
-        <p class="section-lede" style="margin-top:1rem">Banner: the <strong>self-hosted</strong> coordinator advertises 58 tools. The hosted <code>POST /mcp</code> endpoint exposes 11 — the room set under Connect.</p>
+        <p class="section-lede" style="margin-top:1rem">Banner: the <strong>self-hosted</strong> coordinator advertises 59 tools. The hosted <code>POST /mcp</code> endpoint exposes 12 — the room set under Connect.</p>
 
         <div class="demo-output">
           <div class="link-out" data-link-output>

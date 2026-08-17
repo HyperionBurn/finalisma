@@ -22,12 +22,12 @@ test('quickstart states the hosted/self-hosted tool boundary and bridge prerequi
   const hostedTools = [
     'room_create', 'room_join', 'room_send', 'room_receipts', 'room_poll',
     'room_wait', 'room_info', 'room_ack', 'room_heartbeat',
-    'room_remove_member', 'room_event_log'
+    'room_remove_member', 'room_event_log', 'room_leave'
   ];
   assert.equal(
     hostedTools.filter((name) => html.includes(`<code>${name}</code>`)).length,
     hostedTools.length,
-    'the quickstart should name all 11 hosted tools'
+    'the quickstart should name all 12 hosted tools'
   );
 });
 
