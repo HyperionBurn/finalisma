@@ -284,13 +284,9 @@ _TRANSIENT_STATUSES = {408, 429, 500, 502, 503, 504}
 _IDEMPOTENT_METHODS = {
     "register_agent",
     "create_task",
-    "claim_task",
-    "update_task",
-    "verify_task",
-    "complete_task",
     "send_message",
+    "room_send",
     "heartbeat",
-    "rotate_agent_credential",
     "session_send",
     "session_ack",
     "read_inbox",
@@ -303,6 +299,17 @@ _IDEMPOTENT_METHODS = {
     "session_status",
     "route_task",
 }
+
+# Only these methods have a server-side idempotency record keyed by the
+# request argument.  Keep this narrower than _IDEMPOTENT_METHODS: several
+# mutations are safe to retry because they are monotonic or transactional,
+# but reject an unknown ``idempotency_key`` argument at the protocol boundary.
+_IDEMPOTENCY_KEY_METHODS = frozenset({
+    "create_task",
+    "send_message",
+    "room_send",
+    "session_send",
+})
 
 
 class _JsonRpcTransport:
@@ -380,6 +387,20 @@ class _JsonRpcTransport:
         """Make a tools/call JSON-RPC call and return the structured result."""
         if idempotency_key is None:
             idempotency_key = f"sdk-{uuid.uuid4().hex}"
+        supports_key = method in _IDEMPOTENCY_KEY_METHODS and (
+            method != "room_send" or self._bearer is not None
+        )
+        if supports_key:
+            # The same serialized arguments are sent on every attempt.  For
+            # keyed mutations, put the transport key in the JSON-RPC
+            # arguments because that is what the server uses for deduplication.
+            params = dict(params)
+            if params.get("idempotency_key") is None:
+                params["idempotency_key"] = idempotency_key
+            else:
+                # A public wrapper may have supplied its own key; use that
+                # value for both the first request and all retries.
+                idempotency_key = params["idempotency_key"]
         request_body = {
             "jsonrpc": "2.0",
             "id": self._next_id(),
@@ -388,7 +409,9 @@ class _JsonRpcTransport:
         }
         payload = json.dumps(request_body, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
-        is_idempotent = method in _IDEMPOTENT_METHODS
+        is_idempotent = method in _IDEMPOTENT_METHODS and (
+            method != "room_send" or self._bearer is not None
+        )
         last_exc: Exception | None = None
         for attempt in range(_MAX_RETRIES if is_idempotent else 1):
             try:

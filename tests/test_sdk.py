@@ -432,6 +432,85 @@ class SDKRetryTests(unittest.TestCase):
             server.server_close()
             thread.join(timeout=5)
 
+    def test_mutating_retry_reuses_json_rpc_idempotency_key(self) -> None:
+        """Retries of a deduplicated mutation must carry one stable key."""
+        seen_arguments: list[dict[str, object]] = []
+
+        class FlakyMutationHandler(BaseHTTPRequestHandler):
+            def log_message(self, *a: object) -> None:
+                return
+
+            def do_POST(self) -> None:  # noqa: N802
+                length = int(self.headers.get("Content-Length", "0"))
+                request = json.loads(self.rfile.read(length).decode())
+                seen_arguments.append(request["params"]["arguments"])
+                if len(seen_arguments) < 3:
+                    self.send_response(503)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                payload = json.dumps({
+                    "jsonrpc": "2.0",
+                    "id": request["id"],
+                    "result": {"structuredContent": {"message_id": "msg-1"}},
+                }).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), FlakyMutationHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        host, port = server.server_address
+        client = WeftClient(f"http://{host}:{port}/mcp", "agent-a", "demo")
+        try:
+            result = client.ask("agent-b", "hello")
+            self.assertEqual(result["message_id"], "msg-1")
+            self.assertEqual(len(seen_arguments), 3)
+            keys = [arguments.get("idempotency_key") for arguments in seen_arguments]
+            self.assertIsInstance(keys[0], str)
+            self.assertTrue(keys[0])
+            self.assertEqual(keys, [keys[0]] * len(keys))
+        finally:
+            client.close()
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+    def test_credential_rotation_is_not_retried(self) -> None:
+        """A lost rotation response must not replay the now-invalid token."""
+        call_count = {"n": 0}
+
+        class RotationHandler(BaseHTTPRequestHandler):
+            def log_message(self, *a: object) -> None:
+                return
+
+            def do_POST(self) -> None:  # noqa: N802
+                call_count["n"] += 1
+                length = int(self.headers.get("Content-Length", "0"))
+                self.rfile.read(length)
+                self.send_response(503)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), RotationHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        host, port = server.server_address
+        client = WeftClient(f"http://{host}:{port}/mcp", "agent-a", "demo", actor_token="old-token")
+        try:
+            with self.assertRaises(WeftError):
+                client.rotate_credential()
+            self.assertEqual(call_count["n"], 1)
+            self.assertEqual(client._actor_token, "old-token")
+        finally:
+            client.close()
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
 
 class SdkHostedSurfaceAuditTests(unittest.TestCase):
     """Regression guards for the HOSTED Weft MCP surface (12 room tools).
