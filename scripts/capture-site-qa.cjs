@@ -490,9 +490,42 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
       await page.locator(".nav-toggle").click();
       checks.navOpen = await page.locator(".nav-toggle").getAttribute("aria-expanded");
       checks.navOpenInert = await nav.evaluate((element) => element.inert);
+      checks.navFocusOnOpen = await nav.evaluate((element) => element.contains(document.activeElement));
+      checks.navFocusableCount = await nav.evaluate((element) => element.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      ).length);
+      checks.bodyScrollLocked = await page.evaluate(() => document.body.style.overflow === "hidden");
+      checks.backgroundInertWhileOpen = await page.evaluate((navElement) => [...document.body.children]
+        .filter((element) => element !== navElement)
+        .every((element) => element.inert), await nav.elementHandle());
+      await page.keyboard.press("Shift+Tab");
+      checks.shiftTabWraps = await nav.evaluate((element) => {
+        const focusable = [...element.querySelectorAll(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )];
+        return focusable.length > 0 && document.activeElement === focusable.at(-1);
+      });
+      await page.keyboard.press("Tab");
+      checks.tabWraps = await nav.evaluate((element) => {
+        const focusable = [...element.querySelectorAll(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )];
+        return focusable.length > 0 && document.activeElement === focusable[0];
+      });
       await page.keyboard.press("Escape");
       checks.navClosed = await page.locator(".nav-toggle").getAttribute("aria-expanded");
       checks.navClosedInert = await nav.evaluate((element) => element.inert);
+      checks.bodyScrollUnlocked = await page.evaluate(() => document.body.style.overflow === "");
+      checks.backgroundInertRestored = await page.evaluate((navElement) => [...document.body.children]
+        .filter((element) => element !== navElement)
+        .every((element) => !element.inert), await nav.elementHandle());
+      checks.focusRestoredAfterEscape = await page.evaluate(() => document.activeElement?.matches(".nav-toggle"));
+      await page.locator(".nav-toggle").click();
+      await nav.locator(".mobile-close").click();
+      checks.focusRestoredAfterCloseButton = await page.evaluate(() => document.activeElement?.matches(".nav-toggle"));
+      await page.locator(".nav-toggle").click();
+      await nav.locator("a").first().click();
+      checks.focusRestoredAfterLink = await page.evaluate(() => document.activeElement?.matches(".nav-toggle"));
       const auditEl = await page.$("#audit");
       if (auditEl) await auditEl.scrollIntoViewIfNeeded();
       await page.screenshot({ path: screenshots.mobileAudit, animations: "disabled" });
@@ -592,6 +625,17 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
     || !mobileResults[0].navInitiallyInert
     || mobileResults[0].navOpenInert
     || !mobileResults[0].navClosedInert
+    || !mobileResults[0].navFocusOnOpen
+    || mobileResults[0].navFocusableCount < 2
+    || !mobileResults[0].shiftTabWraps
+    || !mobileResults[0].tabWraps
+    || !mobileResults[0].bodyScrollLocked
+    || !mobileResults[0].bodyScrollUnlocked
+    || !mobileResults[0].backgroundInertWhileOpen
+    || !mobileResults[0].backgroundInertRestored
+    || !mobileResults[0].focusRestoredAfterEscape
+    || !mobileResults[0].focusRestoredAfterCloseButton
+    || !mobileResults[0].focusRestoredAfterLink
     || !canvasAnimated
     || frameTimeMedian < 0
     || performanceChecks.cls > 0.1
