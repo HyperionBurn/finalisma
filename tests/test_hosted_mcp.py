@@ -107,9 +107,12 @@ def _mcp(base: str, method: str, params: dict | None, token: str | None = None,
 
 
 def _raw_mcp(base: str, data: bytes, token: str | None = None,
-             timeout: int = 10) -> tuple[int, bytes]:
+             timeout: int = 10,
+             headers: dict[str, str] | None = None) -> tuple[int, bytes]:
     req = urllib.request.Request(base + "/mcp", data=data, method="POST")
     req.add_header("Content-Type", "application/json")
+    for name, value in (headers or {}).items():
+        req.add_header(name, value)
     if token:
         req.add_header("Authorization", f"Bearer {token}")
     try:
@@ -511,6 +514,26 @@ class HostedMCPRoomFlowTests(HostedMCPTestBase):
         polled = self._assert_ok(token, "room_poll", {"room_id": room_id}, request_id=5)
         message = next(event for event in polled["events"] if event["kind"] == "room.message")
         self.assertEqual(message["payload"]["payload"], {"value": 1.5, "none": None, "enabled": True})
+
+    def test_raw_mcp_non_object_with_method_header_returns_structured_error(self) -> None:
+        acct = self._signup("non-object-envelope@example.com")
+        status, response_bytes = _raw_mcp(
+            self.base,
+            b"[]",
+            acct["session_token"],
+            headers={"Mcp-Method": "tools/list"},
+        )
+        response = json.loads(response_bytes.decode("utf-8"))
+        self.assertEqual(status, HTTPStatus.BAD_REQUEST)
+        self.assertEqual(response["id"], None)
+        self.assertEqual(response["error"]["code"], -32600)
+        self.assertIn("Mcp-Method", response["error"]["message"])
+
+        ping_status, ping = _mcp(
+            self.base, "ping", None, token=acct["session_token"], request_id=9,
+        )
+        self.assertEqual(ping_status, HTTPStatus.OK)
+        self.assertIn("result", ping)
 
     def test_plan_room_member_cap_enforced_through_hosted_mcp(self) -> None:
         a, b = self._two_accounts("cap")
