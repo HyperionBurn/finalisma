@@ -21,13 +21,14 @@ HEAD `a572db3`; each has `file:line` evidence in the tree.
   `1e0aa5a` (REST `/v1` parity for receipts + remove_member, 400s on bad cursors),
   `d344ebe` (truthful agent-key signout, admin cannot mint owner), `a572db3` (film brief).
 - **Test count:** the latest local evidence is recorded in
-  `docs/RELEASE_EVIDENCE.md` (1144 discovered, 1143 passed, 1 skipped,
+  `docs/RELEASE_EVIDENCE.md` (1153 discovered, 1152 passed, 1 skipped,
   measured 2026-08-17). The published count is guarded by
   `tests/test_site.py::TestCountSyncTests`; hosted deployment and merge proof
   are separate claims. Every "721 / 716 / 894" number in this file is historical.
 - **§3 defects 1, 2 and 5 are fixed in this tree**, and §7 items 2 and 3 are done in this tree
-  (inline notes below). §3 defect 4 (24h session expiry) is still true in code, but agent keys
-  (`agk_`) now exist and are the durable credential path.
+  (inline notes below). §3 defect 4's 24h absolute session expiry is still true in code, but
+  active sessions now rotate before expiry and agent keys (`agk_`) remain the durable connector
+  credential path.
 - **Deploy state:** not verifiable from this lane. Verify against production by request (§5)
   before repeating "production still has every defect below".
 - §4 constraint "11 migrations" is stale: the registry is `cloud_001`..`cloud_014` (15 rows).
@@ -130,14 +131,14 @@ Verified by live request today. All fixed in branches, none deployed.
    **PARTIALLY ADDRESSED IN TREE (2026-08-15):** the cloud API handler serves `/health` and
    `/healthz` with 200 and no auth (`src/weft_cloud/service.py:1390`). The marketing-site redirect
    behaviour (nginx) was not re-verified from this lane — test it on production before closing.
-4. **Sessions expire after 24h with no renewal path.** `sessions.py:27 DEFAULT_TTL_SECONDS =
-   24*3600`. There is no refresh/renew/extend anywhere. This is why your connector died. The
-   `feature/agent-keys` branch is the fix. **This affects you personally — see §6.**
-   **STILL TRUE IN CODE (2026-08-15):** `src/weft_cloud/identity/sessions.py:27` keeps the 24h TTL
-   with no renewal. BUT agent keys now exist — `cloud_012_identity_agent_keys`, `/v1/agent-keys`,
-   `/v1/agent-keys/revoke` — and signout truthfully revokes an `agk_` bearer key in one
-   transaction (`src/weft_cloud/service.py:440`). Use an agent key for any long-lived connector
-   instead of an `fss_` session token.
+4. **Sessions expire after 24h.** `sessions.py:27 DEFAULT_TTL_SECONDS = 24*3600`. An active
+   browser/API session can now rotate once through `/v1/auth/refresh` (or the CSRF-gated browser
+   `/refresh`) before expiry; an expired or replayed token still fails closed. Static connectors
+   should use the durable `agk_` credential path. **This affects you personally — see §6.**
+   **CURRENT IN CODE (2026-08-17):** `src/weft_cloud/identity/sessions.py` atomically revokes
+   the current session and issues a fresh hashed token, while `/v1/agent-keys` and
+   `/v1/agent-keys/revoke` remain the long-lived connector flow. Signout truthfully revokes an
+   `agk_` bearer key in one transaction (`src/weft_cloud/service.py`).
 5. **Payload rejection is a raw HTTP 413**, not a structured tool error. 131,072 chars accepted,
    1,000,000 → 413. Lower severity (the request never reaches the tool) but same class as #1: an
    agent cannot self-correct from it.
@@ -222,7 +223,8 @@ Security headers, deploy-proof paths, and the quota defect all reproduce with pl
 
 The token in `C:\Users\Wasif\.codex\config.toml` under `[mcp_servers.weft.env]` is an `fss_`
 **session** token and **expires ~24h after it was minted (today)**. When you start getting `401`s,
-that is this bug, not a network problem. Mint a fresh one with
+that is an expired credential, not necessarily a network problem. While it is still live, rotate
+it with `POST /v1/auth/refresh`; after expiry, mint a fresh one with
 `POST /v1/auth/signup` then `/v1/auth/signin` and replace `WEFT_TOKEN`. **Back up the config
 first** and re-parse it with `tomllib` after editing — there are three servers in there
 (`node_repl`, `weft`, `cat-webfetch`) and all must survive.

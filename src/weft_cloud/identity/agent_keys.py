@@ -1,8 +1,9 @@
 """Identity — agent API keys: long-lived, revocable config-file credentials.
 
-The hosted service's browser sessions die after 24h with no refresh path.
-A desktop MCP client holds a STATIC bearer token in a config file and never
-signs in, so a session token silently starts collecting 401s mid-conversation.
+The hosted service's browser sessions expire after 24h but can rotate while
+still live. A desktop MCP client holds a STATIC bearer token in a config file
+and never signs in, so it needs a credential with no expiry clock instead of a
+session token that silently starts collecting 401s mid-conversation.
 Agent keys are the credential type for exactly that: long-lived (no expiry
 clock), shown raw EXACTLY once at creation, immediately revocable, and scoped
 to the tenant + account that created them.

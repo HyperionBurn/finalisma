@@ -49,6 +49,7 @@ from weft_cloud.identity.accounts import authenticate as _identity_authenticate
 from weft_cloud.identity.mailer import smtp_config_from_env as _smtp_config_from_env
 from weft_cloud.identity.accounts import burn_scrypt_cost as _identity_burn_scrypt_cost
 from weft_cloud.identity.schema import ensure_schema as _ensure_identity_schema
+from weft_cloud.identity.sessions import DEFAULT_TTL_SECONDS
 from weft_cloud.identity.tokens import hash_token as _hash_token
 from weft_cloud.quotas import QuotaError
 from weft_cloud.rate_limit import RateLimitedError, enforce_auth_rate_limit
@@ -337,7 +338,7 @@ class WeftWebApp:
         handler.send_header(
             "Set-Cookie",
             f"{SESSION_COOKIE}={raw_token}; Path=/; HttpOnly; SameSite=Lax; "
-            f"Max-Age=86400{secure}",
+            f"Max-Age={DEFAULT_TTL_SECONDS}{secure}",
         )
 
     def _clear_session_cookie(self, handler: BaseHTTPRequestHandler) -> None:
@@ -351,7 +352,7 @@ class WeftWebApp:
         secure = "; Secure" if self._cookie_secure(handler) else ""
         handler.send_header(
             "Set-Cookie",
-            f"{CSRF_COOKIE}={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400{secure}",
+            f"{CSRF_COOKIE}={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={DEFAULT_TTL_SECONDS}{secure}",
         )
 
     def _read_csrf_cookie(self, handler: BaseHTTPRequestHandler) -> str | None:
@@ -919,6 +920,45 @@ class WeftWebApp:
         handler.send_response(HTTPStatus.SEE_OTHER)
         handler.send_header("Location", "/")
         self._set_session_cookie(handler, raw_token)
+        handler.send_header("Content-Length", "0")
+        handler.send_header("Cache-Control", "no-store")
+        self._send_security_headers(handler)
+        handler.end_headers()
+
+    def handle_post_refresh(self, handler: BaseHTTPRequestHandler) -> None:
+        """Rotate the authenticated browser session after CSRF validation."""
+        form = self._read_form(handler)
+        try:
+            self._validate_csrf(handler, form)
+        except _WebError:
+            self._send_html(
+                handler, HTTPStatus.FORBIDDEN,
+                _page("Forbidden", '<p>CSRF validation failed.</p>'),
+            )
+            return
+        enforce_auth_rate_limit(
+            self.backend, handler, "refresh", limits=self.auth_rate_limits,
+        )
+        raw = self._read_cookie(handler, SESSION_COOKIE)
+        try:
+            _session_id, new_token = self.sessions.rotate(
+                self.backend, raw or "",
+            )
+        except AuthError:
+            # A concurrent refresh may have consumed the old token between
+            # the auth gate and this handler. Fail closed and ask the browser
+            # to authenticate again rather than retaining a stale cookie.
+            handler.send_response(HTTPStatus.SEE_OTHER)
+            handler.send_header("Location", "/login")
+            self._clear_session_cookie(handler)
+            handler.send_header("Content-Length", "0")
+            handler.send_header("Cache-Control", "no-store")
+            self._send_security_headers(handler)
+            handler.end_headers()
+            return
+        handler.send_response(HTTPStatus.SEE_OTHER)
+        handler.send_header("Location", "/")
+        self._set_session_cookie(handler, new_token)
         handler.send_header("Content-Length", "0")
         handler.send_header("Cache-Control", "no-store")
         self._send_security_headers(handler)
@@ -2301,6 +2341,9 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
                 return
             if method == "POST" and path == "/rooms":
                 app.handle_post_rooms(self)
+                return
+            if method == "POST" and path == "/refresh":
+                app.handle_post_refresh(self)
                 return
 
             # Room-specific routes

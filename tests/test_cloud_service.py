@@ -254,6 +254,45 @@ class TestAccountAndOrgFlow(CloudServiceTestBase):
         })
         self.assertEqual(status, 401)
 
+    def test_refresh_rotates_session_and_rejects_old_bearer(self) -> None:
+        signup = self._signup("refresh-owner@example.com", "CorrectHorse!1")
+        old_token = signup["session_token"]
+        status, refreshed = _post(
+            self.base, "/v1/auth/refresh", {}, old_token,
+        )
+        self.assertEqual(status, 200, refreshed)
+        new_token = refreshed["session_token"]
+        self.assertTrue(new_token.startswith("fss_"))
+        self.assertNotEqual(new_token, old_token)
+        self.assertEqual(refreshed["expires_in"], 24 * 3600)
+
+        old_status, _ = _get(self.base, "/v1/me", old_token)
+        self.assertEqual(old_status, 401)
+        new_status, me = _get(self.base, "/v1/me", new_token)
+        self.assertEqual(new_status, 200)
+        self.assertEqual(me["account_id"], signup["account_id"])
+
+    def test_refresh_is_session_only_and_one_time(self) -> None:
+        signup = self._signup("refresh-key-boundary@example.com", "CorrectHorse!1")
+        status, key = _post(
+            self.base, "/v1/agent-keys", {"label": "refresh-boundary"},
+            signup["session_token"],
+        )
+        self.assertEqual(status, 201, key)
+        status, body = _post(
+            self.base, "/v1/auth/refresh", {}, key["agent_key"],
+        )
+        self.assertEqual(status, 401)
+
+        status, refreshed = _post(
+            self.base, "/v1/auth/refresh", {}, signup["session_token"],
+        )
+        self.assertEqual(status, 200, refreshed)
+        replay_status, _ = _post(
+            self.base, "/v1/auth/refresh", {}, signup["session_token"],
+        )
+        self.assertEqual(replay_status, 401)
+
     def test_me_requires_auth(self) -> None:
         status, body = _get(self.base, "/v1/me")
         self.assertEqual(status, 401)
@@ -704,10 +743,9 @@ class TestJoinDescriptorAndAgentCard(CloudServiceTestBase):
 
     def test_join_descriptor_html_page_teaches_agent_key_flow(self) -> None:
         # The /j/ page is where a human hands a credential to an agent. It must
-        # teach the long-lived revocable agent-key flow and warn that the fss_
-        # session dies after 24 hours with no renewal, or every connector built
-        # from this page silently starts returning 401s a day later (regression
-        # for the silent-expiry bug).
+        # teach the long-lived revocable agent-key flow and explain that the
+        # fss_ session expires after 24 hours; active browser/API callers can
+        # rotate before expiry, while static connectors must use an agk_ key.
         status, raw, _ = _get_url(f"{self.base}/j/{self.link_token}", accept="text/html")
         self.assertEqual(status, 200)
         page = raw.decode("utf-8", errors="replace")
@@ -715,6 +753,8 @@ class TestJoinDescriptorAndAgentCard(CloudServiceTestBase):
         self.assertIn("agk_", page)
         self.assertIn("exactly once", page)
         self.assertIn("24 hours", page)
+        self.assertIn("/v1/auth/refresh", page)
+        self.assertIn("/refresh", page)
         self.assertIn("session-only", page)
         self.assertIn("cannot mint, list, or revoke", page)
 

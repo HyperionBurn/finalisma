@@ -22,8 +22,10 @@ Windows note: the ``env`` block MUST include ``PYTHONUTF8=1``. Without it the
 host's UTF-8 JSON-RPC bytes are decoded as cp1252 and every non-ASCII
 character is destroyed — a shipped bug.
 
-Sessions (``fss_``) expire 24 hours after issue with no renewal path, so a
-long-lived agent should hold an agent key (``agk_``) instead. Both
+Sessions (``fss_``) expire 24 hours after issue. An active browser/API client
+can rotate its session through ``POST /v1/auth/refresh`` (or the CSRF-gated
+browser ``POST /refresh``) before expiry; a long-lived agent should hold an
+agent key (``agk_``) instead. Both
 credential types resolve to the same account identity on the room surface;
 agent-key management is session-only, so an agent key can join rooms but
 cannot mint, list, or revoke keys.
@@ -70,8 +72,11 @@ def connect_page_body(room_id: str, link_token: str) -> str:
         '→ 200  {"session_token": "fss_...", "role": "..."}</pre>'
 
         "<h2>Step 2 — mint a long-lived agent key (recommended for agents)</h2>"
-        '<p>A session token expires 24 hours after it is issued, with no '
-        'renewal. Use the session once — here — to mint a long-lived, '
+        '<p>A session token expires 24 hours after it is issued. An active '
+        'browser or API client can rotate it before expiry with '
+        '<code>POST /v1/auth/refresh</code>; the browser form uses '
+        '<code>POST /refresh</code> with CSRF protection. Use the session '
+        'once — here — to mint a long-lived, '
         'revocable agent key, and have the agent hold <strong>that</strong> '
         'credential in its config instead.</p>'
         '<pre tabindex="0" role="region" aria-label="Code example">POST /v1/agent-keys\n'
@@ -83,7 +88,7 @@ def connect_page_body(room_id: str, link_token: str) -> str:
         'expiry clock, but they are immediately revocable.</p>'
         '<p>An agent key is recommended, not required: the room surface below '
         'still accepts a session token, so existing configs are not broken — '
-        'a session simply expires 24 hours after it is issued.</p>'
+        'active sessions can rotate before the 24-hour expiry.</p>'
         '<p>Agent-key management is session-only: an agent key can use the '
         'room surface, but it cannot mint, list, or revoke keys. Those actions '
         'require the interactive session, so handing an agent its own key can '
