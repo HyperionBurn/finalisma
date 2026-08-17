@@ -532,6 +532,10 @@ class TestConnectPage(unittest.TestCase):
         # How to obtain the session token: signup/signin steps.
         self.assertIn("/v1/auth/signup", body)
         self.assertIn("/v1/auth/signin", body)
+        self.assertIn(
+            '<pre tabindex="0" role="region" aria-label="Code example">',
+            body,
+        )
         # The product promise: joining is cross-tenant; the link is the authz.
         self.assertIn("cross-tenant", body)
         # Consent is a stored caller attestation, NOT proof a human approved.
