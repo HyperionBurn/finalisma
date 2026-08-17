@@ -278,11 +278,12 @@ Executed and confirmed on the authoring machine:
   `weft-web: WEFT_WEB_PORT must be an integer`.
 - Both processes started against one shared database file; the shared-store
   suite `tests/test_webapp_entrypoint.py` (6 tests) passes.
-- 960 tests pass in the current integration tree (`python -B -m unittest
-  discover -s tests` → `Ran 960 tests / OK`, measured 2026-08-15 on
-  `feature/product-perfect`, merge-gate PASS); the historical 915-test and
-  524-test snapshots above are retained only as provenance for those earlier
-  deployment runs and are not the current release gate.
+- The latest local regression is recorded in
+  [`RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1136 tests discovered, 1135
+  passed, and 1 skipped (measured 2026-08-17 on the integration hardening
+  stack). This is not Docker, VM, hosted-edge, SMTP, or merge proof; the
+  historical 915-test and 524-test snapshots above remain provenance for
+  earlier deployment runs.
 
 Performance numbers are deliberately absent from this runbook. The locked
 performance gate is currently **red under host-load noise** (recent captures

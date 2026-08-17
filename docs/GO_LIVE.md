@@ -122,9 +122,11 @@ The performance command is a same-machine single-node gate. Read
 [PERFORMANCE.md](PERFORMANCE.md) for the baseline contract and deployment
 boundary; do not present its absolute timings as a hosted-service SLA.
 
-**Gate status as of 2026-08-15 (`feature/product-perfect`):** the full
-suite is green (960 tests, measured — merge-gate PASS), but the performance
-gate is **red under host-load noise**: recent captures ran with multiple
+**Historical gate snapshot (2026-08-15, `feature/product-perfect`):** that
+branch recorded 960 tests and a merge-gate pass, but this is not current
+integration or deployment evidence. The latest local regression is recorded
+in [`RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1136 discovered, 1135 passed,
+and 1 skipped. The performance gate is **red under host-load noise**: recent captures ran with multiple
 agent sessions active on the host, so the standing rule applies — rerun on a
 controlled idle host; never rebaseline to hide it. `docs/PERFORMANCE.md`
 owns the provenance and is the only place those numbers live. The hosted

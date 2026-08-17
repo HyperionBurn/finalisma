@@ -1142,6 +1142,18 @@ class TestCountSyncTests(unittest.TestCase):
         "SECURITY_REVIEW_2026-08-05.md",
     }
 
+    _CURRENT_FACING_FILES = (
+        "README.md",
+        "AGENT_HANDOVER.md",
+        "HANDOVER_TO_CODEX.md",
+        "design-qa.md",
+        "docs/DEPLOY.md",
+        "docs/GO_LIVE.md",
+        "docs/PRODUCT_ROADMAP.md",
+        "docs/YC_APPLICATION.md",
+        "docs/YC_READINESS.md",
+    )
+
     @classmethod
     def _discover_live_count(cls) -> int:
         """Count tests exactly as `unittest discover -s tests` would run them."""
@@ -1149,7 +1161,14 @@ class TestCountSyncTests(unittest.TestCase):
         return suite.countTestCases()
 
     @classmethod
-    def _scan_for_stale_counts(cls, path: Path, label: str, live: int) -> list[tuple[str, str, int]]:
+    def _scan_for_stale_counts(
+        cls,
+        path: Path,
+        label: str,
+        live: int,
+        *,
+        include_bare: bool = False,
+    ) -> list[tuple[str, str, int]]:
         """Scan one file for published test counts that EXCEED ``live``.
 
         R10 (process postmortem 2026-08-13): the guard once required every
@@ -1175,6 +1194,15 @@ class TestCountSyncTests(unittest.TestCase):
                 claimed = int(match.group(1))
                 if claimed > live:
                     found.append((label, f"{line_no}: {line.strip()}", claimed))
+            if include_bare:
+                for match in re.finditer(
+                    r"\b(\d{2,4})\s+(?:Python\s+)?tests?\b",
+                    line,
+                    re.IGNORECASE,
+                ):
+                    claimed = int(match.group(1))
+                    if claimed > live:
+                        found.append((label, f"{line_no}: {line.strip()}", claimed))
         return found
 
     @classmethod
@@ -1199,10 +1227,33 @@ class TestCountSyncTests(unittest.TestCase):
             llms = site_root / "llms.txt"
             if llms.is_file():
                 found.extend(cls._scan_for_stale_counts(llms, "site/llms.txt", live))
+        for relative in cls._CURRENT_FACING_FILES:
+            path = ROOT / relative
+            if path.is_file():
+                found.extend(
+                    cls._scan_for_stale_counts(
+                        path,
+                        relative,
+                        live,
+                        include_bare=True,
+                    )
+                )
         return found
 
     def test_published_test_count_matches_live_discovery(self) -> None:
         live = self._discover_live_count()
+        evidence = (ROOT / "docs" / "RELEASE_EVIDENCE.md").read_text(encoding="utf-8")
+        match = re.search(
+            r"(?P<discovered>\d{2,4}) tests discovered; "
+            r"(?P<passed>\d{2,4}) passed; (?P<skipped>\d{1,3}) skipped",
+            evidence,
+        )
+        self.assertIsNotNone(match, "release evidence must record discovered/passed/skipped counts")
+        self.assertEqual(int(match.group("discovered")), live)
+        self.assertEqual(
+            int(match.group("passed")) + int(match.group("skipped")),
+            live,
+        )
         stale = self._published_instances()
         self.assertGreater(live, 0, "live test discovery returned zero tests")
         self.assertEqual(
