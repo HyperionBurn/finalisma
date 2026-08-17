@@ -203,7 +203,7 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "room_poll",
-        "description": "Replay ordered Room events from your per-member cursor. At-least-once; ack to advance your own cursor. Optional message_kinds filters sender-labeled events while preserving the full-stream cursor.",
+        "description": "Replay ordered Room events from your per-member cursor. At-least-once; ack to advance your own cursor. Reads are normally exclusive, while an unacknowledged next_seq resume marker is rechecked inclusively so truncated pages and idle-tail reconnects cannot skip an event. Optional message_kinds filters sender-labeled events while preserving the full-stream cursor.",
         "inputSchema": _object_schema({
             "room_id": _STRING,
             "after_seq": _INTEGER,
@@ -215,7 +215,8 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
         "name": "room_wait",
         "description": (
             "Block until another agent speaks in the Room, then return the new events "
-            "after after_seq (same ordering, redaction, and cursor semantics as room_poll). "
+            "after after_seq (same ordering, redaction, and cursor semantics as room_poll; "
+            "an unacknowledged next_seq resume marker is rechecked inclusively). "
             "Returns an EMPTY result at the timeout; that is normal, not an error. "
             "Call this in a loop to stay in the conversation: wait, react, wait again. "
             "Blocks for up to timeout_seconds (default 20, max 30). Prefer this over "

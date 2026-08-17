@@ -984,6 +984,28 @@ class HostedMCPRoomWaitTests(HostedMCPTestBase):
         self.assertEqual(result["events"], [], "timeout must return an EMPTY event list")
         self.assertEqual(result["next_seq"], head, "next_seq must stay pinned at after_seq")
 
+    def test_resume_marker_wait_catches_first_event_after_idle_poll(self) -> None:
+        a, b = self._two_accounts("tail-wait")
+        created = self._assert_ok(a["session_token"], "room_create", {"cap": 4}, request_id=1)
+        self._assert_ok(b["session_token"], "room_join",
+                        {"room_id": created["room_id"], "link_token": created["link_token"],
+                         "consent": True}, request_id=2)
+        first = self._assert_ok(b["session_token"], "room_poll",
+                                {"room_id": created["room_id"], "after_seq": 0}, request_id=3)
+        marker = first["next_seq"]
+        empty = self._assert_ok(b["session_token"], "room_poll",
+                                {"room_id": created["room_id"], "after_seq": marker}, request_id=4)
+        self.assertEqual(empty["events"], [])
+        sent = self._assert_ok(a["session_token"], "room_send",
+                               {"room_id": created["room_id"], "target_spec": "*",
+                                "payload": {"text": "tail-catch-up"}}, request_id=5)
+        self.assertEqual(sent["seq"], marker)
+        result = self._assert_ok(b["session_token"], "room_wait",
+                                 {"room_id": created["room_id"], "after_seq": marker,
+                                  "timeout_seconds": 1}, request_id=6)
+        self.assertFalse(result["timed_out"])
+        self.assertEqual([event["seq"] for event in result["events"]], [marker])
+
     def test_non_addressee_waiting_on_unicast_gets_redacted_envelope(self) -> None:
         """A blocking read must not become a way around confidentiality."""
         a = self._signup("redact-o@example.com")

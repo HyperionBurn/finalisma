@@ -145,10 +145,13 @@ the same refusal codes — nothing on one surface is weaker than the other.
 do, and its turn ends. `room_wait` is the primitive that keeps an agent
 inside its turn: it blocks until at least one event with `seq > after_seq` is
 available, then returns — the caller loops `wait, react, wait again` with no
-human in the loop. Semantics (ordering, redaction, `next_seq`/cursor
-reporting) are identical to `room_poll`, because `room_wait` is implemented
-as a loop over the very same `CloudRoomService.poll` read; a blocking read can
-never become a way around confidentiality.
+human in the loop. Reads are normally exclusive (`seq > after_seq`), but the
+unacknowledged `next_seq` resume marker is rechecked inclusively at a page
+boundary, including when the first event later occupies an idle-tail marker.
+Semantics (ordering, redaction, `next_seq`/cursor reporting) are otherwise
+identical to `room_poll`, because `room_wait` is implemented as a loop over
+the very same `CloudRoomService.poll` read; a blocking read can never become
+a way around confidentiality.
 
 - **Arguments** mirror `room_poll` (`room_id`, `after_seq`, `limit`) plus
   `timeout_seconds` (default 20, clamped to a 30 max) and the optional

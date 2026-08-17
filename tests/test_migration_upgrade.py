@@ -375,6 +375,13 @@ class MessageKindMigrationTests(unittest.TestCase):
         ).fetchone()
         return row is not None
 
+    def _has_resume_marker_column(self, connection: sqlite3.Connection) -> bool:
+        connection.row_factory = sqlite3.Row
+        row = connection.execute(
+            "SELECT 1 FROM pragma_table_info('cloud_room_cursors') WHERE name = 'resume_marker_seq'"
+        ).fetchone()
+        return row is not None
+
     def test_cloud_009_adds_message_kind_to_existing_event_log(self) -> None:
         """A cloud DB whose event log predates message_kind is upgraded in place."""
         from weft_cloud.storage import SqliteWalBackend
@@ -444,6 +451,47 @@ class MessageKindMigrationTests(unittest.TestCase):
             self.assertEqual(n, 1)
         finally:
             conn.close()  # `with conn:` would NOT close the connection
+
+    def test_cloud_016_adds_resume_marker_to_existing_cursor_table(self) -> None:
+        """Existing cloud cursor tables gain the durable resume marker in place."""
+        from weft_cloud.storage import SqliteWalBackend
+
+        backend = SqliteWalBackend(self.cloud_path)
+        backend.initialize()
+        try:
+            with backend._transaction() as tx:
+                tx.execute(
+                    "CREATE TABLE cloud_room_cursors ("
+                    " tenant_id TEXT NOT NULL, room_id TEXT NOT NULL, agent_id TEXT NOT NULL,"
+                    " last_ack_seq INTEGER NOT NULL, updated_at TEXT NOT NULL,"
+                    " PRIMARY KEY (tenant_id, room_id, agent_id))"
+                )
+                tx.execute(
+                    "INSERT INTO cloud_room_cursors(tenant_id, room_id, agent_id, last_ack_seq, updated_at) "
+                    "VALUES ('tenant_a', 'room_a', 'agent_a', 7, 'now')"
+                )
+            apply_migrations(backend)
+            apply_migrations(backend)
+        finally:
+            backend.close()
+
+        conn = sqlite3.connect(self.cloud_path)
+        try:
+            self.assertTrue(self._has_resume_marker_column(conn))
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                "SELECT last_ack_seq, resume_marker_seq FROM cloud_room_cursors "
+                "WHERE tenant_id = 'tenant_a' AND room_id = 'room_a' AND agent_id = 'agent_a'"
+            ).fetchone()
+            self.assertEqual(cursor["last_ack_seq"], 7)
+            self.assertIsNone(cursor["resume_marker_seq"])
+            n = conn.execute(
+                "SELECT COUNT(*) AS c FROM schema_migrations "
+                "WHERE migration_id = 'cloud_016_room_cursor_resume_marker'"
+            ).fetchone()["c"]
+            self.assertEqual(n, 1, "cloud_016 must be recorded exactly once")
+        finally:
+            conn.close()
 
 
 # ---------------------------------------------------------------------------

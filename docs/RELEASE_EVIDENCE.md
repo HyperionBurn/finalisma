@@ -7,12 +7,18 @@ compatibility claim.
 ## Latest regression evidence
 
 Measured locally on the current source/test stack (branch
-`codex/weft-session-renewal-clean-2026-08-17`):
+`codex/weft-cursor-tail-resume-2026-08-17`):
 
 - Command: `python -B -m unittest discover -s tests -p "test_*.py"`
-- Result: **1153 tests discovered; 1152 passed; 1 skipped**
-- Duration: 458.033 seconds on the local Windows runner
-- Focused hosted identity/REST/browser/count suite: 37 tests passed locally
+- Result: **1159 tests discovered; 1158 passed; 1 skipped**
+- Duration: 461.790 seconds on the local Windows runner
+- Focused cursor/hosted-wait/migration/count suite: 31 tests passed locally
+  (`tests.test_room_cursor_guards.CloudCursorGuardTests`,
+  `tests.test_room_cursor_guards.CoordinatorCursorGuardTests`,
+  `tests.test_cloud_service.TestRoomWaitRoute`,
+  `tests.test_hosted_mcp.HostedMCPRoomWaitTests.test_resume_marker_wait_catches_first_event_after_idle_poll`,
+  `tests.test_migration_upgrade.MessageKindMigrationTests`, and
+  `tests.test_site.TestCountSyncTests`)
 - Site build: not rerun in this SDK-only local command; prior site evidence
   remains on the earlier stacked PRs
 - `git diff --check`: passed

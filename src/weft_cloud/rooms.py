@@ -547,6 +547,7 @@ CREATE TABLE IF NOT EXISTS cloud_room_cursors (
     room_id TEXT NOT NULL,
     agent_id TEXT NOT NULL,
     last_ack_seq INTEGER NOT NULL,
+    resume_marker_seq INTEGER,
     updated_at TEXT NOT NULL,
     PRIMARY KEY (tenant_id, room_id, agent_id)
 );
@@ -599,6 +600,7 @@ class CloudRoomService:
         with self.backend.transaction() as tx:
             tx.executescript(_ROOM_SCHEMA_SQL)
             self._ensure_message_kind_column(tx)
+            self._ensure_resume_marker_column(tx)
             tx.commit()
 
     def _ensure_message_kind_column(self, tx: Any) -> None:
@@ -608,6 +610,14 @@ class CloudRoomService:
         ).fetchone()
         if row is None:
             tx.execute("ALTER TABLE cloud_room_event_log ADD COLUMN message_kind TEXT")
+
+    def _ensure_resume_marker_column(self, tx: Any) -> None:
+        """Add the durable resume marker to pre-marker cursor tables."""
+        row = tx.execute(
+            "SELECT 1 FROM pragma_table_info('cloud_room_cursors') WHERE name = 'resume_marker_seq'"
+        ).fetchone()
+        if row is None:
+            tx.execute("ALTER TABLE cloud_room_cursors ADD COLUMN resume_marker_seq INTEGER")
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -1477,7 +1487,12 @@ class CloudRoomService:
     def poll(self, tenant_id: str, room_id: str, agent_id: str,
              after_seq: int | None = None, limit: int = 100,
              message_kinds: list[str] | None = None) -> dict:
-        """Return events with ``seq > after_seq`` (default: last_ack_seq).
+        """Return events after ``after_seq`` (default: last_ack_seq).
+
+        Reads are normally exclusive (``seq > after_seq``). The returned
+        ``next_seq`` is persisted as a per-member resume marker; while that
+        unacknowledged marker is supplied again, it is rechecked inclusively
+        so truncated pages and idle-tail reconnects cannot skip its event.
 
         ``message_kinds`` is an optional list of sender-set message kinds.
         When present, only events whose ``message_kind`` matches one of the
@@ -1493,10 +1508,16 @@ class CloudRoomService:
             self._require_member(tx, tenant_id, room_id, agent_id)
             self._touch_member(tx, tenant_id, room_id, agent_id)
             cursor_row = tx.execute(
-                "SELECT last_ack_seq FROM cloud_room_cursors WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
+                "SELECT last_ack_seq, resume_marker_seq FROM cloud_room_cursors "
+                "WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
                 (tenant_id, room_id, agent_id),
             ).fetchone()
             last_ack = int(cursor_row["last_ack_seq"]) if cursor_row else 0
+            resume_marker = (
+                int(cursor_row["resume_marker_seq"])
+                if cursor_row is not None and cursor_row["resume_marker_seq"] is not None
+                else None
+            )
             if after_seq is None:
                 after_seq = last_ack
             if isinstance(after_seq, bool) or not isinstance(after_seq, int):
@@ -1518,6 +1539,17 @@ class CloudRoomService:
                     400,
                 )
             behind_by = max(0, after_seq - last_ack)
+            # ``next_seq`` is the first sequence after the page. Persist that
+            # resume marker per member so a later poll can use it inclusively:
+            # this avoids skipping an event that was already present at a
+            # truncated page boundary, or that later occupies an idle tail.
+            # A normal current-head cursor remains exclusive because it is not
+            # the previously returned resume marker.
+            resume_marker_catch_up = (
+                resume_marker == after_seq
+                and after_seq > last_ack
+            )
+            sequence_operator = ">=" if resume_marker_catch_up else ">"
             if isinstance(limit, bool) or not isinstance(limit, int):
                 raise RoomError("invalid_argument", "limit must be an integer", 400)
             limit = max(1, min(limit, 200))
@@ -1526,13 +1558,14 @@ class CloudRoomService:
                 placeholders = ", ".join("?" for _ in kind_filter)
                 rows = tx.execute(
                     "SELECT * FROM cloud_room_event_log WHERE tenant_id = ? AND room_id = ? "
-                    "AND seq > ? AND message_kind IN (" + placeholders + ") "
+                    "AND seq " + sequence_operator + " ? AND message_kind IN (" + placeholders + ") "
                     "ORDER BY seq ASC LIMIT ?",
                     (tenant_id, room_id, after_seq, *kind_filter, limit),
                 ).fetchall()
             else:
                 rows = tx.execute(
-                    "SELECT * FROM cloud_room_event_log WHERE tenant_id = ? AND room_id = ? AND seq > ? "
+                    "SELECT * FROM cloud_room_event_log WHERE tenant_id = ? AND room_id = ? AND seq "
+                    + sequence_operator + " ? "
                     "ORDER BY seq ASC LIMIT ?",
                     (tenant_id, room_id, after_seq, limit),
                 ).fetchall()
@@ -1558,10 +1591,17 @@ class CloudRoomService:
             # A filtered read scans the full stream even when no matching row
             # is returned (or when fewer than ``limit`` matches remain). Report
             # the last scanned sequence so callers do not repeatedly replay
-            # old non-matching events; a future event at head+1 remains visible
-            # because cursors are exclusive.
+            # old non-matching events; a future event at the resume marker
+            # remains visible because the unacknowledged marker is rechecked
+            # inclusively at the page boundary.
             if kind_filter and len(rows) < limit:
                 next_seq = max(next_seq, int(room["cursor_head"]))
+            if rows or next_seq == int(room["cursor_head"]) + 1:
+                tx.execute(
+                    "UPDATE cloud_room_cursors SET resume_marker_seq = ?, updated_at = ? "
+                    "WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
+                    (next_seq, utc_now_iso(), tenant_id, room_id, agent_id),
+                )
             return {
                 "room_id": room_id,
                 "state": room["state"],
@@ -1579,11 +1619,12 @@ class CloudRoomService:
              _pulse: Callable[[], None] | None = None) -> dict:
         """Blocking long-poll over ``poll``: the continuous-collaboration primitive.
 
-        Returns as soon as at least one event with ``seq > after_seq`` is
-        available; otherwise returns an EMPTY poll result at the timeout — a
-        NORMAL outcome, not an error, so a caller simply loops again. This is
-        what keeps an agent inside its turn: ``wait, react, wait again`` with
-        no human in the loop.
+        Returns as soon as at least one event after ``after_seq`` is available
+        (including an event at an unacknowledged resume marker);
+        otherwise returns an EMPTY poll result at the timeout — a NORMAL
+        outcome, not an error, so a caller simply loops again. This is what
+        keeps an agent inside its turn: ``wait, react, wait again`` with no
+        human in the loop.
 
         Semantics are identical to ``poll`` — same redaction, ordering, and
         ``next_seq``/cursor reporting; a non-addressee still receives the
@@ -1670,6 +1711,12 @@ class CloudRoomService:
                 "ON CONFLICT(tenant_id, room_id, agent_id) DO UPDATE SET "
                 "last_ack_seq = MAX(last_ack_seq, excluded.last_ack_seq), updated_at = excluded.updated_at",
                 (tenant_id, room_id, agent_id, seq, now),
+            )
+            tx.execute(
+                "UPDATE cloud_room_cursors SET resume_marker_seq = NULL "
+                "WHERE tenant_id = ? AND room_id = ? AND agent_id = ? "
+                "AND resume_marker_seq IS NOT NULL AND resume_marker_seq <= last_ack_seq",
+                (tenant_id, room_id, agent_id),
             )
             # Read-receipt lifecycle: acking past an event's seq means the
             # recipient has processed it — its receipt transitions queued ->
