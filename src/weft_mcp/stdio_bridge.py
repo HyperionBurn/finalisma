@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import math
 import os
 import sys
 from typing import Any, TextIO
@@ -51,6 +52,7 @@ from urllib.parse import urlsplit
 
 MAX_JSON_RPC_BYTES = 512 * 1024
 DEFAULT_TIMEOUT_SECONDS = 30.0
+_SAFE_RETRY_AFTER_MAX = 86400
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +93,22 @@ def _json_rpc_error(
     if data is not None:
         error["data"] = data
     return {"jsonrpc": "2.0", "id": request_id, "error": error}
+
+
+def _safe_retry_after(value: Any) -> int | None:
+    """Keep only a bounded numeric retry hint from an upstream response."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if not math.isfinite(value) or value < 0 or value > _SAFE_RETRY_AFTER_MAX:
+        return None
+    return max(1, int(value))
+
+
+def _header_retry_after(value: str | None) -> int | None:
+    """Parse an HTTP Retry-After delta without copying arbitrary header text."""
+    if not isinstance(value, str) or not value.strip().isdigit():
+        return None
+    return _safe_retry_after(int(value.strip()))
 
 
 # ---------------------------------------------------------------------------
@@ -203,26 +221,24 @@ class StdioHttpBridge:
                 "and restart this client",
             )
         if status == 429:
-            details: dict[str, Any] = {}
+            retry_hint: int | None = _header_retry_after(retry_after)
             try:
                 decoded = json.loads(body.decode("utf-8")) if body else None
             except (UnicodeDecodeError, json.JSONDecodeError):
                 decoded = None
-            if isinstance(decoded, dict) and isinstance(decoded.get("error"), dict):
-                details.update(decoded["error"])
-            if retry_after:
-                try:
-                    details["retry_after"] = max(1, int(retry_after))
-                except (TypeError, ValueError):
-                    details["retry_after"] = retry_after
-            message = details.get("message")
-            if not isinstance(message, str) or not message:
-                message = f"the Weft hosted endpoint at {self.origin} returned HTTP 429"
+            if retry_hint is None and isinstance(decoded, dict) and isinstance(decoded.get("error"), dict):
+                error = decoded["error"]
+                retry_hint = _safe_retry_after(error.get("retry_after"))
+                if retry_hint is None and isinstance(error.get("details"), dict):
+                    retry_hint = _safe_retry_after(error["details"].get("retry_after"))
+            safe_data: dict[str, Any] = {"code": "rate_limited"}
+            if retry_hint is not None:
+                safe_data["retry_after"] = retry_hint
             return _json_rpc_error(
                 request.get("id") if isinstance(request, dict) else None,
                 -32000,
-                message,
-                details or None,
+                "the Weft hosted endpoint returned HTTP 429; retry later",
+                safe_data,
             )
         if status == 202:
             return None
