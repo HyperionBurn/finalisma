@@ -355,6 +355,29 @@ class ClipboardBridgeTests(unittest.TestCase):
         self.assertIn("consent_contract", snippet)
         self.assertEqual(snippet["team_id"], "team-1")
 
+    def test_generate_rejects_unusable_endpoint_urls(self):
+        bad_endpoints = (
+            "https://",
+            "https://user:password@example.com",
+            "https://example.com#fragment",
+            "https://example.com:bad",
+            "https://example.com:0",
+            " https://example.com",
+            "https://example.com/path with spaces",
+        )
+        for endpoint in bad_endpoints:
+            with self.subTest(endpoint=endpoint):
+                with self.assertRaises(WeftError) as ctx:
+                    self.bridge.generate_bootstrap(
+                        team_id="team-1",
+                        agent_id="agent-1",
+                        endpoint=endpoint,
+                        pairing_id="pair_xxx",
+                        join_token="tok_xxx",
+                        actor_token=self.actor_token,
+                    )
+                self.assertEqual(ctx.exception.code, "invalid_argument")
+
     def test_parse_valid_bootstrap(self):
         pairing = self.store.create_pairing(
             initiator_id="agent-1",

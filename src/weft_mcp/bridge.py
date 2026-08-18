@@ -576,7 +576,24 @@ class ClipboardBridge:
         _validate_id(agent_id, "agent_id")
         _authorize_actor(self.store, team_id, agent_id, actor_token)
 
-        if not isinstance(endpoint, str) or not endpoint.startswith(("http://", "https://")):
+        if not isinstance(endpoint, str) or not endpoint or endpoint != endpoint.strip():
+            raise WeftError("invalid_argument", "endpoint must be an http(s) URL")
+        if any(char.isspace() for char in endpoint):
+            raise WeftError("invalid_argument", "endpoint must be an http(s) URL")
+        try:
+            parsed = urlsplit(endpoint)
+            port = parsed.port
+        except ValueError as exc:
+            raise WeftError("invalid_argument", "endpoint must be an http(s) URL") from exc
+        if (
+            parsed.scheme not in ("http", "https")
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+            or port == 0
+        ):
             raise WeftError("invalid_argument", "endpoint must be an http(s) URL")
 
         nonce = secrets.token_hex(16)
