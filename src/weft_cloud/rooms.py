@@ -1641,7 +1641,9 @@ class CloudRoomService:
             sequence_operator = ">=" if resume_marker_catch_up else ">"
             if isinstance(limit, bool) or not isinstance(limit, int):
                 raise RoomError("invalid_argument", "limit must be an integer", 400)
-            limit = max(1, min(limit, 200))
+            if limit < 1:
+                raise RoomError("invalid_argument", "limit must be a positive integer", 400)
+            limit = min(limit, 200)
             kind_filter = _validate_message_kinds(message_kinds)
             if kind_filter:
                 placeholders = ", ".join("?" for _ in kind_filter)
@@ -1734,11 +1736,11 @@ class CloudRoomService:
         the caller toward stale — the server holds the connection and knows
         the agent is there).
         """
-        try:
-            timeout_seconds = int(timeout_seconds)
-        except (TypeError, ValueError):
-            timeout_seconds = 20
-        timeout_seconds = max(0, min(timeout_seconds, 30))
+        if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, int):
+            raise RoomError("invalid_argument", "timeout_seconds must be an integer", 400)
+        if timeout_seconds < 0:
+            raise RoomError("invalid_argument", "timeout_seconds cannot be negative", 400)
+        timeout_seconds = min(timeout_seconds, 30)
         deadline = _time.monotonic() + timeout_seconds
 
         # BEGIN: prove the caller is alive the instant the block starts. A

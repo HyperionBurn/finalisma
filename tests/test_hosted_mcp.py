@@ -957,6 +957,35 @@ class HostedMCPRoomWaitTests(HostedMCPTestBase):
         self.assertFalse(result["timed_out"])
         self.assertTrue(result["events"], "expected the already-present events back")
 
+    def test_rejects_malformed_timeout_and_limit_types(self) -> None:
+        a, b = self._two_accounts("wait-input")
+        created = self._assert_ok(a["session_token"], "room_create", {"cap": 4}, request_id=1)
+        self._assert_ok(b["session_token"], "room_join",
+                        {"room_id": created["room_id"], "link_token": created["link_token"],
+                         "consent": True}, request_id=2)
+
+        for bad_timeout in ("0", [], True, -1):
+            with self.subTest(timeout_seconds=bad_timeout):
+                response = self._assert_is_error(
+                    b["session_token"],
+                    "room_wait",
+                    {"room_id": created["room_id"], "timeout_seconds": bad_timeout},
+                    "invalid_argument",
+                    request_id=3,
+                )
+                self.assertNotEqual(response["error"]["code"], "internal_error")
+
+        for bad_limit in (0, -1, "1", True):
+            with self.subTest(limit=bad_limit):
+                response = self._assert_is_error(
+                    b["session_token"],
+                    "room_wait",
+                    {"room_id": created["room_id"], "timeout_seconds": 0, "limit": bad_limit},
+                    "invalid_argument",
+                    request_id=4,
+                )
+                self.assertNotEqual(response["error"]["code"], "internal_error")
+
     def test_blocks_then_wakes_promptly_on_new_event(self) -> None:
         """A blocked waiter must wake on the event, well under the timeout."""
         a, b = self._two_accounts("wake")
