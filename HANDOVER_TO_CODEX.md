@@ -12,17 +12,17 @@ Everything else is yours to decide and execute.
 ## 0. Reality check — 2026-08-15 (added by lane L9, not by Claude)
 
 This file was written 2026-08-12 against the `integration` branch world. Several facts below are
-no longer current. Corrections are measured against **`feature/product-perfect`** (this worktree),
-HEAD `a572db3`; each has `file:line` evidence in the tree.
+no longer current. Corrections are measured against the current checkout
+`C:\Users\Wasif\Documents\Multiplayer-AI-integration`, branch
+`codex/stdio-stale-session-recovery-2026-08-17`, HEAD `c9c2bb9`; each has
+file/line evidence in the tree.
 
-- **Branch state:** `feature/product-perfect` is **17 commits ahead of** `integration`
-  (`7c74e27` is the merge-base). Recent product commits: `67c30ae` (video restructure),
-  `c9f4e0e` (SDK drives all 12 hosted room tools, structured errors preserved),
-  `1e0aa5a` (REST `/v1` parity for receipts + remove_member, 400s on bad cursors),
-  `d344ebe` (truthful agent-key signout, admin cannot mint owner), `a572db3` (film brief).
+- **Branch state:** this checkout contains the merged PR1–43 baseline plus the
+  verified PR44–55 hardening stack; `origin/main` is the merge baseline and
+  hosted merge status must still be read from GitHub rather than inferred here.
 - **Test count:** the latest local evidence is recorded in
-  `docs/RELEASE_EVIDENCE.md` (1164 discovered, 1163 passed, 1 skipped,
-  measured 2026-08-17). The published count is guarded by
+  `docs/RELEASE_EVIDENCE.md` (1172 discovered, 1171 passed, 1 skipped,
+  measured 2026-08-18). The published count is guarded by
   `tests/test_site.py::TestCountSyncTests`; hosted deployment and merge proof
   are separate claims. Every "721 / 716 / 894" number in this file is historical.
 - **§3 defects 1, 2 and 5 are fixed in this tree**, and §7 items 2 and 3 are done in this tree
@@ -58,10 +58,11 @@ toward driving the live product and reporting what hurts.**
 
 ## 2. THE CRITICAL PATH — do this first
 
-**Nothing we fixed today is deployed. Production still has every defect below.**
-*(2026-08-15 note: this deploy claim is from 2026-08-12 and is NOT re-verified by lane L9 —
-see §0. Several of the defects are now fixed in the `feature/product-perfect` tree; verify
-production by request before acting on this sentence.)*
+**Deployment of this current stack is not verified in this checkout.**
+The production state and the PR44–55 merge state must be checked directly before
+claiming that any repository fix is live. Several older defects below are
+historical and have been fixed in the current code; verify each claim against
+the current source and deployment probe.
 Fixed code that is not deployed is worth nothing to a user. This is the highest-value work
 available to you, more valuable than writing anything new.
 

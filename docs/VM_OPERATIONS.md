@@ -133,18 +133,14 @@ failure so `systemctl --failed` surfaces the outage.
 
 ## Known gaps (stated, not hidden)
 
-- **`site html files` floor (18) is not currently met in this worktree**
-  (16 today). This is pre-existing content state unrelated to this task —
-  nothing here touched `site/` — and `final-verify.sh` reports it
-  truthfully rather than being weakened to match. It is expected to clear
-  once the site-content branches this task did not touch are merged.
-- **Two pre-existing test failures** (`test_funnel_ctas_point_at_web_app`,
-  `test_landing_page_has_truthful_semantic_launch_surface` in
-  `test_site.py`) are unrelated to this task and already documented in
-  [DEPLOY.md](DEPLOY.md) as "2 pre-existing branch-drift failures... both
-  reproduced on a clean tree, outside these files." `final-verify.sh`
-  correctly reports these as a REAL FAILURE verdict (not silence, not a
-  false pass) — which is the gate doing its job.
+- **The `site html files` floor (18) is met in the current stack.** The
+  verifier sees 18 HTML files today; keep the floor as a regression guard
+  rather than carrying forward the older 16-file historical snapshot.
+- **The two historical site-test failures are resolved in the current stack.**
+  `test_funnel_ctas_point_at_web_app` and
+  `test_landing_page_has_truthful_semantic_launch_surface` are green in the
+  verified suite. Any older references to them as active failures are
+  historical evidence, not current release blockers.
 - **`mail_error_detail.py` is not wired into a sender.** The literal
   production bug (`last_error = "permanent"` for 104 rows) lives in a
   Stage-2 SMTP worker that does not exist in this worktree — only
