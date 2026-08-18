@@ -23,7 +23,7 @@ import threading
 import unittest
 from pathlib import Path
 from unittest import mock
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -85,11 +85,38 @@ class WebAppDriver:
         resp = conn.getresponse()
         self._collect_cookies(resp)
         body = resp.read().decode("utf-8", errors="replace")
-        out = dict(resp.getheaders())
+        out = {}
+        for hdr, val in resp.getheaders():
+            if hdr.lower() == "set-cookie":
+                if hdr not in out or val.startswith("fss_session="):
+                    out[hdr] = val
+            else:
+                out[hdr] = val
         conn.close()
         return resp.status, body, out
 
-    def post(self, path, form: dict, extra_headers=None):
+    def extract_csrf(self, html):
+        m = re.search(r'name="_csrf"\s+value="([^"]+)"', html)
+        return m.group(1) if m else None
+
+    def _csrf_for_post(self, path: str, form: dict) -> str:
+        page = path
+        if path in {"/verify", "/reset"}:
+            page = f"{path}?token={quote(str(form.get('token', '')), safe='')}"
+        status, body, _ = self.get(page)
+        if status != 200:
+            raise AssertionError(f"CSRF form page {page} returned {status}")
+        token = self.extract_csrf(body)
+        if not token:
+            raise AssertionError(f"CSRF form page {page} did not contain a token")
+        return token
+
+    def post(self, path, form: dict, extra_headers=None, *, auto_csrf: bool = True):
+        form = dict(form)
+        if auto_csrf and "_csrf" not in form and path in {
+            "/signup", "/login", "/verify", "/reset-request", "/reset",
+        }:
+            form["_csrf"] = self._csrf_for_post(path, form)
         body = urlencode(form)
         headers = self._base_headers(extra_headers)
         headers["Content-Type"] = "application/x-www-form-urlencoded"
@@ -98,7 +125,13 @@ class WebAppDriver:
         resp = conn.getresponse()
         self._collect_cookies(resp)
         resp_body = resp.read().decode("utf-8", errors="replace")
-        out = dict(resp.getheaders())
+        out = {}
+        for hdr, val in resp.getheaders():
+            if hdr.lower() == "set-cookie":
+                if hdr not in out or val.startswith("fss_session="):
+                    out[hdr] = val
+            else:
+                out[hdr] = val
         conn.close()
         return resp.status, resp_body, out
 
@@ -112,11 +145,11 @@ class WebAppDriver:
         return row["body"] if row else None
 
     def signup_verify_login(self, email, password, extra_headers=None):
-        self.post("/signup", {"email": email, "password": password, "_csrf": "x"},
+        self.post("/signup", {"email": email, "password": password},
                   extra_headers=extra_headers)
         body = self.last_outbox_body(email)
         vt = re.search(r"(fvt_[A-Za-z0-9_-]+)", body).group(1)
-        self.post("/verify", {"token": vt, "_csrf": "x"}, extra_headers=extra_headers)
+        self.post("/verify", {"token": vt}, extra_headers=extra_headers)
         status, _, _ = self.post("/login", {"email": email, "password": password},
                                  extra_headers=extra_headers)
         return status == 303 and "fss_session" in self.cookies
@@ -143,7 +176,7 @@ class TestSessionCookieSecureFlag(unittest.TestCase):
         self.d.close()
 
     def _seed_account(self):
-        self.d.post("/signup", {"email": self.email, "password": self.password, "_csrf": "x"})
+        self.d.post("/signup", {"email": self.email, "password": self.password})
 
     def _login_cookie(self, extra_headers=None) -> str:
         self._seed_account()

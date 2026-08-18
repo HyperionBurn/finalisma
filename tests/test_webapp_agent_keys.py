@@ -29,7 +29,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -89,7 +89,24 @@ class WebAppDriver:
         conn.close()
         return resp.status, body, headers
 
-    def post(self, path, form: dict):
+    def _csrf_for_post(self, path: str, form: dict) -> str:
+        page = path
+        if path in {"/verify", "/reset"}:
+            page = f"{path}?token={quote(str(form.get('token', '')), safe='')}"
+        status, body, _ = self.get(page)
+        if status != 200:
+            raise AssertionError(f"CSRF form page {page} returned {status}")
+        token = self.extract_csrf(body)
+        if not token:
+            raise AssertionError(f"CSRF form page {page} did not contain a token")
+        return token
+
+    def post(self, path, form: dict, *, auto_csrf: bool = True):
+        form = dict(form)
+        if auto_csrf and "_csrf" not in form and path in {
+            "/signup", "/login", "/verify", "/reset-request", "/reset",
+        }:
+            form["_csrf"] = self._csrf_for_post(path, form)
         body = urlencode(form)
         conn = http.client.HTTPConnection(self.host, self.port, timeout=10)
         conn.request(
@@ -130,11 +147,11 @@ class WebAgentKeysBase(unittest.TestCase):
 
     def _signup_login(self):
         status, _, _ = self.driver.post(
-            "/signup", {"email": self.email, "password": self.password, "_csrf": "x"}
+            "/signup", {"email": self.email, "password": self.password}
         )
         self.assertEqual(status, 303)
         status, _, _ = self.driver.post(
-            "/login", {"email": self.email, "password": self.password, "_csrf": "x"}
+            "/login", {"email": self.email, "password": self.password}
         )
         self.assertEqual(status, 303)
         self.assertIn("fss_session", self.driver.cookies)

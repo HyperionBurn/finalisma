@@ -19,7 +19,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -90,21 +90,40 @@ class StaticDriver:
     def get(self, raw_target, cookie=None):
         return self.request("GET", raw_target, cookie=cookie)
 
-    def post(self, raw_target, form, cookie=None):
+    def _csrf_for_post(self, raw_target: str, form: dict) -> str:
+        path = raw_target.split("?", 1)[0]
+        page = path
+        if path in {"/verify", "/reset"}:
+            page = f"{path}?token={quote(str(form.get('token', '')), safe='')}"
+        status, body, _ = self.get(page)
+        if status != 200:
+            raise AssertionError(f"CSRF form page {page} returned {status}")
+        match = re.search(rb'name="_csrf"\s+value="([^"]+)"', body)
+        if not match:
+            raise AssertionError(f"CSRF form page {page} did not contain a token")
+        return match.group(1).decode("ascii")
+
+    def post(self, raw_target, form, cookie=None, *, auto_csrf: bool = True):
+        form = dict(form)
+        path = raw_target.split("?", 1)[0]
+        if auto_csrf and "_csrf" not in form and path in {
+            "/signup", "/login", "/verify", "/reset-request", "/reset",
+        }:
+            form["_csrf"] = self._csrf_for_post(raw_target, form)
         return self.request("POST", raw_target, cookie=cookie,
                             body=urlencode(form).encode(),
                             content_type="application/x-www-form-urlencoded")
 
     def auth_session(self):
         """Signup+verify+login; returns the raw session cookie or None."""
-        self.post("/signup", {"email": "s@example.com", "password": "Password123!", "_csrf": "x"})
+        self.post("/signup", {"email": "s@example.com", "password": "Password123!"})
         with self.backend.transaction() as tx:
             row = tx.execute(
                 "SELECT body FROM cloud_identity_outbox WHERE to_email = ? ORDER BY created_at DESC LIMIT 1",
                 ("s@example.com",),
             ).fetchone()
         m = re.search(r"(fvt_[A-Za-z0-9_-]+)", row["body"])
-        self.post("/verify", {"token": m.group(1), "_csrf": "x"})
+        self.post("/verify", {"token": m.group(1)})
         status, _, _ = self.post("/login", {"email": "s@example.com", "password": "Password123!"})
         return self.cookies.get("fss_session") if status == 303 else None
 
