@@ -132,6 +132,51 @@ class BridgeIntegrationTests(unittest.TestCase):
             # Empty outbox path: cursor should still be present and >= 0.
             self.assertGreaterEqual(cursor_after_first, 0)
 
+    def test_poll_rejects_malformed_cursor_as_invalid_argument(self) -> None:
+        self.dispatcher._polling.enqueue(
+            team_id=self.team_id,
+            agent_id=self.agent_id,
+            event={"kind": "test.cursor", "payload": {}},
+            actor_token=self.actor_token,
+        )
+        for cursor in ("not-an-int", [], -1, True):
+            with self.subTest(cursor=cursor):
+                with self.assertRaises(WeftError) as ctx:
+                    self._call_bridge(
+                        "bridge_poll",
+                        team_id=self.team_id,
+                        agent_id=self.agent_id,
+                        actor_token=self.actor_token,
+                        cursor=cursor,
+                    )
+                self.assertEqual(ctx.exception.code, "invalid_argument")
+
+    def test_ack_rejects_non_list_without_mutating_pending_event(self) -> None:
+        self.dispatcher._polling.enqueue(
+            team_id=self.team_id,
+            agent_id=self.agent_id,
+            event={"kind": "test.ack", "payload": {}},
+            actor_token=self.actor_token,
+        )
+        with self.assertRaises(WeftError) as ctx:
+            self._call_bridge(
+                "bridge_ack",
+                team_id=self.team_id,
+                agent_id=self.agent_id,
+                actor_token=self.actor_token,
+                event_ids="not-a-list",
+            )
+        self.assertEqual(ctx.exception.code, "invalid_argument")
+
+        pending = self._call_bridge(
+            "bridge_poll",
+            team_id=self.team_id,
+            agent_id=self.agent_id,
+            actor_token=self.actor_token,
+            cursor=0,
+        )
+        self.assertEqual(len(pending["events"]), 1)
+
     # ------------------------------------------------------------------
     # 4. bootstrap returns a parseable snippet; no raw secret in cleartext.
     # ------------------------------------------------------------------
