@@ -7,11 +7,11 @@ compatibility claim.
 ## Latest regression evidence
 
 Measured locally on the current source/test stack (branch
-`codex/weft-mcp-envelope-guard-2026-08-17`):
+`codex/agent-key-room-recovery-2026-08-17`, commit `a7cacb8`):
 
 - Command: `python -B -m unittest discover -s tests -p "test_*.py"`
 - Result: **1164 tests discovered; 1163 passed; 1 skipped**
-- Duration: 465.401 seconds on the local Windows runner
+- Duration: 462.966 seconds on the local Windows runner
 - Focused hosted-MCP/count suite: 34 tests passed locally
   (`tests.test_hosted_mcp` and `tests.test_site.TestCountSyncTests`)
 - Site build: not rerun in this SDK-only local command; prior site evidence
