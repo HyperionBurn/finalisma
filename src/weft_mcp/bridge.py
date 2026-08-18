@@ -626,20 +626,21 @@ class ClipboardBridge:
 
         # Enforce one-use via nonce
         nonce = snippet.get("_nonce")
-        if isinstance(nonce, str):
-            with self.store._transaction() as conn:
-                row = conn.execute(
-                    "SELECT consumed_at FROM bridge_bootstrap_nonces WHERE nonce = ?",
-                    (nonce,),
-                ).fetchone()
-                if row is None:
-                    raise WeftError("invalid_argument", "Unknown or expired bootstrap nonce")
-                if row["consumed_at"] is not None:
-                    raise WeftError("bootstrap_reused", "Bootstrap snippet has already been consumed")
-                conn.execute(
-                    "UPDATE bridge_bootstrap_nonces SET consumed_at = ? WHERE nonce = ?",
-                    (_utc_now(), nonce),
-                )
+        if not isinstance(nonce, str) or not nonce:
+            raise WeftError("invalid_argument", "Bootstrap must include a nonce")
+        with self.store._transaction() as conn:
+            row = conn.execute(
+                "SELECT consumed_at FROM bridge_bootstrap_nonces WHERE nonce = ?",
+                (nonce,),
+            ).fetchone()
+            if row is None:
+                raise WeftError("invalid_argument", "Unknown or expired bootstrap nonce")
+            if row["consumed_at"] is not None:
+                raise WeftError("bootstrap_reused", "Bootstrap snippet has already been consumed")
+            conn.execute(
+                "UPDATE bridge_bootstrap_nonces SET consumed_at = ? WHERE nonce = ?",
+                (_utc_now(), nonce),
+            )
 
         return snippet
 

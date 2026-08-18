@@ -413,6 +413,31 @@ class ClipboardBridgeTests(unittest.TestCase):
         with self.assertRaises(WeftError):
             self.bridge.parse_bootstrap(json.dumps(snippet))
 
+    def test_parse_rejects_missing_or_non_string_nonce(self):
+        pairing = self.store.create_pairing(
+            initiator_id="agent-1",
+            team_id="team-1",
+            capabilities_offered=["read"],
+            actor_token=self.actor_token,
+        )
+        snippet = self.bridge.generate_bootstrap(
+            team_id="team-1",
+            agent_id="agent-1",
+            endpoint="http://127.0.0.1:8787",
+            pairing_id=pairing["pairing_id"],
+            join_token=pairing["join_token"],
+            actor_token=self.actor_token,
+        )
+        for nonce_value in (None, 123):
+            stripped = dict(snippet)
+            if nonce_value is None:
+                stripped.pop("_nonce")
+            else:
+                stripped["_nonce"] = nonce_value
+            with self.assertRaises(WeftError) as ctx:
+                self.bridge.parse_bootstrap(json.dumps(stripped))
+            self.assertEqual(ctx.exception.code, "invalid_argument")
+
     def test_generate_requires_actor_auth(self):
         with self.assertRaises(BridgeAuthError):
             self.bridge.generate_bootstrap(
