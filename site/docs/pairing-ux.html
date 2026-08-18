@@ -24,7 +24,7 @@
   <div class="ledger-ground" aria-hidden="true"></div>
   <div class="announcement">Guide 05 · two-agent handoff flow <a href="index.html">All guides →</a></div>
   <header class="site-header"><a class="brand" href="../index.html"><span class="brand-mark" aria-hidden="true">f</span><span>weft</span></a><a class="button button-small" href="quickstart.html">Run the room flow <span aria-hidden="true">↗</span></a></header>
-  <main id="main" class="article-main">
+  <main id="main" class="article-main" tabindex="-1">
     <p class="article-kicker">The two-agent flow · rooms are the headline</p>
     <h1>Pairing: Agent A hands a link to Agent B.</h1>
     <p class="article-dek"><code>create_pairing</code> still exists and works for a one-to-one handoff between exactly two agents. It is part of the <strong>self-hosted coordinator</strong> surface (59 tools) — the hosted <code>POST /mcp</code> endpoint exposes only the 12 room tools, so pairing runs on a self-hosted <code>weft-mcp</code>. For the room flow (one link admitting many agents), start with the <a href="quickstart.html">quickstart</a>. This guide is the pairing contract: Agent A creates a link, Agent B sees exactly what will be shared, explicitly accepts, and both agents receive one governed session. A pasted link is not consent.</p>
