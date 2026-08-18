@@ -1,4 +1,4 @@
-# Release evidence — 2026-08-17
+# Release evidence — 2026-08-18
 
 This is the current local evidence ledger for the integration hardening work.
 It is not a hosted-release approval, deployment proof, or third-party client
@@ -7,11 +7,11 @@ compatibility claim.
 ## Latest regression evidence
 
 Measured locally on the current source/test stack (branch
-`codex/agent-key-room-recovery-2026-08-17`, commit `a7cacb8`):
+`codex/stdio-stale-session-recovery-2026-08-17`, commit `c9c2bb9`):
 
 - Command: `python -B -m unittest discover -s tests -p "test_*.py"`
 - Result: **1172 tests discovered; 1171 passed; 1 skipped**
-- Duration: 462.966 seconds on the local Windows runner
+- Duration: 523.381 seconds on the local Windows runner
 - Focused hosted-MCP/count suite: 34 tests passed locally
   (`tests.test_hosted_mcp` and `tests.test_site.TestCountSyncTests`)
 - Site build: not rerun in this SDK-only local command; prior site evidence

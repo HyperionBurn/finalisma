@@ -426,8 +426,8 @@ The published test count is guarded automatically by
 same loader and pattern as `unittest discover -s tests` and fails if any
 published instance in `docs/` or `site/` claims a count ABOVE the live count
 (the guard protects against deleted tests; adding tests never invalidates a
-published number). The latest local count is **1164 discovered, 1163 passed,
-1 skipped**, measured 2026-08-17 and recorded in `docs/RELEASE_EVIDENCE.md`.
+published number). The latest local count is **1172 discovered, 1171 passed,
+1 skipped**, measured 2026-08-18 and recorded in `docs/RELEASE_EVIDENCE.md`.
 If you delete tests, that guard will tell you what to update. Do not
 hand-maintain the number, and do not confuse the test count with the permanent
 37/63 visual split.
@@ -630,7 +630,7 @@ the rendered width and offender checks in future visual regression passes.
 ## 9. Workspace hygiene rules
 
 - Work only inside the current checkout `C:\Users\Wasif\Documents\Multiplayer-AI-integration`
-  (branch `codex/weft-release-truth-2026-08-17`). The latest local test
+  (branch `codex/stdio-stale-session-recovery-2026-08-17`). The latest local test
   evidence is in `docs/RELEASE_EVIDENCE.md`; do not infer merge or deployment
   status from it.
   `C:\Users\Wasif\Documents\Multiplayer-AI-isolated` (branch `isolated`) and
@@ -640,10 +640,10 @@ the rendered width and offender checks in future visual regression passes.
 - Use the opencode `read`/`write`/`edit` tools for source changes. There is no `apply_patch`
   tool in this environment (that is Codex). Do not use shell redirection or ad hoc file
   writers for code/doc changes.
-- If your shell cwd is `C:\Users\Wasif`, every `bash` call must pass
-  `workdir = C:\Users\Wasif\Documents\Multiplayer-AI-perfect` and every file path must be
-  absolute under that worktree. Restarting opencode from inside the worktree fixes this
-  permanently.
+- If your shell cwd is `C:\Users\Wasif`, every command must pass
+  `workdir = C:\Users\Wasif\Documents\Multiplayer-AI-integration` and every file path must be
+  absolute under that worktree. Do not redirect work into the retired
+  `Multiplayer-AI-perfect` checkout.
 - The `AGENTS.md` in this worktree is a stale copy of the isolated worktree's
   rules (it names branch `isolated`); its product facts pre-date the
   2026-08-15 closes. Verify any of its claims against this tree before
