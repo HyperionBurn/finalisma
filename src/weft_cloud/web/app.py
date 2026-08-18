@@ -368,6 +368,19 @@ class WeftWebApp:
         if not expected or not submitted or not secrets.compare_digest(submitted, expected):
             raise _WebError(HTTPStatus.FORBIDDEN, "CSRF validation failed")
 
+    def _enforce_csrf(self, handler: BaseHTTPRequestHandler, form: dict) -> bool:
+        """Reject a state-changing form before any public auth side effect."""
+        try:
+            self._validate_csrf(handler, form)
+        except _WebError:
+            self._send_html(
+                handler,
+                HTTPStatus.FORBIDDEN,
+                _page("Forbidden", '<p>CSRF validation failed.</p>'),
+            )
+            return False
+        return True
+
     # ------------------------------------------------------------------
     # Auth gate
     # ------------------------------------------------------------------
@@ -786,6 +799,8 @@ class WeftWebApp:
 
     def handle_post_signup(self, handler: BaseHTTPRequestHandler) -> None:
         form = self._read_form(handler)
+        if not self._enforce_csrf(handler, form):
+            return
         email = (form.get("email") or "").strip()
         password = form.get("password") or ""
         if len(password) < _MIN_PASSWORD_LEN or not email:
@@ -888,6 +903,8 @@ class WeftWebApp:
 
     def handle_post_login(self, handler: BaseHTTPRequestHandler) -> None:
         form = self._read_form(handler)
+        if not self._enforce_csrf(handler, form):
+            return
         email = (form.get("email") or "").strip()
         password = form.get("password") or ""
         # Enforce the shared auth limiter BEFORE the tenant lookup, keyed on
@@ -920,6 +937,8 @@ class WeftWebApp:
         handler.send_response(HTTPStatus.SEE_OTHER)
         handler.send_header("Location", "/")
         self._set_session_cookie(handler, raw_token)
+        # Rotate the pre-auth CSRF token when the browser session changes.
+        self._set_csrf_cookie(handler, _new_csrf())
         handler.send_header("Content-Length", "0")
         handler.send_header("Cache-Control", "no-store")
         self._send_security_headers(handler)
@@ -966,6 +985,8 @@ class WeftWebApp:
 
     def handle_post_verify(self, handler: BaseHTTPRequestHandler) -> None:
         form = self._read_form(handler)
+        if not self._enforce_csrf(handler, form):
+            return
         token = form.get("token", "")
         if not token:
             self._send_html(handler, HTTPStatus.BAD_REQUEST,
@@ -1040,6 +1061,8 @@ class WeftWebApp:
 
     def handle_post_reset_request(self, handler: BaseHTTPRequestHandler) -> None:
         form = self._read_form(handler)
+        if not self._enforce_csrf(handler, form):
+            return
         email = (form.get("email") or "").strip()
         if email:
             # Public endpoint and a mail-bomb vector now that real delivery is
@@ -1083,6 +1106,8 @@ class WeftWebApp:
 
     def handle_post_reset(self, handler: BaseHTTPRequestHandler) -> None:
         form = self._read_form(handler)
+        if not self._enforce_csrf(handler, form):
+            return
         token = form.get("token", "")
         password = form.get("password", "")
         if len(password) < _MIN_PASSWORD_LEN or not token:

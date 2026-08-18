@@ -15,7 +15,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -69,7 +69,24 @@ class WebAppDriver:
         conn.close()
         return resp.status, body, out
 
-    def post(self, path, form: dict, extra_cookie=None):
+    def _csrf_for_post(self, path: str, form: dict) -> str:
+        page = path
+        if path in {"/verify", "/reset"}:
+            page = f"{path}?token={quote(str(form.get('token', '')), safe='')}"
+        status, body, _ = self.get(page)
+        if status != 200:
+            raise AssertionError(f"CSRF form page {page} returned {status}")
+        token = self.extract_csrf(body)
+        if not token:
+            raise AssertionError(f"CSRF form page {page} did not contain a token")
+        return token
+
+    def post(self, path, form: dict, extra_cookie=None, *, auto_csrf: bool = True):
+        form = dict(form)
+        if auto_csrf and "_csrf" not in form and path in {
+            "/signup", "/login", "/verify", "/reset-request", "/reset",
+        }:
+            form["_csrf"] = self._csrf_for_post(path, form)
         body = urlencode(form)
         headers = self._headers()
         if extra_cookie:
@@ -102,10 +119,10 @@ class WebAppDriver:
 
     def signup_verify_login(self, email, password):
         """Signup + verify + login; returns True if login succeeded and set a cookie."""
-        self.post("/signup", {"email": email, "password": password, "_csrf": "x"})
+        self.post("/signup", {"email": email, "password": password})
         body = self.last_outbox_body(email)
         vt = re.search(r"(fvt_[A-Za-z0-9_-]+)", body).group(1)
-        self.post("/verify", {"token": vt, "_csrf": "x"})
+        self.post("/verify", {"token": vt})
         status, _, _ = self.post("/login", {"email": email, "password": password})
         return status == 303 and "fss_session" in self.cookies
 
@@ -494,7 +511,7 @@ class TestNoSecretsInHtml(unittest.TestCase):
 
     def test_31_no_raw_token_in_redirect_location(self):
         # Trigger verify flow
-        self.d.post("/signup", {"email": "newverify@example.com", "password": "Password123!", "_csrf": "x"})
+        self.d.post("/signup", {"email": "newverify@example.com", "password": "Password123!"})
         ob = self.d.last_outbox_body("newverify@example.com")
         vt = re.search(r"(fvt_[A-Za-z0-9_-]+)", ob).group(1)
         # GET /verify?token=... is allowed (public page render)
