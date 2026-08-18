@@ -10,7 +10,7 @@ Measured locally on the current source/test stack (branch
 `codex/agent-key-room-recovery-2026-08-17`, commit `a7cacb8`):
 
 - Command: `python -B -m unittest discover -s tests -p "test_*.py"`
-- Result: **1164 tests discovered; 1163 passed; 1 skipped**
+- Result: **1170 tests discovered; 1169 passed; 1 skipped**
 - Duration: 462.966 seconds on the local Windows runner
 - Focused hosted-MCP/count suite: 34 tests passed locally
   (`tests.test_hosted_mcp` and `tests.test_site.TestCountSyncTests`)
