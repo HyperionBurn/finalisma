@@ -146,6 +146,7 @@ class StdioHttpBridge:
         self.origin = f"{self.scheme}://{parts.netloc}"
         self.token_env = token_env
         self.session_id: str | None = None
+        self._last_status: int | None = None
 
     def _token(self) -> str | None:
         return os.environ.get(self.token_env)
@@ -160,7 +161,7 @@ class StdioHttpBridge:
         return http.client.HTTPConnection(self.host, self.port,
                                           timeout=DEFAULT_TIMEOUT_SECONDS)
 
-    def exchange(self, request: dict[str, Any]) -> dict[str, Any] | None:
+    def _exchange_once(self, request: dict[str, Any]) -> dict[str, Any] | None:
         """Send one JSON-RPC message to the hosted endpoint and return the reply.
 
         Returns ``None`` for a notification acknowledgement (empty 202 body),
@@ -198,6 +199,7 @@ class StdioHttpBridge:
             finally:
                 conn.close()
         except (http.client.HTTPException, ConnectionError, TimeoutError, OSError) as exc:
+            self._last_status = None
             return _json_rpc_error(
                 request.get("id") if isinstance(request, dict) else None,
                 -32000,
@@ -205,6 +207,7 @@ class StdioHttpBridge:
                 f"({type(exc).__name__}: {exc})",
             )
 
+        self._last_status = status
         if status == 401:
             # A long-running agent has no human watching to notice a logout.
             # The message must say BOTH what happened AND how to recover, or the
@@ -261,6 +264,41 @@ class StdioHttpBridge:
                 -32603,
                 "the Weft hosted endpoint returned an unparseable response",
             )
+
+    def exchange(self, request: dict[str, Any]) -> dict[str, Any] | None:
+        """Exchange one message and recover once from a stale HTTP session.
+
+        Streamable HTTP servers may invalidate ``Mcp-Session-Id`` after a
+        restart. Retrying the original call without first initializing would
+        still fail, while blindly retrying a tool call could duplicate work.
+        Clear the stale ID, initialize exactly once, then retry the original
+        request once with the fresh ID.
+        """
+        had_session = self.session_id is not None
+        response = self._exchange_once(request)
+        if not had_session or self._last_status not in (400, 404):
+            return response
+
+        self.session_id = None
+        initialize = {
+            "jsonrpc": "2.0",
+            "id": "weft-stdio-reinitialize",
+            "method": "initialize",
+            "params": {"protocolVersion": "2025-11-25", "capabilities": {}},
+        }
+        initialized = self._exchange_once(initialize)
+        if (
+            not isinstance(initialized, dict)
+            or "error" in initialized
+            or self._last_status != 200
+            or self.session_id is None
+        ):
+            return _json_rpc_error(
+                request.get("id") if isinstance(request, dict) else None,
+                -32000,
+                "the Weft hosted MCP session was stale and could not be reinitialized; restart the client",
+            )
+        return self._exchange_once(request)
 
 
 def run_stdio_bridge(
