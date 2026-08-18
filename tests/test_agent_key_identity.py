@@ -34,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from weft_cloud.service import WeftCloudService, _CloudHTTPHandler
 from weft_cloud.storage import SqliteWalBackend
+from weft_cloud.rooms import RoomError
 
 
 def _post(base: str, path: str, body: dict, token: str | None = None) -> tuple[int, dict]:
@@ -357,6 +358,42 @@ class KeyIdentityRevocationTests(AgentKeyIdentityTestBase):
         for index in range(5):
             replacement = self._create_room(session, name=f"replacement-{index}")
             self.assertTrue(replacement["room_id"].startswith("room_"))
+
+    def test_revoked_key_cannot_finish_join_after_request_authentication(self) -> None:
+        acct = self._signup("revoke-during-join@example.com")
+        session = acct["session_token"]
+        joiner = self._mint_key(session, "joiner")
+        room = self._create_room(session, name="revoked-during-join")
+
+        # Capture the already-authenticated identity, then revoke the key
+        # before releasing the request into the room transaction. This models
+        # the HTTP interleaving that a pre-handler auth check alone misses.
+        ctx = self.service.resolve_identity(joiner["agent_key"])
+        self.assertEqual(ctx.agent_id, joiner["key_id"])
+        status, revoked = _post(
+            self.base,
+            "/v1/agent-keys/revoke",
+            {"key_id": joiner["key_id"]},
+            token=session,
+        )
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertIs(revoked["revoked"], True)
+
+        with self.assertRaises(RoomError) as ctx_error:
+            self.service.rooms.join_room(
+                ctx.tenant_id,
+                room["room_id"],
+                room["link_token"],
+                ctx.agent_id,
+                True,
+                joiner["agent_key"],
+            )
+        self.assertEqual(ctx_error.exception.code, "actor_auth_invalid")
+        self.assertEqual(ctx_error.exception.status, HTTPStatus.UNAUTHORIZED)
+
+        status, info = self._room_info(session, room["room_id"])
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertEqual(info["member_count"], 1)
 
 
 class KeyIdentityRegressionTests(AgentKeyIdentityTestBase):
