@@ -22,6 +22,16 @@ test('quickstart states the hosted/self-hosted tool boundary and bridge prerequi
 
   const example = JSON.parse(read('site/examples/mcp.json'));
   assert.equal(example.mcpServers.weft.env.PYTHONUTF8, '1');
+  assert.deepEqual(
+    example.mcpServers.weft.args.slice(0, 3),
+    ['-B', '-m', 'weft_mcp'],
+    'the downloadable config must use the supported module entry point'
+  );
+  assert.equal(
+    example.mcpServers.weft.args.some((arg) => /ABSOLUTE|weft-mcp\.py/.test(arg)),
+    false,
+    'the downloadable config must not contain a machine-specific script path'
+  );
   assert.match(read('site/index.html'), /PYTHONUTF8/);
 
   const connectSource = read('web/src/components/ConnectTiers.astro');
