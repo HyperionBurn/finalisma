@@ -14,7 +14,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -80,7 +80,24 @@ class WebAppDriver:
         conn.close()
         return resp.status, body, headers
 
-    def post(self, path, form: dict):
+    def _csrf_for_post(self, path: str, form: dict) -> str:
+        page = path
+        if path in {"/verify", "/reset"}:
+            page = f"{path}?token={quote(str(form.get('token', '')), safe='')}"
+        status, body, _ = self.get(page)
+        if status != 200:
+            raise AssertionError(f"CSRF form page {page} returned {status}")
+        token = self.extract_csrf(body)
+        if not token:
+            raise AssertionError(f"CSRF form page {page} did not contain a token")
+        return token
+
+    def post(self, path, form: dict, *, auto_csrf: bool = True):
+        form = dict(form)
+        if auto_csrf and "_csrf" not in form and path in {
+            "/signup", "/login", "/verify", "/reset-request", "/reset",
+        }:
+            form["_csrf"] = self._csrf_for_post(path, form)
         body = urlencode(form)
         conn = http.client.HTTPConnection(self.host, self.port, timeout=10)
         conn.request(
@@ -155,7 +172,7 @@ class TestSignup(unittest.TestCase):
         email = f"u{time.time_ns()}@example.com"
         password = "correct-horse-battery-staple"
         status, body, headers = self.driver.post(
-            "/signup", {"email": email, "password": password, "_csrf": "irrelevant-for-pub-route"}
+            "/signup", {"email": email, "password": password}
         )
         self.assertEqual(status, 303)
         self.assertTrue(headers["Location"].startswith("/login?verify_sent=1"))
@@ -165,10 +182,20 @@ class TestSignup(unittest.TestCase):
         m = re.search(r"(fvt_[A-Za-z0-9_\-]+)", outbox_body)
         self.assertIsNotNone(m, "verification fvt_ token must appear in outbox body")
 
+    def test_signup_requires_csrf(self):
+        email = f"csrf-signup{time.time_ns()}@example.com"
+        status, _, _ = self.driver.post(
+            "/signup",
+            {"email": email, "password": "correct-horse-battery-staple"},
+            auto_csrf=False,
+        )
+        self.assertEqual(status, 403)
+        self.assertIsNone(self.driver.last_outbox_body(email))
+
     def test_signup_short_password_rejected(self):
         email = f"short{time.time_ns()}@example.com"
         status, body, _ = self.driver.post(
-            "/signup", {"email": email, "password": "abc", "_csrf": "x"}
+            "/signup", {"email": email, "password": "abc"}
         )
         self.assertEqual(status, 400)
         # No account created → outbox empty for this email.
@@ -178,11 +205,11 @@ class TestSignup(unittest.TestCase):
         email = f"dup{time.time_ns()}@example.com"
         password = "first-password-ok"
         status1, _, _ = self.driver.post(
-            "/signup", {"email": email, "password": password, "_csrf": "x"}
+            "/signup", {"email": email, "password": password}
         )
         self.assertEqual(status1, 303)
         status2, body2, _ = self.driver.post(
-            "/signup", {"email": email, "password": "second-password-ok-too", "_csrf": "x"}
+            "/signup", {"email": email, "password": "second-password-ok-too"}
         )
         self.assertEqual(status2, 400)
 
@@ -205,13 +232,26 @@ class TestLogin(unittest.TestCase):
         self.assertIn('name="password"', body)
         self.assertIsNotNone(self.driver.extract_csrf(body))
 
+    def test_login_requires_csrf(self):
+        status, _, _ = self.driver.post(
+            "/login",
+            {"email": self.email, "password": self.password},
+            auto_csrf=False,
+        )
+        self.assertEqual(status, 403)
+        self.assertNotIn("fss_session", self.driver.cookies)
+
     def test_login_correct_sets_session_cookie(self):
+        _, body, _ = self.driver.get("/login")
+        csrf_before = self.driver.cookies.get("fss_csrf")
+        csrf = self.driver.extract_csrf(body)
         status, _, headers = self.driver.post(
-            "/login", {"email": self.email, "password": self.password}
+            "/login", {"email": self.email, "password": self.password, "_csrf": csrf}
         )
         self.assertEqual(status, 303)
         self.assertEqual(headers["Location"], "/")
         self.assertIn("fss_session", self.driver.cookies)
+        self.assertNotEqual(csrf_before, self.driver.cookies.get("fss_csrf"))
 
     def test_login_wrong_password_renders_error_no_cookie(self):
         status, body, _ = self.driver.post(
@@ -295,7 +335,7 @@ class TestVerify(unittest.TestCase):
         self.email = f"verify{time.time_ns()}@example.com"
         self.password = "verify-password-ok"
         # Fresh signup writes the verification email to the outbox.
-        self.driver.post("/signup", {"email": self.email, "password": self.password, "_csrf": "x"})
+        self.driver.post("/signup", {"email": self.email, "password": self.password})
         outbox_body = self.driver.last_outbox_body(self.email)
         self.assertIsNotNone(outbox_body, "signup must write a verification email")
         m = re.search(r"(fvt_[A-Za-z0-9_\-]+)", outbox_body)
@@ -303,6 +343,12 @@ class TestVerify(unittest.TestCase):
 
     def tearDown(self):
         self.driver.close()
+
+    def test_verify_requires_csrf(self):
+        status, _, _ = self.driver.post(
+            "/verify", {"token": self.raw_token}, auto_csrf=False
+        )
+        self.assertEqual(status, 403)
 
     def test_verify_post_valid_token_redirects(self):
         status, _, headers = self.driver.post("/verify", {"token": self.raw_token})
@@ -392,6 +438,13 @@ class TestResetPassword(unittest.TestCase):
         m = re.search(r"(frt_[A-Za-z0-9_\-]+)", outbox_body)
         self.assertIsNotNone(m, "reset token must appear in outbox body")
 
+    def test_reset_request_requires_csrf(self):
+        status, _, _ = self.driver.post(
+            "/reset-request", {"email": self.email}, auto_csrf=False
+        )
+        self.assertEqual(status, 403)
+        self.assertIsNone(self.driver.last_outbox_body(self.email))
+
     def test_reset_request_always_redirects_no_enumeration(self):
         status_known, _, headers_known = self.driver.post(
             "/reset-request", {"email": self.email}
@@ -437,11 +490,29 @@ class TestResetPassword(unittest.TestCase):
         self.assertEqual(s_new, 303)
         self.assertEqual(h_new["Location"], "/")
 
-        # Token reuse rejected.
+        # Token reuse rejected. Fetch a fresh CSRF token because the intervening
+        # login form refreshes the double-submit cookie.
+        _, reuse_form, _ = self.driver.get(f"/reset?token={raw_token}")
+        reuse_csrf = self.driver.extract_csrf(reuse_form)
         s_reuse, _, _ = self.driver.post(
-            "/reset", {"token": raw_token, "password": "yet-another-pass-123", "_csrf": csrf}
+            "/reset", {
+                "token": raw_token,
+                "password": "yet-another-pass-123",
+                "_csrf": reuse_csrf,
+            }
         )
         self.assertEqual(s_reuse, 400)
+
+    def test_reset_requires_csrf(self):
+        self.driver.post("/reset-request", {"email": self.email})
+        outbox_body = self.driver.last_outbox_body(self.email)
+        raw_token = re.search(r"(frt_[A-Za-z0-9_\-]+)", outbox_body).group(1)
+        status, _, _ = self.driver.post(
+            "/reset",
+            {"token": raw_token, "password": "new-password-ok-123"},
+            auto_csrf=False,
+        )
+        self.assertEqual(status, 403)
 
     def test_reset_kills_sessions(self):
         # Log in, hold the session cookie.
@@ -552,7 +623,7 @@ class TestEmailMessaging(unittest.TestCase):
     def _signup(self, driver: WebAppDriver) -> str:
         email = f"msg{time.time_ns()}@example.com"
         status, _, headers = driver.post(
-            "/signup", {"email": email, "password": "correct-horse-battery-staple", "_csrf": "x"}
+            "/signup", {"email": email, "password": "correct-horse-battery-staple"}
         )
         self.assertEqual(status, 303)
         self.assertTrue(headers["Location"].startswith("/login?verify_sent=1"))
@@ -741,7 +812,7 @@ class TestNoSecretsInHtml(unittest.TestCase):
     def test_signup_page_does_not_contain_submitted_password(self):
         _, body, _ = self.driver.post(
             "/signup",
-            {"email": self.email, "password": self.password, "_csrf": "x"},
+            {"email": self.email, "password": self.password},
         )
         self.assertNotIn(self.password, body)
 

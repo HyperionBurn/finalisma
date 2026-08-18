@@ -17,7 +17,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -83,7 +83,24 @@ class WebAppDriver:
         conn.close()
         return resp.status, body, headers
 
-    def post(self, path, form: dict):
+    def _csrf_for_post(self, path: str, form: dict) -> str:
+        page = path
+        if path in {"/verify", "/reset"}:
+            page = f"{path}?token={quote(str(form.get('token', '')), safe='')}"
+        status, body, _ = self.get(page)
+        if status != 200:
+            raise AssertionError(f"CSRF form page {page} returned {status}")
+        token = self.extract_csrf(body)
+        if not token:
+            raise AssertionError(f"CSRF form page {page} did not contain a token")
+        return token
+
+    def post(self, path, form: dict, *, auto_csrf: bool = True):
+        form = dict(form)
+        if auto_csrf and "_csrf" not in form and path in {
+            "/signup", "/login", "/verify", "/reset-request", "/reset",
+        }:
+            form["_csrf"] = self._csrf_for_post(path, form)
         body = urlencode(form)
         conn = http.client.HTTPConnection(self.host, self.port, timeout=10)
         conn.request(
@@ -164,10 +181,10 @@ class WebAppDriver:
         Returns (status_of_login, cookie_set). The signup POST includes a
         _csrf key which the public signup route ignores (pre-auth).
         """
-        self.post("/signup", {"email": email, "password": password, "_csrf": "x"})
+        self.post("/signup", {"email": email, "password": password})
         body = self.last_outbox_body(email)
         token = re.search(r"(fvt_[A-Za-z0-9_-]+)", body).group(1)
-        self.post("/verify", {"token": token, "_csrf": "x"})
+        self.post("/verify", {"token": token})
         status, _, _ = self.post("/login", {"email": email, "password": password})
         return status, "fss_session" in self.cookies
 
