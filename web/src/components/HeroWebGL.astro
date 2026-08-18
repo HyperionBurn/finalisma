@@ -477,6 +477,10 @@ const beatCaptions = [
 
     function appendEvent(kind, agent, msg, seq) {
       if (!eventsList) return;
+      if (fallbackList) {
+        fallbackList.hidden = true;
+        fallbackList.setAttribute('aria-hidden', 'true');
+      }
       const li = document.createElement('li');
       li.className = 'evt evt--' + kind;
       li.setAttribute('data-evt-kind', kind);
@@ -488,13 +492,6 @@ const beatCaptions = [
       eventsList.appendChild(li);
       // Trigger animation
       requestAnimationFrame(() => li.classList.add('in'));
-
-      // Mirror to fallback
-      if (fallbackList) {
-        const fbLi = li.cloneNode(true);
-        fbLi.classList.add('in');
-        fallbackList.appendChild(fbLi);
-      }
 
       // Limit visible rows
       while (eventsList.children.length > 12) {

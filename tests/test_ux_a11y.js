@@ -5,6 +5,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
+const read = (file) => fs.readFileSync(path.join(ROOT, file), 'utf8');
 
 function headingLevels(html) {
   return [...html.matchAll(/<h([1-6])\b/gi)].map((match) => Number(match[1]));
@@ -75,4 +76,26 @@ test('proof-engine failure announces that static evidence remains available', ()
     assert.equal(result.attributes.get('role'), 'status');
     assert.equal(result.attributes.get('aria-live'), 'polite');
   }
+});
+
+test('live event log hides the no-JS fallback instead of duplicating events', () => {
+  const source = read('web/src/components/HeroWebGL.astro');
+  assert.match(source, /fallbackList\.hidden\s*=\s*true/);
+  assert.match(source, /fallbackList\.setAttribute\(['"]aria-hidden['"],\s*['"]true['"]\)/);
+  assert.doesNotMatch(source, /fallbackList\.appendChild/);
+});
+
+test('skip targets are keyboard-focusable and connection tabs are named', () => {
+  for (const file of ['site/docs/index.html', 'site/docs/compatibility.html', 'site/404.html']) {
+    assert.match(
+      read(file),
+      /<main id="main"[^>]*tabindex="-1"/,
+      `${file} main target must accept focus after skip-link activation`
+    );
+  }
+  assert.match(
+    read('site/index.html'),
+    /role="tablist"[^>]*aria-labelledby="connect-title"/,
+    'the connection tablist must expose its section heading as its accessible name'
+  );
 });

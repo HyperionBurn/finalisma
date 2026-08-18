@@ -90,3 +90,9 @@ test('branded 404 exposes the global skip link target', () => {
   assert.match(html, /<a class="skip-link" href="#main">Skip to content<\/a>/);
   assert.match(html, /<main id="main"[^>]*aria-label="Page not found"/);
 });
+
+test('compatibility metadata matches the nine documented paths shown in the page', () => {
+  const html = read('site/docs/compatibility.html');
+  assert.match(html, /nine documented MCP host paths/);
+  assert.doesNotMatch(html, /eight documented MCP host paths/);
+});
