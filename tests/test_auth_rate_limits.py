@@ -35,12 +35,17 @@ from weft_cloud.identity import accounts as identity_accounts
 
 # Test-tuned limits. The email tier for signin is lowered so "triggers after
 # N attempts" and "throttled-known == throttled-unknown" are exercised without
-# tripping the (generous) per-IP tier; the signin/reset windows are shortened
-# so "resets after its window" does not require a 15-minute sleep.
+# tripping the (generous) per-IP tier. Keep the normal assertion window long
+# enough for a loaded CI runner to complete the real HTTP requests; only the
+# expiry-specific test below uses a short window.
 TEST_AUTH_LIMITS = {
     "signup": {"ip": 20, "email": 5, "window_seconds": 900},
-    "signin": {"ip": 40, "email": 5, "window_seconds": 2},
+    "signin": {"ip": 40, "email": 5, "window_seconds": 900},
     "reset_request": {"ip": 10, "email": 3, "window_seconds": 2},
+}
+SHORT_SIGNIN_WINDOW_AUTH_LIMITS = {
+    **TEST_AUTH_LIMITS,
+    "signin": {**TEST_AUTH_LIMITS["signin"], "window_seconds": 2},
 }
 
 KNOWN_EMAIL = "known@example.com"
@@ -169,6 +174,9 @@ class TestSigninRateLimit(AuthRateLimitTestBase):
         self.assertIsNotNone(known_headers.get("Retry-After"))
 
     def test_limit_resets_after_window(self):
+        self.harness.close()
+        self.harness = _ServiceHarness(
+            auth_rate_limits=SHORT_SIGNIN_WINDOW_AUTH_LIMITS)
         self._signup_known()
         for _ in range(5):
             self.harness.post("/v1/auth/signin",

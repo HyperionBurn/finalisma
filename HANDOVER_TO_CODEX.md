@@ -21,7 +21,7 @@ HEAD `a572db3`; each has `file:line` evidence in the tree.
   `1e0aa5a` (REST `/v1` parity for receipts + remove_member, 400s on bad cursors),
   `d344ebe` (truthful agent-key signout, admin cannot mint owner), `a572db3` (film brief).
 - **Test count:** the latest local evidence is recorded in
-  `docs/RELEASE_EVIDENCE.md` (1162 discovered, 1161 passed, 1 skipped,
+  `docs/RELEASE_EVIDENCE.md` (1164 discovered, 1163 passed, 1 skipped,
   measured 2026-08-17). The published count is guarded by
   `tests/test_site.py::TestCountSyncTests`; hosted deployment and merge proof
   are separate claims. Every "721 / 716 / 894" number in this file is historical.
