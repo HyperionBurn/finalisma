@@ -411,7 +411,7 @@ class RedeployBackupSafetyTests(unittest.TestCase):
         )
         self.assertNotIn("WEFT_WEB_PUBLIC_ORIGIN", cloud_block)
         web_start = compose.index("  weft-web:")
-        web_end = compose.index("\n  weft-outbox:", web_start)
+        web_end = compose.index("\n  # Hosted room-delivery worker", web_start)
         web_block = compose[web_start:web_end]
         self.assertIn(
             'WEFT_PUBLIC_ORIGIN: "${WEFT_PUBLIC_ORIGIN:-http://127.0.0.1:18788}"',
@@ -421,6 +421,29 @@ class RedeployBackupSafetyTests(unittest.TestCase):
             'WEFT_WEB_PUBLIC_ORIGIN: "${WEFT_WEB_PUBLIC_ORIGIN:-${WEFT_PUBLIC_ORIGIN:-http://127.0.0.1:18789}}"',
             web_block,
         )
+        delivery_start = compose.index("  weft-delivery:")
+        delivery_end = compose.index("\n  # Opt-in SMTP delivery worker", delivery_start)
+        delivery_block = compose[delivery_start:delivery_end]
+        self.assertIn('profiles: ["cloud-delivery"]', delivery_block)
+        self.assertIn(
+            'command: ["python", "-B", "-m", "weft_cloud.delivery_worker"]',
+            delivery_block,
+        )
+        self.assertIn('WEFT_DB_PATH: "/data/weft-cloud.db"', delivery_block)
+        self.assertIn(
+            'WEFT_DELIVERY_SINK: "/data/delivery.jsonl"',
+            delivery_block,
+        )
+        self.assertIn(
+            'WEFT_DELIVERY_DRAIN_INTERVAL: "${WEFT_DELIVERY_DRAIN_INTERVAL:-5}"',
+            delivery_block,
+        )
+        self.assertIn("weft-cloud-data:/data", delivery_block)
+        self.assertNotIn("weft-web:", delivery_block)
+        self.assertNotIn("ports:", delivery_block)
+        self.assertIn("condition: service_healthy", delivery_block)
+        self.assertIn("restart: on-failure", delivery_block)
+
         start = compose.index("  weft-outbox:")
         block = compose[start:compose.index("\nvolumes:", start)]
         self.assertIn('profiles: ["delivery"]', block)

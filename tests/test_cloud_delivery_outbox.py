@@ -1,7 +1,5 @@
 """Hosted delivery outbox lifecycle — the cloud_outbox completion state machine.
 
-RED deliverable: ``cloud_outbox`` today supports only enqueue and
-``queued -> claimed``; a claimed row is stuck forever if its worker dies.
 This pins the completion contract that mirrors the existing identity email
 outbox worker (``identity/outbox_worker.py``):
 
@@ -35,7 +33,6 @@ from weft_cloud.migrations import apply_migrations
 from weft_cloud.lease import LeaseHeartbeat
 from weft_cloud.storage import SqliteWalBackend
 
-# RED gate: the module does not exist yet.
 from weft_cloud import delivery_worker  # noqa: E402
 
 
@@ -360,16 +357,55 @@ class DeliveryWorkerConfigTests(unittest.TestCase):
             )
         self.assertIn("WEFT_DELIVERY_DRAIN_INTERVAL", str(ctx.exception))
 
-    def test_worker_without_deliverer_config_exits_cleanly(self) -> None:
-        """No sink configured -> the worker exits cleanly and drains nothing."""
+    def test_worker_without_sink_disables_and_configured_sink_drains_once(self) -> None:
+        """The opt-in worker is inert without a sink and idempotent with one."""
         tmp = tempfile.TemporaryDirectory(prefix="cloud-worker-")
         db_path = str(Path(tmp.name) / "cloud.db")
+        sink_path = str(Path(tmp.name) / "delivery.jsonl")
         try:
             rc = delivery_worker.main(
                 argv=["--once", db_path],
                 environ={"WEFT_DELIVERY_SINK": ""},
             )
             self.assertEqual(rc, 0)
+
+            backend = SqliteWalBackend(db_path)
+            backend.initialize()
+            apply_migrations(backend)
+            backend.create_tenant("tenant_worker", "Worker Tenant")
+            entry_id = backend.enqueue_outbox(
+                "tenant_worker", "env-worker", "agent-dest", '{"seq":1}'
+            )
+            backend.close()
+
+            rc = delivery_worker.main(
+                argv=["--once", db_path],
+                environ={"WEFT_DELIVERY_SINK": sink_path},
+            )
+            self.assertEqual(rc, 0)
+            self.assertEqual(
+                len(Path(sink_path).read_text(encoding="utf-8").splitlines()),
+                1,
+            )
+
+            backend = SqliteWalBackend(db_path)
+            backend.initialize()
+            with backend.transaction() as tx:
+                row = tx.execute(
+                    "SELECT status FROM cloud_outbox WHERE entry_id = ?", (entry_id,)
+                ).fetchone()
+            backend.close()
+            self.assertEqual(row["status"], "delivered")
+
+            rc = delivery_worker.main(
+                argv=["--once", db_path],
+                environ={"WEFT_DELIVERY_SINK": sink_path},
+            )
+            self.assertEqual(rc, 0)
+            self.assertEqual(
+                len(Path(sink_path).read_text(encoding="utf-8").splitlines()),
+                1,
+            )
         finally:
             tmp.cleanup()
 
