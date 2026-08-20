@@ -20,6 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from weft_mcp.core import WeftError, WeftStore
+from weft_mcp.bridge import MAX_SAFE_INTEGER
 from weft_mcp.server import WeftDispatcher, TOOLS
 
 
@@ -140,7 +141,7 @@ class BridgeIntegrationTests(unittest.TestCase):
             # Empty outbox path: cursor should still be present and >= 0.
             self.assertGreaterEqual(cursor_after_first, 0)
 
-    def test_poll_rejects_malformed_cursor_as_invalid_argument(self) -> None:
+    def test_poll_rejects_malformed_cursor_as_invalid_cursor(self) -> None:
         self.dispatcher._polling.enqueue(
             team_id=self.team_id,
             agent_id=self.agent_id,
@@ -157,7 +158,39 @@ class BridgeIntegrationTests(unittest.TestCase):
                         actor_token=self.actor_token,
                         cursor=cursor,
                     )
-                self.assertEqual(ctx.exception.code, "invalid_argument")
+                self.assertEqual(ctx.exception.code, "invalid_cursor")
+
+    def test_poll_rejects_future_and_unsafe_cursors_as_invalid_cursor(self) -> None:
+        event = self.dispatcher._polling.enqueue(
+            team_id=self.team_id,
+            agent_id=self.agent_id,
+            event={"kind": "test.cursor-bound", "payload": {}},
+            actor_token=self.actor_token,
+        )
+        self._call_bridge(
+            "bridge_ack",
+            team_id=self.team_id,
+            agent_id=self.agent_id,
+            actor_token=self.actor_token,
+            event_ids=[event["event_id"]],
+        )
+        for cursor in (2, MAX_SAFE_INTEGER + 1, 2**63):
+            with self.subTest(cursor=cursor):
+                with self.assertRaises(WeftError) as ctx:
+                    self._call_bridge(
+                        "bridge_poll",
+                        team_id=self.team_id,
+                        agent_id=self.agent_id,
+                        actor_token=self.actor_token,
+                        cursor=cursor,
+                    )
+                self.assertEqual(ctx.exception.code, "invalid_cursor")
+
+    def test_bridge_poll_schema_declares_safe_cursor_bounds(self) -> None:
+        tool = next(tool for tool in TOOLS if tool["name"] == "bridge_poll")
+        cursor_schema = tool["inputSchema"]["properties"]["cursor"]
+        self.assertEqual(cursor_schema["minimum"], 0)
+        self.assertEqual(cursor_schema["maximum"], MAX_SAFE_INTEGER)
 
     def test_ack_rejects_non_list_without_mutating_pending_event(self) -> None:
         self.dispatcher._polling.enqueue(

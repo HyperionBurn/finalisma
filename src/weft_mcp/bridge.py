@@ -57,6 +57,27 @@ class BridgeSignatureError(WeftError):
 # Helpers
 # ---------------------------------------------------------------------------
 
+MAX_SAFE_INTEGER = 2**53 - 1
+
+
+def _validate_bridge_cursor(cursor: Any, *, head: int | None = None) -> int:
+    if isinstance(cursor, bool) or not isinstance(cursor, int):
+        raise WeftError("invalid_cursor", "cursor must be a non-negative integer")
+    if cursor < 0:
+        raise WeftError("invalid_cursor", "cursor cannot be negative")
+    if cursor > MAX_SAFE_INTEGER:
+        raise WeftError(
+            "invalid_cursor",
+            f"cursor cannot exceed the safe integer limit {MAX_SAFE_INTEGER}",
+        )
+    if head is not None and cursor > head:
+        raise WeftError(
+            "invalid_cursor",
+            f"cursor {cursor} is beyond the current bridge head {head}",
+        )
+    return cursor
+
+
 def _now_epoch() -> float:
     return time.time()
 
@@ -497,10 +518,15 @@ class PollingBridge:
         with self.store._transaction() as conn:
             # Assign next sequence monotonically per (team, agent)
             row = conn.execute(
-                "SELECT COALESCE(MAX(seq), 0) + 1 AS next_seq FROM bridge_outbox WHERE team_id = ? AND agent_id = ?",
+                "SELECT COALESCE(MAX(seq), 0) AS max_seq FROM bridge_outbox WHERE team_id = ? AND agent_id = ?",
                 (team_id, agent_id),
             ).fetchone()
-            next_seq = row["next_seq"]
+            next_seq = int(row["max_seq"] or 0) + 1
+            if next_seq > MAX_SAFE_INTEGER:
+                raise WeftError(
+                    "invalid_cursor",
+                    f"bridge sequence limit {MAX_SAFE_INTEGER} reached",
+                )
             conn.execute(
                 """
                 INSERT INTO bridge_outbox(event_id, team_id, agent_id, event_json, seq, created_at)
@@ -524,6 +550,17 @@ class PollingBridge:
         _authorize_actor(self.store, team_id, agent_id, actor_token)
 
         with self.store._read() as conn:
+            head = int(conn.execute(
+                "SELECT COALESCE(MAX(seq), 0) AS max_seq "
+                "FROM bridge_outbox WHERE team_id = ? AND agent_id = ?",
+                (team_id, agent_id),
+            ).fetchone()["max_seq"] or 0)
+            if head > MAX_SAFE_INTEGER:
+                raise WeftError(
+                    "invalid_cursor",
+                    f"bridge sequence head exceeds the safe integer limit {MAX_SAFE_INTEGER}",
+                )
+            cursor = _validate_bridge_cursor(cursor, head=head)
             first_unacked = conn.execute(
                 """
                 SELECT MIN(seq) AS first_unacked
@@ -543,10 +580,8 @@ class PollingBridge:
             # A caller may reconnect with the cursor returned by a previous
             # page before acknowledging every event in that page. Never let
             # that optimistic cursor skip an older unacked event.
-            effective_cursor = max(
-                cursor,
-                int(stored_cursor["last_ack_seq"]) if stored_cursor else 0,
-            )
+            stored_value = int(stored_cursor["last_ack_seq"]) if stored_cursor else 0
+            effective_cursor = max(cursor, min(stored_value, head))
             if first_unacked is not None and first_unacked <= effective_cursor:
                 effective_cursor = int(first_unacked) - 1
             rows = conn.execute(
