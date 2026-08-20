@@ -5,13 +5,13 @@
 #
 #     docker compose up -d --build
 #
-# THREE PROCESSES, ONE STORE: the agent-facing API (weft-cloud), the
-# browser front-end (weft-web), and the hosted delivery worker (weft-delivery)
-# are separate containers from the same image, and ALL open the SAME SQLite
-# database file (/data/weft-cloud.db)
-# in WAL mode. SQLite-WAL supports many concurrent readers and exactly ONE
-# writer, so the single-writer constraint now spans all three services: each
-# service must run as a single instance, all three must share one persistent
+# TWO CORE PROCESSES, ONE STORE: the agent-facing API (weft-cloud) and the
+# browser front-end (weft-web) are separate containers from the same image,
+# and BOTH open the SAME SQLite database file (/data/weft-cloud.db). The
+# optional hosted delivery worker uses the same store when its profile is
+# enabled. In WAL mode, SQLite supports many concurrent readers and exactly ONE
+# writer, so the single-writer constraint spans every enabled service: each
+# service must run as a single instance, and every enabled service must share a
 # disk, and none may be scaled behind a load balancer. See docs/DEPLOY.md.
 #
 # The marketing site (site/, web/) is deliberately NOT part of this stack: it is
@@ -75,11 +75,12 @@ services:
   # future provider adapter can replace the Deliverer without changing the
   # room transaction or worker lifecycle.
   weft-delivery:
+    profiles: ["cloud-delivery"]
     image: weft-cloud:local
     command: ["python", "-B", "-m", "weft_cloud.delivery_worker"]
     environment:
       WEFT_DB_PATH: "/data/weft-cloud.db"
-      WEFT_DELIVERY_SINK: "${WEFT_DELIVERY_SINK:-/data/delivery.jsonl}"
+      WEFT_DELIVERY_SINK: "/data/delivery.jsonl"
       WEFT_DELIVERY_DRAIN_INTERVAL: "${WEFT_DELIVERY_DRAIN_INTERVAL:-5}"
       WEFT_DELIVERY_DRAIN_BATCH: "${WEFT_DELIVERY_DRAIN_BATCH:-50}"
       WEFT_DELIVERY_DRAIN_MAX_ATTEMPTS: "${WEFT_DELIVERY_DRAIN_MAX_ATTEMPTS:-5}"
@@ -90,9 +91,7 @@ services:
     depends_on:
       weft-cloud:
         condition: service_healthy
-      weft-web:
-        condition: service_healthy
-    restart: unless-stopped
+    restart: on-failure
 
   # Opt-in SMTP delivery worker. It shares the exact database volume with the
   # API/web processes and is not started by the default local stack. Enable it

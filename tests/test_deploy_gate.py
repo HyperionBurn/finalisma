@@ -424,13 +424,14 @@ class RedeployBackupSafetyTests(unittest.TestCase):
         delivery_start = compose.index("  weft-delivery:")
         delivery_end = compose.index("\n  # Opt-in SMTP delivery worker", delivery_start)
         delivery_block = compose[delivery_start:delivery_end]
+        self.assertIn('profiles: ["cloud-delivery"]', delivery_block)
         self.assertIn(
             'command: ["python", "-B", "-m", "weft_cloud.delivery_worker"]',
             delivery_block,
         )
         self.assertIn('WEFT_DB_PATH: "/data/weft-cloud.db"', delivery_block)
         self.assertIn(
-            'WEFT_DELIVERY_SINK: "${WEFT_DELIVERY_SINK:-/data/delivery.jsonl}"',
+            'WEFT_DELIVERY_SINK: "/data/delivery.jsonl"',
             delivery_block,
         )
         self.assertIn(
@@ -438,8 +439,10 @@ class RedeployBackupSafetyTests(unittest.TestCase):
             delivery_block,
         )
         self.assertIn("weft-cloud-data:/data", delivery_block)
+        self.assertNotIn("weft-web:", delivery_block)
+        self.assertNotIn("ports:", delivery_block)
         self.assertIn("condition: service_healthy", delivery_block)
-        self.assertIn("restart: unless-stopped", delivery_block)
+        self.assertIn("restart: on-failure", delivery_block)
 
         start = compose.index("  weft-outbox:")
         block = compose[start:compose.index("\nvolumes:", start)]
