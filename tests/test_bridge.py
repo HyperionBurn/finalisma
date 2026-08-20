@@ -30,6 +30,7 @@ from weft_mcp.bridge import (
     PollingBridge,
     ClipboardBridge,
     HttpBridgeClient,
+    MAX_SAFE_INTEGER,
     BridgeAuthError,
     BridgeSignatureError,
     _now_epoch,
@@ -469,6 +470,73 @@ class PollingBridgeTests(unittest.TestCase):
         self.assertEqual(duplicate_ack["acked"], [next_event["event_id"]])
         self.assertEqual(duplicate_ack["acked_count"], 1)
         self.assertEqual(duplicate_ack["cursor"], 2)
+
+    def test_future_cursor_is_rejected_after_all_events_are_acknowledged(self):
+        event = self.bridge.enqueue(
+            team_id="team-1",
+            agent_id="agent-1",
+            event={"kind": "test.future", "payload": {}},
+            actor_token=self.actor_token,
+        )
+        self.bridge.ack(
+            team_id="team-1",
+            agent_id="agent-1",
+            event_ids=[event["event_id"]],
+            actor_token=self.actor_token,
+        )
+        with self.assertRaises(WeftError) as ctx:
+            self.bridge.get_pending(
+                team_id="team-1",
+                agent_id="agent-1",
+                cursor=2,
+                actor_token=self.actor_token,
+            )
+        self.assertEqual(ctx.exception.code, "invalid_cursor")
+
+    def test_cursor_above_safe_integer_limit_is_rejected_before_sqlite(self):
+        for cursor in (MAX_SAFE_INTEGER + 1, 2**63):
+            with self.subTest(cursor=cursor):
+                with self.assertRaises(WeftError) as ctx:
+                    self.bridge.get_pending(
+                        team_id="team-1",
+                        agent_id="agent-1",
+                        cursor=cursor,
+                        actor_token=self.actor_token,
+                    )
+                self.assertEqual(ctx.exception.code, "invalid_cursor")
+
+    def test_enqueue_stops_at_safe_integer_sequence_limit(self):
+        with self.store._transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO bridge_outbox(event_id, team_id, agent_id, event_json, seq, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "bo_safe_limit_seed",
+                    "team-1",
+                    "agent-1",
+                    json.dumps({"kind": "seed"}),
+                    MAX_SAFE_INTEGER - 1,
+                    "2026-08-20T00:00:00+00:00",
+                ),
+            )
+
+        at_limit = self.bridge.enqueue(
+            team_id="team-1",
+            agent_id="agent-1",
+            event={"kind": "test.safe-limit", "payload": {}},
+            actor_token=self.actor_token,
+        )
+        self.assertEqual(at_limit["seq"], MAX_SAFE_INTEGER)
+        with self.assertRaises(WeftError) as ctx:
+            self.bridge.enqueue(
+                team_id="team-1",
+                agent_id="agent-1",
+                event={"kind": "test.beyond-safe-limit", "payload": {}},
+                actor_token=self.actor_token,
+            )
+        self.assertEqual(ctx.exception.code, "invalid_cursor")
 
     def test_unacked_events_replay_until_acknowledged(self):
         self.bridge.enqueue(team_id="team-1", agent_id="agent-1", event={"kind": "test.1", "payload": {}}, actor_token=self.actor_token)

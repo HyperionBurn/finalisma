@@ -45,6 +45,11 @@ delivered events.
 - **Cursor checkpoint**: acknowledgements advance the per-agent cursor only
   through the highest contiguous acknowledged sequence, so an out-of-order ack
   never skips a lower unacknowledged event on reconnect.
+- **Cursor bounds**: a cursor is the last sequence number, so the current
+  outbox head is a valid empty-tail cursor. A cursor beyond that head, a
+  negative cursor, or a value above the JavaScript-safe ceiling
+  `2**53 - 1` is rejected with `invalid_cursor`. The bridge refuses to allocate
+  a sequence beyond that ceiling.
 - **Restart recovery**: the cursor persists in SQLite. A reconnect with the
   default cursor resumes from that checkpoint while still replaying any older
   unacknowledged event.

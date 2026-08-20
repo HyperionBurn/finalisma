@@ -32,7 +32,7 @@ from . import roster as _roster
 from . import outbox as _outbox
 from . import metrics_activation as _metrics_activation
 from .room import RoomStore, RoomError
-from .bridge import WebhookBridge, PollingBridge, ClipboardBridge
+from .bridge import MAX_SAFE_INTEGER, WebhookBridge, PollingBridge, ClipboardBridge
 
 SERVER_NAME = "weft-mcp"
 SERVER_VERSION = "0.1.0"
@@ -231,6 +231,11 @@ def _object_schema(properties: dict[str, Any], required: list[str] | None = None
 
 STRING = {"type": "string"}
 INTEGER = {"type": "integer"}
+BRIDGE_CURSOR_INTEGER = {
+    "type": "integer",
+    "minimum": 0,
+    "maximum": MAX_SAFE_INTEGER,
+}
 BOOLEAN = {"type": "boolean"}
 STRING_LIST = {"type": "array", "items": STRING}
 JSON_VALUE = {}
@@ -655,7 +660,7 @@ TOOLS: list[dict[str, Any]] = [
             "team_id": STRING,
             "agent_id": STRING,
             "actor_token": STRING,
-            "cursor": INTEGER,
+            "cursor": BRIDGE_CURSOR_INTEGER,
         }, ["team_id", "agent_id", "actor_token"]),
     },
     {
@@ -1367,8 +1372,6 @@ class WeftDispatcher:
 
     def _bridge_poll(self, args: dict[str, Any]) -> dict[str, Any]:
         cursor = args.get("cursor", 0)
-        if isinstance(cursor, bool) or not isinstance(cursor, int) or cursor < 0:
-            raise WeftError("invalid_argument", "cursor must be a non-negative integer")
         result = self._polling.get_pending(
             team_id=self._required(args, "team_id"),
             agent_id=self._required(args, "agent_id"),
