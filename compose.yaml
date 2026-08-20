@@ -5,13 +5,14 @@
 #
 #     docker compose up -d --build
 #
-# TWO PROCESSES, ONE STORE: the agent-facing API (weft-cloud) and the
-# browser front-end (weft-web) are separate containers from the same
-# image, and BOTH open the SAME SQLite database file (/data/weft-cloud.db)
+# THREE PROCESSES, ONE STORE: the agent-facing API (weft-cloud), the
+# browser front-end (weft-web), and the hosted delivery worker (weft-delivery)
+# are separate containers from the same image, and ALL open the SAME SQLite
+# database file (/data/weft-cloud.db)
 # in WAL mode. SQLite-WAL supports many concurrent readers and exactly ONE
-# writer, so the single-writer constraint now spans both processes: each
-# service must run as a single instance, the two must share one persistent
-# disk, and neither may be scaled behind a load balancer. See docs/DEPLOY.md.
+# writer, so the single-writer constraint now spans all three services: each
+# service must run as a single instance, all three must share one persistent
+# disk, and none may be scaled behind a load balancer. See docs/DEPLOY.md.
 #
 # The marketing site (site/, web/) is deliberately NOT part of this stack: it is
 # static content served separately for preview and is not part of the SaaS
@@ -66,6 +67,31 @@ services:
       timeout: 5s
       start_period: 10s
       retries: 3
+    restart: unless-stopped
+
+  # Hosted room-delivery worker. It consumes durable cloud_outbox rows and
+  # appends each delivered envelope to an explicit local journal. The journal
+  # is an observable local sink, not proof of a remote provider delivery; a
+  # future provider adapter can replace the Deliverer without changing the
+  # room transaction or worker lifecycle.
+  weft-delivery:
+    image: weft-cloud:local
+    command: ["python", "-B", "-m", "weft_cloud.delivery_worker"]
+    environment:
+      WEFT_DB_PATH: "/data/weft-cloud.db"
+      WEFT_DELIVERY_SINK: "${WEFT_DELIVERY_SINK:-/data/delivery.jsonl}"
+      WEFT_DELIVERY_DRAIN_INTERVAL: "${WEFT_DELIVERY_DRAIN_INTERVAL:-5}"
+      WEFT_DELIVERY_DRAIN_BATCH: "${WEFT_DELIVERY_DRAIN_BATCH:-50}"
+      WEFT_DELIVERY_DRAIN_MAX_ATTEMPTS: "${WEFT_DELIVERY_DRAIN_MAX_ATTEMPTS:-5}"
+      WEFT_DELIVERY_DRAIN_BACKOFF: "${WEFT_DELIVERY_DRAIN_BACKOFF:-60}"
+      WEFT_DELIVERY_DRAIN_LEASE: "${WEFT_DELIVERY_DRAIN_LEASE:-60}"
+    volumes:
+      - weft-cloud-data:/data
+    depends_on:
+      weft-cloud:
+        condition: service_healthy
+      weft-web:
+        condition: service_healthy
     restart: unless-stopped
 
   # Opt-in SMTP delivery worker. It shares the exact database volume with the

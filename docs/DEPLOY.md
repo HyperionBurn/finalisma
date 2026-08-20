@@ -68,19 +68,26 @@ the migrations already applied instead of racing them.
 docker compose up -d --build
 ```
 
-Wait for both to become healthy:
+Wait for the API and web services to become healthy. The delivery worker has
+no HTTP health endpoint, so inspect its logs after startup:
 
 ```bash
 docker compose ps
 # NAME                 IMAGE                COMMAND              SERVICE           STATUS
 # weft-cloud-1    weft-cloud:local python -m weft… weft-cloud   Up 3 seconds (healthy)
 # weft-web-1      weft-cloud:local python -m weft… weft-web     Up 3 seconds (healthy)
+# weft-delivery-1 weft-cloud:local python -m weft… weft-delivery Up 3 seconds
 ```
 
-Both containers come from the same image (`weft-cloud:local`); the web
-container overrides the default command to run `python -B -m
-weft_cloud.web`. Both mount the same named volume and open the same
-database file.
+The API, web, and hosted delivery-worker containers come from the same image
+(`weft-cloud:local`). The web and delivery containers override the default
+command. All three mount the same named volume and open the same database file.
+
+The default `weft-delivery` service consumes `cloud_outbox` rows and appends
+each delivered envelope to `/data/delivery.jsonl`. This is an observable local
+delivery journal. It is not proof that a remote provider delivered the
+envelope. The worker's retry and lease state remains durable in the shared
+database.
 
 Email delivery is deliberately opt-in. The default stack queues verification,
 reset, and organization-invite messages without sending them. To enable the
@@ -145,6 +152,9 @@ and the image contains no secrets.
 | `WEFT_PORT` | `18788` | HTTP port. |
 | `WEFT_DB_PATH` | `./data/weft-cloud.db` | SQLite path. In the container this is the `/data` mount point. |
 | `WEFT_PUBLIC_ORIGIN` | `http://127.0.0.1:18788` | Origin used for agent-facing room join links. Set this to the public nginx origin in a hosted deployment. |
+| `WEFT_DELIVERY_SINK` | `/data/delivery.jsonl` | Append-only local journal used by the hosted delivery worker. A journal entry is local processing evidence, not remote-provider delivery proof. |
+| `WEFT_DELIVERY_DRAIN_INTERVAL` | `5` | Seconds between hosted delivery passes. |
+| `WEFT_DELIVERY_DRAIN_BATCH` | `50` | Maximum rows claimed per hosted delivery pass. |
 
 The web front-end is configured the same way, with `WEFT_WEB_*` variables:
 
@@ -178,8 +188,9 @@ WEFT_WEB_HOST=127.0.0.1 WEFT_WEB_PORT=18789 \
   PYTHONPATH=src python -B -m weft_cloud.web
 ```
 
-Both running like this is the single-writer pair described above: they must
-stay on one machine, and `./data/cloud.db` is the one shared file. In local
+The API, web, and delivery worker running like this are the single-writer
+stack described above: they must stay on one machine, and `./data/cloud.db`
+is the one shared file. In local
 development you may point `WEFT_WEB_STATIC_DIR` at `./site` to serve the
 built marketing pages from the web app.
 
@@ -192,8 +203,8 @@ secrets manager (`fly secrets set`, Docker secrets, etc.) — never via compose,
 
 ## 4. Back up the volume
 
-The database lives in the named volume `weft-cloud-data`, shared by both
-services. Back up with **both** services stopped so the WAL is fully
+The database lives in the named volume `weft-cloud-data`, shared by all three
+services. Back up with **all** services stopped so the WAL is fully
 checkpointed:
 
 ```bash
@@ -217,6 +228,7 @@ Logs:
 ```bash
 docker compose logs -f weft-cloud
 docker compose logs -f weft-web
+docker compose logs -f weft-delivery
 ```
 
 ## 5. Roll back
