@@ -108,6 +108,16 @@ test('cohort brief validates the email control before copying', () => {
   assert.match(source, /Enter a valid contact email/);
 });
 
+test('cohort brief keeps a selectable fallback when clipboard access is blocked', () => {
+  const source = read('web/src/components/Pricing.astro');
+  assert.match(source, /data-cohort-brief/);
+  assert.match(source, /readonly hidden/);
+  assert.match(source, /showManualCopy\(text\)/);
+  assert.match(source, /briefEl\.hidden = false/);
+  assert.match(source, /briefEl\.focus\(\)/);
+  assert.match(source, /Copy was blocked — review the brief below/);
+});
+
 test('marketing copy distinguishes the simulated demo from a live session', () => {
   const liveDemo = read('web/src/components/LiveDemo.astro');
   const pricing = read('web/src/components/Pricing.astro');
