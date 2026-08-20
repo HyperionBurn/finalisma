@@ -224,6 +224,7 @@ class LiveReleaseProbeContractTests(unittest.TestCase):
         try:
             result = probe_live_release.probe(api_origin, site_origin, timeout=2)
             self.assertEqual(result["status"], "PASS")
+            self.assertEqual(result["diagnostics"], [])
             for check in (
                 "site_docs_reachable",
                 "site_quickstart_reachable",
@@ -259,6 +260,9 @@ class LiveReleaseProbeContractTests(unittest.TestCase):
             self.assertEqual(result["status"], "DRIFT")
             self.assertTrue(result["checks"]["reachability"])
             self.assertFalse(result["checks"]["site_canonical_og_metadata"])
+            diagnostics = {item["check"]: item for item in result["diagnostics"]}
+            self.assertIn("site_canonical_og_metadata", diagnostics)
+            self.assertIn("site_quickstart", diagnostics["site_canonical_og_metadata"]["endpoints"])
             self.assertNotIn("SECRET_BODY", output.getvalue())
             self.assertEqual(api_server.RequestHandlerClass.mutation_attempts, 0)
             self.assertEqual(site_server.RequestHandlerClass.mutation_attempts, 0)
@@ -274,6 +278,9 @@ class LiveReleaseProbeContractTests(unittest.TestCase):
             self.assertEqual(result["status"], "DRIFT")
             self.assertTrue(result["checks"]["reachability"])
             self.assertFalse(result["checks"]["site_release_manifest"])
+            diagnostics = {item["check"]: item for item in result["diagnostics"]}
+            self.assertIn("site_release_manifest", diagnostics)
+            self.assertIn("site_manifest", diagnostics["site_release_manifest"]["endpoints"])
         finally:
             for server in (api_server, site_server):
                 server.shutdown()
