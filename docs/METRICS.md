@@ -23,7 +23,7 @@ link_created → link_previewed → link_accepted → first_task_claimed → fir
 | `weekly_retention(team_id, week_start) -> {...}` | Workspaces with ≥1 evidence-gated handoff in the week. |
 | `handoffs_per_workspace(team_id) -> {...}` | Evidence-verified handoffs per active workspace. |
 | `invite_to_activated_conversion(team_id) -> {...}` | Ratio of invites that reached evidence-verified. |
-| `record_from_store_event(store_event) -> str \| None` | Integration seam (orchestrator wires this). |
+| `record_from_store_event(store_event) -> str \| None` | Explicit compatibility seam for direct callers. The dispatcher wires this automatically. |
 
 ## Schema
 
@@ -31,7 +31,7 @@ Tables are prefixed `metrics_` and live in the same SQLite file as the core
 store:
 
 - `metrics_events(event_id, team_id, agent_id, event_type, occurred_at, metadata_json)`
-- `metrics_funnels(team_id, workspace_id, link_created_at, ..., ttfvh_ms)`
+- `metrics_funnels(team_id, workspace_id, link_created_at, ..., ttfvh_ms)` — a materialized per-workspace snapshot refreshed in the same transaction.
 
 Events are written with WAL + `BEGIN IMMEDIATE`; timestamps are UTC ISO-8601.
 
@@ -45,23 +45,39 @@ Events are written with WAL + `BEGIN IMMEDIATE`; timestamps are UTC ISO-8601.
   discipline.
 - Callers MUST NOT put PII into `metadata_json`.
 
-## Integration seam
+## Automatic dispatcher integration
 
-`init(db_path)` must be called at server startup (the orchestrator owns this).
+`WeftDispatcher` initializes the metrics schema and attaches a same-connection
+observer to `WeftStore`. Relevant core events and their activation rows commit
+or roll back together. The observer preserves the core event timestamp and
+stores only a bounded workspace identifier, source event type, and short source
+event hash. It does not copy task paths, session tokens, fencing tokens, or
+quality payloads into the metrics table.
 
-`record_from_store_event(store_event)` is the documented integration point:
-the orchestrator routes relevant `core.py` store events through it. This
-module does NOT wire itself.
+`record_from_store_event(store_event)` remains available for direct callers.
+Pass the existing SQLite connection when the caller is already inside a
+transaction. Without a connection, the function opens its own compatibility
+transaction.
 
 Mapping from core store events to activation events:
 
 | Core store event | Activation event |
 |---|---|
-| `pairing.created` | `link_created` |
+| `pairing.issued` | `link_created` |
 | `pairing.previewed` | `link_previewed` |
-| `pairing.accepted` | `link_accepted` |
+| `pairing.joined` | `link_accepted` |
 | `task.claimed` | `first_task_claimed` |
-| `task.verified` | `first_evidence_verified` |
+| `quality.evaluated` with `status=passed` | `first_evidence_verified` |
+
+Legacy aliases `pairing.created`, `pairing.accepted`, and `task.verified` remain
+accepted by the compatibility seam. Failed quality evaluations never produce
+`first_evidence_verified`. Repeated observations of the same source object are
+idempotent for the corresponding first-stage metric.
+
+When a lifecycle operation does not provide a valid `workspace_id`, automatic
+events use `team:<team_id>` as a deterministic aggregate workspace. Callers
+that need per-workspace ttfvh must provide the same bounded workspace ID in
+pairing and task metadata.
 
 Unknown store event types are silently dropped (returns `None`).
 

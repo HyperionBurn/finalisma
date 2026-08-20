@@ -63,18 +63,29 @@ class ProbeResult:
 def probe_healthz(base_url: str, *, timeout: float = 5.0) -> ProbeResult:
     url = base_url.rstrip("/") + "/healthz"
     started = time.monotonic()
-    try:
-        with urllib.request.urlopen(url, timeout=timeout) as resp:
-            status = resp.status
-    except urllib.error.HTTPError as exc:
-        # HTTPError is itself a file-like response object (it carries the
-        # socket for the error body) — close it explicitly, or it leaks
-        # until the garbage collector gets to it.
-        status = exc.code
-        exc.close()
-    except (urllib.error.URLError, OSError, TimeoutError) as exc:
+    last_error: Exception | None = None
+    for attempt in range(2):
+        try:
+            with urllib.request.urlopen(url, timeout=timeout) as resp:
+                status = resp.status
+            break
+        except urllib.error.HTTPError as exc:
+            # HTTPError is itself a file-like response object (it carries the
+            # socket for the error body) — close it explicitly, or it leaks
+            # until the garbage collector gets to it.
+            status = exc.code
+            exc.close()
+            break
+        except (urllib.error.URLError, OSError, TimeoutError) as exc:
+            last_error = exc
+            if attempt == 0:
+                time.sleep(0.01)
+                continue
+            latency_ms = (time.monotonic() - started) * 1000
+            return ProbeResult(False, None, round(latency_ms, 1), f"unreachable: {exc}")
+    else:
         latency_ms = (time.monotonic() - started) * 1000
-        return ProbeResult(False, None, round(latency_ms, 1), f"unreachable: {exc}")
+        return ProbeResult(False, None, round(latency_ms, 1), f"unreachable: {last_error}")
 
     latency_ms = (time.monotonic() - started) * 1000
     if status == 200:
@@ -100,20 +111,31 @@ def probe_unauth_mcp(base_url: str, *, timeout: float = 5.0) -> ProbeResult:
         headers={"Content-Type": "application/json", "Accept": "application/json"},
     )
     started = time.monotonic()
-    try:
-        # A 302/303 is the signal we are looking for.  Following it would
-        # hide the routing bug behind the web app's eventual response.
-        with _NO_REDIRECT_OPENER.open(req, timeout=timeout) as resp:
-            status = resp.status
-    except urllib.error.HTTPError as exc:
-        # HTTPError is itself a file-like response object (it carries the
-        # socket for the error body) — close it explicitly, or it leaks
-        # until the garbage collector gets to it.
-        status = exc.code
-        exc.close()
-    except (urllib.error.URLError, OSError, TimeoutError) as exc:
+    last_error: Exception | None = None
+    for attempt in range(2):
+        try:
+            # A 302/303 is the signal we are looking for. Following it would
+            # hide the routing bug behind the web app's eventual response.
+            with _NO_REDIRECT_OPENER.open(req, timeout=timeout) as resp:
+                status = resp.status
+            break
+        except urllib.error.HTTPError as exc:
+            # HTTPError is itself a file-like response object (it carries the
+            # socket for the error body) — close it explicitly, or it leaks
+            # until the garbage collector gets to it.
+            status = exc.code
+            exc.close()
+            break
+        except (urllib.error.URLError, OSError, TimeoutError) as exc:
+            last_error = exc
+            if attempt == 0:
+                time.sleep(0.01)
+                continue
+            latency_ms = (time.monotonic() - started) * 1000
+            return ProbeResult(False, None, round(latency_ms, 1), f"unreachable: {exc}")
+    else:
         latency_ms = (time.monotonic() - started) * 1000
-        return ProbeResult(False, None, round(latency_ms, 1), f"unreachable: {exc}")
+        return ProbeResult(False, None, round(latency_ms, 1), f"unreachable: {last_error}")
 
     latency_ms = (time.monotonic() - started) * 1000
     if status == 401:

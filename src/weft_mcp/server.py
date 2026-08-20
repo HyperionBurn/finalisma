@@ -857,10 +857,16 @@ class WeftDispatcher:
         _roster.init(self._db_path)
         _outbox.init(self._db_path)
         _metrics_activation.init(self._db_path)
+        self.store.set_event_observer(self._record_store_event)
         self.rooms = RoomStore(self._db_path)
         self._webhooks = WebhookBridge(store)
         self._polling = PollingBridge(store)
         self._clipboard = ClipboardBridge(store)
+
+    @staticmethod
+    def _record_store_event(connection, store_event: dict[str, Any]) -> None:
+        """Record activation metrics inside the core event transaction."""
+        _metrics_activation.record_from_store_event(store_event, connection=connection)
 
     @staticmethod
     def _required(args: dict[str, Any], key: str) -> Any:

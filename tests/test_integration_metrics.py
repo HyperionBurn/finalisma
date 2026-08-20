@@ -1,9 +1,8 @@
 """Integration tests for the metrics_activation module via the REAL MCP surface.
 
 These tests drive metrics through WeftDispatcher.call_tool — never through
-metrics_activation.py's Python API directly. The metrics_* tools do
-not exist yet; this file is the RED phase of TDD. The orchestrator will wire
-the tools after this test is written.
+metrics_activation.py's Python API directly. The dispatcher must derive the
+activation stages from the real pairing, task, and evidence lifecycle.
 
 Activation funnel stages (in order):
     link_created → link_previewed → link_accepted → first_task_claimed → first_evidence_verified
@@ -183,6 +182,143 @@ class MetricsIntegrationTests(unittest.TestCase):
                 tool_name, schemas,
                 f"{tool_name} must be registered in the TOOLS list",
             )
+
+    def test_real_dispatcher_lifecycle_populates_funnel_transactionally(self) -> None:
+        """Real pairing/task/evidence operations populate metrics without manual events."""
+        initiator = self.dispatcher.call_tool(
+            "register_agent",
+            {"team_id": self.team_id, "agent_id": "agent-a", "name": "Initiator"},
+        )
+        initiator_token = initiator["actor_token"]
+        pairing = self.dispatcher.call_tool(
+            "create_pairing",
+            {
+                "team_id": self.team_id,
+                "initiator_id": "agent-a",
+                "metadata": {"workspace_id": self.workspace_id},
+                "actor_token": initiator_token,
+            },
+        )
+
+        # Preview twice. The same pairing must count once in the first-stage
+        # funnel, even though the core records both reads.
+        self.dispatcher.call_tool("pairing_preview", {"token": pairing["join_token"]})
+        self.dispatcher.call_tool("pairing_preview", {"token": pairing["join_token"]})
+        joined = self.dispatcher.call_tool(
+            "join_pairing",
+            {
+                "token": pairing["join_token"],
+                "agent_id": "agent-b",
+                "consent": True,
+            },
+        )
+        agent_b_token = joined["actor_token"]
+
+        created = self.dispatcher.call_tool(
+            "create_task",
+            {
+                "team_id": self.team_id,
+                "created_by": "agent-a",
+                "title": "Verify lifecycle metrics",
+                "description": "Exercise the evidence gate",
+                "scope": ["metric-artifact.txt"],
+                "preferred_agent": "agent-b",
+                "metadata": {"workspace_id": self.workspace_id},
+                "actor_token": initiator_token,
+            },
+        )
+        task_id = created["task"]["task_id"]
+        claimed = self.dispatcher.call_tool(
+            "claim_task",
+            {
+                "team_id": self.team_id,
+                "agent_id": "agent-b",
+                "task_id": task_id,
+                "actor_token": agent_b_token,
+            },
+        )
+        (self.store.workspace / "metric-artifact.txt").write_text("verified", encoding="utf-8")
+
+        failed = self.dispatcher.call_tool(
+            "verify_task",
+            {
+                "team_id": self.team_id,
+                "agent_id": "agent-b",
+                "task_id": task_id,
+                "fencing_token": claimed["fencing_token"],
+                "files": ["metric-artifact.txt"],
+                "checks": [{"name": "release-check", "status": "failed"}],
+                "actor_token": agent_b_token,
+            },
+        )
+        self.assertFalse(failed["passed"])
+        failed_funnel = self.dispatcher.call_tool("metrics_funnel", {"team_id": self.team_id})
+        self.assertEqual(failed_funnel["funnel"]["first_evidence_verified"], 0)
+
+        reclaimed = self.dispatcher.call_tool(
+            "claim_task",
+            {
+                "team_id": self.team_id,
+                "agent_id": "agent-b",
+                "task_id": task_id,
+                "actor_token": agent_b_token,
+            },
+        )
+        passed = self.dispatcher.call_tool(
+            "verify_task",
+            {
+                "team_id": self.team_id,
+                "agent_id": "agent-b",
+                "task_id": task_id,
+                "fencing_token": reclaimed["fencing_token"],
+                "files": ["metric-artifact.txt"],
+                "checks": [{"name": "release-check", "status": "passed"}],
+                "actor_token": agent_b_token,
+            },
+        )
+        self.assertTrue(passed["passed"])
+
+        funnel = self.dispatcher.call_tool("metrics_funnel", {"team_id": self.team_id})["funnel"]
+        for stage in FUNNEL_STAGES:
+            self.assertEqual(funnel[stage], 1, f"automatic stage {stage} must be recorded once")
+        ttfvh = self.dispatcher.call_tool(
+            "metrics_ttfvh",
+            {"team_id": self.team_id, "workspace_id": self.workspace_id},
+        )["ttfvh_ms"]
+        self.assertIsInstance(ttfvh, int)
+        self.assertGreater(ttfvh, 0)
+
+        import sqlite3
+        connection = sqlite3.connect(str(self.store.state_path))
+        connection.row_factory = sqlite3.Row
+        materialized = connection.execute(
+            "SELECT * FROM metrics_funnels WHERE team_id = ? AND workspace_id = ?",
+            (self.team_id, self.workspace_id),
+        ).fetchone()
+        claim_metadata = connection.execute(
+            "SELECT metadata_json FROM metrics_events WHERE team_id = ? AND event_type = 'first_task_claimed'",
+            (self.team_id,),
+        ).fetchone()
+        connection.close()
+        self.assertIsNotNone(materialized)
+        self.assertEqual(materialized["ttfvh_ms"], ttfvh)
+        self.assertIsNotNone(claim_metadata)
+        self.assertNotIn("fencing_token", claim_metadata["metadata_json"])
+        self.assertNotIn("scope", claim_metadata["metadata_json"])
+
+        # Reopen the actual store to prove persistence across process-style
+        # shutdown, not only re-initialization around a live connection.
+        state_path = self.store.state_path
+        workspace_path = self.store.workspace
+        self.store.close()
+        self.store = WeftStore(
+            state_path,
+            workspace_path,
+            require_actor_auth=True,
+        )
+        restarted = WeftDispatcher(self.store)
+        restarted_funnel = restarted.call_tool("metrics_funnel", {"team_id": self.team_id})["funnel"]
+        self.assertEqual(restarted_funnel, funnel)
 
 
 if __name__ == "__main__":

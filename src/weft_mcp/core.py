@@ -22,7 +22,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Iterator, Sequence
+from typing import Any, Callable, Iterator, Sequence
 from urllib.parse import quote, urlsplit
 
 WEFT_PROTOCOL = "weft.a2a"
@@ -157,6 +157,26 @@ def _parse_json(raw: str | None, default: Any) -> Any:
         raise WeftError("corrupt_state", "Persisted JSON is invalid") from exc
 
 
+def _workspace_id_from_metadata(metadata: Any) -> str | None:
+    """Return a bounded workspace identifier suitable for activation metrics."""
+    if not isinstance(metadata, dict):
+        return None
+    value = metadata.get("workspace_id")
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    return value if value and len(value) <= 160 else None
+
+
+def _activation_payload(metadata: Any, **fields: Any) -> dict[str, Any]:
+    """Add only the safe workspace correlation field to a core event payload."""
+    payload = dict(fields)
+    workspace_id = _workspace_id_from_metadata(metadata)
+    if workspace_id is not None:
+        payload["workspace_id"] = workspace_id
+    return payload
+
+
 def _new_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex}"
 
@@ -210,6 +230,7 @@ class WeftStore:
         self._live_connections: set[sqlite3.Connection] = set()
         self._connection_pool_lock = threading.Lock()
         self._closed = False
+        self._event_observer: Callable[[sqlite3.Connection, dict[str, Any]], None] | None = None
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
         self.workspace.mkdir(parents=True, exist_ok=True)
         self._initialize()
@@ -342,6 +363,18 @@ class WeftStore:
             self.close()
         except Exception:
             pass
+
+    def set_event_observer(
+        self,
+        observer: Callable[[sqlite3.Connection, dict[str, Any]], None] | None,
+    ) -> None:
+        """Attach a same-transaction observer for persisted core events.
+
+        Observers run after the core event insert and before the surrounding
+        transaction commits. An observer exception therefore rolls back both
+        the core event and its derived side effects.
+        """
+        self._event_observer = observer
 
     @contextlib.contextmanager
     def _transaction(self) -> Iterator[sqlite3.Connection]:
@@ -762,10 +795,25 @@ class WeftStore:
         object_id: str | None,
         payload: Any,
     ) -> None:
+        event_id = _new_id("evt")
+        created_at = _utc_now()
         connection.execute(
             "INSERT INTO events(event_id, team_id, event_type, actor_id, object_id, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (_new_id("evt"), team_id, event_type, actor_id, object_id, _json(payload), _utc_now()),
+            (event_id, team_id, event_type, actor_id, object_id, _json(payload), created_at),
         )
+        if self._event_observer is not None:
+            self._event_observer(
+                connection,
+                {
+                    "event_id": event_id,
+                    "team_id": team_id,
+                    "event_type": event_type,
+                    "actor_id": actor_id,
+                    "object_id": object_id,
+                    "payload": payload,
+                    "created_at": created_at,
+                },
+            )
 
     def _canonical_path(self, raw_path: str) -> str:
         if not isinstance(raw_path, str) or not raw_path.strip():
@@ -1145,7 +1193,19 @@ class WeftStore:
                 (agent_id, _epoch(), lease_until, token, _utc_now(), task_id),
             ).fetchone()
             assert updated is not None
-            self._insert_event(connection, team_id, "task.claimed", agent_id, task_id, {"lease_until": lease_until, "fencing_token": token, "scope": scope})
+            self._insert_event(
+                connection,
+                team_id,
+                "task.claimed",
+                agent_id,
+                task_id,
+                _activation_payload(
+                    _parse_json(row["metadata_json"], {}),
+                    lease_until=lease_until,
+                    fencing_token=token,
+                    scope=scope,
+                ),
+            )
             return self._task_dict(updated)
 
     def update_task(
@@ -1528,7 +1588,19 @@ class WeftStore:
             )
             next_status = "verified" if passed else "review"
             connection.execute("UPDATE tasks SET status = ?, updated_at = ?, version = version + 1 WHERE task_id = ?", (next_status, _utc_now(), task_id))
-            self._insert_event(connection, team_id, "quality.evaluated", agent_id, task_id, {"evidence_id": evidence_id, "status": evidence_status, "failures": payload["failures"]})
+            self._insert_event(
+                connection,
+                team_id,
+                "quality.evaluated",
+                agent_id,
+                task_id,
+                _activation_payload(
+                    _parse_json(task["metadata_json"], {}),
+                    evidence_id=evidence_id,
+                    status=evidence_status,
+                    failures=payload["failures"],
+                ),
+            )
             return {"passed": passed, "evidence_id": evidence_id, "status": evidence_status, "task_status": next_status, "details": payload}
 
     def complete_task(
@@ -1595,6 +1667,7 @@ class WeftStore:
         display_code = self._display_code()
         now = _epoch()
         expires_at = now + ttl_seconds
+        pairing_metadata = metadata or {}
         with self._transaction() as connection:
             self._ensure_team(connection, team_id)
             self._authorize_actor(connection, team_id, initiator_id, actor_token)
@@ -1604,13 +1677,20 @@ class WeftStore:
                                       policy_json, status, created_at, expires_at, consumed_at, consumed_by, metadata_json)
                 VALUES (?, ?, ?, ?, ?, ?, ?, 'issued', ?, ?, NULL, NULL, ?)
                 """,
-                (pairing_id, team_id, initiator_id, token_hash, display_code, _json(capabilities), _json(policy or {"requires_consent": True}), _utc_now(), expires_at, _json({"invitee_hint": invitee_hint, **(metadata or {})})),
+                (pairing_id, team_id, initiator_id, token_hash, display_code, _json(capabilities), _json(policy or {"requires_consent": True}), _utc_now(), expires_at, _json({"invitee_hint": invitee_hint, **pairing_metadata})),
             )
             connection.execute(
                 "INSERT INTO pairing_credentials(pairing_id, agent_id, token_hash, created_at) VALUES (?, ?, ?, ?)",
                 (pairing_id, initiator_id, initiator_session_token_hash, _utc_now()),
             )
-            self._insert_event(connection, team_id, "pairing.issued", initiator_id, pairing_id, {"expires_at": expires_at, "capabilities": capabilities})
+            self._insert_event(
+                connection,
+                team_id,
+                "pairing.issued",
+                initiator_id,
+                pairing_id,
+                _activation_payload(pairing_metadata, expires_at=expires_at, capabilities=capabilities),
+            )
         join_base = self.public_base_url if self.public_base_url.endswith("/v1") else f"{self.public_base_url}/v1"
         join_url = f"{join_base}/join/{pairing_id}#token={quote(raw_token, safe='')}"
         bootstrap_prompt = (
@@ -1651,18 +1731,34 @@ class WeftStore:
 
     def pairing_preview(self, token: str) -> dict[str, Any]:
         token_hash = self._token_hash(token)
-        with self._read() as connection:
+        with self._transaction() as connection:
             row = connection.execute("SELECT * FROM pairings WHERE token_hash = ?", (token_hash,)).fetchone()
             if row is None:
                 raise WeftError("pairing_not_found", "Pairing link is invalid or has been revoked")
+            self._insert_event(
+                connection,
+                row["team_id"],
+                "pairing.previewed",
+                None,
+                row["pairing_id"],
+                _activation_payload(_parse_json(row["metadata_json"], {})),
+            )
             return self._pairing_preview_dict(row)
 
     def pairing_preview_by_id(self, pairing_id: str, public: bool = False) -> dict[str, Any]:
         _validate_id(pairing_id, "pairing_id")
-        with self._read() as connection:
+        with self._transaction() as connection:
             row = connection.execute("SELECT * FROM pairings WHERE pairing_id = ?", (pairing_id,)).fetchone()
             if row is None:
                 raise WeftError("pairing_not_found", "Pairing link is invalid or has been revoked")
+            self._insert_event(
+                connection,
+                row["team_id"],
+                "pairing.previewed",
+                None,
+                row["pairing_id"],
+                _activation_payload(_parse_json(row["metadata_json"], {})),
+            )
             return self._pairing_preview_dict(row, public=public)
 
     def join_pairing(
@@ -1738,7 +1834,19 @@ class WeftStore:
                 "INSERT INTO session_cursors(session_id, agent_id, last_ack_seq, updated_at) VALUES (?, ?, 0, ?), (?, ?, 0, ?)",
                 (session_id, pairing["created_by"], _utc_now(), session_id, agent_id, _utc_now()),
             )
-            self._insert_event(connection, pairing["team_id"], "pairing.joined", agent_id, pairing["pairing_id"], {"session_id": session_id, "initiator_id": pairing["created_by"], "consent": True})
+            self._insert_event(
+                connection,
+                pairing["team_id"],
+                "pairing.joined",
+                agent_id,
+                pairing["pairing_id"],
+                _activation_payload(
+                    _parse_json(pairing["metadata_json"], {}),
+                    session_id=session_id,
+                    initiator_id=pairing["created_by"],
+                    consent=True,
+                ),
+            )
             self._insert_event(connection, pairing["team_id"], "session.active", agent_id, session_id, {"agent_a": pairing["created_by"], "agent_b": agent_id})
             members = [pairing["created_by"], agent_id]
             result = {
