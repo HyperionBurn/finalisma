@@ -34,6 +34,9 @@ SCRYPT_R = 8
 SCRYPT_P = 1
 SCRYPT_DKLEN = 64
 
+PASSWORD_MIN_LENGTH = 8
+PASSWORD_MAX_LENGTH = 256
+
 VERIFY_TTL_SECONDS = 24 * 3600
 RESET_TTL_SECONDS = 30 * 60
 
@@ -42,6 +45,16 @@ RESET_TTL_SECONDS = 30 * 60
 # match, so an unknown email costs the same as a wrong password.
 _DUMMY_SALT = b"\x0b" * 32
 _DUMMY_HASH = b"\x00" * 64
+
+
+def validate_password(password: object) -> None:
+    """Enforce one password-size policy before hashing or token consumption."""
+    if not isinstance(password, str) or not password:
+        raise ValueError("password is required")
+    if len(password) < PASSWORD_MIN_LENGTH:
+        raise ValueError(f"password must be at least {PASSWORD_MIN_LENGTH} characters")
+    if len(password) > PASSWORD_MAX_LENGTH:
+        raise ValueError(f"password must be at most {PASSWORD_MAX_LENGTH} characters")
 
 
 def _scrypt(password: str, salt: bytes) -> bytes:
@@ -74,6 +87,7 @@ def _create_account(backend: Any, tenant_id: str, email: str, password: str,
     Internal provisioning used by signup (unverified + verification email) and
     by admin/invite flows (verified, no verification email).
     """
+    validate_password(password)
     existing = _find_account(backend, tenant_id, email)
     if existing is not None:
         return existing["account_id"]
@@ -102,6 +116,7 @@ def signup(backend: Any, tenant_id: str, email: str, password: str) -> tuple[str
     to (re)provision an existing identity use ``_create_account`` directly
     (org/invite flows), never this path.
     """
+    validate_password(password)
     ensure_schema(backend)
     raw_token = generate_token("fvt")
     token_hash = hash_token(raw_token)
@@ -215,6 +230,7 @@ def verify_email(backend: Any, verification_token: str) -> None:
 
 def authenticate(backend: Any, tenant_id: str, email: str, password: str) -> str:
     """Return account_id on success; refuse on wrong/unknown. Timing-invariant for unknown email."""
+    validate_password(password)
     ensure_schema(backend)
     row = _find_account(backend, tenant_id, email)
     if row is None:
@@ -238,6 +254,7 @@ def burn_scrypt_cost(password: str) -> None:
     the dummy-salt computation ``authenticate`` would have run for an unknown
     email, so both refusal paths cost the same.
     """
+    validate_password(password)
     computed = _scrypt(password, _DUMMY_SALT)
     hmac.compare_digest(computed, _DUMMY_HASH)
 
@@ -273,6 +290,7 @@ def reset_password(backend: Any, reset_token: str, new_password: str) -> None:
     left them alive would hand the new password holder a working key minted
     under the old one.
     """
+    validate_password(new_password)
     ensure_schema(backend)
     token_hash = hash_token(reset_token)
     now = _time.time()

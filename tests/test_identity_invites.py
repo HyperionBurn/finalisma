@@ -133,6 +133,13 @@ class IdentityInvitesContractTests(unittest.TestCase):
     # -- 2. role-scoped: member invite grants member; admin invite grants admin --
 
     def test_accept_applies_invite_role_exactly(self) -> None:
+        _, short_token = invites.create(
+            self.owner_ctx, "short-password@example.com", role="member"
+        )
+        with self.assertRaises(ValueError):
+            invites.accept(
+                self.backend, short_token, "short-password@example.com", "short"
+            )
         for role in ("member", "admin"):
             invite_id, raw_token = invites.create(
                 self.owner_ctx, f"guest-{role}@example.com", role=role

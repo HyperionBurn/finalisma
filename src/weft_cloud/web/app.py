@@ -41,6 +41,11 @@ from weft_cloud.identity import (
     SessionStore,
 )
 from weft_cloud.identity.accounts import signup as _identity_signup
+from weft_cloud.identity.accounts import (
+    PASSWORD_MAX_LENGTH as _MAX_PASSWORD_LEN,
+    PASSWORD_MIN_LENGTH as _MIN_PASSWORD_LEN,
+    validate_password as _validate_password,
+)
 from weft_cloud.identity.accounts import leave_membership as _identity_leave_membership
 from weft_cloud.identity.accounts import verify_email as _identity_verify
 from weft_cloud.identity.accounts import request_password_reset as _identity_reset_request
@@ -61,7 +66,6 @@ from weft_cloud.web.security_headers import security_headers
 
 SESSION_COOKIE = "fss_session"
 CSRF_COOKIE = "fss_csrf"
-_MIN_PASSWORD_LEN = 8
 _INVITE_PATH_RE = re.compile(r"^/invite/([A-Za-z0-9_-]+)$")
 _ROOM_PATH_RE = re.compile(r"^/room/([A-Za-z0-9_-]+)$")
 _ROOM_EVENTS_RE = re.compile(r"^/room/([A-Za-z0-9_-]+)/events$")
@@ -102,6 +106,14 @@ class _WebError(Exception):
 def _esc(value: Any) -> str:
     """HTML-escaping helper. Never render unescaped user-controlled data."""
     return html.escape(str(value) if value is not None else "")
+
+
+def _password_is_valid(password: object) -> bool:
+    try:
+        _validate_password(password)
+    except ValueError:
+        return False
+    return True
 
 
 def _format_last_used(ts: Any) -> str:
@@ -803,10 +815,10 @@ class WeftWebApp:
             return
         email = (form.get("email") or "").strip()
         password = form.get("password") or ""
-        if len(password) < _MIN_PASSWORD_LEN or not email:
+        if not _password_is_valid(password) or not email:
             self._send_html(handler, HTTPStatus.BAD_REQUEST,
                             _page("Sign up failed",
-                                  '<p>Invalid email or password too short.</p>'
+                                  f'<p>Invalid email or password length. Use {_MIN_PASSWORD_LEN}–{_MAX_PASSWORD_LEN} characters.</p>'
                                   '<p><a href="/signup">Try again</a></p>'))
             return
         # Public endpoint: each signup mints a tenant + writes rows, so the
@@ -1110,10 +1122,10 @@ class WeftWebApp:
             return
         token = form.get("token", "")
         password = form.get("password", "")
-        if len(password) < _MIN_PASSWORD_LEN or not token:
+        if not _password_is_valid(password) or not token:
             self._send_html(handler, HTTPStatus.BAD_REQUEST,
                             _page("Reset failed",
-                                  '<p>Invalid token or password too short.</p>'))
+                                  f'<p>Invalid token or password length. Use {_MIN_PASSWORD_LEN}–{_MAX_PASSWORD_LEN} characters.</p>'))
             return
         try:
             _identity_reset_password(self.backend, token, password)
@@ -1369,10 +1381,10 @@ class WeftWebApp:
             return
         email = (form.get("email") or "").strip()
         password = form.get("password", "")
-        if len(password) < _MIN_PASSWORD_LEN or not email:
+        if not _password_is_valid(password) or not email:
             self._send_html(handler, HTTPStatus.BAD_REQUEST,
                             _page("Invite failed",
-                                  '<p>Invalid email or password too short.</p>'))
+                                  f'<p>Invalid email or password length. Use {_MIN_PASSWORD_LEN}–{_MAX_PASSWORD_LEN} characters.</p>'))
             return
         try:
             account_id, session_token = self.invites.accept(self.backend, token, email, password)

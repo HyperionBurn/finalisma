@@ -200,6 +200,12 @@ class TestSignup(unittest.TestCase):
         self.assertEqual(status, 400)
         # No account created → outbox empty for this email.
         self.assertIsNone(self.driver.last_outbox_body(email))
+        long_email = f"long{time.time_ns()}@example.com"
+        status, _, _ = self.driver.post(
+            "/signup", {"email": long_email, "password": "p" * 257}
+        )
+        self.assertEqual(status, 400)
+        self.assertIsNone(self.driver.last_outbox_body(long_email))
 
     def test_signup_duplicate_email_rejected(self):
         email = f"dup{time.time_ns()}@example.com"
