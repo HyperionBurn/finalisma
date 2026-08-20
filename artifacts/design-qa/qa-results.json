@@ -1,5 +1,5 @@
 {
-  "siteUrl": "http://127.0.0.1:4175/",
+  "siteUrl": "http://127.0.0.1:51025/",
   "viewport": {
     "desktop": "1440x900",
     "mobile": [
@@ -79,8 +79,19 @@
         "navInitiallyInert": true,
         "navOpen": "true",
         "navOpenInert": false,
+        "navFocusOnOpen": true,
+        "navFocusableCount": 8,
+        "bodyScrollLocked": true,
+        "backgroundInertWhileOpen": true,
+        "shiftTabWraps": true,
+        "tabWraps": true,
         "navClosed": "false",
-        "navClosedInert": true
+        "navClosedInert": true,
+        "bodyScrollUnlocked": true,
+        "backgroundInertRestored": true,
+        "focusRestoredAfterEscape": true,
+        "focusRestoredAfterCloseButton": true,
+        "focusRestoredAfterLink": true
       },
       {
         "viewport": "390x667",
@@ -139,25 +150,25 @@
     }
   },
   "canvas": {
-    "frameTimeMedianMs": 19.499999999999773,
-    "frameTimeP95Ms": 24.500000000000455,
+    "frameTimeMedianMs": 18.299999998882413,
+    "frameTimeP95Ms": 45.600000001490116,
     "canvasAnimated": true
   },
   "performanceChecks": {
-    "cls": 0.0016950241528420782,
-    "lcp": 144,
+    "cls": 0,
+    "lcp": 296,
     "longTasks": [
-      139
+      149
     ],
     "resourceCount": 11,
-    "transferBytes": 1374820,
-    "domNodes": 371
+    "transferBytes": 1370624,
+    "domNodes": 364
   },
   "accessibility": {
     "axeResults": [
       {
         "label": "home",
-        "url": "http://127.0.0.1:4175/",
+        "url": "http://127.0.0.1:51025/",
         "violations": [],
         "violationCount": 0,
         "passes": 28,
@@ -165,15 +176,15 @@
       },
       {
         "label": "blog",
-        "url": "http://127.0.0.1:4175/blog/index.html",
+        "url": "http://127.0.0.1:51025/blog/index.html",
         "violations": [],
         "violationCount": 0,
-        "passes": 9,
+        "passes": 15,
         "incomplete": 0
       },
       {
         "label": "article",
-        "url": "http://127.0.0.1:4175/blog/secure-agent-handoffs.html",
+        "url": "http://127.0.0.1:51025/blog/secure-agent-handoffs.html",
         "violations": [],
         "violationCount": 0,
         "passes": 11,
@@ -181,15 +192,15 @@
       },
       {
         "label": "docs",
-        "url": "http://127.0.0.1:4175/docs/index.html",
+        "url": "http://127.0.0.1:51025/docs/index.html",
         "violations": [],
         "violationCount": 0,
-        "passes": 9,
+        "passes": 15,
         "incomplete": 0
       },
       {
         "label": "demo",
-        "url": "http://127.0.0.1:4175/demo.html",
+        "url": "http://127.0.0.1:51025/demo.html",
         "violations": [],
         "violationCount": 0,
         "passes": 17,
@@ -197,7 +208,7 @@
       },
       {
         "label": "404",
-        "url": "http://127.0.0.1:4175/404.html",
+        "url": "http://127.0.0.1:51025/404.html",
         "violations": [],
         "violationCount": 0,
         "passes": 17,
@@ -207,9 +218,9 @@
     "lighthouseResults": [
       {
         "name": "home",
-        "url": "http://127.0.0.1:4175/",
+        "url": "http://127.0.0.1:51025/",
         "checks": {
-          "focusableCount": 35,
+          "focusableCount": 36,
           "labelledControls": 4,
           "totalControls": 4,
           "unlabelledControls": 0,
@@ -233,7 +244,7 @@
       },
       {
         "name": "blog",
-        "url": "http://127.0.0.1:4175/blog/index.html",
+        "url": "http://127.0.0.1:51025/blog/index.html",
         "checks": {
           "focusableCount": 7,
           "labelledControls": 0,
@@ -259,7 +270,7 @@
       },
       {
         "name": "article",
-        "url": "http://127.0.0.1:4175/blog/secure-agent-handoffs.html",
+        "url": "http://127.0.0.1:51025/blog/secure-agent-handoffs.html",
         "checks": {
           "focusableCount": 6,
           "labelledControls": 0,
@@ -285,7 +296,7 @@
       },
       {
         "name": "docs",
-        "url": "http://127.0.0.1:4175/docs/index.html",
+        "url": "http://127.0.0.1:51025/docs/index.html",
         "checks": {
           "focusableCount": 9,
           "labelledControls": 0,
@@ -311,7 +322,7 @@
       },
       {
         "name": "demo",
-        "url": "http://127.0.0.1:4175/demo.html",
+        "url": "http://127.0.0.1:51025/demo.html",
         "checks": {
           "focusableCount": 8,
           "labelledControls": 0,
@@ -337,9 +348,9 @@
       },
       {
         "name": "404",
-        "url": "http://127.0.0.1:4175/404.html",
+        "url": "http://127.0.0.1:51025/404.html",
         "checks": {
-          "focusableCount": 2,
+          "focusableCount": 3,
           "labelledControls": 0,
           "totalControls": 0,
           "unlabelledControls": 0,
@@ -347,7 +358,7 @@
           "imagesTotal": 0,
           "imagesWithAlt": 0,
           "imagesMissingAlt": 0,
-          "skipLinkPresent": false,
+          "skipLinkPresent": true,
           "headingOrderViolations": 0,
           "landmarks": {
             "hasMain": true,

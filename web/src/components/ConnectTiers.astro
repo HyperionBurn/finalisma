@@ -95,6 +95,7 @@ result = client.join_room(
           id={`tier-tab-${tier.id}`}
           aria-controls={`tier-panel-${tier.id}`}
           aria-selected={i === 0 ? 'true' : 'false'}
+          tabindex={i === 0 ? 0 : -1}
           data-tier-tab={tier.id}
           type="button"
         >
@@ -211,6 +212,7 @@ result = client.join_room(
       tabs.forEach((t) => {
         const active = t === tab;
         t.setAttribute('aria-selected', active ? 'true' : 'false');
+        t.setAttribute('tabindex', active ? '0' : '-1');
       });
       panels.forEach((p) => {
         const match = p.getAttribute('data-tier-panel') === id;

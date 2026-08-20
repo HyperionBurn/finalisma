@@ -85,6 +85,37 @@ test('live event log hides the no-JS fallback instead of duplicating events', ()
   assert.doesNotMatch(source, /fallbackList\.appendChild/);
 });
 
+test('mobile navigation exposes state and focuses inside the dialog', () => {
+  const source = read('web/src/components/Header.astro');
+  assert.match(source, /aria-label="Open menu"/);
+  assert.match(source, /setAttribute\(['"]aria-label['"], ['"]Close menu['"]\)/);
+  assert.match(source, /setAttribute\(['"]aria-label['"], ['"]Open menu['"]\)/);
+  assert.match(source, /event\.preventDefault\(\)/);
+  assert.match(source, /scrollIntoView\(\{ behavior: ['"]smooth['"], block: ['"]start['"] \}\)/);
+  assert.match(source, /requestAnimationFrame\(\(\) =>/);
+  assert.match(source, /focusFirstControl/);
+});
+
+test('connection tabs use a roving tabindex', () => {
+  const source = read('web/src/components/ConnectTiers.astro');
+  assert.match(source, /tabindex=\{i === 0 \? 0 : -1\}/);
+  assert.match(source, /setAttribute\(['"]tabindex['"], active \? ['"]0['"] : ['"]-1['"]\)/);
+});
+
+test('cohort brief validates the email control before copying', () => {
+  const source = read('web/src/components/Pricing.astro');
+  assert.match(source, /contactControl\.checkValidity\(\)/);
+  assert.match(source, /Enter a valid contact email/);
+});
+
+test('marketing copy distinguishes the simulated demo from a live session', () => {
+  const liveDemo = read('web/src/components/LiveDemo.astro');
+  const pricing = read('web/src/components/Pricing.astro');
+  assert.match(liveDemo, /A simulated coordinator run/);
+  assert.match(pricing, /simulated demo depicts two agents/);
+  assert.doesNotMatch(pricing, /the demo on this page runs two agents/);
+});
+
 test('skip targets are keyboard-focusable and connection tabs are named', () => {
   for (const file of ['site/docs/index.html', 'site/docs/compatibility.html', 'site/404.html']) {
     assert.match(
