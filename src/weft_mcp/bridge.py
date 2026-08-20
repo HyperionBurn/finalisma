@@ -16,15 +16,15 @@ from __future__ import annotations
 
 import hashlib
 import hmac as hmac_mod
+import http.client
 import ipaddress
 import json
 import secrets
 import sqlite3
 import socket
+import ssl
 import threading
 import time
-import urllib.request
-import urllib.error
 from typing import Any, Sequence
 from urllib.parse import urlsplit
 
@@ -76,8 +76,11 @@ def _hmac_sign(secret: bytes, timestamp: str, body: Any) -> str:
 
 def _is_blocked_address(value: str) -> bool:
     address = ipaddress.ip_address(value)
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:
+        address = address.ipv4_mapped
     return (
-        address.is_private
+        not address.is_global
+        or address.is_private
         or address.is_loopback
         or address.is_link_local
         or address.is_reserved
@@ -90,7 +93,10 @@ def _is_loopback_host(hostname: str) -> bool:
     if hostname.lower() in {"localhost", "localhost.localdomain"}:
         return True
     try:
-        return ipaddress.ip_address(hostname).is_loopback
+        address = ipaddress.ip_address(hostname)
+        if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:
+            address = address.ipv4_mapped
+        return address.is_loopback
     except ValueError:
         return False
 
@@ -100,7 +106,7 @@ def _validate_webhook_url(
     *,
     allow_local: bool,
     resolve: bool,
-) -> None:
+) -> tuple[str, ...]:
     """Reject webhook targets that could turn delivery into an SSRF primitive.
 
     Public DNS names are resolved immediately before delivery so a hostname
@@ -109,10 +115,19 @@ def _validate_webhook_url(
     opt-in; private RFC1918, link-local, metadata, and other special ranges
     remain blocked even with that opt-in.
     """
-    if not isinstance(url, str) or len(url) > 2048:
+    if (
+        not isinstance(url, str)
+        or len(url) > 2048
+        or url != url.strip()
+        or any(char.isspace() for char in url)
+    ):
         raise WeftError("invalid_argument", "Webhook URL must be a bounded http(s) URL")
-    parsed = urlsplit(url)
-    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+    try:
+        parsed = urlsplit(url)
+        hostname = parsed.hostname
+    except ValueError as exc:
+        raise WeftError("invalid_argument", "Webhook URL must be a valid http(s) URL") from exc
+    if parsed.scheme not in ("http", "https") or not hostname:
         raise WeftError("invalid_argument", "Webhook URL must be an http(s) URL")
     if parsed.username or parsed.password or parsed.fragment:
         raise WeftError(
@@ -124,7 +139,6 @@ def _validate_webhook_url(
     except ValueError as exc:
         raise WeftError("invalid_argument", "Webhook URL has an invalid port") from exc
 
-    hostname = parsed.hostname
     if _is_loopback_host(hostname) and not allow_local:
         raise WeftError(
             "invalid_argument",
@@ -140,7 +154,7 @@ def _validate_webhook_url(
         pass
 
     if not resolve:
-        return
+        return ()
     try:
         addresses = {
             sockaddr[0]
@@ -157,21 +171,47 @@ def _validate_webhook_url(
             blocked = _is_blocked_address(address)
         except ValueError:
             raise WeftError("invalid_argument", "Webhook host resolved to an invalid address")
-        if blocked and not (allow_local and ipaddress.ip_address(address).is_loopback):
+        if blocked and not (allow_local and _is_loopback_host(address)):
             raise WeftError(
                 "invalid_argument",
                 "Webhook URL resolved to a private or special-use address",
             )
+    return tuple(sorted(addresses))
 
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    """Never follow a webhook redirect into a different trust boundary."""
+class _PinnedConnectionMixin:
+    """Connect to a validated address while retaining the original host name."""
 
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
-        return None
+    def __init__(self, host: str, port: int, *, pinned_address: str, **kwargs: Any) -> None:
+        self._pinned_address = pinned_address
+        super().__init__(host, port, **kwargs)
+        # HTTPConnection stores the module-level socket helper on the
+        # instance during __init__, so restore the pinned implementation after
+        # the base class has initialized itself.
+        self._create_connection = self._create_pinned_connection
+
+    def _create_pinned_connection(
+        self,
+        address: tuple[str, int],
+        timeout: float | None,
+        source_address: tuple[str, int] | None = None,
+    ) -> socket.socket:
+        # ``self.host`` remains the original DNS name. This keeps HTTP Host
+        # and HTTPS SNI/certificate validation correct while the TCP peer is
+        # pinned to the address checked by _validate_webhook_url.
+        return socket.create_connection(
+            (self._pinned_address, address[1]),
+            timeout,
+            source_address,
+        )
 
 
-_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirect)
+class _PinnedHTTPConnection(_PinnedConnectionMixin, http.client.HTTPConnection):
+    pass
+
+
+class _PinnedHTTPSConnection(_PinnedConnectionMixin, http.client.HTTPSConnection):
+    pass
 
 
 def _authorize_actor(store: WeftStore, team_id: str, agent_id: str, actor_token: str | None) -> None:
@@ -320,7 +360,11 @@ class WebhookBridge:
         url = row["url"]
         secret_hash = row["secret_hash"]
 
-        _validate_webhook_url(url, allow_local=self.allow_local_webhooks, resolve=True)
+        resolved_addresses = _validate_webhook_url(
+            url,
+            allow_local=self.allow_local_webhooks,
+            resolve=True,
+        )
 
         # Fail closed: the stored value is a SHA-256 HASH of the signing secret,
         # not the secret itself. Using it as the live HMAC key would let anyone
@@ -336,29 +380,59 @@ class WebhookBridge:
         timestamp = str(int(_now_epoch()))
         signature = _hmac_sign(signing_key, timestamp, event)
 
+        parsed = urlsplit(url)
+        target = parsed.path or "/"
+        if parsed.query:
+            target += f"?{parsed.query}"
+        headers = {
+            "Content-Type": "application/json",
+            "X-Weft-Signature": signature,
+            "X-Weft-Timestamp": timestamp,
+            "User-Agent": "Weft-Webhook/1.0",
+        }
         body = json.dumps(event, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        request = urllib.request.Request(
-            url,
-            data=body,
-            method="POST",
-            headers={
-                "Content-Type": "application/json",
-                "X-Weft-Signature": signature,
-                "X-Weft-Timestamp": timestamp,
-                "User-Agent": "Weft-Webhook/1.0",
-            },
-        )
-        try:
-            with _NO_REDIRECT_OPENER.open(request, timeout=10) as resp:
-                status = resp.status
-        except (urllib.error.URLError, OSError) as exc:
-            # Record failure
+        last_error: Exception | None = None
+        delivered = False
+        status: int | None = None
+        for address in resolved_addresses:
+            connection: http.client.HTTPConnection | None = None
+            try:
+                if parsed.scheme == "https":
+                    connection = _PinnedHTTPSConnection(
+                        parsed.hostname,
+                        parsed.port or 443,
+                        pinned_address=address,
+                        timeout=10,
+                        context=ssl.create_default_context(),
+                    )
+                else:
+                    connection = _PinnedHTTPConnection(
+                        parsed.hostname,
+                        parsed.port or 80,
+                        pinned_address=address,
+                        timeout=10,
+                    )
+                connection.request("POST", target, body=body, headers=headers)
+                response = connection.getresponse()
+                response.read()
+                status = response.status
+                if not 200 <= status < 300:
+                    last_error = RuntimeError(f"Webhook responded with HTTP {status}")
+                    break
+                delivered = True
+                break
+            except (OSError, http.client.HTTPException) as exc:
+                last_error = exc
+            finally:
+                if connection is not None:
+                    connection.close()
+        if not delivered:
             with self.store._transaction() as conn:
                 conn.execute(
                     "UPDATE bridge_webhooks SET failure_count = failure_count + 1 WHERE webhook_id = ?",
                     (webhook_id,),
                 )
-            return {"delivered": False, "error": str(exc)}
+            return {"delivered": False, "error": str(last_error or "Webhook connection failed")}
 
         with self.store._transaction() as conn:
             conn.execute(

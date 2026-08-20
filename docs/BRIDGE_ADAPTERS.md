@@ -27,9 +27,12 @@ per-agent webhook URL. Weft delivers signed envelope events to that URL.
   signatures older than `max_age_seconds` (default 300s).
 - **Credential hygiene**: only the SHA-256 hash of the webhook secret is stored.
   The raw secret is never returned after registration.
-- **SSRF boundary**: production delivery rejects loopback, private, link-local,
-  metadata, and other special-use destinations, and never follows redirects.
-  Local test/dev receivers require an explicit `allow_local_webhooks=True` opt-in.
+- **SSRF boundary**: delivery resolves the hostname immediately before the
+  request, rejects every non-global address (including shared and IPv4-mapped
+  ranges), and pins the TCP connection to the validated address. The original
+  hostname remains in the HTTP `Host` header and HTTPS SNI. Delivery accepts
+  only 2xx responses and never follows redirects. Local test/dev receivers
+  require an explicit `allow_local_webhooks=True` opt-in.
 
 ### PollingBridge
 
