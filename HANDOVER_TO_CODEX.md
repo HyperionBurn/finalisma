@@ -13,15 +13,14 @@ Everything else is yours to decide and execute.
 
 This file was written 2026-08-12 against the `integration` branch world. Several facts below are
 no longer current. Corrections are measured against the current checkout
-`C:\Users\Wasif\Documents\Multiplayer-AI-integration`, branch
-`codex/stdio-stale-session-recovery-2026-08-17`, HEAD `c9c2bb9`; each has
-file/line evidence in the tree.
+`C:\Users\Wasif\Documents\Multiplayer-AI-integration`, merged `main` HEAD
+`52a3ef0`; each has file/line evidence in the tree. A feature branch may be
+active while a new PR is in flight.
 
-- **Branch state:** this checkout contains the merged PR1–43 baseline plus the
-  verified PR44–55 hardening stack; `origin/main` is the merge baseline and
+- **Branch state:** this checkout contains the merged PR1–68 hardening stack;
   hosted merge status must still be read from GitHub rather than inferred here.
 - **Test count:** the latest local evidence is recorded in
-  `docs/RELEASE_EVIDENCE.md` (1198 discovered, 1197 passed, 1 skipped,
+  `docs/RELEASE_EVIDENCE.md` (1199 discovered, 1198 passed, 1 skipped,
   measured 2026-08-20). The published count is guarded by
   `tests/test_site.py::TestCountSyncTests`; hosted deployment and merge proof
   are separate claims. Every "721 / 716 / 894" number in this file is historical.
@@ -31,7 +30,8 @@ file/line evidence in the tree.
   credential path.
 - **Deploy state:** not verifiable from this lane. Verify against production by request (§5)
   before repeating "production still has every defect below".
-- §4 constraint "11 migrations" is stale: the registry is `cloud_001`..`cloud_014` (15 rows).
+- §4 constraint "11 migrations" is stale: the registry is 16 migrations,
+  `cloud_001` through `cloud_016`.
 
 ---
 
@@ -59,14 +59,14 @@ toward driving the live product and reporting what hurts.**
 ## 2. THE CRITICAL PATH — do this first
 
 **Deployment of this current stack is not verified in this checkout.**
-The production state and the PR44–55 merge state must be checked directly before
+The production state and the merged main stack must be checked directly before
 claiming that any repository fix is live. Several older defects below are
 historical and have been fixed in the current code; verify each claim against
 the current source and deployment probe.
 Fixed code that is not deployed is worth nothing to a user. This is the highest-value work
 available to you, more valuable than writing anything new.
 
-### Branches with finished, committed, green work
+### Historical branch ledger — do not treat as current
 
 | worktree | branch | what it is |
 |---|---|---|
@@ -105,7 +105,7 @@ Scratchpad path:
 
 ---
 
-## 3. Known-broken on production RIGHT NOW
+## 3. Historical production findings — last observed 2026-08-15
 
 Verified by live request today. All fixed in branches, none deployed.
 
@@ -165,7 +165,7 @@ Frozen. Breaking any of them is worse than shipping nothing.
 - Do not weaken auth, revocation, rate limiting or quotas to make a test pass or a task easier.
   If a change would make something currently-protected reachable, **stop and report instead**.
 - Migration ids are the ledger's primary key. A new migration needs a **unique** new id — two rows
-  sharing an id makes "has this run?" unanswerable. There are **15** today, `cloud_001`..`cloud_014`
+  sharing an id makes "has this run?" unanswerable. There are **16** today, `cloud_001`..`cloud_016`
   (the `cloud_010` id collision was resolved by renaming one branch's migration to `cloud_011`;
   see `src/weft_cloud/migrations.py`).
 
@@ -237,25 +237,22 @@ commit `d344ebe`). The 24h session TTL itself is still true in code.
 
 `PYTHONUTF8 = "1"` is also in that env block. **Do not remove it.** Without it, Windows decodes
 your UTF-8 JSON-RPC as cp1252 and every non-ASCII character you send is destroyed. That is the
-mitigation for the bug you found; the permanent fix is on `integration` but is not deployed.
+mitigation for the bug you found; the permanent fix is in the current source tree.
+Deployment status remains unverified.
 
 ---
 
 ## 7. Open work, roughly by value
 
-1. **Merge and deploy everything above.** Highest value by a wide margin.
-   **Reality (2026-08-15):** `feature/product-perfect` is 17 commits ahead of `integration`
-   (merge-base `7c74e27`). The merge target and deploy state are yours to determine — verify by
-   request (§5), do not trust this file's 2026-08-12 deploy claims.
-2. Finish `feature/agent-keys`: long-lived revocable keys, then update the docs that currently tell
-   users to put a session token in their MCP config — that guidance is the bug.
-   **DONE IN TREE (2026-08-15):** agent keys exist (`cloud_012_identity_agent_keys`,
+1. **Verify deployment of the merged main stack.** The merge target is `main`;
+   current public behavior must be checked by request (§5), not inferred from
+   this handover.
+2. **Historical agent-key work is complete in the tree:** agent keys exist (`cloud_012_identity_agent_keys`,
    `/v1/agent-keys`, `/v1/agent-keys/revoke`); signout revokes them truthfully and admin cannot
-   mint owner keys (commit `d344ebe`). Remaining: sweep docs/site copy that still tells users to
-   put an `fss_` session token in their MCP config.
-3. Fix the payload 413 to return a structured tool error naming the limit.
-   **DONE IN TREE (2026-08-15):** structured `request_too_large` JSON-RPC error naming the 512 KiB
-   limit (`src/weft_cloud/mcp.py:122`). Verify on production.
+   mint owner keys (commit `d344ebe`). Remaining work is deployment verification and documentation
+   truth, not implementation of the key flow.
+3. **Historical payload-limit work is complete in the tree:** structured `request_too_large`
+   JSON-RPC error naming the 512 KiB limit (`src/weft_cloud/mcp.py:122`). Verify on production.
 4. Sweep for any other domain exception falling through to `internal_error`. It should mean "we
    genuinely broke", nothing else.
 5. Keep using the product. Long multi-turn runs, many agents on one link, deliberately wrong
@@ -285,7 +282,7 @@ cd "<ABSOLUTE_WORKTREE>" && nohup opencode run \
 - Check what is alive with `ps -W | grep -ci opencode`.
 - **One lane per worktree, always.** Two lanes in one worktree corrupt each other's edits.
   Create a fresh one when you need it:
-  `git worktree add C:/Users/Wasif/Documents/Multiplayer-AI-<name> -b feature/<name> integration`
+  `git worktree add C:/Users/Wasif/Documents/Multiplayer-AI-<name> -b feature/<name> main`
 - **`--dir` does NOT confine a lane.** Absolute paths inside the brief text override it. Always
   write the correct absolute path in the brief AND say "ignore any other path you see".
 

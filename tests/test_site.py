@@ -1287,6 +1287,17 @@ class TestCountSyncTests(unittest.TestCase):
             f"(R10: counts must be <= live, not equal — see the postmortem)",
         )
 
+    def test_quickstart_requires_fresh_host_proof(self) -> None:
+        """The public quickstart must not turn an unverified origin into a claim."""
+        quickstart = (SITE / "docs" / "quickstart.html").read_text(encoding="utf-8")
+        llms = (SITE / "llms.txt").read_text(encoding="utf-8")
+        self.assertIn("Deployment gate", quickstart)
+        self.assertIn("YOUR-VERIFIED-WEFT-ORIGIN", quickstart)
+        self.assertIn('id="self-hosted"', quickstart)
+        self.assertNotIn("weft.switzerlandnorth.cloudapp.azure.com", quickstart)
+        self.assertIn("documented-unverified", llms)
+        self.assertNotIn("weft.switzerlandnorth.cloudapp.azure.com", llms)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -6,13 +6,13 @@ compatibility claim.
 
 ## Latest regression evidence
 
-Measured locally on the current source/test stack (branch
-`codex/automatic-activation-metrics-2026-08-20`, source baseline `0bf1b2f7`):
+Measured locally on the current source/test stack (merged base `main` at
+`52a3ef0`; a feature branch may be active while a PR is in flight):
 
 - Command: `python -B -m unittest discover -s tests -p "test_*.py"`
-- Result: **1198 tests discovered; 1197 passed; 1 skipped**
-- Duration: 465.204 seconds on the local Windows runner
-- Focused hosted-MCP/count suite: 35 tests passed locally
+- Result: **1199 tests discovered; 1198 passed; 1 skipped**
+- Duration: 477.546 seconds on the local Windows runner
+- Focused hosted-MCP/count suite: 36 tests passed locally
   (`tests.test_hosted_mcp` and `tests.test_site.TestCountSyncTests`)
 - Site build: not rerun in this SDK-only local command; prior site evidence
   remains on the earlier stacked PRs
