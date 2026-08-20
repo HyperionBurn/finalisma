@@ -7,15 +7,15 @@ compatibility claim.
 ## Latest regression evidence
 
 Measured locally on the current source/test stack (merged base `main` at
-`1866db4`; a feature branch may be active while a PR is in flight):
+`fd05155`; a feature branch may be active while a PR is in flight):
 
 - Command: `python -B -m unittest discover -s tests -p "test_*.py"`
-- Result: **1200 tests discovered; 1199 passed; 1 skipped**
-- Duration: 455.650 seconds on the local Windows runner
+- Result: **1201 tests discovered; 1200 passed; 1 skipped**
+- Duration: 456.596 seconds on the local Windows runner
 - Focused hosted-MCP/count suite: 36 tests passed locally
   (`tests.test_hosted_mcp` and `tests.test_site.TestCountSyncTests`)
-- Site build: not rerun in this SDK-only local command; prior site evidence
-  remains on the earlier stacked PRs
+- Site build: `npm run build` passed with no app origin, and the rendered
+  Playwright harness refreshed `artifacts/design-qa/qa-results.json` with exit 0
 - `git diff --check`: passed
 
 Hosted CI, review, merge, and deployment status must be read from the linked

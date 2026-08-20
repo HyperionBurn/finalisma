@@ -1,5 +1,5 @@
 {
-  "siteUrl": "http://127.0.0.1:51025/",
+  "siteUrl": "http://127.0.0.1:55620/",
   "viewport": {
     "desktop": "1440x900",
     "mobile": [
@@ -53,7 +53,7 @@
       "stdioHidden": true,
       "selectedTab": "true"
     },
-    "tierCopied": "POST /mcp HTTP/1.1\nHost: weft.switzerlandnorth.cloudapp.azure.com\nContent-Type: application/json\nAuthorization: Bearer <agk_ agent key>\n\n{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}",
+    "tierCopied": "POST /mcp HTTP/1.1\nHost: YOUR-VERIFIED-WEFT-ORIGIN\nContent-Type: application/json\nAuthorization: Bearer <agk_ agent key>\n\n{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}",
     "cohortStatus": "Brief copied to clipboard. Send it to the channel that brought you here.",
     "cohortApplicationPrepared": true,
     "noJsCohort": {
@@ -150,15 +150,15 @@
     }
   },
   "canvas": {
-    "frameTimeMedianMs": 18.299999998882413,
-    "frameTimeP95Ms": 45.600000001490116,
+    "frameTimeMedianMs": 20,
+    "frameTimeP95Ms": 21.700000001117587,
     "canvasAnimated": true
   },
   "performanceChecks": {
     "cls": 0,
-    "lcp": 296,
+    "lcp": 952,
     "longTasks": [
-      149
+      122
     ],
     "resourceCount": 11,
     "transferBytes": 1370624,
@@ -168,7 +168,7 @@
     "axeResults": [
       {
         "label": "home",
-        "url": "http://127.0.0.1:51025/",
+        "url": "http://127.0.0.1:55620/",
         "violations": [],
         "violationCount": 0,
         "passes": 28,
@@ -176,7 +176,7 @@
       },
       {
         "label": "blog",
-        "url": "http://127.0.0.1:51025/blog/index.html",
+        "url": "http://127.0.0.1:55620/blog/index.html",
         "violations": [],
         "violationCount": 0,
         "passes": 15,
@@ -184,7 +184,7 @@
       },
       {
         "label": "article",
-        "url": "http://127.0.0.1:51025/blog/secure-agent-handoffs.html",
+        "url": "http://127.0.0.1:55620/blog/secure-agent-handoffs.html",
         "violations": [],
         "violationCount": 0,
         "passes": 11,
@@ -192,7 +192,7 @@
       },
       {
         "label": "docs",
-        "url": "http://127.0.0.1:51025/docs/index.html",
+        "url": "http://127.0.0.1:55620/docs/index.html",
         "violations": [],
         "violationCount": 0,
         "passes": 15,
@@ -200,7 +200,7 @@
       },
       {
         "label": "demo",
-        "url": "http://127.0.0.1:51025/demo.html",
+        "url": "http://127.0.0.1:55620/demo.html",
         "violations": [],
         "violationCount": 0,
         "passes": 17,
@@ -208,7 +208,7 @@
       },
       {
         "label": "404",
-        "url": "http://127.0.0.1:51025/404.html",
+        "url": "http://127.0.0.1:55620/404.html",
         "violations": [],
         "violationCount": 0,
         "passes": 17,
@@ -218,7 +218,7 @@
     "lighthouseResults": [
       {
         "name": "home",
-        "url": "http://127.0.0.1:51025/",
+        "url": "http://127.0.0.1:55620/",
         "checks": {
           "focusableCount": 36,
           "labelledControls": 4,
@@ -244,7 +244,7 @@
       },
       {
         "name": "blog",
-        "url": "http://127.0.0.1:51025/blog/index.html",
+        "url": "http://127.0.0.1:55620/blog/index.html",
         "checks": {
           "focusableCount": 7,
           "labelledControls": 0,
@@ -270,7 +270,7 @@
       },
       {
         "name": "article",
-        "url": "http://127.0.0.1:51025/blog/secure-agent-handoffs.html",
+        "url": "http://127.0.0.1:55620/blog/secure-agent-handoffs.html",
         "checks": {
           "focusableCount": 6,
           "labelledControls": 0,
@@ -296,7 +296,7 @@
       },
       {
         "name": "docs",
-        "url": "http://127.0.0.1:51025/docs/index.html",
+        "url": "http://127.0.0.1:55620/docs/index.html",
         "checks": {
           "focusableCount": 9,
           "labelledControls": 0,
@@ -322,7 +322,7 @@
       },
       {
         "name": "demo",
-        "url": "http://127.0.0.1:51025/demo.html",
+        "url": "http://127.0.0.1:55620/demo.html",
         "checks": {
           "focusableCount": 8,
           "labelledControls": 0,
@@ -348,7 +348,7 @@
       },
       {
         "name": "404",
-        "url": "http://127.0.0.1:51025/404.html",
+        "url": "http://127.0.0.1:55620/404.html",
         "checks": {
           "focusableCount": 3,
           "labelledControls": 0,

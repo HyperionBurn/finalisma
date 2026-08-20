@@ -4,7 +4,7 @@
 
 The source visual target is [site/design-target.svg](site/design-target.svg): the FIELD NOTES magazine system, with oxblood cover bands alternating with paper-stone article bands, Fraunces display serif with true italics, Big Shoulders Display labels, a 12-column grid, and ASSERT/PROVE colour roles. (The DOUBLE ENTRY ledger system is superseded and was deleted; see AGENT_HANDOVER.md §2.1.)
 
-The implementation under review is [site/index.html](site/index.html), the [recorded-proof watch page](site/demo.html), plus the self-contained guides, field notes, 404 page, license page, and reconciliation interaction. The conversion goal is one design-partner application for a non-production incident handoff—not a generic waitlist.
+The implementation under review is [site/index.html](site/index.html), the [recorded-proof watch page](site/demo.html), plus the self-contained guides, field notes, 404 page, license page, and reconciliation interaction. The conversion goal is a truthful local proof path and a portable Pro/Enterprise brief—not a fake lead backend or generic waitlist.
 
 The differentiating visual move is the reconciliation plane: on desktop it begins below the page surface, rises through the account as entries post, and settles flat only when the evidence account closes. DFII: 15 = impact 4 + fit 5 + feasibility 4 + performance 4 - consistency risk 2.
 
@@ -70,28 +70,32 @@ Desktop density is 1440 x 900 at deviceScaleFactor 1. Mobile coverage is 390 x 8
 ## Product truth and information architecture
 
 - The homepage says exactly what transfers and what remains with each host.
+- The checked-in homepage sends users to the deployment gate and self-hosted proof. A verified `PUBLIC_APP_ORIGIN` is required before signup/login CTAs are materialized.
 - Compatibility is published as nine documented MCP paths and zero live Weft host validations. Codex + Claude Code is a proposed first proof pair, not a completed integration.
 - “Coordination Protocol Preview 0.1” replaces “A2A Standard 1.0.”
 - The site bundle now includes a local quickstart, protocol preview, security boundary, compatibility ledger, three field notes, MIT license, and branded 404. All internal static links resolve inside `site/`.
 - The bundle also contains a reproducible MP4/WebM proof, poster, English captions, and AI-readable redacted run transcript. The coordinator path is real; the two agent hosts are explicitly deterministic fixtures.
-- The offer is concrete: eight 10-100-person AI-native engineering teams, 30 days, a non-production incident mirror, a $500 deposit credited toward a $1,000/workspace/month pricing hypothesis.
+- The current offer is Free / Pro / Enterprise. Free has documented limits, Pro and Enterprise have no checkout, and the site builds a portable brief without transmitting it.
 
 ## Fresh verification
 
-`python -B -m unittest discover -s tests -v` passed the historical website-focused
-65-test harness; the current local repository evidence is recorded in
-[`docs/RELEASE_EVIDENCE.md`](docs/RELEASE_EVIDENCE.md) (1200 discovered, 1199
+`python -B -m unittest discover -s tests -p "test_*.py"` passed the current
+local regression; the current local repository evidence is recorded in
+[`docs/RELEASE_EVIDENCE.md`](docs/RELEASE_EVIDENCE.md) (1201 discovered, 1200
 passed, 1 skipped). This does not claim browser or production proof.
 
-`node scripts/capture-site-qa.cjs` exits 0 with:
+`python -B scripts/run-site-qa.py` ran the rendered Playwright harness on
+2026-08-20 and exited 0 with:
 
 - zero console errors;
 - zero failed requests;
 - zero HTTP error responses;
 - zero third-party runtime requests;
-- six homepage resources and 184,382 transferred bytes;
-- local observed LCP 224ms and CLS 0.000026;
-- no long task over 200ms;
+- 11 homepage resources and 1,370,624 transferred bytes;
+- local observed LCP 952ms and CLS 0;
+- one 122ms long task, below the 200ms local guard;
+- zero axe violations across six pages; home and demo each returned one incomplete axe result, which remains a manual-review item rather than a zero-risk claim;
+- an animated canvas with 20ms frame-time median and 21.7ms p95;
 - passing desktop, mobile, reduced-motion, no-JavaScript, guide, blog, and recorded-proof checks;
 - validated 43.04-second, 1280 x 720 MP4 and WebM sources with a default English caption track and no horizontal overflow.
 
