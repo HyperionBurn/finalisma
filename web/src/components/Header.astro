@@ -28,7 +28,7 @@ import { APP_LOGIN_URL, APP_SIGNUP_URL } from '../lib/app';
     Open a room
     <span class="btn__icon" aria-hidden="true">→</span>
   </a>
-  <button class="nav-toggle" aria-expanded="false" aria-controls="mobile-nav" aria-label="Open menu">
+  <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="mobile-nav" aria-label="Open menu">
     <span></span>
     <span></span>
     <span></span>
@@ -108,16 +108,33 @@ import { APP_LOGIN_URL, APP_SIGNUP_URL } from '../lib/app';
       if (toggle) {
         toggle.classList.add('is-open');
         toggle.setAttribute('aria-expanded', 'true');
+        toggle.setAttribute('aria-label', 'Close menu');
       }
       setBackgroundInert(true);
       if (document.body) document.body.style.overflow = 'hidden';
-      const firstFocusable = getFocusable()[0];
-      if (firstFocusable) {
-        firstFocusable.focus();
-      } else {
-        mobileNav.setAttribute('tabindex', '-1');
-        mobileNav.focus();
-      }
+      mobileNav.setAttribute('tabindex', '-1');
+      // Flush the visibility change before focusing. Without this, browsers
+      // can reject focus while the overlay still reports hidden styles.
+      void mobileNav.offsetHeight;
+      const focusFirstControl = () => {
+        if (mobileNav.getAttribute('aria-hidden') !== 'false') return;
+        const firstFocusable = getFocusable()[0];
+        if (firstFocusable) {
+          firstFocusable.focus();
+        } else {
+          mobileNav.setAttribute('tabindex', '-1');
+          mobileNav.focus();
+        }
+      };
+      // Attempt immediately for keyboard users and again after the open state
+      // is painted. The second attempt also covers visibility transitions.
+      focusFirstControl();
+      // Focus after the open state is painted. This also works when a host
+      // stylesheet adds a visibility transition to the overlay.
+      requestAnimationFrame(() => {
+        focusFirstControl();
+        mobileNav.addEventListener('transitionend', focusFirstControl, { once: true });
+      });
     }
 
     function closeNav() {
@@ -130,6 +147,7 @@ import { APP_LOGIN_URL, APP_SIGNUP_URL } from '../lib/app';
       if (toggle) {
         toggle.classList.remove('is-open');
         toggle.setAttribute('aria-expanded', 'false');
+        toggle.setAttribute('aria-label', 'Open menu');
       }
       if (document.body) document.body.style.overflow = '';
       if (toggle?.isConnected) toggle.focus();
@@ -147,9 +165,21 @@ import { APP_LOGIN_URL, APP_SIGNUP_URL } from '../lib/app';
 
       closeBtn?.addEventListener('click', closeNav);
 
-      // Close on anchor click.
+      // Close on anchor click. Prevent the browser's default hash behavior
+      // from moving focus back to a section after the modal restores focus.
       mobileNav.querySelectorAll('a').forEach((a) => {
-        a.addEventListener('click', closeNav);
+        a.addEventListener('click', (event) => {
+          const href = a.getAttribute('href') || '';
+          if (href.startsWith('#')) {
+            event.preventDefault();
+            closeNav();
+            const target = document.querySelector(href);
+            target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            window.history?.pushState({}, '', href);
+            return;
+          }
+          closeNav();
+        });
       });
 
       document.addEventListener('keydown', (e) => {
@@ -359,9 +389,9 @@ import { APP_LOGIN_URL, APP_SIGNUP_URL } from '../lib/app';
     opacity: 0;
     pointer-events: none;
     visibility: hidden;
-    transition:
-      opacity var(--dur-mid, 300ms) var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1)),
-      visibility var(--dur-mid, 300ms) var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1));
+    /* Keep visibility discrete so the dialog can receive focus immediately.
+       Opacity still provides the visual entrance transition. */
+    transition: opacity var(--dur-mid, 300ms) var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1));
   }
   :global(.mobile-nav.is-open) {
     opacity: 1;

@@ -59,8 +59,8 @@ const tiers = [
       <h2 id="pricing-title" class="scroll-in" style="--delay:80ms">Start free. Pay for seats when you need them.</h2>
       <p class="section-lede scroll-in" style="--delay:160ms">
         Free is permanent: no expiry, no sales call, no clock. Ten members per
-        room is enough to run something real — the demo on this page runs two agents
-        in one room, and you can reproduce that on the free tier on day one.
+        room is enough to run something real — the simulated demo depicts two agents
+        in one room, and you can reproduce that workflow on the free tier on day one.
       </p>
     </div>
 
@@ -150,9 +150,15 @@ const tiers = [
       const contact = fieldValue('contact');
       const hosts = fieldValue('hosts');
       const scenario = fieldValue('scenario');
+      const contactControl = widget?.querySelector('[name="contact"]') as HTMLInputElement | null;
 
       if (!team || !contact) {
         setStatus('Team and contact email are required.');
+        return;
+      }
+      if (contactControl && !contactControl.checkValidity()) {
+        contactControl.reportValidity?.();
+        setStatus('Enter a valid contact email.');
         return;
       }
 
