@@ -171,40 +171,53 @@ echo "== nginx: route public join links and MCP to the cloud service =="
 # returns a 303 login redirect instead of speaking MCP — exactly the bug
 # that made the hosted service unreachable from Claude Code / Cursor / Zed.
 if [ -f "$APP/src/weft_cloud/mcp.py" ]; then
-  CONF=$(ls /etc/nginx/sites-enabled/ | head -1)
-  if [ -z "$CONF" ]; then
-    echo "  WARNING: no site in /etc/nginx/sites-enabled — skipping /mcp route"
-  elif ! sudo grep -qE 'location (\^~ )?/j/|location /mcp' "/etc/nginx/sites-enabled/$CONF" \
-      || ! sudo grep -q 'location /mcp' "/etc/nginx/sites-enabled/$CONF"; then
-    sudo python3 - "/etc/nginx/sites-enabled/$CONF" <<'PYEOF'
+  : "${WEFT_NGINX_CONF:?set WEFT_NGINX_CONF to the intended nginx site file first}"
+  : "${WEFT_NGINX_SERVER_NAME:?set WEFT_NGINX_SERVER_NAME to the intended nginx server_name first}"
+  CONF="$WEFT_NGINX_CONF"
+  if [ ! -f "$CONF" ]; then
+    echo "FATAL: nginx site file does not exist: $CONF" >&2
+    exit 1
+  fi
+  if ! sudo python3 - "$CONF" "$WEFT_NGINX_SERVER_NAME" <<'PYEOF'
 import re, sys
-p = sys.argv[1]
-s = open(p).read()
-blocks = [
-    (r"location\s+\^~\s+/j/\s*\{", "    location ^~ /j/ {\n"
-     "        proxy_pass http://127.0.0.1:18788;\n"
-     "        proxy_set_header Host $host;\n"
-     "        proxy_set_header X-Forwarded-Proto $scheme;\n"
-     "        proxy_read_timeout 60s;\n"
-     "        proxy_buffering off;\n"
-     "    }\n"),
-    (r"location\s+/mcp\s*\{", "    location /mcp {\n"
-     "        proxy_pass http://127.0.0.1:18788;\n"
-     "        proxy_set_header Host $host;\n"
-     "        proxy_set_header X-Forwarded-Proto $scheme;\n"
-     "        proxy_read_timeout 300s;\n"
-     "        proxy_buffering off;\n"
-     "    }\n"),
-]
-for pattern, block in blocks:
-    if not re.search(pattern, s):
-        s = re.sub(r"(\n\s*location / \{)", "\n" + block + r"\1", s, count=1)
-open(p, "w").write(s)
-print("  /j/ and /mcp routes ensured")
+from pathlib import Path
+
+path = Path(sys.argv[1])
+expected = sys.argv[2]
+text = path.read_text(encoding="utf-8")
+active = "\n".join(line.split("#", 1)[0] for line in text.splitlines())
+for match in re.finditer(r"\bserver_name\s+([^;]+);", active):
+    if expected in match.group(1).split():
+        raise SystemExit(0)
+print(f"FATAL: {expected!r} is not declared by {path}", file=sys.stderr)
+raise SystemExit(1)
 PYEOF
-    sudo nginx -t && sudo systemctl reload nginx && echo "  nginx reloaded"
+  then
+    exit 1
+  fi
+  HAS_JOIN=0
+  HAS_MCP=0
+  sudo grep -qE 'location[[:space:]]+\^~[[:space:]]+/j/[[:space:]]*\{' "$CONF" && HAS_JOIN=1 || true
+  sudo grep -qE 'location[[:space:]]*=[[:space:]]*/mcp[[:space:]]*\{' "$CONF" && HAS_MCP=1 || true
+  if [ "$HAS_JOIN" != "1" ] || [ "$HAS_MCP" != "1" ]; then
+    NGINX_BACKUP="${CONF}.pre-weft-$(date -u +%Y%m%dT%H%M%SZ)"
+    sudo cp -a "$CONF" "$NGINX_BACKUP"
+    sudo python3 "$SCRIPT_DIR/ensure_nginx_routes.py" \
+      --config "$CONF" --server-name "$WEFT_NGINX_SERVER_NAME"
+    if ! sudo nginx -t; then
+      sudo cp -a "$NGINX_BACKUP" "$CONF"
+      echo "FATAL: nginx rejected the edited configuration; restored $CONF from $NGINX_BACKUP" >&2
+      exit 1
+    fi
+    if ! sudo systemctl reload nginx; then
+      sudo cp -a "$NGINX_BACKUP" "$CONF"
+      sudo nginx -t >/dev/null 2>&1 || true
+      echo "FATAL: nginx reload failed; restored $CONF from $NGINX_BACKUP" >&2
+      exit 1
+    fi
+    echo "  nginx reloaded; pre-change backup kept at $NGINX_BACKUP"
   else
-    echo "  /mcp route already present"
+    echo "  explicit /j/ and /mcp routes already present"
   fi
 else
   echo "  hosted MCP not in this build — skipping /mcp route"

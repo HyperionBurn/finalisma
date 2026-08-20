@@ -26,8 +26,31 @@ not been pointed at the live VM as part of writing it.
 | `scripts/backup_cloud_db.py` | VM | WAL-safe online backup (`sqlite3.Connection.backup()`) with rotation. |
 | `scripts/restore_drill.py` | VM | Restores a backup to a temp copy and proves it is actually usable. |
 | `scripts/healthcheck.py` | VM | Backend `/healthz` plus unauthenticated edge `POST /mcp` probe, dependency-free. |
+| `scripts/ensure_nginx_routes.py` | VM | Edits only the explicitly selected, server-name-validated nginx site file. |
 | `scripts/mail_error_detail.py` | (library) | Structured SMTP failure detail — see "Known gaps" below. |
 | `scripts/systemd/*` | VM (templates) | Timer/service units for backup, restore-drill, healthcheck. Not installed by anything in this repo — review and `cp` them in yourself. |
+
+## Deployment trust preflight
+
+The VM push script fails closed unless the operator supplies three values from
+independently verified deployment records:
+
+```bash
+export WEFT_SSH_KNOWN_HOSTS=/path/to/verified-weft-known_hosts
+export WEFT_NGINX_CONF=/etc/nginx/sites-enabled/weft.conf
+export WEFT_NGINX_SERVER_NAME=weft.example.com
+```
+
+`WEFT_SSH_KNOWN_HOSTS` is passed to every `ssh` and `scp` call with
+`StrictHostKeyChecking=yes` and `BatchMode=yes`. Do not generate it from an
+unverified `ssh-keyscan` result. `WEFT_NGINX_CONF` identifies the exact site
+file to edit, and `WEFT_NGINX_SERVER_NAME` must appear in that file's
+`server_name` directive. The cutover never selects the first file in
+`/etc/nginx/sites-enabled`.
+
+When the cutover changes nginx, it keeps a timestamped copy beside the site
+file. It inserts `/j/` and the exact-match `/mcp` route independently. If
+`nginx -t` or the reload fails, it restores the copy and exits non-zero.
 
 ## The four failures
 
@@ -130,6 +153,20 @@ JSON line per run (timestamp, backend/edge URLs, status, latency, short error
 detail — never a response body or credentials) and exits non-zero on any
 failure so `systemctl --failed` surfaces the outage.
 `scripts/systemd/weft-healthcheck.timer` runs it every minute.
+
+The healthcheck template requires `/etc/weft/healthcheck.env` with an explicit
+public HTTPS origin. It does not default to loopback HTTP:
+
+```bash
+sudo install -d -o root -g azureuser -m 0750 /etc/weft /var/log/weft
+printf '%s\n' 'WEFT_EDGE_URL=https://your-public-origin.example' | sudo tee /etc/weft/healthcheck.env >/dev/null
+sudo chown root:azureuser /etc/weft/healthcheck.env
+sudo chmod 0640 /etc/weft/healthcheck.env
+```
+
+The service creates `/var/log/weft` and `/var/backups/weft` with the service
+user's ownership before it runs. This avoids a timer that is enabled but
+cannot write its own log or backup because `/var` remains root-owned.
 
 ## Known gaps (stated, not hidden)
 

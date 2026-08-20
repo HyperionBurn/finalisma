@@ -6,6 +6,7 @@
 # Triggered by weft-backup.timer, not run directly.
 #
 # Install:
+#   sudo install -d -o root -g azureuser -m 0750 /var/backups/weft
 #   sudo cp scripts/systemd/weft-backup.service scripts/systemd/weft-backup.timer /etc/systemd/system/
 #   sudo systemctl daemon-reload
 #   sudo systemctl enable --now weft-backup.timer
@@ -19,4 +20,6 @@ After=network.target
 [Service]
 Type=oneshot
 User=azureuser
+PermissionsStartOnly=true
+ExecStartPre=/usr/bin/install -d -o azureuser -g azureuser -m 0700 /var/backups/weft
 ExecStart=/usr/bin/python3 /opt/weft/scripts/backup_cloud_db.py --src /var/lib/finalisma/cloud.db --backup-dir /var/backups/weft --keep 30
