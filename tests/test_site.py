@@ -200,7 +200,7 @@ class LaunchSurfaceTests(unittest.TestCase):
         self.assertIn(f"one {longest_task}ms long task", report)
         accessibility = qa["accessibility"]
         self.assertEqual(accessibility["totalAxeViolations"], 0)
-        self.assertIn("zero axe violations across six pages", report)
+        self.assertIn("zero axe violations across eight pages", report)
         self.assertIn("manual-review item", report)
 
     def test_site_never_overclaims_liveness_or_enforcement(self) -> None:

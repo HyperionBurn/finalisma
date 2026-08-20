@@ -7,7 +7,7 @@ compatibility claim.
 ## Latest regression evidence
 
 Measured locally on the current source/test stack (merged base `main` at
-`aba6433`; a feature branch may be active while a PR is in flight):
+`7ed49a0`; a feature branch may be active while a PR is in flight):
 
 - Command: `python -B -m unittest discover -s tests -p "test_*.py"`
 - Result: **1206 tests discovered; 1205 passed; 1 skipped**
@@ -24,6 +24,10 @@ Measured locally on the current source/test stack (merged base `main` at
   `docker compose -f compose.yaml config --quiet`
 - Site build: `npm run build` passed with no app origin, and the rendered
   Playwright harness refreshed `artifacts/design-qa/qa-results.json` with exit 0
+- Rendered UX fallback: the browser harness proved the denied-clipboard path
+  leaves a labelled brief visible, focused, and prepared; no console errors,
+  failed requests, or HTTP error responses occurred, and axe reported zero
+  violations across eight scanned pages
 - `git diff --check`: passed
 
 Hosted CI, review, merge, and deployment status must be read from the linked

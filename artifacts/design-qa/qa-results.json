@@ -1,5 +1,5 @@
 {
-  "siteUrl": "http://127.0.0.1:55620/",
+  "siteUrl": "http://127.0.0.1:63453/",
   "viewport": {
     "desktop": "1440x900",
     "mobile": [
@@ -56,6 +56,9 @@
     "tierCopied": "POST /mcp HTTP/1.1\nHost: YOUR-VERIFIED-WEFT-ORIGIN\nContent-Type: application/json\nAuthorization: Bearer <agk_ agent key>\n\n{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}",
     "cohortStatus": "Brief copied to clipboard. Send it to the channel that brought you here.",
     "cohortApplicationPrepared": true,
+    "cohortClipboardFallbackVisible": true,
+    "cohortClipboardFallbackFocused": true,
+    "cohortClipboardFallbackPrepared": true,
     "noJsCohort": {
       "locationSearch": "",
       "navigated": false,
@@ -150,25 +153,25 @@
     }
   },
   "canvas": {
-    "frameTimeMedianMs": 20,
-    "frameTimeP95Ms": 21.700000001117587,
+    "frameTimeMedianMs": 18.80000000074483,
+    "frameTimeP95Ms": 42.599999997764826,
     "canvasAnimated": true
   },
   "performanceChecks": {
     "cls": 0,
-    "lcp": 952,
+    "lcp": 232,
     "longTasks": [
-      122
+      119
     ],
     "resourceCount": 11,
-    "transferBytes": 1370624,
-    "domNodes": 364
+    "transferBytes": 1371120,
+    "domNodes": 366
   },
   "accessibility": {
     "axeResults": [
       {
         "label": "home",
-        "url": "http://127.0.0.1:55620/",
+        "url": "http://127.0.0.1:63453/",
         "violations": [],
         "violationCount": 0,
         "passes": 28,
@@ -176,7 +179,7 @@
       },
       {
         "label": "blog",
-        "url": "http://127.0.0.1:55620/blog/index.html",
+        "url": "http://127.0.0.1:63453/blog/index.html",
         "violations": [],
         "violationCount": 0,
         "passes": 15,
@@ -184,7 +187,7 @@
       },
       {
         "label": "article",
-        "url": "http://127.0.0.1:55620/blog/secure-agent-handoffs.html",
+        "url": "http://127.0.0.1:63453/blog/secure-agent-handoffs.html",
         "violations": [],
         "violationCount": 0,
         "passes": 11,
@@ -192,15 +195,31 @@
       },
       {
         "label": "docs",
-        "url": "http://127.0.0.1:55620/docs/index.html",
+        "url": "http://127.0.0.1:63453/docs/index.html",
         "violations": [],
         "violationCount": 0,
         "passes": 15,
         "incomplete": 0
       },
       {
+        "label": "quickstart",
+        "url": "http://127.0.0.1:63453/docs/quickstart.html",
+        "violations": [],
+        "violationCount": 0,
+        "passes": 18,
+        "incomplete": 0
+      },
+      {
+        "label": "compatibility",
+        "url": "http://127.0.0.1:63453/docs/compatibility.html",
+        "violations": [],
+        "violationCount": 0,
+        "passes": 12,
+        "incomplete": 0
+      },
+      {
         "label": "demo",
-        "url": "http://127.0.0.1:55620/demo.html",
+        "url": "http://127.0.0.1:63453/demo.html",
         "violations": [],
         "violationCount": 0,
         "passes": 17,
@@ -208,7 +227,7 @@
       },
       {
         "label": "404",
-        "url": "http://127.0.0.1:55620/404.html",
+        "url": "http://127.0.0.1:63453/404.html",
         "violations": [],
         "violationCount": 0,
         "passes": 17,
@@ -218,11 +237,11 @@
     "lighthouseResults": [
       {
         "name": "home",
-        "url": "http://127.0.0.1:55620/",
+        "url": "http://127.0.0.1:63453/",
         "checks": {
           "focusableCount": 36,
-          "labelledControls": 4,
-          "totalControls": 4,
+          "labelledControls": 5,
+          "totalControls": 5,
           "unlabelledControls": 0,
           "liveRegionCount": 6,
           "imagesTotal": 0,
@@ -244,7 +263,7 @@
       },
       {
         "name": "blog",
-        "url": "http://127.0.0.1:55620/blog/index.html",
+        "url": "http://127.0.0.1:63453/blog/index.html",
         "checks": {
           "focusableCount": 7,
           "labelledControls": 0,
@@ -270,7 +289,7 @@
       },
       {
         "name": "article",
-        "url": "http://127.0.0.1:55620/blog/secure-agent-handoffs.html",
+        "url": "http://127.0.0.1:63453/blog/secure-agent-handoffs.html",
         "checks": {
           "focusableCount": 6,
           "labelledControls": 0,
@@ -296,7 +315,7 @@
       },
       {
         "name": "docs",
-        "url": "http://127.0.0.1:55620/docs/index.html",
+        "url": "http://127.0.0.1:63453/docs/index.html",
         "checks": {
           "focusableCount": 9,
           "labelledControls": 0,
@@ -321,8 +340,60 @@
         }
       },
       {
+        "name": "quickstart",
+        "url": "http://127.0.0.1:63453/docs/quickstart.html",
+        "checks": {
+          "focusableCount": 26,
+          "labelledControls": 0,
+          "totalControls": 0,
+          "unlabelledControls": 0,
+          "liveRegionCount": 0,
+          "imagesTotal": 0,
+          "imagesWithAlt": 0,
+          "imagesMissingAlt": 0,
+          "skipLinkPresent": true,
+          "headingOrderViolations": 0,
+          "landmarks": {
+            "hasMain": true,
+            "hasNav": false,
+            "hasHeader": true,
+            "hasFooter": true,
+            "mainCount": 1,
+            "h1Count": 1,
+            "navCount": 0,
+            "ariaLandmarks": 0
+          }
+        }
+      },
+      {
+        "name": "compatibility",
+        "url": "http://127.0.0.1:63453/docs/compatibility.html",
+        "checks": {
+          "focusableCount": 14,
+          "labelledControls": 0,
+          "totalControls": 0,
+          "unlabelledControls": 0,
+          "liveRegionCount": 0,
+          "imagesTotal": 0,
+          "imagesWithAlt": 0,
+          "imagesMissingAlt": 0,
+          "skipLinkPresent": true,
+          "headingOrderViolations": 0,
+          "landmarks": {
+            "hasMain": true,
+            "hasNav": false,
+            "hasHeader": true,
+            "hasFooter": true,
+            "mainCount": 1,
+            "h1Count": 1,
+            "navCount": 0,
+            "ariaLandmarks": 0
+          }
+        }
+      },
+      {
         "name": "demo",
-        "url": "http://127.0.0.1:55620/demo.html",
+        "url": "http://127.0.0.1:63453/demo.html",
         "checks": {
           "focusableCount": 8,
           "labelledControls": 0,
@@ -348,7 +419,7 @@
       },
       {
         "name": "404",
-        "url": "http://127.0.0.1:55620/404.html",
+        "url": "http://127.0.0.1:63453/404.html",
         "checks": {
           "focusableCount": 3,
           "labelledControls": 0,
@@ -374,7 +445,7 @@
       }
     ],
     "totalAxeViolations": 0,
-    "totalAxePages": 6,
+    "totalAxePages": 8,
     "lighthouseNote": "Lightweight Lighthouse-equivalent checks implemented inline (landmarks, form labels, focus order, image alt, heading order, skip link). Run `npx lighthouse <url>` for full scores."
   },
   "signals": {

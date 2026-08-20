@@ -131,7 +131,9 @@ const tiers = [
           <textarea id="cohort-scenario" name="scenario" rows="3" placeholder="Rooms, agents, and the handoffs you want to run."></textarea>
         </div>
         <button class="btn btn-accent group" type="button" data-cohort-build>Build the brief<span class="btn__icon" aria-hidden="true">→</span></button>
-        <div class="cohort-form__status" data-cohort-status role="status" aria-live="polite"></div>
+        <label class="sr-only" for="cohort-brief">Generated contact brief</label>
+        <textarea id="cohort-brief" class="cohort-form__brief" data-cohort-brief rows="8" readonly hidden aria-describedby="cohort-form-status"></textarea>
+        <div id="cohort-form-status" class="cohort-form__status" data-cohort-status role="status" aria-live="polite"></div>
       </div>
     </div>
   </div>
@@ -144,6 +146,7 @@ const tiers = [
   (function () {
     const widget = document.querySelector('[data-cohort-form]');
     const buildBtn = document.querySelector('[data-cohort-build]');
+    const briefEl = document.querySelector('[data-cohort-brief]') as HTMLTextAreaElement | null;
     const statusEl = document.querySelector('[data-cohort-status]');
 
     function setStatus(msg: string) {
@@ -155,6 +158,19 @@ const tiers = [
       return (control && (control as HTMLInputElement).value || '').trim();
     }
 
+    function clearManualCopy() {
+      if (!briefEl) return;
+      briefEl.value = '';
+      briefEl.hidden = true;
+    }
+
+    function showManualCopy(text: string) {
+      if (!briefEl) return;
+      briefEl.value = text;
+      briefEl.hidden = false;
+      briefEl.focus();
+    }
+
     async function buildBrief() {
       const team = fieldValue('team');
       const contact = fieldValue('contact');
@@ -163,10 +179,12 @@ const tiers = [
       const contactControl = widget?.querySelector('[name="contact"]') as HTMLInputElement | null;
 
       if (!team || !contact) {
+        clearManualCopy();
         setStatus('Team and contact email are required.');
         return;
       }
       if (contactControl && !contactControl.checkValidity()) {
+        clearManualCopy();
         contactControl.reportValidity?.();
         setStatus('Enter a valid contact email.');
         return;
@@ -193,12 +211,15 @@ const tiers = [
           ta.style.opacity = '0';
           document.body.appendChild(ta);
           ta.select();
-          document.execCommand('copy');
+          const copied = document.execCommand('copy');
           document.body.removeChild(ta);
+          if (!copied) throw new Error('clipboard copy blocked');
         }
+        clearManualCopy();
         setStatus('Brief copied to clipboard. Send it to the channel that brought you here.');
       } catch {
-        setStatus('Copy failed — select and copy the text manually.');
+        showManualCopy(text);
+        setStatus('Copy was blocked — review the brief below and copy it manually.');
       }
     }
 

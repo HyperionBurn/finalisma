@@ -54,13 +54,14 @@ Desktop density is 1440 x 900 at deviceScaleFactor 1. Mobile coverage is 390 x 8
 - Manual controls independently reach `closed on evidence / balanced`, reveal the cohort CTA only at balance, and reset to `unopened / open`.
 - Mobile tap-through reaches `balanced`; the panel is static, compact, fully visible, and flat at all three viewports.
 - The mobile navigation is inert while closed, becomes interactive while open, traps keyboard focus, closes on Escape, and returns to inert.
-- Copy feedback and application feedback use polite live regions.
+- Copy feedback and application feedback use polite live regions. If clipboard access is blocked, the generated brief remains visible in a labelled, read-only textarea and receives focus for manual copy.
 - The design-partner form validates required fields and prepares a portable application through Web Share, clipboard, or a text download. It explicitly states that nothing is transmitted.
 - The custom server returns the branded 404 body with an actual HTTP 404 status.
 
 ## Accessibility and resilience
 
 - One H1 per page; labelled form controls; named links and buttons; skip links; visible focus treatment.
+- The denied-clipboard path keeps the brief labelled, selectable, visible, and focused instead of leaving the customer with an unrecoverable message.
 - No-JavaScript mode leaves every reveal and type treatment visible and exposes a scrollable mobile fallback navigation instead of a dead menu button.
 - Reduced-motion mode removes sticky travel and 3D transform while keeping the full story readable and controllable.
 - Forced-colours rules retain visible entry marks and textual state.
@@ -91,11 +92,12 @@ passed, 1 skipped). This does not claim browser or production proof.
 - zero failed requests;
 - zero HTTP error responses;
 - zero third-party runtime requests;
-- 11 homepage resources and 1,370,624 transferred bytes;
-- local observed LCP 952ms and CLS 0;
-- one 122ms long task, below the 200ms local guard;
-- zero axe violations across six pages; home and demo each returned one incomplete axe result, which remains a manual-review item rather than a zero-risk claim;
-- an animated canvas with 20ms frame-time median and 21.7ms p95;
+- 11 homepage resources and 1,371,120 transferred bytes;
+- local observed LCP 232ms and CLS 0;
+- one 119ms long task, below the 200ms local guard;
+- zero axe violations across eight pages; home and demo each returned one incomplete axe result, which remains a manual-review item rather than a zero-risk claim;
+- an animated canvas with 18.8ms frame-time median and 42.6ms p95;
+- a denied-clipboard browser check with the fallback visible, focused, and prepared without transmitting the brief;
 - passing desktop, mobile, reduced-motion, no-JavaScript, guide, blog, and recorded-proof checks;
 - validated 43.04-second, 1280 x 720 MP4 and WebM sources with a default English caption track and no horizontal overflow.
 

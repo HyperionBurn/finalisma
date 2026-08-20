@@ -331,6 +331,19 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
   await desktop.waitForTimeout(200);
   const cohortStatus = await form.locator("[data-cohort-status]").textContent();
   const cohortClipboard = await desktop.evaluate(() => window.__weftCopied || "");
+  await desktop.evaluate(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async () => { throw new Error("clipboard denied"); } }
+    });
+  });
+  await form.locator('[data-cohort-build]').click();
+  await desktop.waitForTimeout(200);
+  const cohortClipboardFallbackVisible = await form.locator('[data-cohort-brief]').isVisible();
+  const cohortClipboardFallbackText = await form.locator('[data-cohort-brief]').inputValue();
+  const cohortClipboardFallbackFocused = await desktop.evaluate(() => document.activeElement?.matches('[data-cohort-brief]') === true);
+  const cohortClipboardFallbackPrepared = /^=== Weft/.test(cohortClipboardFallbackText)
+    && /operator@example\.com/.test(cohortClipboardFallbackText);
 
   // No-JS leak gate: the cohort widget must be inert with scripting disabled.
   // Filling the fields and clicking the build trigger must NOT change
@@ -433,6 +446,8 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
     ["blog", new URL("blog/index.html", siteUrl).href],
     ["article", new URL("blog/secure-agent-handoffs.html", siteUrl).href],
     ["docs", new URL("docs/index.html", siteUrl).href],
+    ["quickstart", new URL("docs/quickstart.html", siteUrl).href],
+    ["compatibility", new URL("docs/compatibility.html", siteUrl).href],
     ["demo", new URL("demo.html", siteUrl).href],
     ["404", new URL("404.html", siteUrl).href]
   ];
@@ -548,6 +563,9 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
       tierCopied,
       cohortStatus,
       cohortApplicationPrepared: /\bWeft\b/.test(cohortClipboard),
+      cohortClipboardFallbackVisible,
+      cohortClipboardFallbackFocused,
+      cohortClipboardFallbackPrepared,
       noJsCohort,
       gateTriggered: gateAfterTrigger,
       gateStateText,
@@ -607,6 +625,9 @@ const mobileLayoutChecks = (page) => page.evaluate(() => {
     || tierSwitched.selectedTab !== "true"
     || !tierCopied.includes("mcp")
     || !/\bWeft\b/.test(cohortClipboard)
+    || !cohortClipboardFallbackVisible
+    || !cohortClipboardFallbackFocused
+    || !cohortClipboardFallbackPrepared
     || !noJsCohort.leakFree
     || !Object.values(supportingPageChecks).every((checks) => Object.values(checks).every(Boolean))
     || !demoPageChecks.oneH1

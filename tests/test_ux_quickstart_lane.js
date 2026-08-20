@@ -84,6 +84,11 @@ test('small-screen code guidance is focusable without introducing overflow', () 
   assert.match(css, /\.article-code\s*\{[^}]*overflow-x:\s*auto/s);
 });
 
+test('compatibility tier note uses readable paper ink', () => {
+  const css = read('site/styles.css');
+  assert.match(css, /\.fig-note\s*\{[^}]*color:\s*var\(--ink-faint\)/s);
+});
+
 test('branded 404 exposes the global skip link target', () => {
   const html = read('site/404.html');
 
