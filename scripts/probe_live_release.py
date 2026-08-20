@@ -288,6 +288,59 @@ def _summary(response: dict) -> dict:
     }
 
 
+def _safe_endpoint_facts(response: dict) -> dict:
+    """Return operator-useful facts without exposing a response body."""
+    headers = response.get("headers", {})
+    facts = {
+        "status": response.get("status"),
+        "content_type": headers.get("content-type", ""),
+        "bytes": response.get("bytes", 0),
+        "truncated": bool(response.get("truncated", False)),
+    }
+    if headers.get("location"):
+        facts["location"] = headers["location"]
+    if response.get("error"):
+        facts["error"] = response["error"]
+    return facts
+
+
+def _diagnostics(checks: dict[str, bool], endpoints: dict[str, dict]) -> list[dict]:
+    """Explain failed checks using redacted endpoint facts only."""
+    specs = (
+        ("reachability", "API health and site home must return HTTP 200", ("api_health", "site_home")),
+        ("api_health", "API health must return HTTP 200 with a status/ok marker", ("api_health",)),
+        ("api_root_redirects_to_login", "API root must redirect to /login", ("api_root",)),
+        ("api_security_headers", "API responses must include the required security headers", ("api_health", "api_root", "api_login", "api_signup")),
+        ("api_signup_reachable", "API signup must return HTTP 200", ("api_signup",)),
+        ("site_home_reachable", "Site home must return HTTP 200", ("site_home",)),
+        ("site_docs_reachable", "Site docs must return HTTP 200", ("site_docs",)),
+        ("site_quickstart_reachable", "Site quickstart must return HTTP 200", ("site_quickstart",)),
+        ("site_demo_reachable", "Site demo must return HTTP 200", ("site_demo",)),
+        ("site_404_reachable", "Site 404 route must return the expected edge status", ("site_404",)),
+        ("site_release_markers", "Site home must contain canonical, og:url, and data-cohort-build markers", ("site_home",)),
+        ("site_signup_cta_target", "Site home must link to the probed API signup origin", ("site_home", "api_signup")),
+        ("site_canonical_og_metadata", "The home, docs, quickstart, and demo pages must expose aligned social metadata", ("site_home", "site_docs", "site_quickstart", "site_demo")),
+        ("site_demo_captions_media", "The demo must reference and serve both video formats and default captions", ("site_demo", *tuple(_MEDIA))),
+        ("site_404_content", "The 404 route must expose the branded missing-path message", ("site_404",)),
+        ("site_indexing", "Robots and sitemap must point to the probed site origin", ("site_robots", "site_sitemap")),
+        ("site_release_manifest", "The release manifest must align with the sitemap and media contract", ("site_manifest", "site_sitemap")),
+        ("site_security_headers", "All site and media responses must include the required security headers", ("site_home", "site_docs", "site_quickstart", "site_demo", "site_404", "site_robots", "site_sitemap", "site_manifest", *tuple(_MEDIA))),
+        ("release_alignment", "All hosted release-contract checks must pass together", tuple(endpoints)),
+    )
+    return [
+        {
+            "check": check,
+            "expected": expected,
+            "endpoints": {
+                name: _safe_endpoint_facts(endpoints[name])
+                for name in endpoint_names
+            },
+        }
+        for check, expected, endpoint_names in specs
+        if not checks.get(check, False)
+    ]
+
+
 def probe(api_origin: str, site_origin: str, timeout: float = 20.0) -> dict:
     api_origin = _origin(api_origin)
     site_origin = _origin(site_origin)
@@ -426,31 +479,33 @@ def probe(api_origin: str, site_origin: str, timeout: float = 20.0) -> dict:
         if reachability_ok
         else "UNREACHABLE"
     )
+    checks = {
+        "reachability": reachability_ok,
+        "api_health": api_health_ok,
+        "api_root_redirects_to_login": api_login_redirect_ok,
+        "api_security_headers": api_headers_ok,
+        "api_signup_reachable": endpoints["api_signup"]["status"] == 200,
+        "site_home_reachable": site_home_ok,
+        "site_docs_reachable": site_docs_ok,
+        "site_quickstart_reachable": site_quickstart_ok,
+        "site_demo_reachable": site_demo_ok,
+        "site_404_reachable": site_404_ok,
+        "site_release_markers": site_release_markers_ok,
+        "site_signup_cta_target": site_signup_cta_ok,
+        "site_canonical_og_metadata": site_metadata_ok,
+        "site_demo_captions_media": site_demo_media_ok,
+        "site_404_content": site_404_content_ok,
+        "site_indexing": site_indexing_ok,
+        "site_release_manifest": site_manifest_ok,
+        "site_security_headers": site_headers_ok,
+        "release_alignment": release_alignment_ok,
+    }
     return {
         "probe": "weft-live-release-v1",
         "origins": {"api": api_origin, "site": site_origin},
         "status": status,
-        "checks": {
-            "reachability": reachability_ok,
-            "api_health": api_health_ok,
-            "api_root_redirects_to_login": api_login_redirect_ok,
-            "api_security_headers": api_headers_ok,
-            "api_signup_reachable": endpoints["api_signup"]["status"] == 200,
-            "site_home_reachable": site_home_ok,
-            "site_docs_reachable": site_docs_ok,
-            "site_quickstart_reachable": site_quickstart_ok,
-            "site_demo_reachable": site_demo_ok,
-            "site_404_reachable": site_404_ok,
-            "site_release_markers": site_release_markers_ok,
-            "site_signup_cta_target": site_signup_cta_ok,
-            "site_canonical_og_metadata": site_metadata_ok,
-            "site_demo_captions_media": site_demo_media_ok,
-            "site_404_content": site_404_content_ok,
-            "site_indexing": site_indexing_ok,
-            "site_release_manifest": site_manifest_ok,
-            "site_security_headers": site_headers_ok,
-            "release_alignment": release_alignment_ok,
-        },
+        "checks": checks,
+        "diagnostics": _diagnostics(checks, endpoints),
         "endpoints": {name: _summary(response) for name, response in endpoints.items()},
     }
 

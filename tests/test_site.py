@@ -1365,6 +1365,18 @@ class TestCountSyncTests(unittest.TestCase):
         self.assertIn("documented-unverified", llms)
         self.assertNotIn("weft.switzerlandnorth.cloudapp.azure.com", llms)
 
+    def test_quickstart_prioritizes_local_proof_before_hosted_credentials(self) -> None:
+        """The first actionable lane must work without hosted deployment proof."""
+        quickstart = (SITE / "docs" / "quickstart.html").read_text(encoding="utf-8")
+        self.assertLess(
+            quickstart.index('id="self-hosted"'),
+            quickstart.index("<h2>1. Create an account</h2>"),
+        )
+        self.assertIn("Start here: local proof", quickstart)
+        self.assertIn("Hosted path — only after fresh edge proof", quickstart)
+        self.assertIn("hosted free use still requires a verified deployment", quickstart)
+        self.assertNotIn("free works end-to-end through sign-up today", quickstart)
+
 
 if __name__ == "__main__":
     unittest.main()
