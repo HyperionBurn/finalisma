@@ -4,10 +4,11 @@
 > what this repository is, what has already been built, what is verified, and what
 > must not be accidentally broken.
 
-The current website release audit is
+The website release audit below is historical. It is
 [`docs/WEBSITE_COMPLETION_AUDIT_2026-07-31.md`](docs/WEBSITE_COMPLETION_AUDIT_2026-07-31.md).
-Read it for the exact local PASS evidence and the two external values still
-required before public deployment.
+Read it for dated local evidence only. Use [`docs/GO_LIVE.md`](docs/GO_LIVE.md)
+and [`docs/RELEASE_EVIDENCE.md`](docs/RELEASE_EVIDENCE.md) for current local
+status and the remaining deployment gates.
 
 ## 1. The product in one paragraph
 
@@ -21,8 +22,8 @@ agents behave like a governed team. The product promise is:
 > `docs/INTEROP_VALIDATION_2026-08-05.md`); the HTTP, bridge, and SDK tiers have
 > committed protocol-tier transcripts (`docs/INTEROP_HTTP_2026-08-05.md`,
 > `docs/INTEROP_BRIDGE_2026-08-05.md`, `docs/INTEROP_SDK_2026-08-05.md`);
-> host-product breadth for those tiers is still being consolidated
-> (`docs/INTEROP_VALIDATION_2026-08-15.md`, in flight).
+> host-product breadth for those tiers remains open; the protocol-tier transcript
+> is landed in `docs/INTEROP_VALIDATION_2026-08-15.md`.
 
 The first startup wedge is evidence-backed handoffs for AI-native engineering teams:
 incident triage and pull-request review. One agent opens a narrowly scoped task;
@@ -40,7 +41,7 @@ demo survived that rebuild as the reconciliation spread in folio 03:
 
 - The page scrolls naturally through a tall track (`.recon-track`).
 - The pinned viewport (`.recon-sticky`) stays below the site header, at the offset
-  declared once as `--header-h` (currently 64px).
+  declared once as `--header-h` (currently 58px).
 - Scroll progress posts a deterministic ledger from 0 to 7 entries, draining red as
   it goes, and moves the account from `OUT OF BALANCE` to `BALANCED`.
 - Post first entry / Post next / Reverse and replay controls remain available and
@@ -373,17 +374,17 @@ runtime dependencies in `pyproject.toml`.
 
 ### Launch the site
 
-The site server defaults to port 4173. The currently verified live server used port
-4175 because that port was already managed for this workspace:
+The site server defaults to port 4173. Use port 4175 as an alternate local port
+when the default is occupied. The port is not a claim that a server is listening:
 
 ```powershell
 Get-NetTCPConnection -LocalPort 4175 -State Listen -ErrorAction SilentlyContinue
 python -B .\scripts\weft-site.py --host 127.0.0.1 --port 4175
 ```
 
-Open <http://127.0.0.1:4175/>. Check both `/` and `/blog/index.html` return 200 before
-claiming the site is live. Do not start a second server if port 4175 is already
-listening.
+Open <http://127.0.0.1:4175/> after the command starts. Check both `/` and
+`/blog/index.html` return 200 before claiming the site is live. Do not start a
+second server if port 4175 is already listening.
 
 ### Run the real protocol smoke
 
@@ -427,7 +428,7 @@ The published test count is guarded automatically by
 same loader and pattern as `unittest discover -s tests` and fails if any
 published instance in `docs/` or `site/` claims a count ABOVE the live count
 (the guard protects against deleted tests; adding tests never invalidates a
-published number). The latest local count is **1198 discovered, 1197 passed,
+published number). The latest local count is **1199 discovered, 1198 passed,
 1 skipped**, measured 2026-08-20 and recorded in `docs/RELEASE_EVIDENCE.md`.
 If you delete tests, that guard will tell you what to update. Do not
 hand-maintain the number, and do not confuse the test count with the permanent
@@ -586,8 +587,8 @@ Priority order for the next agent:
 3. Test the actual MCP install in at least two real host products. Capture the exact
    config UI, first pairing time, failure cases, reconnect behavior, and unsupported
    host adapters.
-4. Add the first real design-partner workflow and instrument activation, first
-   evidence-gated handoff, repeat handoff, reconnect, failure, and time-to-value metrics.
+4. Add the first real design-partner workflow. Extend the automatic activation
+   instrumentation for repeat handoff, reconnect, failure, and time-to-value metrics.
 5. Before public hosted traffic, implement or explicitly scope OAuth/OIDC,
    multi-tenant isolation, shared storage, distributed rate limits, outbox/retry
    behavior, retention/deletion, load/partition/reconnect tests, and operational
@@ -606,7 +607,7 @@ Priority order for the next agent:
    scaling. The image build itself is untested until run on a machine with
    Docker installed; `docs/DEPLOY.md` records the exact verification status.
    Making it a real multi-node service is a storage-layer change.
-9. A hosted MCP endpoint now exists at `POST /mcp` on `weft-cloud`
+9. A hosted MCP endpoint exists in source at `POST /mcp` on `weft-cloud`
    (`src/weft_cloud/mcp.py`, `docs/HOSTED_MCP_DESIGN.md`): authenticated with
    cloud sessions, tenant-confined, exposing the 12 room tools over
    `CloudRoomService` (the same store `/v1` uses). The **SDK now drives all
@@ -614,11 +615,9 @@ Priority order for the next agent:
    `room_remove_member` added) and REST has `/v1/rooms/receipts` +
    `/v1/rooms/remove_member` parity with 400-not-500 cursor errors
    (`1e0aa5a`). What remains, in priority order:
-   a. the consolidated host-product breadth transcript
-      (`docs/INTEROP_VALIDATION_2026-08-15.md`, in flight) — the stdio tier
-      is host-verified (OpenCode 1.18.13), and HTTP/bridge/SDK protocol-tier
-      transcripts are committed, but host-product breadth for those tiers is
-      the open item per `docs/PRODUCT_ROADMAP.md` §3;
+   a. host-product breadth beyond the historical OpenCode 1.18.13 run — the
+      HTTP/bridge/SDK protocol-tier transcripts are committed, but current
+      third-party host runs remain the open item per `docs/PRODUCT_ROADMAP.md` §3;
    b. scale proof at 10/50 agents (in flight in a separate worktree — do not
       claim numbers until it lands with evidence);
    c. a controlled idle-host rerun of the performance gate, which is red
@@ -630,10 +629,10 @@ the rendered width and offender checks in future visual regression passes.
 
 ## 9. Workspace hygiene rules
 
-- Work only inside the current checkout `C:\Users\Wasif\Documents\Multiplayer-AI-integration`
-  (branch `codex/stdio-stale-session-recovery-2026-08-17`). The latest local test
-  evidence is in `docs/RELEASE_EVIDENCE.md`; do not infer merge or deployment
-  status from it.
+- Work only inside the current checkout `C:\Users\Wasif\Documents\Multiplayer-AI-integration`.
+  The merged base is `main` at `52a3ef0`; consult Git for the current feature
+  branch. The latest local test evidence is in `docs/RELEASE_EVIDENCE.md`; do not
+  infer merge or deployment status from it.
   `C:\Users\Wasif\Documents\Multiplayer-AI-isolated` (branch `isolated`) and
   `C:\Users\Wasif\Documents\Multiplayer-AI` (branch `master`) are **separate
   worktrees** with their own work; never read from or write to them from a

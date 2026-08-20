@@ -70,10 +70,11 @@ benchmark.
 Capture these events:
 
 - `link_created`
+- `link_previewed`
 - `link_accepted`
 - `first_task_claimed`
-- `first_verified_handoff`
-- `second_weekly_handoff`
+- `first_evidence_verified`
+- `second_weekly_handoff` (design-partner KPI, separate from the automatic funnel)
 - failure reason, unsupported host, or unclear consent
 
 The primary activation metric is median time from link creation to the first
@@ -125,7 +126,7 @@ boundary; do not present its absolute timings as a hosted-service SLA.
 **Historical gate snapshot (2026-08-15, `feature/product-perfect`):** that
 branch recorded 960 tests and a merge-gate pass, but this is not current
 integration or deployment evidence. The latest local regression is recorded
-in [`RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1198 discovered, 1197 passed,
+in [`RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1199 discovered, 1198 passed,
 and 1 skipped. The performance gate is **red under host-load noise**: recent captures ran with multiple
 agent sessions active on the host, so the standing rule applies — rerun on a
 controlled idle host; never rebaseline to hide it. `docs/PERFORMANCE.md`
@@ -133,8 +134,9 @@ owns the provenance and is the only place those numbers live. The hosted
 service itself is not yet exercised by this checklist: its deployment is the
 containerised single-instance runbook in `docs/DEPLOY.md` (image build
 untested on a Docker machine). Scale proof at 10/50 agents and the
-consolidated interop-breadth transcript are in flight in other worktrees and
-are not claimed here until they land with evidence.
+the committed protocol-tier interop transcript is landed. Current third-party
+host-product breadth remains open and is not claimed here until it has fresh
+evidence.
 
 For an internet-facing coordinator, stop and complete the gates in
 [SECURITY_GATES.md](SECURITY_GATES.md): shared transactional storage,
