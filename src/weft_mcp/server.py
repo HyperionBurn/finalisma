@@ -650,7 +650,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "bridge_poll",
-        "description": "Poll an agent's bridge outbox for unacked events since a cursor. At-most-once delivery.",
+        "description": "Poll an agent's bridge outbox for unacked events since a cursor. Events replay until acknowledged.",
         "inputSchema": _object_schema({
             "team_id": STRING,
             "agent_id": STRING,

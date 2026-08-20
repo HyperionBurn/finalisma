@@ -220,7 +220,9 @@ def main() -> int:
             str(workspace),
             require_actor_auth=True,
         )
-        webhook = WebhookBridge(bridge_store)
+        # The validator owns a loopback receiver. Production bridge instances
+        # keep the default fail-closed local-webhook policy.
+        webhook = WebhookBridge(bridge_store, allow_local_webhooks=True)
         polling = PollingBridge(bridge_store)
         clipboard = ClipboardBridge(bridge_store)
 
@@ -274,7 +276,7 @@ def main() -> int:
             clipboard_refusal_text = str(exc)
             transcript.append(f"# clipboard.parse_bootstrap (2nd) refused: {exc}")
 
-        # ---- 3. PollingBridge: enqueue / get_pending / ack / no-repeat --
+        # ---- 3. PollingBridge: enqueue / replay-until-ack / no-repeat ----
         enqueue_result = polling.enqueue(
             team_id=TEAM_ID,
             agent_id="bridge-agent",
@@ -299,7 +301,25 @@ def main() -> int:
             f"# polling.get_pending (cursor=0): returned {len(got_events)} event(s), next_cursor={next_cursor}"
         )
 
-        # ack it
+        # A retry before acknowledgement replays the event. This is the
+        # at-least-once delivery contract for reconnect-safe polling.
+        pending_retry = polling.get_pending(
+            team_id=TEAM_ID,
+            agent_id="bridge-agent",
+            cursor=next_cursor,
+            actor_token=actor_token,
+        )
+        polling_replayed_until_ack = (
+            len(pending_retry.get("events", [])) == 1
+            and pending_retry["events"][0].get("event_id") == event_id
+        )
+        transcript.append(
+            f"# polling.get_pending retry (cursor={next_cursor}): returned "
+            f"{len(pending_retry.get('events', []))} event(s) "
+            f"{'(at-least-once until ack OK)' if polling_replayed_until_ack else '(REPLAY MISSING — bad)'}"
+        )
+
+        # Ack it.
         ack_result = polling.ack(
             team_id=TEAM_ID,
             agent_id="bridge-agent",
@@ -308,17 +328,17 @@ def main() -> int:
         )
         transcript.append(f"# polling.ack: acked_count={ack_result.get('acked_count')} cursor={ack_result.get('cursor')}")
 
-        # get_pending again returns nothing (at-most-once)
+        # After acknowledgement, get_pending returns nothing.
         pending2 = polling.get_pending(
             team_id=TEAM_ID,
             agent_id="bridge-agent",
             cursor=next_cursor,
             actor_token=actor_token,
         )
-        polling_atmostonce = len(pending2.get("events", [])) == 0
+        polling_no_repeat_after_ack = len(pending2.get("events", [])) == 0
         transcript.append(
             f"# polling.get_pending (cursor={next_cursor}): returned {len(pending2.get('events', []))} event(s) "
-            f"{'(at-most-once OK)' if polling_atmostonce else '(REPEATED — bad)'}"
+            f"{'(no repeat after ack OK)' if polling_no_repeat_after_ack else '(REPEATED — bad)'}"
         )
 
         # NEGATIVE: wrong token poll is refused (actor binding)
@@ -432,7 +452,8 @@ def main() -> int:
             parsed_ok,
             clipboard_one_shot_refused,
             polling_got_event,
-            polling_atmostonce,
+            polling_replayed_until_ack,
+            polling_no_repeat_after_ack,
             polling_wrong_token_refused,
             polling_nonmember_refused,
             webhook_received,
@@ -452,9 +473,10 @@ def main() -> int:
                 "second_parse_refused": clipboard_one_shot_refused,
                 "refusal": clipboard_refusal_text,
             },
-            "polling_atmostonce": {
+            "polling_atleastonce_until_ack": {
                 "got_event": polling_got_event,
-                "no_repeat": polling_atmostonce,
+                "replayed_before_ack": polling_replayed_until_ack,
+                "no_repeat_after_ack": polling_no_repeat_after_ack,
                 "wrong_token_refused": polling_wrong_token_refused,
                 "wrong_token_refusal": polling_wrong_token_text,
                 "nonmember_refused": polling_nonmember_refused,

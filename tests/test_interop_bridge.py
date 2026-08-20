@@ -276,7 +276,7 @@ class BridgeInteropTests(unittest.TestCase):
         polling.ack(TEAM_ID, "bridge-agent", [event_id], actor_token=self.actor_token)
 
         pending2 = polling.get_pending(TEAM_ID, "bridge-agent", cursor=next_cursor, actor_token=self.actor_token)
-        self.assertEqual(len(pending2["events"]), 0)  # at-most-once
+        self.assertEqual(len(pending2["events"]), 0)  # no repeat after acknowledgement
 
     def test_polling_wrong_token_refused(self) -> None:
         polling = PollingBridge(self.bridge_store)
