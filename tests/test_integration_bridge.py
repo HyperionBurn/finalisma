@@ -59,7 +59,7 @@ class BridgeIntegrationTests(unittest.TestCase):
     # 1. Webhook registration returns webhook_id; secret never returned.
     # ------------------------------------------------------------------
     def test_webhook_register_returns_webhook_id_and_hides_secret(self) -> None:
-        secret_ref = "whsec_live_secret_value_do_not_leak_12345"
+        secret_ref = "test_webhook_secret_value_do_not_leak_12345"
         result = self._call_bridge(
             "bridge_webhook_register",
             team_id=self.team_id,
@@ -87,7 +87,7 @@ class BridgeIntegrationTests(unittest.TestCase):
                 agent_id=self.agent_id,
                 actor_token="fst_actor_wrong_token_value_that_is_long_enough_123456",
                 url="https://example.com/weft/webhook",
-                secret_ref="whsec_live_secret_value_do_not_leak_12345",
+                secret_ref="test_webhook_secret_value_do_not_leak_12345",
             )
         self.assertEqual(ctx.exception.code, "actor_auth_invalid")
 

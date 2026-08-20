@@ -296,7 +296,7 @@ class BridgeInteropTests(unittest.TestCase):
         self.webhook_receiver = _WebhookReceiver()
         self.webhook_receiver.start()
         webhook = WebhookBridge(self.bridge_store, allow_local_webhooks=True)
-        secret = "whsec_live_signing_secret_value_12345"
+        secret = "test_webhook_signing_secret_value_12345"
 
         wh = webhook.register_webhook(
             team_id=TEAM_ID,
@@ -342,7 +342,7 @@ class BridgeInteropTests(unittest.TestCase):
         self.webhook_receiver = _WebhookReceiver()
         self.webhook_receiver.start()
         webhook = WebhookBridge(self.bridge_store, allow_local_webhooks=True)
-        secret = "whsec_live_signing_secret_value_12345"
+        secret = "test_webhook_signing_secret_value_12345"
         wh = webhook.register_webhook(
             team_id=TEAM_ID,
             agent_id="bridge-agent",
