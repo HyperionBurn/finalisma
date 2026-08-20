@@ -7,11 +7,11 @@ compatibility claim.
 ## Latest regression evidence
 
 Measured locally on the current source/test stack (branch
-`codex/bridge-safe-cursor-bounds-2026-08-20`, source baseline `92b2f91`):
+`codex/automatic-activation-metrics-2026-08-20`, source baseline `0bf1b2f7`):
 
 - Command: `python -B -m unittest discover -s tests -p "test_*.py"`
-- Result: **1197 tests discovered; 1196 passed; 1 skipped**
-- Duration: 580.094 seconds on the local Windows runner
+- Result: **1198 tests discovered; 1197 passed; 1 skipped**
+- Duration: 465.427 seconds on the local Windows runner
 - Focused hosted-MCP/count suite: 35 tests passed locally
   (`tests.test_hosted_mcp` and `tests.test_site.TestCountSyncTests`)
 - Site build: not rerun in this SDK-only local command; prior site evidence

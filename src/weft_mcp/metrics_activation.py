@@ -9,14 +9,15 @@ Headline metric: time-to-first-verified-handoff (ttfvh_ms), measured from
 link_created_at to first_evidence_verified_at for the same workspace.
 
 Integration seam:
-    The orchestrator is expected to call ``init(db_path)`` at server startup
-    and route store events through ``record_from_store_event(store_event)``.
-    This module does NOT wire itself — wiring is the orchestrator's job.
+    ``WeftDispatcher`` calls ``init(db_path)`` at startup and attaches a
+    same-connection observer to the core store. Direct callers can still use
+    ``record_from_store_event(store_event)`` for an explicit integration seam.
 """
 
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 import sqlite3
 import threading
@@ -34,13 +35,16 @@ ACTIVATION_EVENTS = (
     "first_evidence_verified",
 )
 
-# Mapping from core store event types → activation event types.
-# The orchestrator routes store events through record_from_store_event().
+# Mapping from core store event types → activation event types. The legacy
+# names remain accepted for callers that used the original integration seam.
 _STORE_EVENT_MAP: dict[str, str] = {
+    "pairing.issued": "link_created",
     "pairing.created": "link_created",
     "pairing.previewed": "link_previewed",
+    "pairing.joined": "link_accepted",
     "pairing.accepted": "link_accepted",
     "task.claimed": "first_task_claimed",
+    "quality.evaluated": "first_evidence_verified",
     "task.verified": "first_evidence_verified",
 }
 
@@ -103,9 +107,14 @@ def init(db_path: str | Any) -> None:
         _db_path = str(db_path)
         connection = _connect(_db_path)
         try:
-            connection.executescript(_SCHEMA)
+            ensure_schema(connection)
         finally:
             connection.close()
+
+
+def ensure_schema(connection: sqlite3.Connection) -> None:
+    """Create the metrics tables on an existing SQLite connection."""
+    connection.executescript(_SCHEMA)
 
 
 def _connection() -> sqlite3.Connection:
@@ -170,15 +179,99 @@ def record_event(
     connection = _connection()
     try:
         connection.execute("BEGIN IMMEDIATE")
-        connection.execute(
-            "INSERT OR IGNORE INTO metrics_events(event_id, team_id, agent_id, event_type, occurred_at, metadata_json) VALUES (?, ?, ?, ?, ?, ?)",
-            (event_id, team_id, agent_id, event_type, occurred_at, json.dumps(metadata, sort_keys=True)),
+        result = _record_event_on_connection(
+            connection,
+            team_id,
+            agent_id,
+            event_type,
+            metadata,
+            event_id=event_id,
+            occurred_at=occurred_at,
         )
         connection.commit()
+        return result
+    except Exception:
+        connection.rollback()
+        raise
     finally:
         connection.close()
 
+
+def _record_event_on_connection(
+    connection: sqlite3.Connection,
+    team_id: str,
+    agent_id: str,
+    event_type: str,
+    metadata: dict[str, Any],
+    *,
+    event_id: str,
+    occurred_at: str,
+) -> str:
+    """Insert an event without opening or committing a nested transaction."""
+    if event_type not in ACTIVATION_EVENTS:
+        raise ValueError(f"Unknown activation event type: {event_type!r}")
+    if not isinstance(metadata, dict):
+        raise ValueError("metadata must be an object")
+    _assert_no_pii(metadata)
+    connection.execute(
+        "INSERT OR IGNORE INTO metrics_events(event_id, team_id, agent_id, event_type, occurred_at, metadata_json) VALUES (?, ?, ?, ?, ?, ?)",
+        (event_id, team_id, agent_id, event_type, occurred_at, json.dumps(metadata, sort_keys=True, separators=(",", ":"))),
+    )
+    workspace_id = metadata.get("workspace_id")
+    if isinstance(workspace_id, str) and workspace_id:
+        _refresh_funnel(connection, team_id, workspace_id)
     return event_id
+
+
+def _refresh_funnel(connection: sqlite3.Connection, team_id: str, workspace_id: str) -> None:
+    """Refresh the materialized funnel row for one workspace."""
+    row = connection.execute(
+        """
+        SELECT
+            MIN(CASE WHEN event_type = 'link_created' THEN occurred_at END) AS link_created_at,
+            MIN(CASE WHEN event_type = 'link_previewed' THEN occurred_at END) AS link_previewed_at,
+            MIN(CASE WHEN event_type = 'link_accepted' THEN occurred_at END) AS link_accepted_at,
+            MIN(CASE WHEN event_type = 'first_task_claimed' THEN occurred_at END) AS first_task_claimed_at,
+            MIN(CASE WHEN event_type = 'first_evidence_verified' THEN occurred_at END) AS first_evidence_verified_at
+        FROM metrics_events
+        WHERE team_id = ? AND json_extract(metadata_json, '$.workspace_id') = ?
+        """,
+        (team_id, workspace_id),
+    ).fetchone()
+    if row is None:
+        return
+    ttfvh_ms: int | None = None
+    if row["link_created_at"] and row["first_evidence_verified_at"]:
+        created = _parse_iso(row["link_created_at"])
+        verified = _parse_iso(row["first_evidence_verified_at"])
+        if created is not None and verified is not None:
+            ttfvh_ms = max(0, int((verified - created).total_seconds() * 1000))
+    connection.execute(
+        """
+        INSERT INTO metrics_funnels(
+            team_id, workspace_id, link_created_at, link_previewed_at,
+            link_accepted_at, first_task_claimed_at,
+            first_evidence_verified_at, ttfvh_ms
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(team_id, workspace_id) DO UPDATE SET
+            link_created_at = excluded.link_created_at,
+            link_previewed_at = excluded.link_previewed_at,
+            link_accepted_at = excluded.link_accepted_at,
+            first_task_claimed_at = excluded.first_task_claimed_at,
+            first_evidence_verified_at = excluded.first_evidence_verified_at,
+            ttfvh_ms = excluded.ttfvh_ms
+        """,
+        (
+            team_id,
+            workspace_id,
+            row["link_created_at"],
+            row["link_previewed_at"],
+            row["link_accepted_at"],
+            row["first_task_claimed_at"],
+            row["first_evidence_verified_at"],
+            ttfvh_ms,
+        ),
+    )
 
 
 def _assert_no_pii(metadata: dict[str, Any]) -> None:
@@ -386,11 +479,16 @@ def invite_to_activated_conversion(team_id: str) -> dict[str, Any]:
     return {"invites": invites, "activated": activated, "conversion_rate": round(rate, 4)}
 
 
-def record_from_store_event(store_event: dict[str, Any]) -> str | None:
+def record_from_store_event(
+    store_event: dict[str, Any],
+    *,
+    connection: sqlite3.Connection | None = None,
+) -> str | None:
     """Integration seam: convert a core store event into an activation event.
 
-    The orchestrator is responsible for calling this function when relevant
-    store events are persisted. This module does NOT wire itself.
+    ``WeftDispatcher`` calls this function with the core transaction's
+    connection. Without that connection, this function opens its own small
+    transaction for compatibility with direct callers.
 
     Args:
         store_event: a dict with keys ``event_type``, ``team_id``,
@@ -407,21 +505,69 @@ def record_from_store_event(store_event: dict[str, Any]) -> str | None:
         return None
 
     team_id = store_event.get("team_id", "")
-    agent_id = store_event.get("actor_id") or store_event.get("object_id") or ""
+    agent_id = store_event.get("actor_id") or "system"
     payload = store_event.get("payload", {})
     if not isinstance(payload, dict):
         payload = {}
 
-    # Derive a deterministic event_id from the store event so re-wiring
-    # the same event is idempotent.
-    import hashlib
-    seed = f"{team_id}:{agent_id}:{event_type}:{store_event.get('object_id', '')}"
-    event_id = "mevt_store_" + hashlib.sha256(seed.encode()).hexdigest()[:24]
+    # A failed quality evaluation is not evidence of a verified handoff.
+    if event_type == "quality.evaluated" and payload.get("status") != "passed":
+        return None
 
-    return record_event(
-        team_id=team_id,
-        agent_id=agent_id,
-        event_type=activation_type,
-        metadata=payload if isinstance(payload, dict) else {},
-        event_id=event_id,
-    )
+    workspace_id = payload.get("workspace_id")
+    if not isinstance(workspace_id, str) or not workspace_id.strip() or len(workspace_id.strip()) > 160:
+        workspace_id = f"team:{team_id}"
+    else:
+        workspace_id = workspace_id.strip()
+    metadata = {
+        "workspace_id": workspace_id,
+        "source_event_type": event_type,
+    }
+
+    # Derive a deterministic event_id from the activation stage and source
+    # object. Repeated previews, claims, or evaluations of the same object do
+    # not inflate a "first" funnel stage. A short source hash supports
+    # auditability without copying the source identifier or payload.
+    source_event_id = store_event.get("event_id")
+    if not isinstance(source_event_id, str) or not source_event_id:
+        source_event_id = f"{event_type}:{store_event.get('object_id', '')}"
+    metadata["source_event_hash"] = hashlib.sha256(source_event_id.encode("utf-8")).hexdigest()[:24]
+    source_object_id = store_event.get("object_id")
+    if not isinstance(source_object_id, str) or not source_object_id:
+        source_object_id = source_event_id
+    seed = f"{team_id}:{activation_type}:{source_object_id}"
+    event_id = "mevt_store_" + hashlib.sha256(seed.encode()).hexdigest()[:24]
+    occurred_at = store_event.get("created_at")
+    if not isinstance(occurred_at, str) or not occurred_at:
+        occurred_at = _utc_now()
+
+    if connection is not None:
+        return _record_event_on_connection(
+            connection,
+            team_id,
+            agent_id,
+            activation_type,
+            metadata,
+            event_id=event_id,
+            occurred_at=occurred_at,
+        )
+
+    connection = _connection()
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        result = _record_event_on_connection(
+            connection,
+            team_id,
+            agent_id,
+            activation_type,
+            metadata,
+            event_id=event_id,
+            occurred_at=occurred_at,
+        )
+        connection.commit()
+        return result
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
