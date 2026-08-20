@@ -11,7 +11,7 @@ specific third-party host product (e.g. Slack webhook) integrates.
 | Adapter | Happy path | Negative refusal |
 | --- | --- | --- |
 | ClipboardBridge | generate → parse accepted (nonce consumed) | 2nd parse refused: `bootstrap_reused` |
-| PollingBridge | enqueue → get_pending → ack → no repeat | wrong token refused; non-member refused |
+| PollingBridge | enqueue → get_pending → replay until ack → no repeat | wrong token refused; non-member refused |
 | WebhookBridge | register → deliver → HMAC verified | wrong secret rejected; no signing_secret refused (HIGH-1) |
 
 ## Honest scope statement
@@ -19,7 +19,7 @@ specific third-party host product (e.g. Slack webhook) integrates.
 - **Proven:** the bridge adapter classes (`WebhookBridge`, `PollingBridge`,
   `ClipboardBridge`) in `src/weft_mcp/bridge.py` compose against a real
   coordinator's database and enforce their invariants (one-shot nonce,
-  at-most-once cursor delivery, actor-bound access, HMAC-signed webhooks with
+  at-least-once-until-ack cursor delivery, actor-bound access, HMAC-signed webhooks with
   fail-closed signing). All negative refusals fire as designed.
 - **Not proven:** that any specific third-party non-MCP host product (Slack,
   Discord, a custom webhook consumer, a CLI-only agent) integrates. That requires
@@ -59,9 +59,10 @@ clipboard_one_shot:
   first_parse_ok: true
   second_parse_refused: true
   refusal: "Bootstrap snippet has already been consumed"
-polling_atmostonce:
+polling_atleastonce_until_ack:
   got_event: true
-  no_repeat: true
+  replayed_before_ack: true
+  no_repeat_after_ack: true
   wrong_token_refused: true
   wrong_token_refusal: "Actor token mismatch"
   nonmember_refused: true
@@ -100,8 +101,9 @@ Netstat: NO LISTENER (clean) — the ephemeral webhook receiver was torn down.
 # clipboard.parse_bootstrap (2nd) refused: Bootstrap snippet has already been consumed
 # polling.enqueue: event_id=bo_e636d9c246490408be54ff9cea937957 seq=1
 # polling.get_pending (cursor=0): returned 1 event(s), next_cursor=1
+# polling.get_pending retry (cursor=1): returned 1 event(s) (at-least-once until ack OK)
 # polling.ack: acked_count=1 cursor=1
-# polling.get_pending (cursor=1): returned 0 event(s) (at-most-once OK)
+# polling.get_pending (cursor=1): returned 0 event(s) (no repeat after ack OK)
 # polling.get_pending (wrong token) refused: Actor token mismatch
 # polling.get_pending (non-member) refused: No credential registered for this agent
 # webhook.register_webhook: webhook_id=wh_a6fe2c3998c41ba704ad91b0b7d8aa02 url=http://127.0.0.1:60489/hook

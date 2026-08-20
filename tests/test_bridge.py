@@ -302,7 +302,21 @@ class PollingBridgeTests(unittest.TestCase):
         ack_result = self.bridge.ack(team_id="team-1", agent_id="agent-1", event_ids=[event_id], actor_token=self.actor_token)
         self.assertTrue(ack_result["ok"])
 
-    def test_at_most_once_delivery(self):
+    def test_unacked_events_replay_until_acknowledged(self):
+        self.bridge.enqueue(team_id="team-1", agent_id="agent-1", event={"kind": "test.1", "payload": {}}, actor_token=self.actor_token)
+        first = self.bridge.get_pending(team_id="team-1", agent_id="agent-1", cursor=0, actor_token=self.actor_token)
+        replay = self.bridge.get_pending(
+            team_id="team-1",
+            agent_id="agent-1",
+            cursor=first["next_cursor"],
+            actor_token=self.actor_token,
+        )
+        self.assertEqual(
+            [event["event_id"] for event in replay["events"]],
+            [first["events"][0]["event_id"]],
+        )
+
+    def test_acked_events_are_not_redelivered(self):
         self.bridge.enqueue(team_id="team-1", agent_id="agent-1", event={"kind": "test.1", "payload": {}}, actor_token=self.actor_token)
         first = self.bridge.get_pending(team_id="team-1", agent_id="agent-1", cursor=0, actor_token=self.actor_token)
         event_id = first["events"][0]["event_id"]

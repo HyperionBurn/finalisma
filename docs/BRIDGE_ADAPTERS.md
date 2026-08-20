@@ -37,7 +37,8 @@ For hosts that **cannot receive** push. A durable SQLite outbox holds events
 per `(team_id, agent_id)`. The host polls `get_pending(cursor)` and acks
 delivered events.
 
-- **At-most-once delivery**: acked events are not re-delivered.
+- **At-least-once until acknowledgement**: an unacked event can be returned
+  again after a retry or reconnect. Acked events are not re-delivered.
 - **Cursor checkpoint**: acknowledgements advance the per-agent cursor only
   through the highest contiguous acknowledged sequence, so an out-of-order ack
   never skips a lower unacknowledged event on reconnect.

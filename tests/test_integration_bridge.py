@@ -92,9 +92,9 @@ class BridgeIntegrationTests(unittest.TestCase):
         self.assertEqual(ctx.exception.code, "actor_auth_invalid")
 
     # ------------------------------------------------------------------
-    # 3. poll -> ack -> poll-again: at-most-once delivery.
+    # 3. poll -> ack -> poll-again: no repeat after acknowledgement.
     # ------------------------------------------------------------------
-    def test_poll_ack_poll_no_repeats_at_most_once(self) -> None:
+    def test_poll_ack_poll_no_repeats_after_acknowledgement(self) -> None:
         # First poll returns a cursor (even if empty).
         first_poll = self._call_bridge(
             "bridge_poll",

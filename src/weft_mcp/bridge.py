@@ -397,8 +397,9 @@ class WebhookBridge:
 class PollingBridge:
     """Durable outbox-backed polling for hosts that cannot receive push.
 
-    Events are delivered at-most-once: ack checkpoints the cursor and
-    acknowledged events are not re-delivered.
+    Events are delivered at-least-once until acknowledgement: an unacked
+    event can be re-delivered after a retry or reconnect, and acknowledged
+    events are not re-delivered.
     """
 
     def __init__(self, store: WeftStore) -> None:
