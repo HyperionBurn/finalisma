@@ -660,7 +660,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "bridge_ack",
-        "description": "Acknowledge bridge events so they are never re-delivered.",
+        "description": "Acknowledge bridge events and return accepted IDs plus the persisted monotonic cursor.",
         "inputSchema": _object_schema({
             "team_id": STRING,
             "agent_id": STRING,
@@ -1383,13 +1383,17 @@ class WeftDispatcher:
             not isinstance(event_id, str) or not event_id for event_id in event_ids
         ):
             raise WeftError("invalid_argument", "event_ids must be a list of non-empty strings")
-        self._polling.ack(
+        result = self._polling.ack(
             team_id=self._required(args, "team_id"),
             agent_id=self._required(args, "agent_id"),
             event_ids=event_ids,
             actor_token=self._required(args, "actor_token"),
         )
-        return {"acked": list(event_ids)}
+        return {
+            "acked": result["acked"],
+            "acked_count": result["acked_count"],
+            "cursor": result["cursor"],
+        }
 
     def _bridge_webhook_register(self, args: dict[str, Any]) -> dict[str, Any]:
         result = self._webhooks.register_webhook(

@@ -440,6 +440,35 @@ class PollingBridgeTests(unittest.TestCase):
 
         ack_result = self.bridge.ack(team_id="team-1", agent_id="agent-1", event_ids=[event_id], actor_token=self.actor_token)
         self.assertTrue(ack_result["ok"])
+        self.assertEqual(ack_result["cursor"], 1)
+
+        self.store.close()
+        self.store = _make_store(self.temp.name)
+        self.bridge = PollingBridge(self.store)
+        resumed = self.bridge.get_pending(
+            team_id="team-1",
+            agent_id="agent-1",
+            cursor=0,
+            actor_token=self.actor_token,
+        )
+        self.assertEqual(resumed["events"], [])
+        self.assertEqual(resumed["next_cursor"], 1)
+        next_event = self.bridge.enqueue(
+            team_id="team-1",
+            agent_id="agent-1",
+            event={"kind": "test.2", "payload": {}},
+            actor_token=self.actor_token,
+        )
+        self.assertEqual(next_event["seq"], 2)
+        duplicate_ack = self.bridge.ack(
+            team_id="team-1",
+            agent_id="agent-1",
+            event_ids=[next_event["event_id"], next_event["event_id"], "bo_unknown"],
+            actor_token=self.actor_token,
+        )
+        self.assertEqual(duplicate_ack["acked"], [next_event["event_id"]])
+        self.assertEqual(duplicate_ack["acked_count"], 1)
+        self.assertEqual(duplicate_ack["cursor"], 2)
 
     def test_unacked_events_replay_until_acknowledged(self):
         self.bridge.enqueue(team_id="team-1", agent_id="agent-1", event={"kind": "test.1", "payload": {}}, actor_token=self.actor_token)

@@ -45,6 +45,11 @@ delivered events.
 - **Cursor checkpoint**: acknowledgements advance the per-agent cursor only
   through the highest contiguous acknowledged sequence, so an out-of-order ack
   never skips a lower unacknowledged event on reconnect.
+- **Restart recovery**: the cursor persists in SQLite. A reconnect with the
+  default cursor resumes from that checkpoint while still replaying any older
+  unacknowledged event.
+- **Ack response**: duplicate IDs are idempotent, unknown IDs are ignored, and
+  the response reports the accepted IDs, count, and persisted cursor.
 - **Monotonic sequence**: events are numbered per `(team_id, agent_id)` in
   insertion order.
 

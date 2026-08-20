@@ -140,7 +140,8 @@ Rules that must survive future edits:
   behind `outbox_*` tools.
 - `src/weft_mcp/bridge.py` — universal adapters for non-MCP hosts:
   `WebhookBridge` (HMAC-signed POST, fails closed without the real signing secret),
-  `PollingBridge` (at-most-once cursor delivery), `ClipboardBridge` (one-shot
+  `PollingBridge` (at-least-once delivery until acknowledgement with a
+  persisted monotonic cursor), `ClipboardBridge` (one-shot
   bootstrap snippet). Mounted behind `bridge_*` tools.
 - `src/weft_mcp/metrics_activation.py` — local-first activation funnel:
   `link_created → link_previewed → link_accepted → first_task_claimed →
@@ -426,8 +427,8 @@ The published test count is guarded automatically by
 same loader and pattern as `unittest discover -s tests` and fails if any
 published instance in `docs/` or `site/` claims a count ABOVE the live count
 (the guard protects against deleted tests; adding tests never invalidates a
-published number). The latest local count is **1177 discovered, 1176 passed,
-1 skipped**, measured 2026-08-18 and recorded in `docs/RELEASE_EVIDENCE.md`.
+published number). The latest local count is **1184 discovered, 1183 passed,
+1 skipped**, measured 2026-08-20 and recorded in `docs/RELEASE_EVIDENCE.md`.
 If you delete tests, that guard will tell you what to update. Do not
 hand-maintain the number, and do not confuse the test count with the permanent
 37/63 visual split.

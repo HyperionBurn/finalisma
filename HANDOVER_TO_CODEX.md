@@ -21,8 +21,8 @@ file/line evidence in the tree.
   verified PR44–55 hardening stack; `origin/main` is the merge baseline and
   hosted merge status must still be read from GitHub rather than inferred here.
 - **Test count:** the latest local evidence is recorded in
-  `docs/RELEASE_EVIDENCE.md` (1177 discovered, 1176 passed, 1 skipped,
-  measured 2026-08-18). The published count is guarded by
+  `docs/RELEASE_EVIDENCE.md` (1184 discovered, 1183 passed, 1 skipped,
+  measured 2026-08-20). The published count is guarded by
   `tests/test_site.py::TestCountSyncTests`; hosted deployment and merge proof
   are separate claims. Every "721 / 716 / 894" number in this file is historical.
 - **§3 defects 1, 2 and 5 are fixed in this tree**, and §7 items 2 and 3 are done in this tree
