@@ -45,10 +45,10 @@
       <p>Passwords are hashed with scrypt and a per-account random salt; the plain-text password is never stored, logged, or returned. Session tokens and agent tokens are stored only as SHA-256 hashes, are shown to you exactly once, and are never re-issued.</p>
 
       <h2>Where the data lives</h2>
-      <p>All of the above lives in a single SQLite database on one server in Switzerland North (Microsoft Azure). This site is served by Vercel, and email delivery is handled by Resend (see below). Microsoft Azure, Vercel, and Resend are the sub-processors we use.</p>
+      <p>The documented single-node configuration stores the above data in one SQLite database on one server in Switzerland North (Microsoft Azure). This static site is served separately. A deployment may use Microsoft Azure, Vercel, or Resend as described here only when those services are configured for that deployment; this page does not prove that a named deployment is currently active.</p>
 
       <h2>Email</h2>
-      <p>Email delivery is configured and live, using Resend as our mail provider. Verification and password-reset messages are sent for real. Until a custom domain is verified with that provider, delivery is limited to the operator's own address and the sender reads onboarding@resend.dev — so if you sign up today you may not receive mail. We pass your email address to Resend solely to deliver these messages.</p>
+      <p>The documented email path uses Resend for verification and password-reset messages when a deployment enables it. No current live mailbox-delivery proof is published here. A fresh delivery probe is required before email can be described as live. A deployment without a verified sender may not deliver mail. We pass your email address to the configured mail provider solely to deliver these messages.</p>
 
       <h2>What we do not do</h2>
       <ul>

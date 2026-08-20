@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import threading
 import unittest
 from contextlib import redirect_stdout
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from unittest.mock import patch
 
 from scripts import probe_live_release
 
@@ -192,6 +194,18 @@ def _serve(surface: str, drift: bool = False, *, api_origin: str = "") -> tuple[
 
 
 class LiveReleaseProbeTests(unittest.TestCase):
+    def test_cli_requires_explicit_origins_instead_of_stale_defaults(self) -> None:
+        output = io.StringIO()
+        with patch.dict(os.environ, {"WEFT_API_ORIGIN": "", "WEFT_SITE_URL": ""}, clear=False):
+            with redirect_stdout(output):
+                code = probe_live_release.main([])
+
+        result = json.loads(output.getvalue())
+        self.assertEqual(code, 4)
+        self.assertEqual(result["status"], "INVALID_ARGUMENT")
+        self.assertIn("WEFT_API_ORIGIN", result["error"])
+        self.assertIn("WEFT_SITE_URL", result["error"])
+
     def test_pass_and_reachable_drift_are_distinct(self) -> None:
         api_server, api_origin = _serve("api")
         site_server, site_origin = _serve("site", api_origin=api_origin)

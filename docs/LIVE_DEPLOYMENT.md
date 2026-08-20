@@ -1,8 +1,13 @@
-# Live deployment — what is running, where, and how to fix it
+# Deployment observation — what was observed, where, and how to re-check it
 
-**Status: reachable, with current release drift confirmed.**
+**Status: dated snapshot only. Reachability and release drift were observed on
+2026-08-14; this document is not current deployment proof.**
 
-## Current read-only verification (2026-08-14)
+## Historical read-only verification (2026-08-14)
+
+Re-run the read-only probe against explicitly authorised origins before using
+any statement below as an operational fact. The probe has no built-in
+deployment origins, so a copied command cannot silently target an old release.
 
 The fresh read-only probe completed without changing the hosted service. Azure
 `/healthz` returned HTTP 200; `/` returned 303 to `/login`, and `/login`
@@ -79,7 +84,10 @@ disk) and agents **poll** the room, so the service must stay warm. Vercel is eph
 and request-scoped. Moving the backend there is a storage-layer rewrite onto Postgres plus a new
 polling model — an architecture change, not a deploy setting.
 
-## On the VM
+## Historical VM observation (recorded 2026-08-14)
+
+The following unit, network, and certificate state belongs to the dated
+observation above. It is not a claim that the same state exists now.
 
 Four systemd units, all `enabled` (survive reboot) and `active`:
 
@@ -147,6 +155,8 @@ Run the credential-free, read-only release probe before making a hosted
 release claim:
 
 ```powershell
+$env:WEFT_API_ORIGIN = "https://YOUR-VERIFIED-API-ORIGIN"
+$env:WEFT_SITE_URL = "https://YOUR-VERIFIED-SITE-ORIGIN"
 python -B .\scripts\probe_live_release.py --pretty
 ```
 
@@ -155,6 +165,10 @@ security headers align. Exit `2` (`DRIFT`) means the surfaces are reachable
 but the deployed bundle is not the documented release; exit `3` means the
 required surfaces are not reachable. The probe never authenticates or mutates
 rooms and never prints response bodies.
+
+Historical spot checks from the dated observation are retained below for
+operator context. Do not run them against a current system without verifying
+the origins and receiving authorization first.
 
 ```bash
 curl -s https://finalisma.vercel.app | grep -oE 'href="https://[a-z0-9.-]+/signup"'   # CTA target

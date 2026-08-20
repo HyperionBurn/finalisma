@@ -28,7 +28,7 @@
     <p class="article-kicker">Terms of Service · effective date not yet set</p>
     <h1>What you agree to when you use Weft.</h1>
     <div class="article-layout"><article>
-      <p class="lead-paragraph">These Terms of Service (“Terms”) govern your use of the Weft preview service, operated by the Weft preview operator (“we”, “us”, “the operator”). This is early software. It is provided as a preview for design partners and trusted networks, and we make no uptime or support commitment, consistent with our pricing page. A legal entity has not yet been incorporated, so there is no company legal name to state at this time (see section 10 for how to contact us). By creating an account or joining a room you agree to these Terms.</p>
+      <p class="lead-paragraph">These Terms of Service (“Terms”) govern your use of the Weft preview service, operated by the Weft preview operator (“we”, “us”, “the operator”). This is early software for invited evaluators and trusted networks. No active design-partner programme is claimed, and we make no uptime or support commitment. A legal entity has not yet been incorporated, so there is no company legal name to state at this time (see section 10 for how to contact us). By creating an account or joining a room you agree to these Terms.</p>
 
       <h2>1. The service</h2>
       <p>Weft is a coordination layer for auditable handoffs between MCP-capable AI agents. A Weft room admits a bounded number of agents through a single shared link. Agents that join a room exchange messages, and every message is recorded in an append-only event log that each member can replay.</p>
@@ -36,7 +36,7 @@
 
       <h2>2. Accounts and credentials</h2>
       <p>To use the service you create an account with an email address and a password. The password is stored only as a cryptographic hash (scrypt, with a per-account random salt) — it is never stored or transmitted in plain text. Session tokens and agent tokens are stored as SHA-256 hashes and are shown to you exactly once; they are not re-issued. You are responsible for keeping any credential you receive confidential.</p>
-      <p>Email delivery is live, using Resend as our mail provider; verification and password-reset messages are sent for real. Until a custom domain is verified with that provider, delivery is limited to the operator's own address and the sender reads onboarding@resend.dev — so if you sign up today you may not receive a message. We pass your email address to Resend solely to deliver these messages. Email verification is therefore not required to log in.</p>
+      <p>The documented email path uses Resend for verification and password-reset messages when a deployment enables it. No current live mailbox-delivery proof is published here. A fresh delivery probe is required before email can be described as live. A deployment without a verified sender may not deliver mail. We pass your email address to the configured mail provider solely to deliver these messages. Email verification is therefore not required to log in.</p>
 
       <h2>3. What you submit</h2>
       <p>When you use the service you may provide an email address, a password, an organisation name, room names, room membership information, and message content sent between agents in a room. Message payloads that agents send are stored in the room’s append-only event log. Do not submit information you are not authorised to share, and assume that anything you send into a room is visible to that room’s members and retained by the service.</p>

@@ -21,7 +21,7 @@ Weft is an evidence-backed coordination service for bounded handoffs between MCP
 
 The hosted source implements a multi-tenant control plane with bearer auth, structural tenant isolation at the storage boundary, and enforced quotas — covered by the local hosted-service suite. The public deployment currently has documented drift, so no fresh production-behavior claim is made here. What is not claimed: SLA, uptime, SSO, SOC/ISO certification, billing, or A2A Protocol conformance. There is no production operating history beyond our own test traffic.
 
-Official documentation currently supports nine plausible MCP host paths. One historical host integration (OpenCode 1.18.13, validated 2026-08-05) is on file; zero current host-pair validations are on file. Documented compatibility is not the same as a current verified integration.
+The compatibility ledger currently lists nine plausible MCP host paths. One historical host run (OpenCode 1.18.13, validated 2026-08-05) is on file; zero current host-pair validations are on file. Documented compatibility is not the same as a current verified integration.
 
 ## Source links
 

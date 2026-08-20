@@ -44,6 +44,17 @@ jobs:
       - name: Run Python unit tests
         run: .venv/bin/python -B -m unittest discover -s tests
 
+      - name: Run release-boundary checks
+        run: |
+          .venv/bin/python -B -m unittest \
+            tests.test_vercel_config \
+            tests.test_probe_live_release \
+            tests.test_probe_live_release_contract \
+            tests.test_site.VercelDeployMaterializesReleaseTests \
+            tests.test_site.DeployproofReleaseContentTests \
+            tests.test_deploy_gate.RedeployBackupSafetyTests.test_compose_delivery_profile_shares_store_without_committing_secrets
+          docker compose -f compose.yaml config --quiet
+
       - name: Run Node syntax and static UX checks
         run: |
           node --check site/app.js

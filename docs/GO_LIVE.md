@@ -119,6 +119,20 @@ python -B .\scripts\weft-mcp.py --help
 python -B .\scripts\weft-site.py --help
 ```
 
+For every hosted release, configure the exact origins that you are authorised
+to probe, then run the read-only release gate:
+
+```powershell
+$env:WEFT_API_ORIGIN = "https://YOUR-VERIFIED-API-ORIGIN"
+$env:WEFT_SITE_URL = "https://YOUR-VERIFIED-SITE-ORIGIN"
+python -B .\scripts\probe_live_release.py --pretty
+```
+
+The probe has no deployment-origin defaults. Exit `0` is required before you
+share the hosted URL. Exit `2` means the reachable release has drift, exit `3`
+means a surface is unreachable, and exit `4` means the operator did not supply
+explicit origins. A local regression pass does not replace this hosted gate.
+
 The performance command is a same-machine single-node gate. Read
 [PERFORMANCE.md](PERFORMANCE.md) for the baseline contract and deployment
 boundary; do not present its absolute timings as a hosted-service SLA.
@@ -126,7 +140,7 @@ boundary; do not present its absolute timings as a hosted-service SLA.
 **Historical gate snapshot (2026-08-15, `feature/product-perfect`):** that
 branch recorded 960 tests and a merge-gate pass, but this is not current
 integration or deployment evidence. The latest local regression is recorded
-in [`RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1201 discovered, 1200 passed,
+in [`RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1203 discovered, 1202 passed,
 and 1 skipped. The performance gate is **red under host-load noise**: recent captures ran with multiple
 agent sessions active on the host, so the standing rule applies — rerun on a
 controlled idle host; never rebaseline to hide it. `docs/PERFORMANCE.md`
