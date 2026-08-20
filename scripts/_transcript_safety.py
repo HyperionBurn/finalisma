@@ -7,7 +7,7 @@ import re
 
 
 _CREDENTIAL_PREFIX_RE = re.compile(
-    r"\b(?:fst_actor|fst_pair|fst_session|agk|rm)_[A-Za-z0-9_-]+"
+    r"\b(?:fst_actor|fst_pair|fst_session|agk|rm|whsec)_[A-Za-z0-9_-]+"
 )
 
 

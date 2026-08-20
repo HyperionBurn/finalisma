@@ -7,12 +7,12 @@ compatibility claim.
 ## Latest regression evidence
 
 Measured locally on the current source/test stack (branch
-`codex/bridge-delivery-contract-2026-08-20`, verification baseline `796d8e2`):
+`codex/fixture-secret-hygiene-2026-08-20`, source baseline `b3978c9`):
 
 - Command: `python -B -m unittest discover -s tests -p "test_*.py"`
-- Result: **1178 tests discovered; 1177 passed; 1 skipped**
-- Duration: 523.880 seconds on the local Windows runner
-- Focused hosted-MCP/count suite: 34 tests passed locally
+- Result: **1181 tests discovered; 1180 passed; 1 skipped**
+- Duration: 542.484 seconds on the local Windows runner
+- Focused hosted-MCP/count suite: 35 tests passed locally
   (`tests.test_hosted_mcp` and `tests.test_site.TestCountSyncTests`)
 - Site build: not rerun in this SDK-only local command; prior site evidence
   remains on the earlier stacked PRs

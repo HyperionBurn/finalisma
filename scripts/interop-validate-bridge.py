@@ -15,6 +15,7 @@ Run:  timeout 180 python -B scripts/interop-validate-bridge.py
 from __future__ import annotations
 
 import json
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -376,7 +377,7 @@ def main() -> int:
         # ---- 4. WebhookBridge: register / deliver / verify_signature ---
         webhook_receiver = WebhookReceiver()
         webhook_receiver.start()
-        webhook_signing_secret = "whsec_live_signing_secret_value_12345"
+        webhook_signing_secret = "test_webhook_" + secrets.token_urlsafe(32)
 
         wh_result = webhook.register_webhook(
             team_id=TEAM_ID,

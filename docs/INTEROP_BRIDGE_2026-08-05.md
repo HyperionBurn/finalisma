@@ -92,10 +92,10 @@ Netstat: NO LISTENER (clean) — the ephemeral webhook receiver was torn down.
 < {"jsonrpc":"2.0","id":2,"result":{"tools":[...58 tools...]}}
 # tools/list: 58 tools
 > {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"register_agent","arguments":{"team_id":"demo","agent_id":"bridge-agent","role":"generalist","name":"Bridge Agent"}}}
-< {"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"{...\"actor_token\":\"fst_actor_w6e0nNc8iuTHLIMNUgCuhWkOvVOlr0g1TjpUXyor6mU\"...}"}],...}}
+< {"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"{...\"actor_token\":\"***\"...}"}],...}}
 # register_agent: agent_id=bridge-agent token=fst_acto...
-> {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"create_pairing","arguments":{"initiator_id":"bridge-agent","team_id":"demo","capabilities_offered":["read"],"actor_token":"fst_actor_w6e0nNc8iuTHLIMNUgCuhWkOvVOlr0g1TjpUXyor6mU"}}}
-< {"jsonrpc":"2.0","id":4,"result":{...,"pairing_id":"pair_f1d90b2b038d4182948b81495c532787","join_token":"fst_pair_IkqJWyWwtm1d6zf3RYcAW7Utc7HqpLgIowamCuEnVTw",...}}
+> {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"create_pairing","arguments":{"initiator_id":"bridge-agent","team_id":"demo","capabilities_offered":["read"],"actor_token":"***"}}}
+< {"jsonrpc":"2.0","id":4,"result":{...,"pairing_id":"pair_<redacted>","join_token":"***",...}}
 # clipboard.generate_bootstrap: pairing_id=pair_f1d90b2b038d4182948b81495c532787 nonce=d67ec2fe...
 # clipboard.parse_bootstrap (1st): accepted, nonce consumed
 # clipboard.parse_bootstrap (2nd) refused: Bootstrap snippet has already been consumed
