@@ -11,26 +11,24 @@
  *   /login    — returning users
  *   /         — dashboard (rooms) after login
  *
- * Deployment (2026-08-08): the backend has a PERMANENT HTTPS origin,
- * `https://weft.switzerlandnorth.cloudapp.azure.com`, so the CTAs default
- * to it and no source edit is needed when the backend moves.
- *
- * The origin is build-time configurable so a deploy can repoint it WITHOUT
- * touching code:
+ * The origin is build-time configurable so a deployment can point at its
+ * verified app without touching code:
  *
  *   PUBLIC_APP_ORIGIN=https://app.weft.com npm run build
  *
  * Astro inlines `import.meta.env.PUBLIC_*` at build time. When the variable
- * is unset or empty the permanent origin above is used, so a plain
- * `npm run build` still produces a correct site. The value must be an
- * absolute `https://` origin with no trailing slash; a path, bare hostname,
- * or http scheme fails the build loudly rather than shipping broken CTAs.
+ * is unset or empty, the build uses the local proof path and does not claim
+ * that a hosted deployment is ready. The value must be an absolute `https:`
+ * origin with no trailing slash; a path, bare hostname, or http scheme fails
+ * the build loudly rather than shipping broken CTAs.
  */
-const DEFAULT_APP_ORIGIN = 'https://weft.switzerlandnorth.cloudapp.azure.com';
+const HOSTED_PROOF_URL = '/docs/quickstart.html';
+const SELF_HOSTED_PROOF_URL = '/docs/quickstart.html#self-hosted';
 
-function resolveAppOrigin(): string {
+function resolveAppOrigin(): string | undefined {
   const raw = import.meta.env.PUBLIC_APP_ORIGIN as string | undefined;
-  const candidate = typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : DEFAULT_APP_ORIGIN;
+  if (typeof raw !== 'string' || raw.trim() === '') return undefined;
+  const candidate = raw.trim();
 
   let parsed: URL;
   try {
@@ -62,7 +60,11 @@ function resolveAppOrigin(): string {
 }
 
 export const APP_ORIGIN = resolveAppOrigin();
+export const APP_ORIGIN_CONFIGURED = APP_ORIGIN !== undefined;
+export const APP_ORIGIN_EXAMPLE = APP_ORIGIN ?? 'https://YOUR-VERIFIED-WEFT-ORIGIN';
 
-export const APP_SIGNUP_URL = `${APP_ORIGIN}/signup`;
-export const APP_LOGIN_URL = `${APP_ORIGIN}/login`;
+export const APP_SIGNUP_URL = APP_ORIGIN ? `${APP_ORIGIN}/signup` : SELF_HOSTED_PROOF_URL;
+export const APP_LOGIN_URL = APP_ORIGIN ? `${APP_ORIGIN}/login` : HOSTED_PROOF_URL;
+export const APP_SIGNUP_LABEL = APP_ORIGIN ? 'Open a room' : 'Read the proof path';
+export const APP_LOGIN_LABEL = APP_ORIGIN ? 'Log in' : 'Read deployment gates';
 export const APP_DASHBOARD_URL = APP_ORIGIN;

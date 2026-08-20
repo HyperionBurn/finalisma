@@ -19,14 +19,11 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 SITE = ROOT / "site"
 
-# The landing-page CTAs must be ABSOLUTE URLs on the web app's routes
-# (/signup, /login). The app origin is a deployment property, not a constant:
-# it moves (localhost -> tunnel -> production domain) and is set once in
-# web/src/lib/app.ts. The tests below therefore assert the PROPERTY that stays
-# true regardless of host — an absolute `http(s)://` href ending in the route —
-# rather than re-pinning a specific host, which broke every time the backend
-# moved. Matches: href="https://app.example/signup".
-ABSOLUTE_ROUTE_HREF = r'href="https?://[^"]+/signup"'
+# The landing page uses a deployment-owned app origin only when the static site
+# build receives a verified `PUBLIC_APP_ORIGIN`. The checked-in build has no
+# such proof, so its CTAs must stay on the local deployment gate and self-hosted
+# proof path rather than pointing at a historical hosted hostname.
+LOCAL_PROOF_HREF = r'href="/docs/quickstart\.html(?:#self-hosted)?"'
 sys.path.insert(0, str(ROOT))
 
 _SITE_SPEC = importlib.util.spec_from_file_location(
@@ -105,18 +102,14 @@ class LaunchSurfaceTests(unittest.TestCase):
         self.assertNotIn("$1,000", html)
         self.assertIn("$0", html)
         self.assertIn("$39", html)
-        self.assertIn("Start free", html)
-        # The signup/login CTAs must be ABSOLUTE hrefs on the app origin, not
-        # relative paths that 404 against the static bundle. We assert the
-        # property (`http(s)://<host>/signup`) rather than a specific host —
-        # the origin moves between dev and prod and lives in one place,
-        # web/src/lib/app.ts. Re-pinning a concrete URL broke every time the
-        # backend moved (localhost -> tunnel -> production domain).
-        self.assertRegex(html, ABSOLUTE_ROUTE_HREF)
-        self.assertRegex(html, r'href="https?://[^"]+/login"')
-        # The web app serves its routes at the ORIGIN ROOT, not under `/app`.
-        # Any relative `/app/...` CTA in the built landing page is a 404 link
-        # and must never ship. The absolute-origin form is asserted above.
+        self.assertIn("free tier", html.lower())
+        # No verified hosted origin is configured in the checked-in static
+        # build. CTAs therefore route to proof and deployment guidance, not a
+        # stale production hostname.
+        self.assertRegex(html, LOCAL_PROOF_HREF)
+        self.assertIn("Read deployment gates", html)
+        self.assertIn("YOUR-VERIFIED-WEFT-ORIGIN", html)
+        self.assertNotIn("weft.switzerlandnorth.cloudapp.azure.com", html)
         self.assertNotIn('href="/app/signup"', html)
         self.assertNotIn('href="/app/login"', html)
         self.assertNotIn("verified agent handoff layer", html.lower())
@@ -131,6 +124,36 @@ class LaunchSurfaceTests(unittest.TestCase):
         self.assertNotIn("we have not run this in production", html)
         self.assertIn("50 agents", html)
         self.assertIn("not customer traffic", html)
+
+    def test_customer_surfaces_do_not_publish_the_historical_host(self) -> None:
+        """Public copy must not send credentials to an unverified origin."""
+        public_surfaces = [
+            SITE / "index.html",
+            SITE / "llms.txt",
+            SITE / "examples" / "mcp.json",
+            SITE / "docs" / "pilot.html",
+            SITE / "docs" / "security.html",
+            SITE / "docs" / "protocol.html",
+            SITE / "docs" / "index.html",
+            ROOT / "web" / "src" / "lib" / "app.ts",
+            ROOT / "web" / "src" / "components" / "ConnectTiers.astro",
+        ]
+        stale_origin = "weft.switzerlandnorth.cloudapp.azure.com"
+        for path in public_surfaces:
+            with self.subTest(path=path.relative_to(ROOT)):
+                self.assertNotIn(stale_origin, path.read_text(encoding="utf-8"))
+
+        example = (SITE / "examples" / "mcp.json").read_text(encoding="utf-8")
+        self.assertIn("YOUR-VERIFIED-WEFT-ORIGIN", example)
+        app_source = (ROOT / "web" / "src" / "lib" / "app.ts").read_text(encoding="utf-8")
+        self.assertIn("PUBLIC_APP_ORIGIN", app_source)
+        self.assertIn("SELF_HOSTED_PROOF_URL", app_source)
+        pilot = (SITE / "docs" / "pilot.html").read_text(encoding="utf-8")
+        self.assertIn("Run the self-hosted proof", pilot)
+        security = (SITE / "docs" / "security.html").read_text(encoding="utf-8")
+        self.assertIn("every protected", security)
+        protocol = (SITE / "docs" / "protocol.html").read_text(encoding="utf-8")
+        self.assertIn("Hosted room links are multi-use", protocol)
 
     def test_site_never_overclaims_liveness_or_enforcement(self) -> None:
         """Site-truth invariants (2026-08-08).
@@ -466,21 +489,17 @@ class LaunchSurfaceTests(unittest.TestCase):
                     self.assertTrue(target.is_relative_to(SITE.resolve()))
                     self.assertTrue(target.is_file() or target.is_dir(), f"missing target: {target}")
 
-    def test_funnel_ctas_point_at_web_app(self) -> None:
-        """The site must offer a real way to become a user: the web app.
+    def test_funnel_ctas_point_at_truthful_next_step(self) -> None:
+        """The checked-in build routes users to proof until hosted is verified.
 
-        Funnel lane (2026-08-07): every primary CTA on the landing page
-        resolves to the app origin, a quiet "Log in"
-        affordance exists for returning users, and the closed-trial framing
-        ("Start free pilot") is gone from the primary CTAs. The app is not
-        deployed, so routes are asserted by origin + path only — nothing here
-        invents a destination, a free-tier limit, or a trial length. The
-        origin itself is a deployment property (web/src/lib/app.ts); we assert
-        absolute `http(s)://` hrefs ending in the route, not a pinned host.
+        A deployment can provide `PUBLIC_APP_ORIGIN` to restore hosted signup
+        and login routes. The repository build deliberately carries no such
+        proof, so its primary CTAs must remain on the deployment gate and the
+        reproducible self-hosted path.
         """
         html = (SITE / "index.html").read_text(encoding="utf-8")
-        self.assertRegex(html, ABSOLUTE_ROUTE_HREF)
-        self.assertRegex(html, r'href="https?://[^"]+/login"')
+        self.assertIn('href="/docs/quickstart.html#self-hosted"', html)
+        self.assertIn('href="/docs/quickstart.html"', html)
 
         hero = re.search(r'<section[^>]*id="hero"[^>]*>(.*?)</section>', html, re.S)
         self.assertIsNotNone(hero, "hero section must exist")
@@ -489,18 +508,18 @@ class LaunchSurfaceTests(unittest.TestCase):
             hero.group(1),
         )
         self.assertIsNotNone(hero_primary, "hero must carry a btn-accent primary CTA")
-        self.assertRegex(
+        self.assertEqual(
             hero_primary.group(1),
-            r"^https?://[^\"\s]+/signup$",
-            "hero primary CTA must be an absolute URL on the app origin ending in /signup",
+            "/docs/quickstart.html#self-hosted",
+            "unchecked builds must route the hero to the reproducible proof path",
         )
 
         connect = re.search(r'<section[^>]*id="connect"[^>]*>(.*?)</section>', html, re.S)
         self.assertIsNotNone(connect, "connect section must exist")
-        self.assertRegex(
+        self.assertIn(
+            'href="/docs/quickstart.html#self-hosted"',
             connect.group(1),
-            r'href="https?://[^"]+/signup"',
-            "connect section must close with a real signup link",
+            "connect section must close with the reproducible proof path when hosted is unverified",
         )
 
         self.assertNotIn(

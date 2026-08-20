@@ -428,7 +428,7 @@ The published test count is guarded automatically by
 same loader and pattern as `unittest discover -s tests` and fails if any
 published instance in `docs/` or `site/` claims a count ABOVE the live count
 (the guard protects against deleted tests; adding tests never invalidates a
-published number). The latest local count is **1199 discovered, 1198 passed,
+published number). The latest local count is **1200 discovered, 1199 passed,
 1 skipped**, measured 2026-08-20 and recorded in `docs/RELEASE_EVIDENCE.md`.
 If you delete tests, that guard will tell you what to update. Do not
 hand-maintain the number, and do not confuse the test count with the permanent
@@ -630,7 +630,7 @@ the rendered width and offender checks in future visual regression passes.
 ## 9. Workspace hygiene rules
 
 - Work only inside the current checkout `C:\Users\Wasif\Documents\Multiplayer-AI-integration`.
-  The merged base is `main` at `52a3ef0`; consult Git for the current feature
+  The merged base is `main` at `1866db4`; consult Git for the current feature
   branch. The latest local test evidence is in `docs/RELEASE_EVIDENCE.md`; do not
   infer merge or deployment status from it.
   `C:\Users\Wasif\Documents\Multiplayer-AI-isolated` (branch `isolated`) and

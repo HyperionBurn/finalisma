@@ -14,13 +14,13 @@ Everything else is yours to decide and execute.
 This file was written 2026-08-12 against the `integration` branch world. Several facts below are
 no longer current. Corrections are measured against the current checkout
 `C:\Users\Wasif\Documents\Multiplayer-AI-integration`, merged `main` HEAD
-`52a3ef0`; each has file/line evidence in the tree. A feature branch may be
+`1866db4`; each has file/line evidence in the tree. A feature branch may be
 active while a new PR is in flight.
 
 - **Branch state:** this checkout contains the merged PR1–68 hardening stack;
   hosted merge status must still be read from GitHub rather than inferred here.
 - **Test count:** the latest local evidence is recorded in
-  `docs/RELEASE_EVIDENCE.md` (1199 discovered, 1198 passed, 1 skipped,
+  `docs/RELEASE_EVIDENCE.md` (1200 discovered, 1199 passed, 1 skipped,
   measured 2026-08-20). The published count is guarded by
   `tests/test_site.py::TestCountSyncTests`; hosted deployment and merge proof
   are separate claims. Every "721 / 716 / 894" number in this file is historical.

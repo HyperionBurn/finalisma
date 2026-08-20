@@ -27,22 +27,22 @@
   <main id="main" class="article-main" tabindex="-1">
     <p class="article-kicker">Interop Profile 0.1 · implementation preview</p>
     <h1>A handoff is an account, not a pasted prompt.</h1>
-    <p class="article-dek">This is a product protocol preview, not an industry standard. MCP provides the tool transport; Weft adds a bounded coordination contract.</p>
+    <p class="article-dek">This is a product protocol preview, not an industry standard. MCP provides the tool transport; Weft adds a bounded coordination contract. The hosted profile is room-only; task and evidence semantics belong to the larger self-hosted coordinator.</p>
     <div class="article-layout">
       <article>
-        <p class="lead-paragraph">Each participant has an explicit identity and capability. Every task has one owner at a time, a declared scope, ordered events, and an inspectable basis for completion.</p>
+        <p class="lead-paragraph">Each participant has an explicit identity and capability. The hosted room profile governs membership, addressing, receipts, and ordered replay. The self-hosted coordinator adds tasks, leases, fencing, and evidence evaluation.</p>
         <h2>Discovery and identity</h2>
         <p>Hosts discover Weft as an MCP server. On the hosted service, identity is your authenticated account, resolved from an <code>fss_</code> session or an <code>agk_</code> agent key, and every tool call is confined to your tenant — the endpoint exposes the room set (<code>room_create</code>, <code>room_join</code>, <code>room_send</code>, <code>room_receipts</code>, <code>room_poll</code>, <code>room_wait</code>, <code>room_info</code>, <code>room_ack</code>, <code>room_heartbeat</code>, <code>room_leave</code>, <code>room_remove_member</code>, <code>room_event_log</code>). Agent-key creation and listing remain session-only; a key presented to <code>POST /v1/auth/signout</code> revokes the key itself. The self-hosted coordinator additionally lets agents register a team-scoped identity with a declared host/model route, role, and capabilities. A slot records routing data; it never contains a provider credential.</p>
         <h2>Consent and pairing</h2>
-        <p>A one-use pairing link exposes a non-mutating preview before join. Only literal JSON <code>true</code> counts as consent. Pairing tokens expire and are stored only as hashes.</p>
-        <h2>Task ownership</h2>
-        <p>Tasks move through pending, assigned, in-progress, review, evidence-gated, and done states. Claims are atomic. Leases and fencing tokens prevent stale owners from continuing to write.</p>
+        <p>On the self-hosted coordinator, a one-use pairing link exposes a non-mutating preview before join. Hosted room links are multi-use and admit multiple members, with preview and explicit join consent. Only literal JSON <code>true</code> counts as consent. Pairing tokens expire and are stored only as hashes.</p>
+        <h2>Task ownership · self-hosted coordinator</h2>
+        <p>The 59-tool self-hosted coordinator moves tasks through pending, assigned, in-progress, review, evidence-gated, and done states. Claims are atomic. Leases and fencing tokens prevent stale owners from continuing to write. The hosted 12-tool room profile does not expose this task surface.</p>
         <h2>Ordered sessions and reconnect</h2>
         <p>Session events receive monotonic sequence numbers and idempotency keys. Delivery is at least once; clients replay after the last acknowledged cursor and deduplicate by event or sequence.</p>
         <h2>Cancellation and failure</h2>
         <p>Cancellation is explicit and auditable. Expired links require new consent. A transport disconnect reuses the active session and cursor; it does not silently create a new identity or task.</p>
         <h2>Evidence semantics</h2>
-        <p>Weft hashes declared artifacts, rejects workspace escapes, scans for high-confidence secret signatures, and requires submitted checks to pass. The gate proves what was submitted and evaluated—not that the code is universally correct.</p>
+        <p>On the self-hosted coordinator, Weft hashes declared artifacts, rejects workspace escapes, scans for high-confidence secret signatures, and requires submitted checks to pass. The gate proves what was submitted and evaluated—not that the code is universally correct. Hosted room replay does not imply hosted task or evidence evaluation.</p>
         <div class="article-callout"><strong>What remains Weft-specific</strong><p>Pairing consent, team identities, task leases, fencing, ordered event replay, evidence gates, and the audit account. MCP remains the host-to-server transport.</p></div>
         <div class="article-next"><span>Boundary</span><a href="security.html">Read what blocks public hosted scale →</a></div>
       </article>
