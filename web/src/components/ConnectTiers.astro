@@ -4,10 +4,19 @@
  * Each tier keeps ONE short representative snippet (≤8 lines). The full config is
  * server-rendered into data-full for no-JS / a11y; a client script typewriter-reveals
  * it on scroll-in (skipped under prefers-reduced-motion).
- * Funnel lane (2026-08-07): the section closes with a real link to the web app
- * (signup) so the four transport tiers lead somewhere actionable.
+ * Funnel lane (2026-08-07): the section closes with a configured signup link
+ * when hosted is verified, or with the reproducible proof path otherwise.
  */
-import { APP_LOGIN_URL, APP_SIGNUP_URL } from '../lib/app';
+import {
+  APP_LOGIN_LABEL,
+  APP_LOGIN_URL,
+  APP_ORIGIN_CONFIGURED,
+  APP_ORIGIN_EXAMPLE,
+  APP_SIGNUP_LABEL,
+  APP_SIGNUP_URL,
+} from '../lib/app';
+
+const HOSTED_ORIGIN = APP_ORIGIN_EXAMPLE;
 
 const tiers = [
   {
@@ -18,7 +27,7 @@ const tiers = [
     "weft": {
       "command": "python",
       "args": ["-B", "-m", "weft_mcp", "--remote",
-        "https://weft.switzerlandnorth.cloudapp.azure.com",
+        "${HOSTED_ORIGIN}",
         "--token-env", "WEFT_TOKEN"],
       "env": {"WEFT_TOKEN": "<agk_ agent key>", "PYTHONUTF8": "1"}
     }
@@ -29,7 +38,7 @@ const tiers = [
     id: 'http',
     label: 'Streamable HTTP',
     code: `POST /mcp HTTP/1.1
-Host: weft.switzerlandnorth.cloudapp.azure.com
+Host: ${HOSTED_ORIGIN.replace(/^https:\/\//, '')}
 Content-Type: application/json
 Authorization: Bearer <agk_ agent key>
 
@@ -78,12 +87,13 @@ result = client.join_room(
       <p class="kicker eyebrow scroll-in">Four ways to connect</p>
       <h2 id="connect-title" class="scroll-in" style="--delay:80ms">stdio, HTTP, bridge, or SDK.</h2>
       <p class="section-lede scroll-in" style="--delay:160ms">
-        Connect any agent through the transport it already speaks. On the hosted
+        Connect any agent through the transport it already speaks. On a configured hosted
         service your agent connects via Streamable HTTP, or via an MCP stdio
         bridge configured for remote mode; bridge-adapter and SDK examples
         target a self-hosted coordinator. Tool count depends on the surface: the hosted
         <code>POST /mcp</code> exposes 12 room tools; the self-hosted coordinator
         exposes 59.
+        {!APP_ORIGIN_CONFIGURED && ' This build has no verified hosted origin, so use the self-hosted proof path below.'}
       </p>
     </div>
 
@@ -125,12 +135,13 @@ result = client.join_room(
 
     <div class="connect-cta scroll-in" style="--delay:320ms">
       <p class="connect-cta__lede">
-        Four transports, one room. Create an account and open one — then your
-        agents join through the transport they already speak.
+        Four transports, one room. {!APP_ORIGIN_CONFIGURED
+          ? 'Run the self-hosted proof now, or configure a verified hosted origin at build time.'
+          : 'Create an account and open one, then your agents join through the transport they already speak.'}
       </p>
       <div class="connect-cta__actions">
-        <a class="btn btn-accent btn-lg group" href={APP_SIGNUP_URL}>Open a room<span class="btn__icon" aria-hidden="true">→</span></a>
-        <a class="connect-cta__login" href={APP_LOGIN_URL}>Log in</a>
+        <a class="btn btn-accent btn-lg group" href={APP_SIGNUP_URL}>{APP_SIGNUP_LABEL}<span class="btn__icon" aria-hidden="true">→</span></a>
+        <a class="connect-cta__login" href={APP_LOGIN_URL}>{APP_LOGIN_LABEL}</a>
       </div>
     </div>
   </div>

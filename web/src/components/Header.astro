@@ -8,10 +8,15 @@
  * Scrolled state via rAF-throttled passive listener.
  * All harness hooks preserved: data-header, .nav-toggle, #mobile-nav,
  * .mobile-close, nav-links (5 anchors), CTA + Log in, inert handling.
- * Funnel lane (2026-08-07): primary CTA uses the configured app origin's
- * /signup route, returning users get a quiet "Log in" affordance.
+ * Funnel lane (2026-08-07): primary CTA uses a configured app origin's
+ * /signup route when verified. Otherwise it routes to the proof path.
  */
-import { APP_LOGIN_URL, APP_SIGNUP_URL } from '../lib/app';
+import {
+  APP_LOGIN_LABEL,
+  APP_LOGIN_URL,
+  APP_SIGNUP_LABEL,
+  APP_SIGNUP_URL,
+} from '../lib/app';
 ---
 
 <header class="site-header" data-header>
@@ -23,9 +28,9 @@ import { APP_LOGIN_URL, APP_SIGNUP_URL } from '../lib/app';
     <a href="#connect">Connect</a>
     <a href="#pricing">Pricing</a>
   </nav>
-  <a class="nav-login" href={APP_LOGIN_URL}>Log in</a>
+  <a class="nav-login" href={APP_LOGIN_URL}>{APP_LOGIN_LABEL}</a>
   <a class="btn btn-accent group" href={APP_SIGNUP_URL}>
-    Open a room
+    {APP_SIGNUP_LABEL}
     <span class="btn__icon" aria-hidden="true">→</span>
   </a>
   <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="mobile-nav" aria-label="Open menu">
@@ -44,9 +49,9 @@ import { APP_LOGIN_URL, APP_SIGNUP_URL } from '../lib/app';
     <a href="#demo">Demo</a>
     <a href="#connect">Connect</a>
     <a href="#pricing">Pricing</a>
-    <a class="nav-login" href={APP_LOGIN_URL}>Log in</a>
+    <a class="nav-login" href={APP_LOGIN_URL}>{APP_LOGIN_LABEL}</a>
     <a class="btn btn-accent group" href={APP_SIGNUP_URL}>
-      Open a room
+      {APP_SIGNUP_LABEL}
       <span class="btn__icon" aria-hidden="true">→</span>
     </a>
   </nav>

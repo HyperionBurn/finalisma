@@ -23,17 +23,17 @@
   <a class="skip-link" href="#main">Skip to content</a>
   <div class="ledger-ground" aria-hidden="true"></div>
   <div class="announcement">Guide 03 · security boundary <a href="index.html">All guides →</a></div>
-  <header class="site-header"><a class="brand" href="../index.html"><span class="brand-mark" aria-hidden="true">f</span><span>weft</span></a><a class="button button-small" href="quickstart.html">Open a hosted room <span aria-hidden="true">↗</span></a></header>
+  <header class="site-header"><a class="brand" href="../index.html"><span class="brand-mark" aria-hidden="true">f</span><span>weft</span></a><a class="button button-small" href="quickstart.html">Verify deployment first <span aria-hidden="true">↗</span></a></header>
   <main id="main" class="article-main" tabindex="-1">
     <p class="article-kicker">Hosted service · what is enforced vs not claimed</p>
     <h1>Know exactly where the safety claim stops.</h1>
-    <p class="article-dek">The hosted service is a public multi-tenant control plane with real isolation at the storage boundary. This page states what is enforced today and what is still not claimed — the two are different lists.</p>
+    <p class="article-dek">The hosted source implements a multi-tenant control plane with isolation at the storage boundary. The local hosted-service suite covers these rules; deployment status still requires a fresh probe. This page separates what is enforced in source from what is claimed in public operation.</p>
     <div class="article-layout">
       <article>
         <p class="lead-paragraph">Weft separates transport authentication (bearer <code>fss_</code> sessions or <code>agk_</code> agent keys), durable account identity, and member-bound room capability. Both credential types are opaque values stored at rest as SHA-256 hashes; account passwords are scrypt-hashed with per-user salts. Tenancy is structural, not advisory: every room write carries a required <code>tenant_id</code> and is scoped by <code>WHERE tenant_id = ?</code> at the storage boundary.</p>
         <h2>Enforced on the hosted service</h2>
         <ul>
-          <li>Bearer authentication on every <code>/v1</code> call and on <code>POST /mcp</code> — missing, malformed, unknown, revoked, and expired credentials all return the same generic error, so the endpoint is not an oracle. Agent-key management is session-only.</li>
+          <li>Bearer authentication on every protected <code>/v1</code> call and on <code>POST /mcp</code> — missing, malformed, unknown, revoked, and expired credentials all return the same generic error, so the endpoint is not an oracle. Public signup and signin are separate entry points. Agent-key management is session-only.</li>
           <li>Structural tenant isolation at the data layer, with a <code>TenantContext</code> guard that refuses a missing tenant id.</li>
           <li>Role enforcement in depth: a session's declared role is re-derived from the membership table at the service layer, so a hand-forged session context cannot act above its database role.</li>
           <li>Plan-driven quotas and rate limits are enforced atomically — a room <code>cap</code> above the free plan's 10, or a 6th room, is refused <code>409 quota_exceeded</code> (covered by the local hosted-service suite; current public-host behavior requires a fresh probe).</li>
@@ -46,7 +46,7 @@
         <div class="article-next"><span>Evidence</span><a href="compatibility.html">See which host paths are documented and which are live →</a></div>
       </article>
       <aside class="article-aside">
-        <div class="aside-card"><span class="resource-tag">Hosted claim</span><p>Public multi-tenant service with bearer auth, structural tenancy, enforced quotas, and role re-derivation.</p></div>
+        <div class="aside-card"><span class="resource-tag">Documented hosted surface</span><p>Bearer auth, structural tenancy, enforced quotas, and role re-derivation are covered by the local hosted-service suite. Verify the exact deployment before treating them as live behavior.</p></div>
         <div class="aside-card aside-card-dark"><span class="resource-tag">Not claimed</span><p>SLA, uptime, SSO, SOC/ISO, billing, or A2A conformance.</p></div>
       </aside>
     </div>

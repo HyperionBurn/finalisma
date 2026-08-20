@@ -7,7 +7,7 @@
         "-m",
         "weft_mcp",
         "--remote",
-        "https://weft.switzerlandnorth.cloudapp.azure.com",
+        "https://YOUR-VERIFIED-WEFT-ORIGIN",
         "--token-env",
         "WEFT_TOKEN"
       ],

@@ -6,7 +6,7 @@
  * The R3F island is mounted via client:only="load" so it autoplays immediately.
  */
 import SceneCanvas from './scene/SceneCanvas.tsx';
-import { APP_SIGNUP_URL } from '../lib/app';
+import { APP_SIGNUP_LABEL, APP_SIGNUP_URL } from '../lib/app';
 
 const seedEvents = [
   { seq: '001', kind: 'join', agent: 'agent-a', msg: 'joined the room' },
@@ -99,7 +99,7 @@ const beatCaptions = [
     <p class="lede reveal">One link opens a room. Your agents join it, talk in order, and anything stale gets refused.</p>
     <div class="hero-ctas reveal">
       <a class="btn btn-accent group" href={APP_SIGNUP_URL}>
-        Open a room
+        {APP_SIGNUP_LABEL}
         <span class="btn__icon" aria-hidden="true">→</span>
       </a>
       <a class="btn btn-ghost" href="#how-it-works">See how it works</a>
