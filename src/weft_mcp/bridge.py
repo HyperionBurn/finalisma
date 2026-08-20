@@ -532,11 +532,22 @@ class PollingBridge:
                 """,
                 (team_id, agent_id),
             ).fetchone()["first_unacked"]
+            stored_cursor = conn.execute(
+                """
+                SELECT last_ack_seq
+                FROM bridge_cursors
+                WHERE team_id = ? AND agent_id = ?
+                """,
+                (team_id, agent_id),
+            ).fetchone()
             # A caller may reconnect with the cursor returned by a previous
             # page before acknowledging every event in that page. Never let
             # that optimistic cursor skip an older unacked event.
-            effective_cursor = cursor
-            if first_unacked is not None and first_unacked <= cursor:
+            effective_cursor = max(
+                cursor,
+                int(stored_cursor["last_ack_seq"]) if stored_cursor else 0,
+            )
+            if first_unacked is not None and first_unacked <= effective_cursor:
                 effective_cursor = int(first_unacked) - 1
             rows = conn.execute(
                 """
@@ -550,7 +561,7 @@ class PollingBridge:
             ).fetchall()
 
         events = []
-        max_seq = cursor
+        max_seq = effective_cursor
         for row in rows:
             evt = json.loads(row["event_json"])
             evt["event_id"] = row["event_id"]
@@ -581,29 +592,49 @@ class PollingBridge:
             raise WeftError("invalid_argument", "At least one event_id is required")
 
         now = _utc_now()
+        unique_event_ids = list(dict.fromkeys(event_ids))
+        acknowledged_ids: list[str] = []
         with self.store._transaction() as conn:
-            for eid in event_ids:
+            for eid in unique_event_ids:
+                exists = conn.execute(
+                    """
+                    SELECT 1
+                    FROM bridge_outbox
+                    WHERE event_id = ? AND team_id = ? AND agent_id = ?
+                    """,
+                    (eid, team_id, agent_id),
+                ).fetchone()
+                if exists is None:
+                    continue
                 conn.execute(
                     "UPDATE bridge_outbox SET acked = 1 WHERE event_id = ? AND team_id = ? AND agent_id = ?",
                     (eid, team_id, agent_id),
                 )
+                acknowledged_ids.append(eid)
             # Checkpoint only through the highest CONTIGUOUS acknowledged
             # sequence. An out-of-order ack must not make a lower unacked event
             # disappear on reconnect.
             cursor_row = conn.execute(
                 """
-                SELECT MIN(seq) AS first_unacked, MAX(seq) AS max_seq
+                SELECT MIN(seq) AS first_unacked,
+                       (SELECT MAX(seq)
+                        FROM bridge_outbox
+                        WHERE team_id = ? AND agent_id = ?) AS max_seq,
+                       (SELECT last_ack_seq
+                        FROM bridge_cursors
+                        WHERE team_id = ? AND agent_id = ?) AS stored_cursor
                 FROM bridge_outbox
                 WHERE team_id = ? AND agent_id = ? AND acked = 0
                 """,
-                (team_id, agent_id),
+                (team_id, agent_id, team_id, agent_id, team_id, agent_id),
             ).fetchone()
             first_unacked = cursor_row["first_unacked"]
-            last_ack_seq = (
-                int(cursor_row["max_seq"] or 0)
-                if first_unacked is None
-                else max(0, int(first_unacked) - 1)
-            )
+            max_seq = cursor_row["max_seq"]
+            if first_unacked is None:
+                candidate_cursor = int(max_seq or 0)
+            else:
+                candidate_cursor = max(0, int(first_unacked) - 1)
+            last_ack_seq = max(int(cursor_row["stored_cursor"] or 0), candidate_cursor)
             conn.execute(
                 """
                 INSERT INTO bridge_cursors(team_id, agent_id, last_ack_seq, updated_at)
@@ -618,7 +649,12 @@ class PollingBridge:
                 "SELECT last_ack_seq FROM bridge_cursors WHERE team_id = ? AND agent_id = ?",
                 (team_id, agent_id),
             ).fetchone()
-        return {"ok": True, "acked_count": len(event_ids), "cursor": row["last_ack_seq"]}
+        return {
+            "ok": True,
+            "acked": acknowledged_ids,
+            "acked_count": len(acknowledged_ids),
+            "cursor": row["last_ack_seq"],
+        }
 
 
 # ---------------------------------------------------------------------------

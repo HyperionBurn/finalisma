@@ -95,6 +95,12 @@ class BridgeIntegrationTests(unittest.TestCase):
     # 3. poll -> ack -> poll-again: no repeat after acknowledgement.
     # ------------------------------------------------------------------
     def test_poll_ack_poll_no_repeats_after_acknowledgement(self) -> None:
+        self.dispatcher._polling.enqueue(
+            team_id=self.team_id,
+            agent_id=self.agent_id,
+            event={"kind": "test.ack", "payload": {}},
+            actor_token=self.actor_token,
+        )
         # First poll returns a cursor (even if empty).
         first_poll = self._call_bridge(
             "bridge_poll",
@@ -118,6 +124,8 @@ class BridgeIntegrationTests(unittest.TestCase):
                 event_ids=event_ids,
             )
             self.assertEqual(ack_result["acked"], event_ids)
+            self.assertEqual(ack_result["acked_count"], len(event_ids))
+            self.assertEqual(ack_result["cursor"], cursor_after_first)
 
             # Poll again after ack — must not return the same events.
             second_poll = self._call_bridge(

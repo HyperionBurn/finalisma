@@ -7,11 +7,11 @@ compatibility claim.
 ## Latest regression evidence
 
 Measured locally on the current source/test stack (branch
-`codex/fixture-secret-hygiene-2026-08-20`, source baseline `9a1955d`):
+`codex/polling-cursor-reliability-2026-08-20`, source baseline `8387755`):
 
 - Command: `python -B -m unittest discover -s tests -p "test_*.py"`
 - Result: **1184 tests discovered; 1183 passed; 1 skipped**
-- Duration: 547.402 seconds on the local Windows runner
+- Duration: 577.276 seconds on the local Windows runner
 - Focused hosted-MCP/count suite: 35 tests passed locally
   (`tests.test_hosted_mcp` and `tests.test_site.TestCountSyncTests`)
 - Site build: not rerun in this SDK-only local command; prior site evidence
