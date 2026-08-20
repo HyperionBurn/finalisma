@@ -11,7 +11,7 @@ Measured locally on the current source/test stack (branch
 
 - Command: `python -B -m unittest discover -s tests -p "test_*.py"`
 - Result: **1198 tests discovered; 1197 passed; 1 skipped**
-- Duration: 465.427 seconds on the local Windows runner
+- Duration: 465.204 seconds on the local Windows runner
 - Focused hosted-MCP/count suite: 35 tests passed locally
   (`tests.test_hosted_mcp` and `tests.test_site.TestCountSyncTests`)
 - Site build: not rerun in this SDK-only local command; prior site evidence
