@@ -19,7 +19,10 @@
 # integration, if wanted, is the VM owner's call.
 #
 # Install:
-#   sudo mkdir -p /var/log/weft
+#   sudo install -d -o root -g azureuser -m 0750 /etc/weft /var/log/weft
+#   printf '%s\n' 'WEFT_EDGE_URL=https://your-public-origin.example' | sudo tee /etc/weft/healthcheck.env >/dev/null
+#   sudo chown root:azureuser /etc/weft/healthcheck.env
+#   sudo chmod 0640 /etc/weft/healthcheck.env
 #   sudo cp scripts/systemd/weft-healthcheck.service scripts/systemd/weft-healthcheck.timer /etc/systemd/system/
 #   sudo systemctl daemon-reload
 #   sudo systemctl enable --now weft-healthcheck.timer
@@ -31,8 +34,11 @@ After=network.target
 [Service]
 Type=oneshot
 User=azureuser
-Environment=WEFT_EDGE_URL=http://127.0.0.1
-ExecStart=/usr/bin/python3 /opt/weft/scripts/healthcheck.py --base-url http://127.0.0.1:18788 --edge-url ${WEFT_EDGE_URL} --log /var/log/weft/healthcheck.jsonl
+PermissionsStartOnly=true
+EnvironmentFile=/etc/weft/healthcheck.env
+ExecStartPre=/usr/bin/install -d -o azureuser -g azureuser -m 0750 /var/log/weft
+ExecStartPre=/usr/bin/test -n ${WEFT_EDGE_URL}
+ExecStart=/usr/bin/python3 /opt/weft/scripts/healthcheck.py --base-url http://127.0.0.1:18788 --edge-url ${WEFT_EDGE_URL} --require-https-edge --log /var/log/weft/healthcheck.jsonl
 # Uncomment to forward a failed probe to another unit (e.g. one that pages
 # someone) once the owner decides how they want to be notified:
 # OnFailure=weft-healthcheck-alert.service

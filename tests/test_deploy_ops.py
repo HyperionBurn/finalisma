@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import smtplib
+import subprocess
 import sys
 import tempfile
 import threading
@@ -190,6 +191,21 @@ class HealthcheckUnreachableTests(unittest.TestCase):
             raw = log_path.read_text(encoding="utf-8")
             for forbidden in ("password", "token", "authorization", "body"):
                 self.assertNotIn(forbidden, raw.lower())
+
+    def test_cli_rejects_http_edge_when_https_is_required(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPTS_DIR / "healthcheck.py"),
+                "--base-url", "http://127.0.0.1:18788",
+                "--edge-url", "http://127.0.0.1",
+                "--require-https-edge",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("absolute HTTPS URL", result.stderr)
 
 
 class MailErrorDetailTests(unittest.TestCase):

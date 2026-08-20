@@ -14,7 +14,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC="${WEFT_SRC_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 KEY="${WEFT_SSH_KEY:-C:/Users/Wasif/Downloads/multiplayerai_key.pem}"
 VM="${WEFT_VM:-azureuser@20.199.129.229}"
-SSH_OPTS=(-o StrictHostKeyChecking=no -i "$KEY")
+KNOWN_HOSTS="${WEFT_SSH_KNOWN_HOSTS:-}"
+: "${WEFT_SSH_KNOWN_HOSTS:?set WEFT_SSH_KNOWN_HOSTS to an independently verified known_hosts file first}"
+test -f "$KNOWN_HOSTS" || { echo "FATAL: verified SSH known_hosts file not found at $KNOWN_HOSTS" >&2; exit 1; }
+SSH_OPTS=(-o BatchMode=yes -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$KNOWN_HOSTS" -i "$KEY")
+: "${WEFT_NGINX_CONF:?set WEFT_NGINX_CONF to the intended remote nginx site file first}"
+: "${WEFT_NGINX_SERVER_NAME:?set WEFT_NGINX_SERVER_NAME to the intended remote nginx server_name first}"
 
 : "${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN=https://<current-tunnel> first}"
 
@@ -58,7 +63,7 @@ echo "== 2. ship the ops scripts separately, normalize, syntax-check — before 
 # all before a single line of the cutover executes.
 OPS_REMOTE="/tmp/weft-ops-$(date +%s)"
 ssh "${SSH_OPTS[@]}" "$VM" "mkdir -p '$OPS_REMOTE'"
-for f in redeploy-weft.sh rollback-weft.sh restart_proof.py backup_cloud_db.py restore_drill.py normalize_line_endings.py classify_suite_log.py; do
+for f in redeploy-weft.sh rollback-weft.sh restart_proof.py backup_cloud_db.py restore_drill.py normalize_line_endings.py classify_suite_log.py ensure_nginx_routes.py; do
   scp "${SSH_OPTS[@]}" "$SRC/scripts/$f" "$VM:$OPS_REMOTE/$f"
 done
 ssh "${SSH_OPTS[@]}" "$VM" bash -s "$OPS_REMOTE" <<'REMOTE_NORMALIZE'
@@ -86,7 +91,9 @@ tar -C "$STAGE" -czf - . | ssh "${SSH_OPTS[@]}" "$VM" "tar -xzf - -C /opt/weft-i
 ssh "${SSH_OPTS[@]}" "$VM" "ls /opt/weft-incoming/src | sed 's/^/   /'"
 
 echo "== 4. cutover (runs the syntax-checked, CRLF-stripped copy from step 2) =="
-ssh "${SSH_OPTS[@]}" "$VM" "PUBLIC_ORIGIN='$PUBLIC_ORIGIN' bash '$OPS_REMOTE/redeploy-weft.sh'"
+printf -v CUTOVER_CMD 'PUBLIC_ORIGIN=%q WEFT_NGINX_CONF=%q WEFT_NGINX_SERVER_NAME=%q bash %q' \
+  "$PUBLIC_ORIGIN" "$WEFT_NGINX_CONF" "$WEFT_NGINX_SERVER_NAME" "$OPS_REMOTE/redeploy-weft.sh"
+ssh "${SSH_OPTS[@]}" "$VM" "$CUTOVER_CMD"
 
 echo
 echo "== 5. verify from the PUBLIC internet, not from inside the box =="

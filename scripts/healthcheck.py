@@ -39,6 +39,7 @@ import urllib.request
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -158,9 +159,20 @@ def _main(argv: "list[str]") -> int:
                         help="backend URL for /healthz, e.g. http://127.0.0.1:18788")
     parser.add_argument("--edge-url", default=None,
                         help="nginx/public URL for /mcp; defaults to --base-url")
+    parser.add_argument(
+        "--require-https-edge",
+        action="store_true",
+        help="fail before probing unless the edge URL uses HTTPS",
+    )
     parser.add_argument("--log", type=Path, default=None, help="append a JSON line here")
     parser.add_argument("--timeout", type=float, default=5.0)
     args = parser.parse_args(argv)
+
+    edge_url = args.edge_url or args.base_url
+    if args.require_https_edge:
+        parsed = urlsplit(edge_url)
+        if parsed.scheme != "https" or not parsed.netloc:
+            parser.error("--edge-url must be an absolute HTTPS URL when --require-https-edge is set")
 
     ok, record = run(args.base_url, edge_url=args.edge_url, timeout=args.timeout)
 

@@ -334,6 +334,7 @@ class ShippedScriptSanityTests(unittest.TestCase):
         py_scripts = [
             "classify_suite_log.py", "normalize_line_endings.py", "restart_proof.py",
             "backup_cloud_db.py", "restore_drill.py", "healthcheck.py", "mail_error_detail.py",
+            "ensure_nginx_routes.py",
         ]
         for name in py_scripts:
             path = SCRIPTS_DIR / name
@@ -362,6 +363,29 @@ class ShippedScriptSanityTests(unittest.TestCase):
         for name in ("push-code-to-vm.sh", "redeploy-weft.sh", "final-verify.sh", "suite-check.sh"):
             self.assertTrue((SCRIPTS_DIR / name).is_file(), f"missing scripts/{name}")
 
+    def test_push_script_requires_pinned_ssh_identity(self):
+        script = (SCRIPTS_DIR / "push-code-to-vm.sh").read_text(encoding="utf-8")
+        self.assertIn("WEFT_SSH_KNOWN_HOSTS", script)
+        self.assertIn("StrictHostKeyChecking=yes", script)
+        self.assertIn('UserKnownHostsFile=$KNOWN_HOSTS', script)
+        self.assertIn("BatchMode=yes", script)
+        self.assertNotIn("StrictHostKeyChecking=no", script)
+        self.assertIn("verified SSH known_hosts file not found", script)
+
+    def test_redeploy_requires_an_explicit_and_matching_nginx_site(self):
+        push = (SCRIPTS_DIR / "push-code-to-vm.sh").read_text(encoding="utf-8")
+        redeploy = (SCRIPTS_DIR / "redeploy-weft.sh").read_text(encoding="utf-8")
+        helper = (SCRIPTS_DIR / "ensure_nginx_routes.py").read_text(encoding="utf-8")
+        self.assertIn("WEFT_NGINX_CONF", push)
+        self.assertIn("WEFT_NGINX_SERVER_NAME", push)
+        self.assertIn("WEFT_NGINX_CONF", redeploy)
+        self.assertIn("WEFT_NGINX_SERVER_NAME", redeploy)
+        self.assertNotIn("ls /etc/nginx/sites-enabled/", redeploy)
+        self.assertIn("NGINX_BACKUP=", redeploy)
+        self.assertIn("location = /mcp", helper)
+        self.assertIn("ensure_nginx_routes.py", redeploy)
+        self.assertIn("restored $CONF from $NGINX_BACKUP", redeploy)
+
 
 class RedeployBackupSafetyTests(unittest.TestCase):
     """A cutover must fail closed until the database is recoverably backed up."""
@@ -388,17 +412,26 @@ class RedeployBackupSafetyTests(unittest.TestCase):
 
     def test_redeploy_propagates_public_origin_and_join_route(self):
         script = (SCRIPTS_DIR / "redeploy-weft.sh").read_text(encoding="utf-8")
+        helper = (SCRIPTS_DIR / "ensure_nginx_routes.py").read_text(encoding="utf-8")
         self.assertIn("Environment=WEFT_PUBLIC_ORIGIN=$PUBLIC_ORIGIN", script)
-        self.assertIn("location ^~ /j/", script,
+        self.assertIn("location ^~ /j/", helper,
                       "nginx must forward generated public join links to weft-cloud")
-        self.assertIn("location /mcp", script,
+        self.assertIn("location = /mcp", helper,
                       "nginx must continue forwarding hosted MCP to weft-cloud")
 
     def test_healthcheck_template_probes_edge_separately(self):
         unit = (SCRIPTS_DIR / "systemd" / "weft-healthcheck.service").read_text(encoding="utf-8")
-        self.assertIn("Environment=WEFT_EDGE_URL=http://127.0.0.1", unit)
+        self.assertIn("EnvironmentFile=/etc/weft/healthcheck.env", unit)
+        self.assertIn("ExecStartPre=/usr/bin/install -d -o azureuser -g azureuser -m 0750 /var/log/weft", unit)
+        self.assertIn("ExecStartPre=/usr/bin/test -n ${WEFT_EDGE_URL}", unit)
         self.assertIn("--base-url http://127.0.0.1:18788", unit)
         self.assertIn("--edge-url ${WEFT_EDGE_URL}", unit)
+        self.assertIn("--require-https-edge", unit)
+        self.assertNotIn("Environment=WEFT_EDGE_URL=http://127.0.0.1", unit)
+
+        backup = (SCRIPTS_DIR / "systemd" / "weft-backup.service").read_text(encoding="utf-8")
+        self.assertIn("PermissionsStartOnly=true", backup)
+        self.assertIn("ExecStartPre=/usr/bin/install -d -o azureuser -g azureuser -m 0700 /var/backups/weft", backup)
 
     def test_compose_delivery_profile_shares_store_without_committing_secrets(self):
         compose = (REPO_ROOT / "compose.yaml").read_text(encoding="utf-8")
