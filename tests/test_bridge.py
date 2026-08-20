@@ -9,12 +9,14 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import socket
 import sys
 import tempfile
 import threading
 import time
 import unittest
 import uuid
+from unittest import mock
 from http.client import HTTPConnection
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -31,6 +33,7 @@ from weft_mcp.bridge import (
     BridgeAuthError,
     BridgeSignatureError,
     _now_epoch,
+    _validate_webhook_url,
 )
 
 
@@ -105,6 +108,142 @@ class WebhookBridgeTests(unittest.TestCase):
                 secret_ref="whsec_test",
                 actor_token=self.actor_token,
             )
+
+    def test_webhook_url_rejects_non_global_ranges_and_malformed_input(self):
+        cases = [
+            "http://127.0.0.1:8080/hook",
+            "http://10.0.0.1/hook",
+            "http://169.254.169.254/hook",
+            "http://100.64.0.1/hook",
+            "http://[::1]/hook",
+            "http://[fd00::1]/hook",
+            "http://[::ffff:127.0.0.1]/hook",
+            "http://[::ffff:100.64.0.1]/hook",
+            "http://[::1/hook",
+            "http://example.com:bad/hook",
+            " http://example.com/hook",
+        ]
+        for url in cases:
+            with self.subTest(url=url):
+                with self.assertRaises(WeftError) as raised:
+                    _validate_webhook_url(url, allow_local=False, resolve=False)
+                self.assertEqual(raised.exception.code, "invalid_argument")
+
+    def test_deliver_pins_the_validated_dns_address(self):
+        received = {}
+
+        class HookHandler(BaseHTTPRequestHandler):
+            def do_POST(self):
+                length = int(self.headers.get("Content-Length", 0))
+                received["body"] = json.loads(self.rfile.read(length))
+                received["host"] = self.headers.get("Host")
+                self.send_response(204)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), HookHandler)
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        connect_calls = []
+
+        def connect_to_receiver(address, timeout=None, source_address=None):
+            connect_calls.append(address)
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(timeout)
+            if source_address:
+                sock.bind(source_address)
+            sock.connect(("127.0.0.1", port))
+            return sock
+
+        try:
+            reg = self.bridge.register_webhook(
+                team_id="team-1",
+                agent_id="agent-1",
+                url=f"http://rebind.test:{port}/hook",
+                secret_ref="whsec_signing_secret",
+                actor_token=self.actor_token,
+            )
+            with mock.patch(
+                "weft_mcp.bridge.socket.getaddrinfo",
+                return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))],
+            ), mock.patch("weft_mcp.bridge.socket.create_connection", side_effect=connect_to_receiver):
+                result = self.bridge.deliver(
+                    webhook_id=reg["webhook_id"],
+                    event={"kind": "dns-pinned"},
+                    signing_secret="whsec_signing_secret",
+                )
+            self.assertTrue(result["delivered"])
+            self.assertEqual(connect_calls, [("93.184.216.34", port)])
+            self.assertEqual(received["body"], {"kind": "dns-pinned"})
+            self.assertEqual(received["host"], f"rebind.test:{port}")
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+    def test_deliver_rejects_non_2xx_without_following_redirect(self):
+        redirect_source = {"count": 0}
+        redirected = {"count": 0}
+
+        class RedirectHandler(BaseHTTPRequestHandler):
+            def do_POST(self):
+                redirect_source["count"] += 1
+                self.send_response(302)
+                self.send_header(
+                    "Location",
+                    f"http://127.0.0.1:{target_server.server_address[1]}/should-not-receive",
+                )
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        class TargetHandler(BaseHTTPRequestHandler):
+            def do_POST(self):
+                redirected["count"] += 1
+                self.send_response(204)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        redirect_server = ThreadingHTTPServer(("127.0.0.1", 0), RedirectHandler)
+        target_server = ThreadingHTTPServer(("127.0.0.1", 0), TargetHandler)
+        redirect_thread = threading.Thread(target=redirect_server.serve_forever, daemon=True)
+        target_thread = threading.Thread(target=target_server.serve_forever, daemon=True)
+        redirect_thread.start()
+        target_thread.start()
+        try:
+            port = redirect_server.server_address[1]
+            reg = self.bridge.register_webhook(
+                team_id="team-1",
+                agent_id="agent-1",
+                url=f"http://127.0.0.1:{port}/hook",
+                secret_ref="whsec_signing_secret",
+                actor_token=self.actor_token,
+            )
+            result = self.bridge.deliver(
+                webhook_id=reg["webhook_id"],
+                event={"kind": "redirect"},
+                signing_secret="whsec_signing_secret",
+            )
+            self.assertFalse(result["delivered"])
+            self.assertTrue(result["error"])
+            self.assertEqual(redirect_source["count"], 1)
+            self.assertEqual(redirected["count"], 0)
+        finally:
+            redirect_server.shutdown()
+            target_server.shutdown()
+            redirect_server.server_close()
+            target_server.server_close()
+            redirect_thread.join(timeout=5)
+            target_thread.join(timeout=5)
 
     def test_deliver_emits_signed_event(self):
         # Spin up a local HTTP server to receive webhook

@@ -4,6 +4,10 @@ Read-only adversarial review of the Wave-A attack-surface doubling.
 Scope: `tenancy.py`, `roster.py`, `outbox.py`, `bridge.py`, `sdk/client.py`.
 Baseline: `docs/BASELINE_2026-08-05.md`. Contract: `docs/SECURITY_GATES.md`.
 
+> This is a historical snapshot. The HIGH-1 webhook signing fallback was
+> removed before the 2026-08-20 release-hardening waves. Use the current
+> `src/weft_mcp/bridge.py` and its tests for present behavior.
+
 ## Result summary
 
 | Severity | Count |
@@ -15,12 +19,12 @@ Baseline: `docs/BASELINE_2026-08-05.md`. Contract: `docs/SECURITY_GATES.md`.
 
 ## CRITICAL / HIGH summary
 
-1. **HMAC key-is-hash fallback lets anyone with the DB forge valid webhook signatures** — `bridge.py:221-224`. Gate: *pairing/session tokens are opaque and stored hashed* (the same hygiene applied to webhook secrets is violated by the fallback).
+1. **[Fixed] HMAC key-is-hash fallback let anyone with the DB forge valid webhook signatures** — historical `bridge.py:221-224`. The current bridge requires the caller's raw signing secret.
 2. **SDK HTTP-error path leaks the coordinator response body into an exception** — `sdk/client.py:264`. Gate: *session tokens are never returned by preview endpoints, never logged*.
 
 ## Detailed findings
 
-### HIGH-1 — WebhookBridge fallback signing key is the stored SHA-256 hash
+### HIGH-1 — [Fixed] WebhookBridge fallback signing key was the stored SHA-256 hash
 
 **Gate violated:** SECURITY_GATES.md §"Pairing/session tokens are opaque and stored hashed; token-bearing URL paths are rejected" — the same "hash only at rest" hygiene is claimed for webhook secrets, but the code deliberately uses the hash as a live HMAC key.
 
