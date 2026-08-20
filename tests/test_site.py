@@ -155,6 +155,28 @@ class LaunchSurfaceTests(unittest.TestCase):
         protocol = (SITE / "docs" / "protocol.html").read_text(encoding="utf-8")
         self.assertIn("Hosted room links are multi-use", protocol)
 
+    def test_design_qa_report_matches_current_rendered_artifact(self) -> None:
+        """The human QA report must describe the checked-in browser artifact."""
+        report = (ROOT / "design-qa.md").read_text(encoding="utf-8")
+        qa = json.loads((ROOT / "artifacts" / "design-qa" / "qa-results.json").read_text(encoding="utf-8"))
+        current_truth = report.split("## Product truth and information architecture", 1)[1].split(
+            "## Fresh verification", 1
+        )[0]
+        self.assertNotIn("$500 deposit", current_truth)
+        self.assertNotIn("$1,000/workspace/month", current_truth)
+        self.assertIn("PUBLIC_APP_ORIGIN", current_truth)
+        self.assertIn("portable brief", current_truth)
+
+        performance = qa["performanceChecks"]
+        self.assertIn(f"{int(performance['transferBytes']):,} transferred bytes", report)
+        self.assertIn(f"local observed LCP {int(performance['lcp'])}ms", report)
+        longest_task = max((int(value) for value in performance["longTasks"]), default=0)
+        self.assertIn(f"one {longest_task}ms long task", report)
+        accessibility = qa["accessibility"]
+        self.assertEqual(accessibility["totalAxeViolations"], 0)
+        self.assertIn("zero axe violations across six pages", report)
+        self.assertIn("manual-review item", report)
+
     def test_site_never_overclaims_liveness_or_enforcement(self) -> None:
         """Site-truth invariants (2026-08-08).
 
