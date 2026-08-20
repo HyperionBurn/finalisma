@@ -513,6 +513,28 @@ class CoordinatorCursorGuardTests(unittest.TestCase):
             "a filtered page that scanned the stream must report the full-stream cursor",
         )
 
+    def test_filtered_poll_accepts_64_message_kinds(self) -> None:
+        filtered = self.dispatcher.call_tool("room_poll", {
+            "team_id": self.team, "room_id": self.room_id,
+            "agent_id": "A2", "actor_token": self.tokens["A2"],
+            "after_seq": 0,
+            "message_kinds": [f"kind{i:02d}" for i in range(64)],
+        })
+        self.assertEqual(filtered["events"], [])
+
+    def test_filtered_poll_rejects_65_message_kinds_before_sql(self) -> None:
+        from weft_mcp.core import WeftError
+
+        with self.assertRaises(WeftError) as ctx:
+            self.dispatcher.call_tool("room_poll", {
+                "team_id": self.team, "room_id": self.room_id,
+                "agent_id": "A2", "actor_token": self.tokens["A2"],
+                "after_seq": 0,
+                "message_kinds": [f"kind{i:02d}" for i in range(65)],
+            })
+        self.assertEqual(ctx.exception.code, "invalid_argument")
+        self.assertIn("at most 64", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

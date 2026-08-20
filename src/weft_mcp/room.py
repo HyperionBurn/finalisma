@@ -98,13 +98,18 @@ ROOM_STALE_AFTER_SECONDS = 1800.0
 # stays <= window, a tiny fraction of ROOM_STALE_AFTER_SECONDS.
 ROOM_LIVENESS_TOUCH_INTERVAL = 5.0
 
+# Poll filters become one SQL placeholder per message kind. Keep the
+# self-hosted coordinator aligned with the hosted 64-item safety boundary.
+_MESSAGE_KINDS_MAX_ITEMS = 64
+
 
 def _validate_message_kinds(value: Sequence[str] | None,
                             field: str = "message_kinds") -> list[str] | None:
     """Validate the optional ``message_kinds`` poll filter.
 
     ``None`` means "no filter" (return everything). Otherwise it must be a
-    sequence of message-kind strings, each validated by ``_validate_message_kind``.
+    sequence of at most 64 message-kind strings, each validated by
+    ``_validate_message_kind``.
     """
     if value is None:
         return None
@@ -112,6 +117,11 @@ def _validate_message_kinds(value: Sequence[str] | None,
         raise RoomError(
             "invalid_argument",
             f"{field} must be an optional list of message_kind strings",
+        )
+    if len(value) > _MESSAGE_KINDS_MAX_ITEMS:
+        raise RoomError(
+            "invalid_argument",
+            f"{field} must contain at most {_MESSAGE_KINDS_MAX_ITEMS} entries",
         )
     validated: list[str] = []
     for entry in value:

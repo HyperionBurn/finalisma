@@ -776,7 +776,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "room_poll",
-        "description": "Replay ordered Room events from a per-member cursor. At-least-once; consumers ack to advance their own cursor. Optional message_kinds list filters returned events to those whose message_kind matches an entry (e.g. message_kinds [\"result\"] to consume only finished-work posts); when absent, everything is returned. next_seq and cursor_head are always reported against the FULL stream, so a filtering caller pages matching events with no gaps or repeats and can ack cursor_head safely.",
+        "description": "Replay ordered Room events from a per-member cursor. At-least-once; consumers ack to advance their own cursor. Optional message_kinds list (at most 64 entries) filters returned events to those whose message_kind matches an entry (e.g. message_kinds [\"result\"] to consume only finished-work posts); when absent, everything is returned. next_seq and cursor_head are always reported against the FULL stream, so a filtering caller pages matching events with no gaps or repeats and can ack cursor_head safely.",
         "inputSchema": _object_schema({
             "team_id": STRING,
             "room_id": STRING,
