@@ -106,6 +106,7 @@ def accept(backend: Any, raw_token: str, email: str, password: str) -> tuple[str
     adds a membership with EXACTLY the invite's role, consumes the token
     atomically, and issues a session.
     """
+    accounts.validate_password(password)
     ensure_schema(backend)
     token_hash = hash_token(raw_token)
     now = _time.time()

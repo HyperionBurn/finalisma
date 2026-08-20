@@ -46,6 +46,7 @@ from weft_cloud.identity import (
     SessionStore,
     ensure_identity_schema,
 )
+from weft_cloud.identity.accounts import validate_password
 from weft_cloud.identity.schema import ensure_schema as _ensure_identity_schema
 from weft_cloud.identity.sessions import DEFAULT_TTL_SECONDS
 from weft_cloud.mcp import (
@@ -326,6 +327,10 @@ class WeftCloudService:
             raise _ServiceError("invalid_argument", "email and password are required")
         if not isinstance(password, str) or not password:
             raise _ServiceError("invalid_argument", "email and password are required")
+        try:
+            validate_password(password)
+        except ValueError as exc:
+            raise _ServiceError("invalid_argument", str(exc)) from exc
         if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
             raise _ServiceError("invalid_argument", "email must be a valid email address")
         if len(password) < 8:
@@ -387,6 +392,10 @@ class WeftCloudService:
             raise _ServiceError("invalid_argument", "email and password are required")
         if not isinstance(password, str) or not password:
             raise _ServiceError("invalid_argument", "email and password are required")
+        try:
+            validate_password(password)
+        except ValueError as exc:
+            raise _ServiceError("invalid_argument", str(exc)) from exc
         # Enforce the shared auth limiter BEFORE the tenant lookup. Both tiers
         # (client IP and the email, counted regardless of existence) run before
         # any branch that depends on whether the account exists, so a throttled
@@ -544,6 +553,10 @@ class WeftCloudService:
         ):
             raise _ServiceError("invalid_argument",
                                 "invite_token, email, and password are required")
+        try:
+            validate_password(password)
+        except ValueError as exc:
+            raise _ServiceError("invalid_argument", str(exc)) from exc
         account_id, session_token = self.invites.accept(self.backend, token, email, password)
         return _json_response(HTTPStatus.OK, {
             "account_id": account_id,

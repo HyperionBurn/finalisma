@@ -155,6 +155,9 @@ class IdentityAccountsContractTests(unittest.TestCase):
         reset_token = self._extract_reset_token(row["body"])
         self.assertTrue(reset_token.startswith("frt_"))
 
+        with self.assertRaises(ValueError):
+            accounts.reset_password(self.backend, reset_token, "p" * 257)
+
         new_password = "new-secure-password-42"
         accounts.reset_password(self.backend, reset_token, new_password)
 

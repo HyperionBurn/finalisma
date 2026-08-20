@@ -112,6 +112,12 @@ These coexist with `cloud_tenants`, `cloud_counters`, `cloud_audit`, etc. They a
 
 **Storage:** Only `salt` (BLOB) + `password_hash` (BLOB) are stored. The raw password is NEVER stored, logged, or serialised.
 
+**Input bounds:** Every signup, signin, invite-acceptance, and password-reset
+path accepts passwords from **8 through 256 characters**, inclusive. The
+shared identity validator rejects values outside this range before scrypt or
+invite-token consumption. This bounds hashing work and keeps all entry points
+on one policy.
+
 ### 3.2 Constant-time comparison
 
 Password verification uses `hmac.compare_digest(stored_hash, computed_hash)` — never `==` on secrets.

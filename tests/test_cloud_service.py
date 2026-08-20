@@ -219,6 +219,11 @@ class TestAccountAndOrgFlow(CloudServiceTestBase):
             "email": "bob@example.com", "password": "short",
         })
         self.assertEqual(status, 400)
+        status, body = _post(self.base, "/v1/auth/signup", {
+            "email": "long-password@example.com", "password": "p" * 257,
+        })
+        self.assertEqual(status, 400)
+        self.assertEqual(body["error"]["code"], "invalid_argument")
 
     def test_signup_does_not_auto_verify_email(self) -> None:
         # Signup must not self-consume its own email verification: ownership of
@@ -253,6 +258,11 @@ class TestAccountAndOrgFlow(CloudServiceTestBase):
             "email": "dave@example.com", "password": "WrongPassword!1",
         })
         self.assertEqual(status, 401)
+        status, body = _post(self.base, "/v1/auth/signin", {
+            "email": "dave@example.com", "password": "p" * 257,
+        })
+        self.assertEqual(status, 400)
+        self.assertEqual(body["error"]["code"], "invalid_argument")
 
     def test_refresh_rotates_session_and_rejects_old_bearer(self) -> None:
         signup = self._signup("refresh-owner@example.com", "CorrectHorse!1")
@@ -317,6 +327,17 @@ class TestRoomLifecycle(CloudServiceTestBase):
 
     def test_member_cannot_create_room_and_leaves_no_rows(self) -> None:
         owner = self._signup("room-role-owner@example.com", "CorrectHorse!1")
+        inviter = self.service.resolve_identity(owner["session_token"])
+        _, short_invite = self.service.invites.create(
+            inviter, "short-invite@example.com", role="member"
+        )
+        status, body = _post(self.base, "/v1/org/accept_invite", {
+            "invite_token": short_invite,
+            "email": "short-invite@example.com",
+            "password": "short",
+        })
+        self.assertEqual(status, 400)
+        self.assertEqual(body["error"]["code"], "invalid_argument")
         member = self._accept_invite(
             owner["session_token"],
             "room-role-member@example.com",
