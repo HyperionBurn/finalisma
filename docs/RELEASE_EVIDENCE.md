@@ -7,13 +7,17 @@ compatibility claim.
 ## Latest regression evidence
 
 Measured locally on the current source/test stack (merged base `main` at
-`fd05155`; a feature branch may be active while a PR is in flight):
+`06c096a`; a feature branch may be active while a PR is in flight):
 
 - Command: `python -B -m unittest discover -s tests -p "test_*.py"`
-- Result: **1201 tests discovered; 1200 passed; 1 skipped**
-- Duration: 456.596 seconds on the local Windows runner
+- Result: **1203 tests discovered; 1202 passed; 1 skipped**
+- Duration: 452.195 seconds on the local Windows runner
 - Focused hosted-MCP/count suite: 36 tests passed locally
   (`tests.test_hosted_mcp` and `tests.test_site.TestCountSyncTests`)
+- Release-boundary subset: 18 tests passed locally, including Vercel
+  materialization, live-probe contracts, and Compose safety contracts
+- Compose parser: not run locally because Docker is not installed; CI must run
+  `docker compose -f compose.yaml config --quiet`
 - Site build: `npm run build` passed with no app origin, and the rendered
   Playwright harness refreshed `artifacts/design-qa/qa-results.json` with exit 0
 - `git diff --check`: passed

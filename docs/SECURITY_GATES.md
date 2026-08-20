@@ -5,6 +5,26 @@ report is a claim; a passing test and observed artifact are evidence. The
 current SQLite coordinator is a single-node boundary; do not expose it to
 untrusted public traffic without completing the multi-instance gates below.
 
+## Local evidence map
+
+The following map makes the boundary explicit. These tests exercise local
+source and temporary stores. They do not prove that a hosted deployment runs
+the same revision or configuration.
+
+| Gate area | Local evidence | Hosted boundary |
+|---|---|---|
+| Pairing, consent, and idempotency | `tests/test_identity_invites.py`, `tests/test_identity_negatives.py`, `tests/test_room_cursor_guards.py`, `tests/test_room_receipts.py` | Re-run against an authorised release before making a hosted claim. |
+| Origin, join limits, and rate limits | `tests/test_webapp_security.py`, `tests/test_auth_rate_limits.py`, `tests/test_invite_api_security.py` | A reachable endpoint is not proof that the deployed release enforces these checks. |
+| Payload and workspace boundaries | `tests/test_input_hardening.py`, `tests/test_core_hardening.py` | No remote filesystem or payload-execution claim is made. |
+| Tenant and actor isolation | `tests/test_tenancy.py`, `tests/test_tenancy_negative.py`, `tests/test_authz_plane.py` | Multi-instance storage and identity boundaries remain open work. |
+| Hosted MCP and delivery contracts | `tests/test_hosted_mcp.py`, `tests/test_hosted_mcp_sse.py`, `tests/test_cloud_delivery_outbox.py` | These are local HTTP/service tests, not external provider or uptime proof. |
+| Release and deployment wiring | `tests/test_vercel_config.py`, `tests/test_probe_live_release_contract.py`, `tests/test_site.py`, `tests/test_deploy_gate.py` | CI checks the contract. The read-only live probe must still pass for the exact origins. |
+| Retention and operational scripts | `tests/test_deploy_ops.py`, `tests/test_deploy_backup.py` | Backup, restore, TLS, alerting, and runtime state need an operator observation. |
+
+The multi-instance requirements below currently have no passing implementation
+gate. Keep them marked as open until shared storage, distributed delivery,
+remote identity validation, and failure-mode testing exist together.
+
 ## Must pass before trusted single-node pairing
 
 - Pair tokens use `secrets.token_urlsafe`, are hashed before persistence, are

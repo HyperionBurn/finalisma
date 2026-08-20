@@ -19,8 +19,6 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-DEFAULT_API_ORIGIN = "https://weft.switzerlandnorth.cloudapp.azure.com"
-DEFAULT_SITE_ORIGIN = "https://finalisma.vercel.app"
 _MAX_BODY_BYTES = 2 * 1024 * 1024
 _ALWAYS_HEADERS = (
     "strict-transport-security",
@@ -461,17 +459,33 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--api-origin",
-        default=os.environ.get("WEFT_API_ORIGIN", DEFAULT_API_ORIGIN),
+        default=None,
+        help="verified API origin, or set WEFT_API_ORIGIN",
     )
     parser.add_argument(
         "--site-origin",
-        default=os.environ.get("WEFT_SITE_URL", DEFAULT_SITE_ORIGIN),
+        default=None,
+        help="verified static-site origin, or set WEFT_SITE_URL",
     )
     parser.add_argument("--timeout", type=float, default=20.0)
     parser.add_argument("--pretty", action="store_true")
     args = parser.parse_args(argv)
+    api_origin = (args.api_origin or os.environ.get("WEFT_API_ORIGIN", "")).strip()
+    site_origin = (args.site_origin or os.environ.get("WEFT_SITE_URL", "")).strip()
+    missing = []
+    if not api_origin:
+        missing.append("--api-origin or WEFT_API_ORIGIN")
+    if not site_origin:
+        missing.append("--site-origin or WEFT_SITE_URL")
+    if missing:
+        print(json.dumps({
+            "probe": "weft-live-release-v1",
+            "status": "INVALID_ARGUMENT",
+            "error": "Explicit verified origins are required: " + ", ".join(missing) + ".",
+        }))
+        return 4
     try:
-        result = probe(args.api_origin, args.site_origin, timeout=args.timeout)
+        result = probe(api_origin, site_origin, timeout=args.timeout)
     except ValueError as exc:
         print(json.dumps({"probe": "weft-live-release-v1", "status": "INVALID_ARGUMENT", "error": str(exc)}))
         return 4

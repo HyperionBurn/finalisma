@@ -155,6 +155,32 @@ class LaunchSurfaceTests(unittest.TestCase):
         protocol = (SITE / "docs" / "protocol.html").read_text(encoding="utf-8")
         self.assertIn("Hosted room links are multi-use", protocol)
 
+    def test_customer_copy_marks_unverified_operations_and_proposed_commercial_terms(self) -> None:
+        """Public copy must distinguish source configuration from live proof."""
+        privacy = (SITE / "privacy.html").read_text(encoding="utf-8")
+        terms = (SITE / "terms.html").read_text(encoding="utf-8")
+        pilot = (SITE / "docs" / "pilot.html").read_text(encoding="utf-8")
+        compatibility = (SITE / "docs" / "index.html").read_text(encoding="utf-8")
+        llms = (SITE / "llms.txt").read_text(encoding="utf-8")
+
+        for page in (privacy, terms):
+            with self.subTest(page="legal"):
+                self.assertNotIn("Email delivery is live", page)
+                self.assertNotIn("configured and live", page)
+                self.assertNotIn("sent for real", page)
+                self.assertNotIn("onboarding@resend.dev", page)
+                self.assertIn("fresh delivery probe", page)
+
+        self.assertIn("No active design-partner programme is claimed", terms)
+        self.assertIn("hosted free use still requires a verified deployment", pilot)
+        self.assertIn("proposed pricing", pilot)
+        self.assertIn("no checkout", pilot)
+        self.assertNotIn("free works end to end", pilot)
+        self.assertIn("historical host run", compatibility)
+        self.assertIn("zero current host-pair validations", compatibility)
+        self.assertIn("historical host run", llms)
+        self.assertNotIn("one host verified", compatibility)
+
     def test_design_qa_report_matches_current_rendered_artifact(self) -> None:
         """The human QA report must describe the checked-in browser artifact."""
         report = (ROOT / "design-qa.md").read_text(encoding="utf-8")

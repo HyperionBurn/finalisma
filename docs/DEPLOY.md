@@ -10,8 +10,7 @@ database file:
 - `src/weft_cloud/web` — the browser front-end (signup/login/rooms) via
   `python -m weft_cloud.web`.
 
-The surface a deployment must serve (all verified against the container
-entry commands below):
+The surface a deployment must serve is:
 
 - **REST rooms API** — `POST /v1/rooms/{create,connect,join,leave,
   remove_member,close,send,receipts,poll,wait,ack,heartbeat,revoke_link,
@@ -298,7 +297,7 @@ Executed and confirmed on the authoring machine:
 - Both processes started against one shared database file; the shared-store
   suite `tests/test_webapp_entrypoint.py` (6 tests) passes.
 - The latest local regression is recorded in
-  [`RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1201 tests discovered, 1200
+  [`RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1203 tests discovered, 1202
   passed, and 1 skipped (measured 2026-08-20 on the integration hardening
   stack). This is not Docker, VM, hosted-edge, SMTP, or merge proof; the
   historical 915-test and 524-test snapshots above remain provenance for
@@ -316,6 +315,6 @@ Not executed on the authoring machine (no Docker runtime installed):
 `/healthz`-from-outside-container check. Those commands are written to the
 documented contract, `compose.yaml` was validated by parsing it as YAML (both
 services resolve, web `command`/port/volume/healthcheck as intended), and the
-container entry commands above were verified, but the image build itself should
-be treated as untested until it runs where Docker exists. This remains the
-deploy queue's only unexecuted step; nothing above it is known red.
+container entry commands above were reviewed, but the image build itself
+remains untested until it runs where Docker exists. These are deployment
+verification gaps, not evidence that the container is ready for production.
