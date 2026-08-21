@@ -297,7 +297,7 @@ Executed and confirmed on the authoring machine:
 - Both processes started against one shared database file; the shared-store
   suite `tests/test_webapp_entrypoint.py` (6 tests) passes.
 - The latest local regression is recorded in
-  [`RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1210 tests discovered, 1209
+  [`RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1217 tests discovered, 1216
   passed, and 1 skipped (measured 2026-08-21 on the hosted room lifecycle
   stack). This is not Docker, VM, hosted-edge, SMTP, or merge proof; the
   historical 915-test and 524-test snapshots above remain provenance for

@@ -134,6 +134,25 @@ share the hosted URL. Exit `2` means the reachable release has drift, exit `3`
 means a surface is unreachable, and exit `4` means the operator did not supply
 explicit origins. A local regression pass does not replace this hosted gate.
 
+The unauthenticated gate does not prove the authenticated MCP catalog. Run the
+read-only MCP surface gate with a release-scoped token from the deployment
+secret store:
+
+~~~powershell
+$env:WEFT_MCP_ORIGIN = "https://YOUR-VERIFIED-API-ORIGIN"
+$env:WEFT_MCP_PROBE_TOKEN = "<read-from-the-authorized-secret-store>"
+python -B .\scripts\probe_hosted_mcp_surface.py --pretty
+Remove-Item Env:WEFT_MCP_PROBE_TOKEN
+~~~
+
+This probe sends only initialize, notifications/initialized, and tools/list. It requires the exact
+14-tool hosted catalog, including room_list and room_close. It never mutates a
+Room and never prints the token or response body. Exit 0 is required before
+connecting a real customer to the hosted MCP endpoint. Exit 2 means the
+service is reachable but the authenticated release surface has drifted, exit
+3 means it is unreachable, exit 4 means the operator did not supply an
+explicit origin or token, and exit 5 means the token was rejected.
+
 The performance command is a same-machine single-node gate. Read
 [PERFORMANCE.md](PERFORMANCE.md) for the baseline contract and deployment
 boundary; do not present its absolute timings as a hosted-service SLA.
@@ -141,7 +160,7 @@ boundary; do not present its absolute timings as a hosted-service SLA.
 **Historical gate snapshot (2026-08-15, `feature/product-perfect`):** that
 branch recorded 960 tests and a merge-gate pass, but this is not current
 integration or deployment evidence. The latest local regression is recorded
-in [`RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1210 discovered, 1209 passed,
+in [`RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1217 discovered, 1216 passed,
 and 1 skipped. The performance gate is **red under host-load noise**: recent captures ran with multiple
 agent sessions active on the host, so the standing rule applies — rerun on a
 controlled idle host; never rebaseline to hide it. `docs/PERFORMANCE.md`
