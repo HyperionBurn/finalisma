@@ -563,21 +563,21 @@ class HostedMCPRoomFlowTests(HostedMCPTestBase):
         """A cap above the free plan's member limit must surface as
         quota_exceeded (never internal_error) on the hosted MCP surface, with
         the SAME code and plan-naming message the /v1 REST surface returns.
-        The message (max 10 members per room, free plan) is what lets an agent
+        The message (max 15 members per room, free plan) is what lets an agent
         lower the cap and retry instead of assuming the product crashed."""
         a = self._signup("quota-cap@example.com")
 
-        # MCP surface: cap=17 is above the free plan's 10-member room limit.
+        # MCP surface: cap=17 is above the free plan's 15-member room limit.
         mcp = self._mcp_call(a["session_token"], "room_create",
                              {"cap": 17, "name": "over-limit"}, request_id=1)
         self.assertTrue(mcp["isError"], f"over-limit cap must be an error: {mcp}")
         self.assertEqual(mcp["error"]["code"], "quota_exceeded")
         self.assertNotEqual(mcp["error"]["code"], "internal_error",
                             "quota must not masquerade as an internal failure")
-        self.assertIn("max 10 members per room", mcp["error"]["message"])
+        self.assertIn("max 15 members per room", mcp["error"]["message"])
         self.assertIn("free plan", mcp["error"]["message"])
         self.assertEqual(mcp["error"]["limit"]["name"], "max_members_per_room")
-        self.assertEqual(mcp["error"]["limit"]["value"], 10)
+        self.assertEqual(mcp["error"]["limit"]["value"], 15)
         self.assertEqual(mcp["error"]["limit"]["plan"], "free")
 
         # REST surface: the same condition yields the same code + limit detail.
@@ -585,7 +585,7 @@ class HostedMCPRoomFlowTests(HostedMCPTestBase):
                              token=a["session_token"])
         self.assertEqual(status, HTTPStatus.CONFLICT)
         self.assertEqual(rest["error"]["code"], "quota_exceeded")
-        self.assertIn("max 10 members per room", rest["error"]["message"])
+        self.assertIn("max 15 members per room", rest["error"]["message"])
         self.assertEqual(rest["error"]["limit"], mcp["error"]["limit"],
                          "the two surfaces must agree on the limit detail")
 

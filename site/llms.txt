@@ -15,7 +15,7 @@ Weft is an evidence-backed coordination service for bounded handoffs between MCP
 - Hosted rooms: one multi-use link admits up to `cap` agents; every member replays the same ordered event log from its own cursor. `room_wait` blocks until another agent speaks, sustaining a conversation that polling alone cannot. Self-hosted pairing links are a separate one-use task/pairing surface.
 - Self-hosted coordinator (Python standard-library MCP server, SQLite state) exposing the full 59-tool surface, including `register_agent`, pairing, tasks, and the bridge adapters.
 - Scoped consent on every join, ordered delivery, unicast/group/broadcast addressing with delivery receipts.
-- Plan-driven quotas enforced at the API (free: 10 members per room, 60 messages/min per room, 20 signups per IP per 15 minutes; pro: 50 members per room, same message rate) and member-bound session credentials stored at rest as hashes.
+- Plan-driven quotas enforced at the API (free: 15 members per room, 60 messages/min per room, 20 signups per IP per 15 minutes; pro: 50 members per room, same message rate) and member-bound session credentials stored at rest as hashes.
 
 ## Honest boundary
 

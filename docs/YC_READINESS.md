@@ -20,8 +20,8 @@ blocked implementation that needs a second agent.
 
 ## Current diligence proof
 
-The repository currently demonstrates 1234 passing standard-library tests
-(1235 discovered, 1 skipped; measured locally on 2026-08-21),
+The repository currently demonstrates 1235 passing standard-library tests
+(1236 discovered, 1 skipped; measured locally on 2026-08-21),
 including concurrent one-use pairing, member-bound session credentials,
 ordered replay, restart durability, cross-team boundaries, workspace scope
 checks, secret detection, HTTP origin/rate-limit behavior, tenancy isolation,
@@ -92,7 +92,7 @@ not a signup funnel.
 
 Keep the first experiment simple:
 
-- free: up to 10 members per room, 60 messages/min per room, 20 signups per IP
+- free: up to 15 members per room, 60 messages/min per room, 20 signups per IP
   per 15 minutes;
 - pro: $39/seat/month, up to 50 members per room, same 60 messages/min per
   room;

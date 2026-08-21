@@ -10,12 +10,12 @@ Every test here drives the REAL HTTP entry points (/v1/rooms/create,
 calls join_room_with_quota / create_room_with_quota directly, so each test
 FAILS if the wiring is ever removed again:
 
-  - the 11th-member test asserts the refusal code is quota_exceeded. Without
-    the join_room_with_quota call site the 11th join would hit the room's own
+  - the 16th-member test asserts the refusal code is quota_exceeded. Without
+    the join_room_with_quota call site the 16th join would hit the room's own
     cap and return room_full instead (or succeed for cap > plan).
   - the 6th-room test asserts quota_exceeded; without the create call site it
     would succeed.
-  - the cap-bound test asserts cap=11 is REJECTED; without the bound it would
+  - the cap-bound test asserts cap=16 is REJECTED; without the bound it would
     be echoed back as success.
 
 Decision (item 2): a requested cap above the tenant's plan member limit is
@@ -40,9 +40,9 @@ from weft_cloud.service import WeftCloudService, _CloudHTTPHandler
 from weft_cloud.storage import SqliteWalBackend
 
 # Published plan numbers, kept literal here so an accidental limit change is a
-# test failure, not a silent pricing change. 5/10 free, 50/50 pro.
+# test failure, not a silent pricing change. 5/15 free, 50/50 pro.
 FREE_MAX_ROOMS = 5
-FREE_MAX_MEMBERS_PER_ROOM = 10
+FREE_MAX_MEMBERS_PER_ROOM = 15
 PRO_MAX_MEMBERS_PER_ROOM = 50
 
 
@@ -158,23 +158,23 @@ class QuotaEnforcementTestBase(unittest.TestCase):
 
 
 class TestMemberCapEnforced(QuotaEnforcementTestBase):
-    """The 11th member of a free tenant's room is refused with quota_exceeded."""
+    """The 16th member of a free tenant's room is refused with quota_exceeded."""
 
-    def test_eleventh_member_refused_with_quota_exceeded(self) -> None:
+    def test_sixteenth_member_refused_with_quota_exceeded(self) -> None:
         owner = self._signup("cap-owner@example.com", "CorrectHorse!1")
 
         status, room = self._raw_create(owner["session_token"], cap=FREE_MAX_MEMBERS_PER_ROOM)
         self.assertEqual(status, 201)
         self.assertEqual(room["cap"], FREE_MAX_MEMBERS_PER_ROOM)
 
-        # Owner auto-joins as member 1; 9 DISTINCT accounts fill the room to
-        # the cap of 10 (each account is one member).
+        # Owner auto-joins as member 1; 14 DISTINCT accounts fill the room to
+        # the cap of 15 (each account is one member).
         for i in range(FREE_MAX_MEMBERS_PER_ROOM - 1):
             fleet = self._signup(f"cap-fleet-{i}@example.com", "CorrectHorse!1")
             s, body = self._raw_join(fleet["session_token"], room["room_id"], room["link_token"])
             self.assertEqual(s, 200, f"join {i} should succeed: {body}")
 
-        # The 11th member is refused by the PLAN cap, not the room's own cap.
+        # The 16th member is refused by the PLAN cap, not the room's own cap.
         fleet_last = self._signup("cap-fleet-last@example.com", "CorrectHorse!1")
         s, body = self._raw_join(fleet_last["session_token"], room["room_id"], room["link_token"])
         self.assertEqual(s, 409)
@@ -232,13 +232,13 @@ class TestProPlanHonored(QuotaEnforcementTestBase):
         owner = self._signup("pro-owner@example.com", "CorrectHorse!1")
         self._set_plan(owner["tenant_id"], "pro")
 
-        # Cap bound honors pro: cap=50 is accepted (free would reject >10).
+        # Cap bound honors pro: cap=50 is accepted (free would reject >15).
         s, room = self._raw_create(owner["session_token"], cap=PRO_MAX_MEMBERS_PER_ROOM)
         self.assertEqual(s, 201)
         self.assertEqual(room["cap"], PRO_MAX_MEMBERS_PER_ROOM)
 
-        # Member cap honors pro: 11 members (owner + 11) sails past the free
-        # cap of 10, joined cross-tenant via the link from fresh fleet tenants.
+        # Member cap honors pro: 16 joiners (owner + 16) sail past the free
+        # cap of 15, joined cross-tenant via the link from fresh fleet tenants.
         for i in range(FREE_MAX_MEMBERS_PER_ROOM + 1):
             fleet = self._signup(f"pro-fleet-{i}@example.com", "CorrectHorse!1")
             s, body = self._raw_join(fleet["session_token"], room["room_id"], room["link_token"])

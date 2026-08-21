@@ -472,7 +472,7 @@ A **plan** is a dict of limits, resolved per tenant:
 @dataclass(frozen=True)
 class PlanLimits:
     max_rooms: int = 5
-    max_members_per_room: int = 10
+    max_members_per_room: int = 15
     max_events_per_month: int = 10_000
     max_messages_per_minute: int = 60
     # Wave I adds: billing_tier, stripe_price_id, etc.

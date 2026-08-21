@@ -259,7 +259,7 @@ class AgentKeyQuotaAndRateLimitTests(AgentKeyServiceTestBase):
     def test_quota_enforced_for_agent_key_request(self) -> None:
         acct = self._signup("quota-key@example.com")
         key = self._create_key(acct["session_token"])["agent_key"]
-        # Free plan caps room members at 10; cap=50 must be refused with the
+        # Free plan caps room members at 15; cap=50 must be refused with the
         # SAME quota error a session would get.
         status, resp = _post(self.base, "/v1/rooms/create", {"name": "q", "cap": 50}, token=key)
         self.assertEqual(status, HTTPStatus.CONFLICT)

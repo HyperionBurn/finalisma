@@ -68,7 +68,7 @@ class TestMonthlyEventLimitEnforced(unittest.TestCase):
         self.server = threading.Thread(target=self._httpd.serve_forever, daemon=True)
         self.server.start()
         # Pin the FREE plan's monthly event budget to 1 for this test. The
-        # other limits (5 rooms, 10 members, 60 msgs/min) stay at their
+        # other limits (5 rooms, 15 members, 60 msgs/min) stay at their
         # published values.
         self._orig_plan = PLANS["free"]
         PLANS["free"] = PlanLimits(max_events_per_month=1)

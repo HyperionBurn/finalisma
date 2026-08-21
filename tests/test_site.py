@@ -212,7 +212,7 @@ class LaunchSurfaceTests(unittest.TestCase):
         * the demo is a simulation — no \"live\"-about-simulated label;
         * plan-driven quota enforcement is WIRED into the request path on this
           trunk and was verified this session over real HTTP (cap above the
-          free plan's 10-per-room member limit -> 409 quota_exceeded; a 6th
+          free plan's 15-per-room member limit -> 409 quota_exceeded; a 6th
           room -> 409 quota_exceeded). The room-count and per-room-member
           limits ARE enforced, so the pricing copy states that. The MONTHLY
           EVENT cap (10,000 free / 100,000 pro) is NOT enforced in code — no

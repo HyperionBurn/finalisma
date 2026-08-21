@@ -55,7 +55,7 @@ class QuotaRateLimitRefusalTests(unittest.TestCase):
     def test_room_member_cap(self) -> None:
         """Join members until the plan cap, attempt one more -> quota_exceeded.
 
-        Uses the free plan (max_members_per_room=10). Creates a tenant +
+        Uses the free plan (max_members_per_room=15). Creates a tenant +
         room, joins `cap` members successfully, then the (cap+1)th join must
         raise QuotaError with code "quota_exceeded".
         """
@@ -251,6 +251,7 @@ class QuotaRateLimitRefusalTests(unittest.TestCase):
         """
         free_plan = PLANS["free"]
         pro_plan = PLANS["pro"]
+        self.assertEqual(free_plan.max_members_per_room, 15)
         self.assertGreater(
             pro_plan.max_members_per_room,
             free_plan.max_members_per_room,

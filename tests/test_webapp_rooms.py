@@ -266,15 +266,15 @@ class TestCreateRoom(unittest.TestCase):
         csrf = self.driver.csrf()
         status, body, _ = self.driver.post(
             "/rooms",
-            {"name": "Too Large", "cap": "11", "_csrf": csrf},
+            {"name": "Too Large", "cap": "16", "_csrf": csrf},
         )
 
         self.assertEqual(status, 400)
         self.assertIn('data-error-code="quota_exceeded"', body)
         self.assertIn('role="alert"', body)
-        self.assertIn("Limit: members per room (maximum 10)", body)
-        self.assertIn("Current usage: Members per room 0/10", body)
-        self.assertIn("Lower the Cap value to 10 or less", body)
+        self.assertIn("Limit: members per room (maximum 15)", body)
+        self.assertIn("Current usage: Members per room 0/15", body)
+        self.assertIn("Lower the Cap value to 15 or less", body)
         self.assertIn('href="/rooms"', body)
 
     def test_close_then_retry_reclaims_room_quota(self):

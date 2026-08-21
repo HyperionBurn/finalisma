@@ -31,7 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from weft_cloud.service import WeftCloudService, _CloudHTTPHandler
 from weft_cloud.storage import SqliteWalBackend
 
-FREE_MAX_MEMBERS_PER_ROOM = 10
+FREE_MAX_MEMBERS_PER_ROOM = 15
 
 
 def _post(base: str, path: str, body: dict, token: str | None = None) -> tuple[int, dict]:
