@@ -541,6 +541,25 @@ class TestConnectPage(unittest.TestCase):
         self._assert_connector_configs_use_portable_entrypoint()
         self._assert_authenticated_pages_have_accessible_landmarks()
 
+    def test_connect_page_does_not_render_invalidated_link_after_close(self):
+        status, before_close, _ = self.driver.get(f"/room/{self.room_id}/connect")
+        self.assertEqual(status, 200)
+        old_token = re.search(r"rm_[A-Za-z0-9_-]+", before_close).group(0)
+
+        detail = self.driver.get(f"/room/{self.room_id}")[1]
+        status, _, _ = self.driver.post(
+            f"/room/{self.room_id}/close",
+            {"_csrf": self.driver.extract_csrf(detail)},
+        )
+        self.assertEqual(status, 303)
+        self.assertIsNone(self.driver.app.rooms.resolve_room_by_link_token(old_token))
+
+        status, after_close, _ = self.driver.get(f"/room/{self.room_id}/connect")
+        self.assertEqual(status, 200)
+        self.assertNotIn(old_token, after_close)
+        self.assertNotRegex(after_close, r"rm_[A-Za-z0-9_-]+")
+        self.assertIn("Join link unavailable", after_close)
+
     def _assert_connector_configs_use_portable_entrypoint(self):
         from html import unescape
 
