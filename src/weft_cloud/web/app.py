@@ -841,7 +841,40 @@ class WeftWebApp:
 
     def _get_room_link_token(self, room_id: str) -> str | None:
         with self._link_token_lock:
-            return self._link_token_cache.get(room_id)
+            raw_token = self._link_token_cache.get(room_id)
+            if not raw_token:
+                return None
+
+            # The raw token is process-local, but its validity is durable
+            # state. A close, revoke, or expiry can happen through the API
+            # after the token entered this cache. Never render a cached bearer
+            # capability unless the corresponding room and link are still
+            # active. Holding the cache lock across this short read keeps a
+            # concurrent regeneration from returning a token that no longer
+            # matches the committed link row.
+            with self.backend.transaction() as tx:
+                row = tx.execute(
+                    "SELECT r.state, r.expires_at AS room_expires_at, "
+                    "l.expires_at AS link_expires_at, l.revoked "
+                    "FROM cloud_rooms r "
+                    "JOIN cloud_room_links l "
+                    "  ON l.tenant_id = r.tenant_id AND l.room_id = r.room_id "
+                    "WHERE r.room_id = ? "
+                    "LIMIT 1",
+                    (room_id,),
+                ).fetchone()
+                now = _time.time()
+                valid = (
+                    row is not None
+                    and row["state"] != "closed"
+                    and not bool(row["revoked"])
+                    and float(row["room_expires_at"]) > now
+                    and float(row["link_expires_at"]) > now
+                )
+            if not valid:
+                self._link_token_cache.pop(room_id, None)
+                return None
+            return raw_token
 
     def _store_link_token(self, room_id: str, raw_token: str) -> None:
         with self._link_token_lock:
