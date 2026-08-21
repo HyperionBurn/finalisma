@@ -10,8 +10,8 @@ Measured locally on the current source/test stack (merged base `main` at
 `96a8b55`; a feature branch may be active while a PR is in flight):
 
 - Command: `python -B -m unittest discover -s tests -p "test_*.py"`
-- Result: **1235 tests discovered; 1234 passed; 1 skipped**
-- Duration: 576.713 seconds on the local Windows runner
+- Result: **1236 tests discovered; 1235 passed; 1 skipped**
+- Duration: 596.857 seconds on the local Windows runner
 - Focused hosted-MCP/count suite: 40 tests passed locally
   (`tests.test_hosted_mcp` and `tests.test_site.TestCountSyncTests`)
 - Release-boundary subset: 18 tests passed locally, including Vercel

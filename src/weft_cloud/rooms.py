@@ -37,6 +37,7 @@ from weft_cloud.origin import DEFAULT_PUBLIC_ORIGIN, configured_origin
 from .identity.context import SessionContext, require_db_role, require_db_role_in_tx
 from .identity.tokens import AuthError, hash_token
 from .quotas import (
+    DEFAULT_ROOM_CAP,
     QuotaError,
     bind_room_with_quota_in_tx,
     enforce_events_per_month,
@@ -948,7 +949,7 @@ class CloudRoomService:
     # ------------------------------------------------------------------
 
     def create_room(self, tenant_id: str, owner_agent_id: str, actor_token: str,
-                    cap: int = 10, name: str | None = None, ttl_seconds: int = 86400,
+                    cap: int = DEFAULT_ROOM_CAP, name: str | None = None, ttl_seconds: int = 86400,
                     origin: str | None = None,
                     actor_account_id: str | None = None) -> dict:
         """Create a room and return its shareable link.

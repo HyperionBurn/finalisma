@@ -345,6 +345,21 @@ class TestAccountAndOrgFlow(CloudServiceTestBase):
 class TestRoomLifecycle(CloudServiceTestBase):
     """Create room, join via link, poll, leave, close."""
 
+    def test_create_and_connect_default_to_base_room_capacity(self) -> None:
+        owner = self._signup("default-cap-owner@example.com", "CorrectHorse!1")
+
+        status, created = _post(
+            self.base, "/v1/rooms/create", {}, owner["session_token"],
+        )
+        self.assertEqual(status, 201, created)
+        self.assertEqual(created["cap"], 15)
+
+        status, connected = _post(
+            self.base, "/v1/rooms/connect", {}, owner["session_token"],
+        )
+        self.assertEqual(status, 201, connected)
+        self.assertEqual(connected["cap"], 15)
+
     def test_member_cannot_create_room_and_leaves_no_rows(self) -> None:
         owner = self._signup("room-role-owner@example.com", "CorrectHorse!1")
         inviter = self.service.resolve_identity(owner["session_token"])

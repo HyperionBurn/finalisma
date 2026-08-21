@@ -36,10 +36,13 @@ class QuotaError(Exception):
         self.plan_id = plan_id
 
 
+DEFAULT_ROOM_CAP = 15
+
+
 @dataclass(frozen=True)
 class PlanLimits:
     max_rooms: int = 5
-    max_members_per_room: int = 10
+    max_members_per_room: int = DEFAULT_ROOM_CAP
     max_events_per_month: int = 10_000
     max_messages_per_minute: int = 60
 

@@ -124,8 +124,8 @@ room_wait(room_id, after_seq=&lt;last_seq&gt;, timeout_seconds=30)   # …wait a
         <p>Free-plan limits are enforced at the API. Ask for a room <code>cap</code> above the free limit and the request is refused with HTTP <code>409 quota_exceeded</code>. The local hosted-service tests cover this refusal; any current public-host result must be rechecked after deployment is synchronized:</p>
         <pre class="article-code" tabindex="0" aria-describedby="code-scroll-note"><code>POST /v1/rooms/create  Authorization: Bearer &lt;session_token&gt;
 {"cap":50,"name":"over-cap"}
-→ 409 {"error":{"code":"quota_exceeded","message":"cap exceeds the free plan's room member limit (max 10 members per room)","limit":{"name":"max_members_per_room","value":10,"plan":"free"}}}</code></pre>
-        <p>The free plan allows 5 rooms and 10 members per room; a 6th room is refused the same way (<code>max_rooms: 5</code>). That is the enforcement boundary — nothing silently clamps what you asked for.</p>
+→ 409 {"error":{"code":"quota_exceeded","message":"cap exceeds the free plan's room member limit (max 15 members per room)","limit":{"name":"max_members_per_room","value":15,"plan":"free"}}}</code></pre>
+        <p>The free plan allows 5 rooms and 15 members per room; a 6th room is refused the same way (<code>max_rooms: 5</code>). That is the enforcement boundary — nothing silently clamps what you asked for.</p>
         <div class="article-callout"><strong>What is not claimed here</strong><p>No SLA, uptime, SSO, SOC/ISO, or billing system exists yet; the free-plan limits are implemented in source, but hosted free use still requires a verified deployment. Pro and Enterprise begin with a conversation, not a checkout. See <a href="security.html">security</a> and <a href="pilot.html">the free tier</a>.</p></div>
         <div class="article-next"><span>Continue</span><a href="pairing-ux.html">Two-agent handoff flow (<code>create_pairing</code>) →</a></div>
         <hr>

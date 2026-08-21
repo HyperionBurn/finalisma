@@ -393,13 +393,13 @@ class TestRestMcpErrorCodeParity(unittest.TestCase):
 
     def test_quota_exceeded_409_with_limit_block_matches_mcp(self) -> None:
         owner = self.h.signup()
-        status, resp = self.h.post("/v1/rooms/create", {"cap": 11},
+        status, resp = self.h.post("/v1/rooms/create", {"cap": 16},
                                    token=owner["session_token"])
         self.assertEqual(status, HTTPStatus.CONFLICT, resp)
         self.assertEqual(self.h.error_code(resp), "quota_exceeded")
         limit = (resp.get("error") or {}).get("limit") or {}
         self.assertEqual(limit.get("name"), "max_members_per_room")
-        self.assertEqual(limit.get("value"), 10)
+        self.assertEqual(limit.get("value"), 15)
         self.assertEqual(limit.get("plan"), "free")
 
     def test_room_closed_409_matches_mcp(self) -> None:
@@ -456,10 +456,10 @@ class TestRestCreateAndBodyValidation(unittest.TestCase):
 
     def test_cap_above_plan_max_refused_not_clamped(self) -> None:
         owner = self.h.signup()
-        status, resp = self.h.post("/v1/rooms/create", {"cap": 10},
+        status, resp = self.h.post("/v1/rooms/create", {"cap": 15},
                                    token=owner["session_token"])
         self.assertEqual(status, HTTPStatus.CREATED, resp)
-        status, resp = self.h.post("/v1/rooms/create", {"cap": 11},
+        status, resp = self.h.post("/v1/rooms/create", {"cap": 16},
                                    token=owner["session_token"])
         self.assertEqual(status, HTTPStatus.CONFLICT, resp)
         self.assertEqual(self.h.error_code(resp), "quota_exceeded")

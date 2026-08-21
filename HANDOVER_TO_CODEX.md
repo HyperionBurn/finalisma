@@ -20,7 +20,7 @@ active while a new PR is in flight.
 - **Branch state:** this checkout contains the merged PR1–68 hardening stack;
   hosted merge status must still be read from GitHub rather than inferred here.
 - **Test count:** the latest local evidence is recorded in
-  `docs/RELEASE_EVIDENCE.md` (1235 discovered, 1234 passed, 1 skipped,
+  `docs/RELEASE_EVIDENCE.md` (1236 discovered, 1235 passed, 1 skipped,
   measured 2026-08-20). The published count is guarded by
   `tests/test_site.py::TestCountSyncTests`; hosted deployment and merge proof
   are separate claims. Every "721 / 716 / 894" number in this file is historical.
@@ -334,7 +334,7 @@ Write the brief to a file and `cat` it into the command — do not inline long t
 
 So you do not waste time re-litigating settled things:
 
-- Pricing page limits **match the code exactly** (free 5/10/10k, pro 50/50/100k) and are enforced.
+- Pricing page limits **match the code exactly** (free 5/15/10k, pro 50/50/100k) and are enforced.
 - `room_join` correctly refuses an `agent_id` argument — identity comes from the session. Its
   published schema never advertised `agent_id`. I misread this as a bug; it is not.
 - The auth rate limiter is well built: two tiers (IP + email), email SHA-256'd so no raw address

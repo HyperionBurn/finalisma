@@ -60,7 +60,7 @@ from weft_cloud.mcp import (
     _request_too_large_error,
     _wait_slots,
 )
-from weft_cloud.quotas import QuotaError
+from weft_cloud.quotas import DEFAULT_ROOM_CAP, QuotaError
 from weft_cloud.rate_limit import RateLimitedError, enforce_auth_rate_limit
 from weft_cloud.rooms import CloudRoomService, RoomError, public_origin
 from weft_cloud.storage import SqliteWalBackend, StorageBackend
@@ -681,7 +681,7 @@ class WeftCloudService:
                 "Identity is derived from your authenticated session; "
                 "owner_agent_id must be your own identity",
             )
-        cap = body.get("cap", 10)
+        cap = body.get("cap", DEFAULT_ROOM_CAP)
         name = body.get("name")
         ttl_seconds = body.get("ttl_seconds", 86400)
         # The actor token is derived from the session — recorded as an
@@ -727,7 +727,7 @@ class WeftCloudService:
                 "Identity is derived from your authenticated session; "
                 "owner_agent_id must be your own identity",
             )
-        cap = body.get("cap", 10)
+        cap = body.get("cap", DEFAULT_ROOM_CAP)
         name = body.get("name")
         ttl_seconds = body.get("ttl_seconds", 86400)
         actor_token = _bearer_token(handler)

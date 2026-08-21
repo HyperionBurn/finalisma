@@ -10,7 +10,7 @@ Authoritative spec: docs/CLOUD_SPINE_DESIGN.md.
 
 from .storage import StorageBackend, StorageTransaction, SqliteWalBackend
 from .tenancy import TenantContext, TenantIsolationError
-from .quotas import PlanLimits, PLANS, QuotaError
+from .quotas import DEFAULT_ROOM_CAP, PlanLimits, PLANS, QuotaError
 
 __all__ = [
     "StorageBackend",
@@ -20,5 +20,6 @@ __all__ = [
     "TenantIsolationError",
     "PlanLimits",
     "PLANS",
+    "DEFAULT_ROOM_CAP",
     "QuotaError",
 ]

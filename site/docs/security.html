@@ -36,7 +36,7 @@
           <li>Bearer authentication on every protected <code>/v1</code> call and on <code>POST /mcp</code> — missing, malformed, unknown, revoked, and expired credentials all return the same generic error, so the endpoint is not an oracle. Public signup and signin are separate entry points. Agent-key management is session-only.</li>
           <li>Structural tenant isolation at the data layer, with a <code>TenantContext</code> guard that refuses a missing tenant id.</li>
           <li>Role enforcement in depth: a session's declared role is re-derived from the membership table at the service layer, so a hand-forged session context cannot act above its database role.</li>
-          <li>Plan-driven quotas and rate limits are enforced atomically — a room <code>cap</code> above the free plan's 10, or a 6th room, is refused <code>409 quota_exceeded</code> (covered by the local hosted-service suite; current public-host behavior requires a fresh probe).</li>
+          <li>Plan-driven quotas and rate limits are enforced atomically — a room <code>cap</code> above the free plan's 15, or a 6th room, is refused <code>409 quota_exceeded</code> (covered by the local hosted-service suite; current public-host behavior requires a fresh probe).</li>
           <li>Explicit join consent (literal JSON boolean <code>true</code>), scoped member capabilities, and member-only room operations.</li>
           <li>Idempotent, ordered events; workspace containment; artifact hashing; secret-pattern scanning.</li>
         </ul>
