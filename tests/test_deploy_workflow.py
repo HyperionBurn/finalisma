@@ -46,6 +46,10 @@ class ProductionDeployWorkflowTests(unittest.TestCase):
     def test_ssh_material_uses_verified_known_hosts_and_ephemeral_cleanup(self) -> None:
         self.assertIn("secrets.WEFT_SSH_PRIVATE_KEY", self.text)
         self.assertIn("secrets.WEFT_SSH_KNOWN_HOSTS", self.text)
+        job_env = self.text.split("jobs:", 1)[1].split("steps:", 1)[0]
+        self.assertNotIn("runner.temp", job_env)
+        self.assertIn("${{ runner.temp }}/weft-deploy-key", self.text)
+        self.assertIn("${{ runner.temp }}/weft-known-hosts", self.text)
         self.assertIn("chmod 600", self.text)
         self.assertIn("if: always()", self.text)
         self.assertIn('rm -f -- "$WEFT_SSH_KEY" "$WEFT_SSH_KNOWN_HOSTS"', self.text)
