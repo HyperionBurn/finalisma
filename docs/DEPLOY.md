@@ -6,7 +6,8 @@ database file:
 - `src/weft_cloud/service.py` — the agent-facing API: accounts, orgs,
   sessions, agent keys, and multi-agent rooms over `/v1/*`, the hosted MCP
   endpoint at `POST /mcp` (authenticated, tenant-confined — see
-  `docs/HOSTED_MCP_DESIGN.md`), plus `/healthz`.
+  `docs/HOSTED_MCP_DESIGN.md`), plus liveness/readiness and token-gated
+  metrics endpoints.
 - `src/weft_cloud/web` — the browser front-end (signup/login/rooms) via
   `python -m weft_cloud.web`.
 
@@ -121,7 +122,17 @@ Health probe from the host for the agent API:
 ```bash
 curl -fsS http://127.0.0.1:18788/healthz
 # {"status":"ok","service":"weft-cloud"}
+curl -fsS http://127.0.0.1:18788/readyz
+# {"status":"ready","service":"weft-cloud"}
 ```
+
+`/healthz` proves only that the process answers. `/readyz` runs a storage
+transaction and returns 503 when the service cannot read its database. The
+versioned `/v1/healthz` and `/v1/readyz` aliases are also available. The cloud
+service exposes `/metrics` and `/v1/metrics` only when `WEFT_METRICS_TOKEN` is
+non-empty; operators must send that value as a Bearer token. The response is
+process-local Prometheus text with status labels only, not a tenant data API or
+a cross-instance aggregate.
 
 The browser front-end is published on the loopback only, at
 `127.0.0.1:18789`:
@@ -297,7 +308,7 @@ Executed and confirmed on the authoring machine:
 - Both processes started against one shared database file; the shared-store
   suite `tests/test_webapp_entrypoint.py` (6 tests) passes.
 - The latest local regression is recorded in
-  [`RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1227 tests discovered, 1226
+  [`RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1232 tests discovered, 1231
   passed, and 1 skipped (measured 2026-08-21 on the hosted room lifecycle
   stack). This is not Docker, VM, hosted-edge, SMTP, or merge proof; the
   historical 915-test and 524-test snapshots above remain provenance for

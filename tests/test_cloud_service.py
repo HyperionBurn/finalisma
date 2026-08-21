@@ -21,6 +21,7 @@ import urllib.error
 import urllib.request
 from http import HTTPStatus
 from pathlib import Path
+from unittest.mock import patch
 
 # Ensure the src package is importable.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
@@ -67,6 +68,20 @@ def _get(base: str, path: str, token: str | None = None) -> tuple[int, dict]:
         return exc.code, payload
 
 
+def _get_raw(base: str, path: str, token: str | None = None) -> tuple[int, bytes, dict]:
+    req = urllib.request.Request(base + path, method="GET")
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.status, resp.read(), dict(resp.headers)
+    except urllib.error.HTTPError as exc:
+        try:
+            return exc.code, exc.read(), dict(exc.headers)
+        finally:
+            exc.close()
+
+
 def _get_url(url: str, accept: str | None = None) -> tuple[int, bytes, dict]:
     """GET a full URL returning (status, raw body bytes, headers).
 
@@ -89,6 +104,8 @@ def _get_url(url: str, accept: str | None = None) -> tuple[int, bytes, dict]:
 class CloudServiceTestBase(unittest.TestCase):
     """Base class that spins up a real HTTP service on a background thread."""
 
+    metrics_token: str | None = None
+
     def setUp(self) -> None:
         self.tmpdir = tempfile.mkdtemp(prefix="weft-test-")
         self.db_path = str(Path(self.tmpdir) / "test.db")
@@ -103,8 +120,11 @@ class CloudServiceTestBase(unittest.TestCase):
         # The service's public origin is the real test server so shareable
         # links point back at it and the /j/<token> endpoint can be exercised
         # end to end against the same process.
-        self.service = WeftCloudService(SqliteWalBackend(self.db_path),
-                                        origin=self.base)
+        self.service = WeftCloudService(
+            SqliteWalBackend(self.db_path),
+            origin=self.base,
+            metrics_token=self.metrics_token,
+        )
         _CloudHTTPHandler.service = self.service
         self.server = threading.Thread(
             target=self._httpd.serve_forever, daemon=True,
@@ -1082,6 +1102,59 @@ class TestHealthEndpoint(CloudServiceTestBase):
         status, body = _get(self.base, "/healthz")
         self.assertEqual(status, 200)
         self.assertEqual(body["status"], "ok")
+
+    def test_versioned_health_and_readiness_return_operational_status(self) -> None:
+        health_status, health = _get(self.base, "/v1/healthz")
+        ready_status, ready = _get(self.base, "/v1/readyz")
+        alias_status, alias = _get(self.base, "/readyz")
+        self.assertEqual(health_status, 200)
+        self.assertEqual(health["status"], "ok")
+        self.assertEqual(ready_status, 200)
+        self.assertEqual(ready, {"status": "ready", "service": "weft-cloud"})
+        self.assertEqual(alias_status, 200)
+        self.assertEqual(alias, ready)
+
+    def test_readiness_fails_closed_when_storage_is_unavailable(self) -> None:
+        with patch.object(
+            self.service.backend,
+            "transaction",
+            side_effect=RuntimeError("storage unavailable"),
+        ):
+            status, body = _get(self.base, "/readyz")
+        self.assertEqual(status, 503)
+        self.assertEqual(body, {"status": "unavailable", "service": "weft-cloud"})
+
+    def test_metrics_are_hidden_without_explicit_configuration(self) -> None:
+        status, body = _get(self.base, "/v1/metrics")
+        self.assertEqual(status, 404)
+        self.assertEqual(body["error"]["code"], "not_found")
+
+
+class TestMetricsEndpoint(CloudServiceTestBase):
+    metrics_token = "metrics-test-token"
+
+    def test_metrics_requires_the_configured_bearer(self) -> None:
+        missing_status, missing = _get(self.base, "/v1/metrics")
+        wrong_status, wrong = _get(self.base, "/v1/metrics", token="wrong-token")
+        self.assertEqual(missing_status, 401)
+        self.assertEqual(wrong_status, 401)
+        self.assertEqual(missing["error"]["code"], "unauthorized")
+        self.assertEqual(wrong["error"]["code"], "unauthorized")
+
+    def test_metrics_returns_prometheus_text_without_sensitive_labels(self) -> None:
+        _get(self.base, "/healthz")
+        status, raw, headers = _get_raw(
+            self.base,
+            "/v1/metrics",
+            token=self.metrics_token,
+        )
+        text = raw.decode("utf-8")
+        self.assertEqual(status, 200)
+        self.assertIn("text/plain", headers.get("Content-Type", ""))
+        self.assertIn("weft_http_responses_total", text)
+        self.assertNotIn(self.metrics_token, text)
+        self.assertNotIn("tenant_", text)
+        self.assertNotIn("session", text)
 
 
 class TestRoomMessageKind(CloudServiceTestBase):

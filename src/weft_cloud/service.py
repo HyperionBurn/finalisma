@@ -24,6 +24,7 @@ up to the room cap. Any number of distinct agents can redeem it.
 from __future__ import annotations
 
 import html
+import hmac
 import json
 import os
 import re
@@ -123,6 +124,43 @@ class _HostedMCPRateLimiter:
                 self._concurrent[key] = current - 1
 
 
+class _CloudMetrics:
+    """Small process-local Prometheus exporter for cloud HTTP operations."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._counters: dict[tuple[str, tuple[tuple[str, str], ...]], int] = {}
+
+    def inc(self, name: str, labels: Mapping[str, str] | None = None) -> None:
+        labels = labels or {}
+        safe_labels = tuple(
+            sorted(
+                (
+                    str(key),
+                    str(value).replace("\\", "\\\\").replace('"', '\\"'),
+                )
+                for key, value in labels.items()
+            )
+        )
+        with self._lock:
+            key = (name, safe_labels)
+            self._counters[key] = self._counters.get(key, 0) + 1
+
+    def render(self) -> str:
+        with self._lock:
+            rows = list(self._counters.items())
+        lines = [
+            "# HELP weft_http_responses_total Weft cloud HTTP responses by status.",
+            "# TYPE weft_http_responses_total counter",
+        ]
+        for (name, labels), value in sorted(rows):
+            label_text = "" if not labels else "{" + ",".join(
+                f'{key}="{value}"' for key, value in labels
+            ) + "}"
+            lines.append(f"{name}{label_text} {value}")
+        return "\n".join(lines) + "\n"
+
+
 def _json_response(status: int, payload: dict[str, Any]) -> tuple[int, bytes]:
     body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     return status, body
@@ -192,10 +230,23 @@ class WeftCloudService:
     """
 
     def __init__(self, backend: StorageBackend, origin: str | None = None,
-                 auth_rate_limits: Mapping[str, Any] | None = None) -> None:
+                 auth_rate_limits: Mapping[str, Any] | None = None,
+                 metrics_token: str | None = None) -> None:
         self.backend = backend
         self.origin = public_origin(origin)
         self.auth_rate_limits = auth_rate_limits
+        configured_metrics_token = (
+            metrics_token
+            if metrics_token is not None
+            else os.environ.get("WEFT_METRICS_TOKEN")
+        )
+        self.metrics_token = (
+            configured_metrics_token.strip()
+            if isinstance(configured_metrics_token, str)
+            and configured_metrics_token.strip()
+            else None
+        )
+        self.metrics = _CloudMetrics()
         self.accounts = AccountStore(backend)
         self.sessions = SessionStore(backend)
         self.agent_keys = AgentKeyStore(backend)
@@ -236,6 +287,12 @@ class WeftCloudService:
             return self.sessions.validate(self.backend, token)
         except AuthError:
             return self.agent_keys.validate(self.backend, token)
+
+    def readiness_status(self) -> dict[str, str]:
+        """Verify the storage path needed to serve authenticated traffic."""
+        with self.backend.transaction() as tx:
+            tx.execute("SELECT 1").fetchone()
+        return {"status": "ready", "service": "weft-cloud"}
 
     def _authenticate(self, handler: BaseHTTPRequestHandler) -> SessionContext:
         token = _bearer_token(handler)
@@ -1211,6 +1268,7 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
     def _send_json(self, status: int, payload: dict[str, Any],
                    extra_headers: Mapping[str, str] | None = None) -> None:
         body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        self.service.metrics.inc("weft_http_responses_total", {"status": str(status)})
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
@@ -1220,6 +1278,18 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
             self.send_header(key, value)
         self.end_headers()
         self.wfile.write(body)
+
+    def _send_text(self, status: int, body: str,
+                   content_type: str = "text/plain; version=0.0.4") -> None:
+        encoded = body.encode("utf-8")
+        self.service.metrics.inc("weft_http_responses_total", {"status": str(status)})
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(encoded)))
+        self.send_header("Cache-Control", "no-store")
+        self._send_security_headers()
+        self.end_headers()
+        self.wfile.write(encoded)
 
     def _send_sse_headers(self) -> None:
         """Open a streaming 200 ``text/event-stream`` response.
@@ -1466,6 +1536,35 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         if path in {"/healthz", "/health"}:
             self._send_json(HTTPStatus.OK, {"status": "ok", "service": "weft-cloud"})
+            return
+        if path in {"/v1/healthz"}:
+            self._send_json(HTTPStatus.OK, {"status": "ok", "service": "weft-cloud"})
+            return
+        if path in {"/readyz", "/v1/readyz"}:
+            try:
+                self._send_json(HTTPStatus.OK, self.service.readiness_status())
+            except Exception:
+                self._send_json(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    {"status": "unavailable", "service": "weft-cloud"},
+                )
+            return
+        if path in {"/metrics", "/v1/metrics"}:
+            configured = self.service.metrics_token
+            if configured is None:
+                self._send_json(
+                    HTTPStatus.NOT_FOUND,
+                    {"error": {"code": "not_found", "message": "Not found"}},
+                )
+                return
+            supplied = _bearer_token(self)
+            if supplied is None or not hmac.compare_digest(supplied, configured):
+                self._send_json(
+                    HTTPStatus.UNAUTHORIZED,
+                    {"error": {"code": "unauthorized", "message": "Metrics require authorization"}},
+                )
+                return
+            self._send_text(HTTPStatus.OK, self.service.metrics.render())
             return
         if path == "/.well-known/agent-card.json":
             self.service.handle_agent_card(self)

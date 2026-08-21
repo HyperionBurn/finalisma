@@ -79,6 +79,15 @@ clients that need it. `GET /v1/healthz`, `GET /v1/readyz`, and `GET /v1/metrics`
 provide operational surfaces; health/readiness do not expose team data and
 metrics require the configured HTTP token.
 
+The hosted cloud service provides the same contract at `/healthz`, `/readyz`,
+and `/metrics` as well as the versioned `/v1/*` aliases. Liveness returns 200
+when the process answers. Readiness runs a storage transaction and returns
+503 when that dependency is unavailable. Metrics are disabled unless
+`WEFT_METRICS_TOKEN` is configured, then require a matching Bearer token and
+return process-local Prometheus text with status-only labels. The metrics
+surface does not expose tenant IDs, account IDs, rooms, or credentials, and it
+does not claim multi-instance aggregation.
+
 The default `--actor-auth auto` policy requires actor tokens for HTTP, including
 loopback, and trusts stdio. Explicit HTTP trust is allowed only on loopback and
 emits a warning; non-loopback trust is rejected. The HTTP bearer token protects
