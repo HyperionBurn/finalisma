@@ -20,14 +20,14 @@ The surface a deployment must serve is:
   non-integer / negative / beyond-head `after_seq` and negative `seq` return
   **400** `invalid_argument` or `invalid_cursor` — never a 500
   (`src/weft_cloud/rooms.py`).
-- **Hosted MCP** — `POST /mcp` exposes exactly **12 room tools**
-  (`room_create` `room_join` `room_send` `room_receipts` `room_poll`
+- **Hosted MCP** — `POST /mcp` exposes exactly **14 room tools**
+  (`room_create` `room_list` `room_join` `room_send` `room_receipts` `room_poll`
   `room_wait` `room_info` `room_ack` `room_heartbeat` `room_leave`
-  `room_remove_member` `room_event_log`), pinned by
+  `room_remove_member` `room_close` `room_event_log`), pinned by
   `test_hosted_surface_is_a_small_correct_set`. Identity is never an
   argument: `agent_id` resolves from the authenticated `fss_` session or
   `agk_` agent key, and client-supplied identity fields are rejected.
-- **SDK** — `src/weft_sdk/client.py` drives all 12 hosted tools; in hosted
+- **SDK** — `src/weft_sdk/client.py` drives all 14 hosted tools; in hosted
   mode it strips identity arguments and surfaces HTTP 429 as structured
   `rate_limited` errors with `retry_after` (`c9f4e0e`).
 - **Identity** — `POST /v1/auth/signout` with an `agk_` bearer truthfully
@@ -297,8 +297,8 @@ Executed and confirmed on the authoring machine:
 - Both processes started against one shared database file; the shared-store
   suite `tests/test_webapp_entrypoint.py` (6 tests) passes.
 - The latest local regression is recorded in
-  [`RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1206 tests discovered, 1205
-  passed, and 1 skipped (measured 2026-08-20 on the integration hardening
+  [`RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1210 tests discovered, 1209
+  passed, and 1 skipped (measured 2026-08-21 on the hosted room lifecycle
   stack). This is not Docker, VM, hosted-edge, SMTP, or merge proof; the
   historical 915-test and 524-test snapshots above remain provenance for
   earlier deployment runs.

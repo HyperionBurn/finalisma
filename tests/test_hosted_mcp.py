@@ -41,6 +41,7 @@ from weft_cloud.storage import SqliteWalBackend
 
 HOSTED_TOOL_NAMES = [
     "room_create",
+    "room_list",
     "room_join",
     "room_send",
     "room_receipts",
@@ -51,6 +52,7 @@ HOSTED_TOOL_NAMES = [
     "room_heartbeat",
     "room_leave",
     "room_remove_member",
+    "room_close",
     "room_event_log",
 ]
 
@@ -312,7 +314,7 @@ class HostedMCPHandshakeTests(HostedMCPTestBase):
         token = acct["session_token"]
         _, listing = _mcp(self.base, "tools/list", None, token=token, request_id=1)
         names = [t["name"] for t in listing["result"]["tools"]]
-        self.assertEqual(len(names), 12)
+        self.assertEqual(len(names), 14)
         for forbidden in ("register_agent", "create_pairing", "join_pairing",
                           "create_task", "claim_task", "verify_task",
                           "complete_task", "org_create", "roster_create"):
@@ -409,6 +411,7 @@ class HostedMCPRoomFlowTests(HostedMCPTestBase):
             ("room_send", {"room_id": room_id_a, "target_spec": "*", "payload": {"k": "v"}}),
             ("room_receipts", {"room_id": room_id_a, "entry_ids": []}),
             ("room_event_log", {"room_id": room_id_a}),
+            ("room_close", {"room_id": room_id_a}),
         ):
             self._assert_is_error(tenant_b["session_token"], name, args, "room_not_found",
                                   request_id=hash(name) % 1000 + 3)
@@ -668,6 +671,81 @@ class HostedMCPRoomFlowTests(HostedMCPTestBase):
         }, request_id=6)
         self.assertEqual(info["member_count"], 2)
 
+    def test_owner_can_list_old_rooms_close_one_and_reclaim_quota(self) -> None:
+        """The hosted connector can discover and retire stale rooms.
+
+        The free plan has five active-room slots. Closing one must free one
+        slot without deleting its audit row, and repeating the close must not
+        decrement the counter a second time.
+        """
+        owner = self._signup("close-old-rooms@example.com")
+        rooms = [
+            self._assert_ok(owner["session_token"], "room_create", {"cap": 2}, request_id=i + 1)
+            for i in range(5)
+        ]
+
+        listed = self._assert_ok(owner["session_token"], "room_list", {}, request_id=10)
+        self.assertEqual({room["room_id"] for room in listed["rooms"]},
+                         {room["room_id"] for room in rooms})
+        self.assertNotIn("tenant_id", listed["rooms"][0])
+        self.assertTrue(all(room["state"] == "forming" for room in listed["rooms"]))
+
+        closed = self._assert_ok(owner["session_token"], "room_close",
+                                 {"room_id": rooms[0]["room_id"]}, request_id=11)
+        self.assertEqual(closed, {"room_id": rooms[0]["room_id"], "state": "closed"})
+
+        repeated = self._assert_ok(owner["session_token"], "room_close",
+                                   {"room_id": rooms[0]["room_id"]}, request_id=12)
+        self.assertEqual(repeated, closed)
+
+        refused_send = self._assert_is_error(owner["session_token"], "room_send", {
+            "room_id": rooms[0]["room_id"],
+            "target_spec": "*",
+            "payload": {"text": "must not write after close"},
+        }, "room_closed", request_id=121)
+        self.assertEqual(refused_send["error"]["code"], "room_closed")
+
+        joiner = self._signup("close-old-rooms-late-joiner@example.com")
+        refused_join = self._assert_is_error(joiner["session_token"], "room_join", {
+            "room_id": rooms[0]["room_id"],
+            "link_token": rooms[0]["link_token"],
+            "consent": True,
+        }, "room_closed", request_id=122)
+        self.assertEqual(refused_join["error"]["code"], "room_closed")
+
+        log = self._assert_ok(owner["session_token"], "room_event_log", {
+            "room_id": rooms[0]["room_id"],
+        }, request_id=123)
+        self.assertEqual(
+            len([event for event in log["events"] if event["kind"] == "room.closed"]),
+            1,
+        )
+
+        listed_after = self._assert_ok(owner["session_token"], "room_list", {}, request_id=13)
+        states = {room["room_id"]: room["state"] for room in listed_after["rooms"]}
+        self.assertEqual(states[rooms[0]["room_id"]], "closed")
+
+        replacement = self._assert_ok(owner["session_token"], "room_create",
+                                      {"cap": 2, "name": "replacement"}, request_id=14)
+        self.assertNotIn(replacement["room_id"], {room["room_id"] for room in rooms})
+
+        refused = self._assert_is_error(owner["session_token"], "room_create",
+                                        {"cap": 2}, "quota_exceeded", request_id=15)
+        self.assertEqual(refused["error"]["limit"]["name"], "max_rooms")
+
+    def test_non_owner_cannot_close_room_through_hosted_mcp(self) -> None:
+        owner, member = self._two_accounts("close-owner-only")
+        created = self._assert_ok(owner["session_token"], "room_create", {"cap": 2}, request_id=1)
+        self._assert_ok(member["session_token"], "room_join", {
+            "room_id": created["room_id"],
+            "link_token": created["link_token"],
+            "consent": True,
+        }, request_id=2)
+        refused = self._assert_is_error(member["session_token"], "room_close", {
+            "room_id": created["room_id"],
+        }, "owner_required", request_id=3)
+        self.assertEqual(refused["error"]["code"], "owner_required")
+
     def test_cross_tenant_link_join_grants_membership_not_privilege(self) -> None:
         """A link is the cross-tenant capability (as on /v1): tenant B may
         join A's room with the link and then operate as a member, while a
@@ -717,6 +795,21 @@ class HostedMCPRoomFlowTests(HostedMCPTestBase):
                                           "sender_agent_id": "someone-else"},
                                          "invalid_argument", request_id=2)
         self.assertIn("not accepted", join_bad["error"]["message"])
+
+    def test_room_close_rejects_identity_smuggling(self) -> None:
+        owner = self._signup("close-identity@example.com")
+        created = self._assert_ok(owner["session_token"], "room_create", {"cap": 2}, request_id=10)
+        for identity_key, identity_value in (
+            ("tenant_id", "tenant-evil"),
+            ("owner_agent_id", "account-evil"),
+            ("caller_agent_id", "account-evil"),
+        ):
+            refused = self._mcp_call(owner["session_token"], "room_close", {
+                "room_id": created["room_id"],
+                identity_key: identity_value,
+            }, request_id=11)
+            self.assertTrue(refused["isError"])
+            self.assertEqual(refused["error"]["code"], "invalid_argument")
 
     def test_full_mcp_lifecycle_with_ack_and_presence(self) -> None:
         a, b = self._two_accounts("life")

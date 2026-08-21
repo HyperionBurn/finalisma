@@ -513,12 +513,12 @@ class SDKRetryTests(unittest.TestCase):
 
 
 class SdkHostedSurfaceAuditTests(unittest.TestCase):
-    """Regression guards for the HOSTED Weft MCP surface (12 room tools).
+    """Regression guards for the HOSTED Weft MCP surface (14 room tools).
 
-    The hosted /mcp endpoint (weft_cloud/mcp.py) exposes exactly twelve room
-    tools: room_create, room_join, room_send, room_receipts, room_poll,
+    The hosted /mcp endpoint (weft_cloud/mcp.py) exposes exactly fourteen room
+    tools: room_create, room_list, room_join, room_send, room_receipts, room_poll,
     room_wait, room_info, room_ack, room_heartbeat, room_leave,
-    room_remove_member, room_event_log. The SDK must be able to drive all of
+    room_remove_member, room_close, room_event_log. The SDK must be able to drive all of
     them and must not lose the structured error / cursor information that
     surface emits. Tests in this class are RED on purpose where the SDK has
     not caught up — they are the TDD contract for the implementer.
@@ -526,6 +526,7 @@ class SdkHostedSurfaceAuditTests(unittest.TestCase):
 
     _HOSTED_TOOL_TO_SDK_METHOD = {
         "room_create": "create_room",
+        "room_list": "list_rooms",
         "room_join": "join_room",
         "room_send": "send",
         "room_receipts": "room_receipts",
@@ -536,6 +537,7 @@ class SdkHostedSurfaceAuditTests(unittest.TestCase):
         "room_heartbeat": "room_heartbeat",
         "room_leave": "leave_room",
         "room_remove_member": "room_remove_member",
+        "room_close": "close_room",
         "room_event_log": "room_event_log",
     }
 
@@ -547,12 +549,11 @@ class SdkHostedSurfaceAuditTests(unittest.TestCase):
         host, port = server.server_address
         return server, thread, f"http://{host}:{port}/mcp"
 
-    def test_client_exposes_all_twelve_hosted_room_tools(self) -> None:
+    def test_client_exposes_all_fourteen_hosted_room_tools(self) -> None:
         """Every tool the hosted /mcp surface exposes must have an SDK method.
 
-        RED: WeftClient has no room_wait, room_remove_member or
-        room_event_log methods, so an SDK caller cannot drive the hosted
-        surface fully and must fall back to the private _call.
+        The mapping below keeps the hosted surface's SDK coverage explicit so
+        an additive tool cannot ship without a corresponding client method.
         """
         client = WeftClient("http://127.0.0.1:1/mcp", "agent-a", "demo")
         try:

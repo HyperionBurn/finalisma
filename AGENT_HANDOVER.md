@@ -164,7 +164,7 @@ Rules that must survive future edits:
   real v3 coordinator DB in place (additive only, never touches agent_credentials).
   `quotas.py`/`rate_limit.py` are plan-driven seams (Wave I adds billing). `mcp.py` is the
   hosted MCP endpoint at `POST /mcp` — authenticated with cloud sessions, tenant-confined,
-  exposing the 12 room tools over `CloudRoomService`; `service.py` routes `/mcp` to it
+  exposing the 14 room tools over `CloudRoomService`; `service.py` routes `/mcp` to it
    (Design: `docs/CLOUD_SPINE_DESIGN.md`, `docs/HOSTED_MCP_DESIGN.md`).
    `cloud_outbox` (the HOSTED delivery outbox — distinct from the email
    `cloud_identity_outbox`) has a full completion lifecycle: migration `cloud_011`
@@ -428,7 +428,7 @@ The published test count is guarded automatically by
 same loader and pattern as `unittest discover -s tests` and fails if any
 published instance in `docs/` or `site/` claims a count ABOVE the live count
 (the guard protects against deleted tests; adding tests never invalidates a
-published number). The latest local count is **1206 discovered, 1205 passed,
+published number). The latest local count is **1210 discovered, 1209 passed,
 1 skipped**, measured 2026-08-20 and recorded in `docs/RELEASE_EVIDENCE.md`.
 If you delete tests, that guard will tell you what to update. Do not
 hand-maintain the number, and do not confuse the test count with the permanent
@@ -562,7 +562,7 @@ will keep temporary SQLite files locked while pooled connections remain open.
   Non-integer / negative / beyond-head `after_seq` → 400 `invalid_argument` /
   `invalid_cursor`; negative `seq` on ack → 400 `invalid_cursor`. Caller error
   is never surfaced as a server fault.
-- **The SDK drives all 12 hosted room tools in hosted mode without identity
+- **The SDK drives all 14 hosted room tools in hosted mode without identity
   arguments (2026-08-15, `c9f4e0e`).** When an `agk_`/`fss_` bearer is supplied,
   the client strips `team_id`/`agent_id`/`actor_token` from every tool call —
   the hosted dispatcher derives identity from the credential and rejects
@@ -609,9 +609,10 @@ Priority order for the next agent:
    Making it a real multi-node service is a storage-layer change.
 9. A hosted MCP endpoint exists in source at `POST /mcp` on `weft-cloud`
    (`src/weft_cloud/mcp.py`, `docs/HOSTED_MCP_DESIGN.md`): authenticated with
-   cloud sessions, tenant-confined, exposing the 12 room tools over
+   cloud sessions, tenant-confined, exposing the 14 room tools over
    `CloudRoomService` (the same store `/v1` uses). The **SDK now drives all
-   12 hosted tools** (`c9f4e0e` — `room_wait`, `room_event_log`,
+   14 hosted tools** (current surface — `room_list`, `room_close`,
+   `room_wait`, `room_event_log`,
    `room_remove_member` added) and REST has `/v1/rooms/receipts` +
    `/v1/rooms/remove_member` parity with 400-not-500 cursor errors
    (`1e0aa5a`). What remains, in priority order:

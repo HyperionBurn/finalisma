@@ -3,9 +3,9 @@
 The hosted service exposes ONE room store behind TWO surfaces:
 
   - ``POST /mcp`` — the JSON-RPC surface (``src/weft_cloud/mcp.py``),
-    exposing exactly 12 room tools: room_create, room_join, room_send,
+    exposing exactly 14 room tools: room_create, room_list, room_join, room_send,
     room_receipts, room_poll, room_wait, room_info, room_ack, room_heartbeat,
-    room_leave, room_remove_member, room_event_log.
+    room_leave, room_remove_member, room_close, room_event_log.
   - ``/v1/*`` — the REST surface (``src/weft_cloud/service.py``).
 
 Both must offer the same product operations with the same machine-readable
@@ -235,13 +235,13 @@ class TestRestRouteParityMissingEndpoints(unittest.TestCase):
         self.assertEqual(status, HTTPStatus.NOT_FOUND, poll)
         self.assertEqual(self.h.error_code(poll), "room_not_found")
 
-    def test_rest_missing_mcp_tool_set_is_exactly_receipts_and_remove_member(self) -> None:
-        """Pin the parity matrix: the two missing routes must exist, and
-        close/groups/revoke_link/connect/list remain REST-only extras."""
+    def test_rest_routes_cover_the_hosted_mcp_tool_set(self) -> None:
+        """Every hosted MCP tool has a corresponding REST operation."""
         from weft_cloud.mcp import HOSTED_TOOL_NAMES
 
         rest_routes = {
             "room_create": "/v1/rooms/create",
+            "room_list": "/v1/rooms",
             "room_join": "/v1/rooms/join",
             "room_send": "/v1/rooms/send",
             "room_receipts": "/v1/rooms/receipts",
@@ -252,6 +252,7 @@ class TestRestRouteParityMissingEndpoints(unittest.TestCase):
             "room_heartbeat": "/v1/rooms/heartbeat",
             "room_leave": "/v1/rooms/leave",
             "room_remove_member": "/v1/rooms/remove_member",
+            "room_close": "/v1/rooms/close",
             "room_event_log": "/v1/rooms/event_log",
         }
         self.assertEqual(set(rest_routes), set(HOSTED_TOOL_NAMES),
@@ -262,7 +263,9 @@ class TestRestRouteParityMissingEndpoints(unittest.TestCase):
         # `not_found`. The discriminator is the error CODE, not the status.
         owner = self.h.signup()
         for tool, route in rest_routes.items():
-            if tool == "room_info":
+            if tool == "room_list":
+                status, body = self.h.get(route, token=owner["session_token"])
+            elif tool == "room_info":
                 status, body = self.h.get(route, token=owner["session_token"],
                                           query="?room_id=room_deadbeef")
             else:

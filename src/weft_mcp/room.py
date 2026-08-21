@@ -715,6 +715,8 @@ class RoomStore:
             room = self._require_authenticated_member(conn, team_id, room_id, caller_agent_id, actor_token)
             if room["owner_agent_id"] != caller_agent_id:
                 raise RoomError("owner_required", "Only the room owner can close it")
+            if room["state"] == "closed":
+                return {"room_id": room_id, "state": "closed"}
             conn.execute(
                 "UPDATE room_rooms SET state = 'closed' WHERE room_id = ?",
                 (room_id,),

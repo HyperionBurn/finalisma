@@ -49,7 +49,7 @@ b.complete(task_id, fencing_token=task.fencing_token, summary="Shipped")
 | Tasks | `create_task()`, `claim()`, `update_progress()`, `submit_evidence()`, `complete()` | Typed `TaskResult` with `fencing_token`. |
 | Messaging | `ask()`, `send_envelope()` | Envelopes are arbitrary dicts. |
 | Sessions | `session_send()`, `session_poll()`, `session_wait()`, `session_ack()` | Ordered, idempotent, replayable events. |
-| Rooms | `create_room()`, `join_room()`, `send()`, `room_poll()`, `room_wait()`, `room_event_log()`, `room_remove_member()`, `leave_room()` | Typed `RoomPoll` / `RoomEvent`; see the Rooms section. |
+| Rooms | `create_room()`, `list_rooms()`, `join_room()`, `send()`, `room_poll()`, `room_wait()`, `room_event_log()`, `room_remove_member()`, `leave_room()`, `close_room()` | Typed `RoomPoll` / `RoomEvent`; see the Rooms section. |
 | Errors | `WeftError`, `AuthError`, `EvidenceError`, `NotFoundError`, `ConflictError`, `TimeoutError` | Mapped from server error codes. |
 | Retry | stdlib exponential backoff | Retry-safe methods retry on 408/429/5xx; deduplicated mutations reuse one idempotency key. |
 
@@ -292,7 +292,8 @@ that is what makes the reconnect in step 6 resume from the correct cursor.
 | `room_event_log(room_id)` | `room_event_log` | **Hosted surface only.** Full ordered audit log as `list[RoomEvent]` (member-only). Payloads are redacted exactly as in `room_poll`: a non-addressee of a unicast sees the envelope, never the private body. |
 | `room_remove_member(room_id, member_id)` | `room_remove_member` | Owner-only member removal. The removed member is refused on its very next request and its seat is freed. Removal is NOT a ban: a removed member who still holds a valid link can rejoin. |
 | `leave_room(room_id)` | `room_leave` | Emit `room.left` and mark the member `left`. |
-| `close_room(room_id)` | `room_close` | Owner only; emits `room.closed`, invalidates all links. |
+| `list_rooms()` | `room_list` | Hosted surface only; list rooms where this identity is an active member, including closed rooms. |
+| `close_room(room_id)` | `room_close` | Hosted and self-hosted; owner only; emits `room.closed`, invalidates all links, releases the active-room quota slot, and is safe to repeat. |
 | `revoke_link(room_id, link_id)` | `room_revoke_link` | Owner only; revoke one link without closing the room. An unknown / already-revoked / wrong-room `link_id` raises `NotFoundError` (`link_not_found`); a malformed one raises `invalid_argument`. The owner can rediscover `link_id` from `room_info` (owner-only view, together with `link_revoked`); `link_token` is never exposed there. |
 
 `next_seq` is the resume marker for the returned page. Passing that marker

@@ -62,13 +62,14 @@ or API key in the repository.
 
 ### Hosted service
 
-The hosted cloud plane (`src/weft_cloud/`) exposes exactly **12 room tools**
-over MCP — `room_create`, `room_join`, `room_send`, `room_receipts`,
+The hosted cloud plane (`src/weft_cloud/`) exposes exactly **14 room tools**
+over MCP — `room_create`, `room_list`, `room_join`, `room_send`, `room_receipts`,
 `room_poll`, `room_wait`, `room_info`, `room_ack`, `room_heartbeat`,
-`room_leave`, `room_remove_member`, `room_event_log` — pinned by
+`room_leave`, `room_remove_member`, `room_close`, `room_event_log` — pinned by
 `test_hosted_surface_is_a_small_correct_set`. The REST `/v1` surface keeps
-parity: `/v1/rooms/receipts` and `/v1/rooms/remove_member` exist now. The
-stdlib-only SDK (`src/weft_sdk/`) drives all 12 hosted room tools. Identity
+parity: `/v1/rooms` lists member rooms, `/v1/rooms/receipts`,
+`/v1/rooms/remove_member`, and `/v1/rooms/close` exist now. The stdlib-only
+SDK (`src/weft_sdk/`) drives all 14 hosted room tools. Identity
 signout is truthful: presenting an `agk_` agent key to signout revokes that
 key in the same transaction. See [docs/HOSTED_MCP_DESIGN.md](docs/HOSTED_MCP_DESIGN.md)
 and [docs/SDK.md](docs/SDK.md).
@@ -319,8 +320,8 @@ hot-path change in that window, the presence touch, is now an in-memory
 throttle (zero DB work inside the window); the run immediately after that fix
 moved from -50.6% to +4.5% weighted median. The baseline was not rewritten to
 make the gate pass. The latest local regression is recorded in
-[`docs/RELEASE_EVIDENCE.md`](docs/RELEASE_EVIDENCE.md): 1206 tests discovered,
-1205 passed, and 1 skipped. The published count is guarded by
+[`docs/RELEASE_EVIDENCE.md`](docs/RELEASE_EVIDENCE.md): 1210 tests discovered,
+1209 passed, and 1 skipped. The published count is guarded by
 `tests/test_site.py::TestCountSyncTests`; this is local evidence, not a hosted
 release or universal latency claim. See
 [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for the evidence boundary and rerun

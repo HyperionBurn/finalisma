@@ -20,7 +20,8 @@ file and must not be treated as ground truth.
 **Known-good baseline (measured this session):** `python -B -m unittest
 discover -s tests` → **Ran 960 tests, OK**. Merge-gate PASS. Branch carries
 `b1645d6..a572db3`; the five newest commits are `67c30ae` (seven-scene
-hard-cut film), `c9f4e0e` (SDK drives all 12 hosted room tools, 429
+hard-cut film), `c9f4e0e` (SDK baseline; current hosted surface drives all 14
+room tools, 429
 structured errors, hosted-mode identity-arg stripping), `1e0aa5a` (REST
 `/v1/rooms/receipts` + `/v1/rooms/remove_member`; 400 `invalid_argument` /
 `invalid_cursor` on bad cursors), `d344ebe` (truthful agent-key signout;
