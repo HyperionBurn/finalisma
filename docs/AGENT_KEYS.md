@@ -28,9 +28,10 @@ Do not present the legacy `fst_*` credentials as aliases for hosted `agk_` keys.
   request. Demotion therefore takes effect on the next request.
 - Room creation through hosted REST or MCP records the owning account, not the
   creating key identity. The key remains a distinct agent and must explicitly
-  redeem the returned room link before it can send, poll, or administer that
-  room. This keeps browser/session room lists and close controls aligned with
-  rooms created by a human session.
+  redeem the returned room link before it can send or poll. After redemption,
+  the key can administer rooms owned by its account. Administration remains
+  account-scoped, so a key cannot close or change a room owned by another
+  account.
 - Password reset revokes the account's active sessions and agent keys, and
   releases those keys' active room seats in the same transaction.
 - Legacy rooms that still name a key as owner are closed and their share link

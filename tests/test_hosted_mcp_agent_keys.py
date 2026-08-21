@@ -65,6 +65,72 @@ class HostedMCPAgentKeyTests(HostedMCPTestBase):
         self.assertEqual(status, HTTPStatus.UNAUTHORIZED)
         self.assertEqual(refused["error"]["message"], "Unauthorized")
 
+    def test_agent_key_can_list_and_close_own_room_after_join(self) -> None:
+        account = self._signup("hosted-agent-key-owner@example.com")
+        session = account["session_token"]
+        status, key = _post(
+            self.base,
+            "/v1/agent-keys",
+            {"label": "hosted-mcp-owner"},
+            token=session,
+        )
+        self.assertEqual(status, HTTPStatus.CREATED)
+        agent_key = key["agent_key"]
+
+        status, created = _mcp(
+            self.base,
+            "tools/call",
+            {"name": "room_create", "arguments": {"cap": 15, "name": "owner"}},
+            token=agent_key,
+        )
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertFalse(created["result"].get("isError"))
+        room = created["result"]["structuredContent"]
+
+        status, joined = _mcp(
+            self.base,
+            "tools/call",
+            {"name": "room_join", "arguments": {
+                "room_id": room["room_id"],
+                "link_token": room["link_token"],
+                "consent": True,
+            }},
+            token=agent_key,
+        )
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertFalse(joined["result"].get("isError"))
+
+        status, listing = _mcp(
+            self.base,
+            "tools/call",
+            {"name": "room_list", "arguments": {}},
+            token=agent_key,
+        )
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertFalse(listing["result"].get("isError"))
+        rooms = listing["result"]["structuredContent"]["rooms"]
+        self.assertIn(room["room_id"], {entry["room_id"] for entry in rooms})
+
+        status, closed = _mcp(
+            self.base,
+            "tools/call",
+            {"name": "room_close", "arguments": {"room_id": room["room_id"]}},
+            token=agent_key,
+        )
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertFalse(closed["result"].get("isError"))
+        self.assertEqual(closed["result"]["structuredContent"]["state"], "closed")
+
+        status, repeated = _mcp(
+            self.base,
+            "tools/call",
+            {"name": "room_close", "arguments": {"room_id": room["room_id"]}},
+            token=agent_key,
+        )
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertFalse(repeated["result"].get("isError"))
+        self.assertEqual(repeated["result"]["structuredContent"]["state"], "closed")
+
 
 if __name__ == "__main__":
     unittest.main()
