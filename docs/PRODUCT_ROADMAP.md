@@ -178,6 +178,9 @@ The goal is complete only when **every** line is true and independently verified
 > **Status (2026-08-15):** the runbook is written (`docs/DEPLOY.md`,
 > `Dockerfile`, `compose.yaml`), but the image build has not executed on a
 > machine with Docker — DEPLOY.md records the exact verification status. The
+> cloud service now ships fail-closed `/readyz` and token-gated process-local
+> `/metrics` surfaces, but structured logs, alerting, and multi-instance
+> aggregation remain open. The
 > performance gate is **red under host-load noise**: recent captures ran with
 > multiple agent sessions active on the host, and the standing rule is to
 > rerun on a controlled idle host rather than rebaseline to hide it
@@ -191,8 +194,8 @@ The goal is complete only when **every** line is true and independently verified
 - [ ] `AGENTS.md` and `AGENT_HANDOVER.md` current with the code in the same commit.
 
 > **Current local evidence (2026-08-18):** the integration hardening stack is
-> documented in [`docs/RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1227 tests
-> discovered, 1226 passed, and 1 skipped. This is local evidence only; Docker,
+> documented in [`docs/RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1232 tests
+> discovered, 1231 passed, and 1 skipped. This is local evidence only; Docker,
 > hosted deployment, and third-party host-product proof remain open.
 
 ---
