@@ -589,6 +589,78 @@ class WeftWebApp:
             '</div>'
         )
 
+    def _quota_error_html(self, ctx: SessionContext, exc: QuotaError) -> str:
+        """Render a truthful recovery path for a browser quota failure.
+
+        The API and MCP surfaces already carry the caller's own plan and
+        failed limit. The browser must expose the same facts and offer the
+        safe recovery that already exists. It must never imply that checkout
+        exists or change a tenant plan as a side effect of a failed request.
+        """
+        usage = self._plan_usage(ctx)
+        plan_id = exc.plan_id or usage["plan_id"]
+        limit_name = exc.limit_name or "plan_limit"
+        limit_value = exc.limit_value
+        if limit_value is None:
+            limit_value = {
+                "max_rooms": usage["max_rooms"],
+                "max_members_per_room": usage["max_members_per_room"],
+                "max_events_per_month": usage["max_events_per_month"],
+            }.get(limit_name)
+
+        if limit_name == "max_rooms":
+            usage_text = (
+                f'Rooms {usage["rooms_used"]}/{usage["max_rooms"]}'
+            )
+            recovery = (
+                '<p><a href="/rooms">Review existing rooms</a> and close an '
+                'unused room. Closing preserves its history and releases the '
+                'active-room slot.</p>'
+            )
+            limit_label = "active rooms"
+        elif limit_name == "max_members_per_room":
+            usage_text = (
+                f'Members per room {usage["largest_room_members"]}/'
+                f'{usage["max_members_per_room"]}'
+            )
+            recovery = (
+                f'<p>Lower the Cap value to {_esc(limit_value)} or less and '
+                'submit the form again.</p>'
+            )
+            limit_label = "members per room"
+        elif limit_name == "max_events_per_month":
+            usage_text = (
+                f'Events this month {usage["events_used"]}/'
+                f'{usage["max_events_per_month"]}'
+            )
+            recovery = (
+                '<p>This monthly limit resets at the next UTC month. Contact '
+                'your workspace owner for plan support.</p>'
+            )
+            limit_label = "events this month"
+        else:
+            usage_text = "Plan usage is at its configured limit."
+            recovery = (
+                '<p>Contact your workspace owner for plan support.</p>'
+            )
+            limit_label = "plan resource"
+
+        allowed = (
+            _esc(limit_value)
+            if limit_value is not None
+            else "the configured limit"
+        )
+        return (
+            '<div class="flash flash-error" role="alert" '
+            'data-error-code="quota_exceeded">'
+            '<strong>Room creation is at the plan limit.</strong> '
+            f'Plan: <code>{_esc(plan_id)}</code>. '
+            f'Limit: {_esc(limit_label)} (maximum {allowed}). '
+            f'Current usage: {usage_text}.'
+            f'{recovery}'
+            '</div>'
+        )
+
     def _room_belongs_to_tenant(self, room_id: str, tenant_id: str) -> bool:
         with self.backend.transaction() as tx:
             row = tx.execute(
@@ -1789,7 +1861,8 @@ class WeftWebApp:
             )
         except QuotaError as exc:
             self._send_html(handler, HTTPStatus.BAD_REQUEST,
-                            _page("Create room failed", f"<p>{_esc(str(exc))}</p>"))
+                            _page("Create room failed",
+                                  self._quota_error_html(ctx, exc)))
             return
         except RoomError as exc:
             self._send_html(handler, exc.status,

@@ -242,6 +242,60 @@ class TestCreateRoom(unittest.TestCase):
         self.assertIn("name must be at most 160 characters", body)
         self.assertNotIn("Internal server error", body)
 
+    def test_room_quota_failure_shows_plan_aware_recovery(self):
+        for index in range(5):
+            self.driver.create_room(name=f"Room {index}")
+
+        csrf = self.driver.csrf()
+        status, body, _ = self.driver.post(
+            "/rooms",
+            {"name": "Overflow", "cap": "8", "_csrf": csrf},
+        )
+
+        self.assertEqual(status, 400)
+        self.assertIn('data-error-code="quota_exceeded"', body)
+        self.assertIn("Plan: <code>free</code>", body)
+        self.assertIn("Limit: active rooms (maximum 5)", body)
+        self.assertIn("Current usage: Rooms 5/5", body)
+        self.assertIn('href="/rooms"', body)
+        self.assertIn("close an unused room", body)
+        self.assertNotIn("Internal server error", body)
+
+    def test_member_cap_failure_explains_how_to_retry(self):
+        csrf = self.driver.csrf()
+        status, body, _ = self.driver.post(
+            "/rooms",
+            {"name": "Too Large", "cap": "11", "_csrf": csrf},
+        )
+
+        self.assertEqual(status, 400)
+        self.assertIn('data-error-code="quota_exceeded"', body)
+        self.assertIn("Limit: members per room (maximum 10)", body)
+        self.assertIn("Current usage: Members per room 0/10", body)
+        self.assertIn("Lower the Cap value to 10 or less", body)
+        self.assertNotIn('href="/rooms"', body)
+
+    def test_close_then_retry_reclaims_room_quota(self):
+        room_ids = [
+            self.driver.create_room(name=f"Room {index}")
+            for index in range(5)
+        ]
+        detail = self.driver.get(f"/room/{room_ids[0]}")[1]
+        close_status, _, _ = self.driver.post(
+            f"/room/{room_ids[0]}/close",
+            {"_csrf": self.driver.extract_csrf(detail)},
+        )
+        self.assertEqual(close_status, 303)
+        self.assertIn("Rooms 4/5", self.driver.get("/")[1])
+
+        status, _, headers = self.driver.post(
+            "/rooms",
+            {"name": "Recovered", "cap": "8", "_csrf": self.driver.csrf()},
+        )
+        self.assertEqual(status, 303)
+        self.assertTrue(headers["Location"].startswith("/room/"))
+        self.assertIn("Rooms 5/5", self.driver.get("/")[1])
+
 
 class TestListRooms(unittest.TestCase):
     """§3.3 + §6: GET /rooms lists the created room with a link to its detail page."""
