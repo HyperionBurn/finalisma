@@ -161,12 +161,16 @@ class OwnerRemoveMemberTests(unittest.TestCase):
         self.assertIn(second["key_id"], {member["agent_id"] for member in info["members"]})
 
     def test_non_owner_cannot_remove_a_member(self) -> None:
-        _owner, first, second, room = self._owner_with_members("remove-non-owner")
-        status, response = self._remove(second["agent_key"], room["room_id"], first["key_id"])
+        _owner, first, _second, room = self._owner_with_members("remove-non-owner")
+        outsider = self._signup("remove-non-owner-outsider@example.com")
+        outsider_key = self._mint_key(outsider["session_token"], "outsider")
+        self._join(outsider_key["agent_key"], room)
+
+        status, response = self._remove(outsider_key["agent_key"], room["room_id"], first["key_id"])
         self.assertEqual(status, HTTPStatus.FORBIDDEN, response)
         self.assertEqual(response["error"]["code"], "owner_required")
 
-        status, info = self._info(second["agent_key"], room["room_id"])
+        status, info = self._info(outsider_key["agent_key"], room["room_id"])
         self.assertEqual(status, HTTPStatus.OK, info)
         self.assertIn(first["key_id"], {member["agent_id"] for member in info["members"]})
 

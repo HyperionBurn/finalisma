@@ -916,7 +916,9 @@ class WeftCloudService:
         # A query-param agent_id is IGNORED, never honoured: the caller
         # resolves as their OWN authenticated identity.
         tenant_id = self._room_tenant(room_id, ctx.agent_id)
-        result = self.rooms.room_info(tenant_id, room_id, ctx.agent_id)
+        result = self.rooms.room_info(
+            tenant_id, room_id, ctx.agent_id, owner_agent_id=ctx.account_id,
+        )
         return _json_response(HTTPStatus.OK, result)
 
     def handle_room_poll(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
@@ -1062,7 +1064,10 @@ class WeftCloudService:
         if not room_id or not member_id:
             raise _ServiceError("invalid_argument", "room_id and member_id are required")
         tenant_id = self._room_tenant(room_id, ctx.agent_id)
-        result = self.rooms.remove_member(tenant_id, room_id, ctx.agent_id, member_id)
+        result = self.rooms.remove_member(
+            tenant_id, room_id, ctx.account_id, member_id,
+            caller_agent_id=ctx.agent_id,
+        )
         self.backend.append_audit(
             tenant_id, "room.remove_member", ctx.account_id, room_id,
             json.dumps({"member_id": member_id}),
@@ -1077,7 +1082,9 @@ class WeftCloudService:
         if not room_id:
             raise _ServiceError("invalid_argument", "room_id is required")
         tenant_id = self._room_tenant(room_id, ctx.agent_id)
-        result = self.rooms.close_room(tenant_id, room_id, ctx.agent_id)
+        result = self.rooms.close_room(
+            tenant_id, room_id, ctx.agent_id, owner_agent_id=ctx.account_id,
+        )
         return _json_response(HTTPStatus.OK, result)
 
     def handle_revoke_link(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
@@ -1089,7 +1096,10 @@ class WeftCloudService:
         if not room_id or not link_id:
             raise _ServiceError("invalid_argument", "room_id and link_id are required")
         tenant_id = self._room_tenant(room_id, ctx.agent_id)
-        result = self.rooms.revoke_link(tenant_id, room_id, ctx.agent_id, link_id)
+        result = self.rooms.revoke_link(
+            tenant_id, room_id, ctx.account_id, link_id,
+            caller_agent_id=ctx.agent_id,
+        )
         return _json_response(HTTPStatus.OK, result)
 
     def handle_list_rooms(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:

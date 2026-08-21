@@ -685,6 +685,7 @@ class HostedMCPDispatcher:
             tenant_id=self._room_tenant(room_id, ctx.agent_id),
             room_id=room_id,
             agent_id=ctx.agent_id,
+            owner_agent_id=ctx.account_id,
         ))
 
     def _tool_room_ack(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:
@@ -718,8 +719,9 @@ class HostedMCPDispatcher:
         return self._room_call(lambda: self.rooms.remove_member(
             tenant_id=self._room_tenant(room_id, ctx.agent_id),
             room_id=room_id,
-            owner_agent_id=ctx.agent_id,
+            owner_agent_id=ctx.account_id,
             target_agent_id=member_id,
+            caller_agent_id=ctx.agent_id,
         ))
 
     def _tool_room_close(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:
@@ -728,6 +730,7 @@ class HostedMCPDispatcher:
             tenant_id=self._room_tenant(room_id, ctx.agent_id),
             room_id=room_id,
             caller_agent_id=ctx.agent_id,
+            owner_agent_id=ctx.account_id,
         ))
 
     def _tool_room_event_log(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:

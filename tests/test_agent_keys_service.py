@@ -212,6 +212,112 @@ class AgentKeyEndToEndTests(AgentKeyServiceTestBase):
         self.assertEqual(status, HTTPStatus.OK, f"session room close failed: {closed}")
         self.assertEqual(closed["state"], "closed")
 
+    def test_agent_key_can_administer_own_room_after_join(self) -> None:
+        acct = self._signup("agent-key-owner-lifecycle@example.com")
+        session = acct["session_token"]
+        owner_key = self._create_key(session, label="room-owner")
+        member_key = self._create_key(session, label="room-member")
+
+        room = self._create_room(owner_key["agent_key"], name="key-owner-lifecycle", cap=15)
+        status, joined = _post(
+            self.base,
+            "/v1/rooms/join",
+            {"room_id": room["room_id"], "link_token": room["link_token"], "consent": True},
+            token=owner_key["agent_key"],
+        )
+        self.assertEqual(status, HTTPStatus.OK, f"owner key join failed: {joined}")
+        status, joined = _post(
+            self.base,
+            "/v1/rooms/join",
+            {"room_id": room["room_id"], "link_token": room["link_token"], "consent": True},
+            token=member_key["agent_key"],
+        )
+        self.assertEqual(status, HTTPStatus.OK, f"member key join failed: {joined}")
+
+        status, listing = _get(self.base, "/v1/rooms", token=owner_key["agent_key"])
+        self.assertEqual(status, HTTPStatus.OK, f"key room list failed: {listing}")
+        self.assertIn(room["room_id"], {entry["room_id"] for entry in listing["rooms"]})
+
+        status, info = _get(
+            self.base,
+            "/v1/rooms/info",
+            token=owner_key["agent_key"],
+            query=f"?room_id={room['room_id']}",
+        )
+        self.assertEqual(status, HTTPStatus.OK, f"key room info failed: {info}")
+        self.assertEqual(info["link_id"], room["link_id"])
+
+        status, removed = _post(
+            self.base,
+            "/v1/rooms/remove_member",
+            {"room_id": room["room_id"], "member_id": member_key["key_id"]},
+            token=owner_key["agent_key"],
+        )
+        self.assertEqual(status, HTTPStatus.OK, f"key remove_member failed: {removed}")
+        self.assertEqual(removed["agent_id"], member_key["key_id"])
+
+        status, revoked = _post(
+            self.base,
+            "/v1/rooms/revoke_link",
+            {"room_id": room["room_id"], "link_id": room["link_id"]},
+            token=owner_key["agent_key"],
+        )
+        self.assertEqual(status, HTTPStatus.OK, f"key revoke_link failed: {revoked}")
+        self.assertIs(revoked["revoked"], True)
+
+        status, closed = _post(
+            self.base, "/v1/rooms/close", {"room_id": room["room_id"]},
+            token=owner_key["agent_key"],
+        )
+        self.assertEqual(status, HTTPStatus.OK, f"key room close failed: {closed}")
+        self.assertEqual(closed["state"], "closed")
+        status, repeated = _post(
+            self.base, "/v1/rooms/close", {"room_id": room["room_id"]},
+            token=owner_key["agent_key"],
+        )
+        self.assertEqual(status, HTTPStatus.OK, f"repeated key room close failed: {repeated}")
+        self.assertEqual(repeated["state"], "closed")
+
+        replacement = self._create_room(session, name="key-owner-replacement", cap=15)
+        self.assertTrue(replacement["room_id"].startswith("room_"))
+
+    def test_cross_account_key_keeps_room_access_without_owner_controls(self) -> None:
+        owner = self._signup("agent-key-cross-account-owner@example.com")
+        room = self._create_room(owner["session_token"], name="cross-account", cap=15)
+        member = self._signup("agent-key-cross-account-member@example.com")
+        member_key = self._create_key(member["session_token"], label="cross-account-member")
+
+        status, joined = _post(
+            self.base,
+            "/v1/rooms/join",
+            {"room_id": room["room_id"], "link_token": room["link_token"], "consent": True},
+            token=member_key["agent_key"],
+        )
+        self.assertEqual(status, HTTPStatus.OK, f"cross-account key join failed: {joined}")
+
+        status, info = _get(
+            self.base,
+            "/v1/rooms/info",
+            token=member_key["agent_key"],
+            query=f"?room_id={room['room_id']}",
+        )
+        self.assertEqual(status, HTTPStatus.OK, f"cross-account key info failed: {info}")
+        self.assertEqual(info["owner_agent_id"], owner["account_id"])
+        self.assertNotIn("link_id", info)
+
+        status, refused = _post(
+            self.base, "/v1/rooms/close", {"room_id": room["room_id"]},
+            token=member_key["agent_key"],
+        )
+        self.assertEqual(status, HTTPStatus.FORBIDDEN)
+        self.assertEqual(refused["error"]["code"], "owner_required")
+
+        status, closed = _post(
+            self.base, "/v1/rooms/close", {"room_id": room["room_id"]},
+            token=owner["session_token"],
+        )
+        self.assertEqual(status, HTTPStatus.OK, f"owner room close failed: {closed}")
+
     def test_agent_key_connect_room_is_visible_to_account_session(self) -> None:
         acct = self._signup("account-owned-connect@example.com")
         session = acct["session_token"]

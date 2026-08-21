@@ -1312,7 +1312,13 @@ class CloudRoomService:
         return {"room_id": room_id, "agent_id": agent_id, "status": "active",
                 "joined_at": now, "cursor": cursor}
 
-    def room_info(self, tenant_id: str, room_id: str, agent_id: str) -> dict:
+    def room_info(
+        self,
+        tenant_id: str,
+        room_id: str,
+        agent_id: str,
+        owner_agent_id: str | None = None,
+    ) -> dict:
         """Member-only room summary with roster and presence.
 
         The ROOM OWNER additionally sees the link control surface: ``link_id``
@@ -1325,6 +1331,9 @@ class CloudRoomService:
             room = self._require_room(tx, tenant_id, room_id)
             self._require_member(tx, tenant_id, room_id, agent_id)
             self._touch_member(tx, tenant_id, room_id, agent_id)
+            owner_identity = owner_agent_id or agent_id
+            if room["owner_agent_id"] == owner_identity and owner_identity != agent_id:
+                self._require_member(tx, tenant_id, room_id, owner_identity)
             members = tx.execute(
                 "SELECT * FROM cloud_room_members WHERE tenant_id = ? AND room_id = ? AND status = 'active' ORDER BY joined_at",
                 (tenant_id, room_id),
@@ -1353,7 +1362,7 @@ class CloudRoomService:
             # (created with the room), so exposing it on room_info gives the
             # owner the identifier revoke_link needs WITHOUT a new endpoint and
             # WITHOUT leaking it to members who cannot revoke (least exposure).
-            if room["owner_agent_id"] == agent_id:
+            if room["owner_agent_id"] == owner_identity:
                 link = tx.execute(
                     "SELECT link_id, revoked FROM cloud_room_links "
                     "WHERE tenant_id = ? AND room_id = ? LIMIT 1",
@@ -1390,8 +1399,14 @@ class CloudRoomService:
             tx.commit()
         return {"room_id": room_id, "agent_id": agent_id, "status": "left"}
 
-    def remove_member(self, tenant_id: str, room_id: str, owner_agent_id: str,
-                      target_agent_id: str) -> dict:
+    def remove_member(
+        self,
+        tenant_id: str,
+        room_id: str,
+        owner_agent_id: str,
+        target_agent_id: str,
+        caller_agent_id: str | None = None,
+    ) -> dict:
         """Remove one active member from a room, releasing its seat atomically.
 
         Owner-only. Removal is NOT a ban: a removed member who still holds a
@@ -1403,10 +1418,13 @@ class CloudRoomService:
         """
         with self.backend.transaction() as tx:
             room = self._require_room(tx, tenant_id, room_id)
-            self._require_member(tx, tenant_id, room_id, owner_agent_id)
-            self._touch_member(tx, tenant_id, room_id, owner_agent_id)
+            caller_identity = caller_agent_id or owner_agent_id
+            self._require_member(tx, tenant_id, room_id, caller_identity)
+            self._touch_member(tx, tenant_id, room_id, caller_identity)
             if room["owner_agent_id"] != owner_agent_id:
                 raise RoomError("owner_required", "Only the room owner can remove a member", 403)
+            if caller_identity != owner_agent_id:
+                self._require_member(tx, tenant_id, room_id, owner_agent_id)
             if target_agent_id == room["owner_agent_id"]:
                 raise RoomError("owner_required", "The room owner cannot be removed", 403)
             if not isinstance(target_agent_id, str) or not target_agent_id.strip():
@@ -1439,13 +1457,19 @@ class CloudRoomService:
                 (utc_now_iso(), tenant_id, room_id),
             )
             self._append_event(
-                tx, tenant_id, room_id, owner_agent_id, "room.left",
+                tx, tenant_id, room_id, caller_identity, "room.left",
                 {"agent_id": target_agent_id, "reason": "removed_by_owner"},
             )
             tx.commit()
         return {"room_id": room_id, "agent_id": target_agent_id, "status": "left"}
 
-    def close_room(self, tenant_id: str, room_id: str, caller_agent_id: str) -> dict:
+    def close_room(
+        self,
+        tenant_id: str,
+        room_id: str,
+        caller_agent_id: str,
+        owner_agent_id: str | None = None,
+    ) -> dict:
         """Close a room (owner only). Invalidates all links.
 
         Closing releases the room back to the tenant's ACTIVE-room quota: the
@@ -1456,8 +1480,11 @@ class CloudRoomService:
         with self.backend.transaction() as tx:
             room = self._require_room(tx, tenant_id, room_id)
             self._require_member(tx, tenant_id, room_id, caller_agent_id)
-            if room["owner_agent_id"] != caller_agent_id:
+            owner_identity = owner_agent_id or caller_agent_id
+            if room["owner_agent_id"] != owner_identity:
                 raise RoomError("owner_required", "Only the room owner can close it", 403)
+            if owner_identity != caller_agent_id:
+                self._require_member(tx, tenant_id, room_id, owner_identity)
             if room["state"] == "closed":
                 return {"room_id": room_id, "state": "closed"}
             self._close_room_in_transaction(
@@ -1466,7 +1493,14 @@ class CloudRoomService:
             tx.commit()
         return {"room_id": room_id, "state": "closed"}
 
-    def revoke_link(self, tenant_id: str, room_id: str, owner_agent_id: str, link_id: str) -> dict:
+    def revoke_link(
+        self,
+        tenant_id: str,
+        room_id: str,
+        owner_agent_id: str,
+        link_id: str,
+        caller_agent_id: str | None = None,
+    ) -> dict:
         """Revoke a specific link (owner only).
 
         Error-code decision (2026-08-12 finding: revoke reported success while
@@ -1484,9 +1518,13 @@ class CloudRoomService:
         _validate_link_id(link_id)
         with self.backend.transaction() as tx:
             room = self._require_room(tx, tenant_id, room_id)
-            self._require_member(tx, tenant_id, room_id, owner_agent_id)
+            caller_identity = caller_agent_id or owner_agent_id
+            self._require_member(tx, tenant_id, room_id, caller_identity)
+            self._touch_member(tx, tenant_id, room_id, caller_identity)
             if room["owner_agent_id"] != owner_agent_id:
                 raise RoomError("owner_required", "Only the room owner can revoke links", 403)
+            if caller_identity != owner_agent_id:
+                self._require_member(tx, tenant_id, room_id, owner_agent_id)
             link = tx.execute(
                 "SELECT link_id, revoked FROM cloud_room_links "
                 "WHERE link_id = ? AND tenant_id = ? AND room_id = ?",
