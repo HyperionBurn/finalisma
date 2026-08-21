@@ -57,11 +57,12 @@ def resolve_plan(backend, tenant_id: str) -> tuple[str, PlanLimits]:
     """Resolve a tenant's ``(plan_id, PlanLimits)`` from its stored plan_id.
 
     ``PLANS`` is the single source of truth for limit values. Unknown or
-    absent plan_ids fall back to ``free`` (the storage default).
+    absent plan_ids fall back to the canonical ``free`` identity and limits.
     """
     tenant = backend.get_tenant(tenant_id)
-    plan_id = tenant.get("plan_id", "free") if tenant else "free"
-    return plan_id, PLANS.get(plan_id, PLANS["free"])
+    stored_plan_id = tenant.get("plan_id", "free") if tenant else "free"
+    plan_id = stored_plan_id if stored_plan_id in PLANS else "free"
+    return plan_id, PLANS[plan_id]
 
 
 def plan_limits(backend, tenant_id: str) -> PlanLimits:

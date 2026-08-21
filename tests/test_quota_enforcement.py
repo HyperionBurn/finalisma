@@ -225,6 +225,22 @@ class TestCapBoundedByPlan(QuotaEnforcementTestBase):
         self.assertEqual(body["cap"], FREE_MAX_MEMBERS_PER_ROOM)
 
 
+class TestUnknownPlanCanonicalization(QuotaEnforcementTestBase):
+    """Corrupt or future plan ids fail closed without misleading labels."""
+
+    def test_unknown_plan_uses_canonical_free_limits_and_identity(self) -> None:
+        owner = self._signup("unknown-plan-owner@example.com", "CorrectHorse!1")
+        self._set_plan(owner["tenant_id"], "future_plan_v99")
+
+        status, body = self._raw_create(
+            owner["session_token"], cap=FREE_MAX_MEMBERS_PER_ROOM + 1,
+        )
+        self.assertEqual(status, 409)
+        self.assertEqual(body["error"]["code"], "quota_exceeded")
+        self.assertEqual(body["error"]["limit"]["value"], FREE_MAX_MEMBERS_PER_ROOM)
+        self.assertEqual(body["error"]["limit"]["plan"], "free")
+
+
 class TestProPlanHonored(QuotaEnforcementTestBase):
     """A pro tenant gets the higher limits through the same HTTP path."""
 
