@@ -55,6 +55,9 @@ consumers (no in-flight lease) are effectively evicted: their next `poll` return
 `room_closed` and an empty event list, and re-join is refused. This is the
 **finish-in-flight, evict-consumers** decision.
 
+Both explicit close and lazy TTL expiry revoke the room's link atomically. The
+public link descriptor no longer resolves after either transition.
+
 ### 2.2 Per-member states (reused from `roster.py`)
 
 `active` / `stale` / `left`. Derived from `roster_members.last_seen` and
