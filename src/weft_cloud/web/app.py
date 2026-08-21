@@ -556,8 +556,12 @@ class WeftWebApp:
             ).fetchone()
             member_row = tx.execute(
                 "SELECT COALESCE(MAX(value), 0) AS m FROM cloud_room_counters "
-                "WHERE tenant_id = ? AND counter = 'members'",
-                (ctx.tenant_id,),
+                "WHERE tenant_id = ? AND counter = 'members' "
+                "AND room_id IN ("
+                "SELECT room_id FROM cloud_rooms "
+                "WHERE tenant_id = ? AND state != 'closed'"
+                ")",
+                (ctx.tenant_id, ctx.tenant_id),
             ).fetchone()
         return {
             "plan_id": plan_id,
@@ -625,7 +629,8 @@ class WeftWebApp:
             )
             recovery = (
                 f'<p>Lower the Cap value to {_esc(limit_value)} or less and '
-                'submit the form again.</p>'
+                'submit the form again, or '
+                '<a href="/rooms">return to the room form</a>.</p>'
             )
             limit_label = "members per room"
         elif limit_name == "max_events_per_month":

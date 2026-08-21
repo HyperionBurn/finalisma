@@ -254,6 +254,7 @@ class TestCreateRoom(unittest.TestCase):
 
         self.assertEqual(status, 400)
         self.assertIn('data-error-code="quota_exceeded"', body)
+        self.assertIn('role="alert"', body)
         self.assertIn("Plan: <code>free</code>", body)
         self.assertIn("Limit: active rooms (maximum 5)", body)
         self.assertIn("Current usage: Rooms 5/5", body)
@@ -270,10 +271,11 @@ class TestCreateRoom(unittest.TestCase):
 
         self.assertEqual(status, 400)
         self.assertIn('data-error-code="quota_exceeded"', body)
+        self.assertIn('role="alert"', body)
         self.assertIn("Limit: members per room (maximum 10)", body)
         self.assertIn("Current usage: Members per room 0/10", body)
         self.assertIn("Lower the Cap value to 10 or less", body)
-        self.assertNotIn('href="/rooms"', body)
+        self.assertIn('href="/rooms"', body)
 
     def test_close_then_retry_reclaims_room_quota(self):
         room_ids = [
@@ -286,7 +288,19 @@ class TestCreateRoom(unittest.TestCase):
             {"_csrf": self.driver.extract_csrf(detail)},
         )
         self.assertEqual(close_status, 303)
+        with self.driver.backend.transaction() as tx:
+            tenant = tx.execute(
+                "SELECT tenant_id FROM cloud_identity_accounts WHERE email = ?",
+                (self.email,),
+            ).fetchone()
+            tx.execute(
+                "UPDATE cloud_room_counters SET value = 99 "
+                "WHERE tenant_id = ? AND room_id = ? AND counter = 'members'",
+                (tenant["tenant_id"], room_ids[0]),
+            )
+            tx.commit()
         self.assertIn("Rooms 4/5", self.driver.get("/")[1])
+        self.assertIn("largest room: 1", self.driver.get("/")[1])
 
         status, _, headers = self.driver.post(
             "/rooms",

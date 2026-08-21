@@ -192,7 +192,7 @@ The goal is complete only when **every** line is true and independently verified
 
 > **Current local evidence (2026-08-18):** the integration hardening stack is
 > documented in [`docs/RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1220 tests
-> discovered, 1209 passed, and 1 skipped. This is local evidence only; Docker,
+> discovered, 1219 passed, and 1 skipped. This is local evidence only; Docker,
 > hosted deployment, and third-party host-product proof remain open.
 
 ---
