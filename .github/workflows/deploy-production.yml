@@ -30,7 +30,7 @@ jobs:
       - name: Check out merged main
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Set up Python
@@ -40,17 +40,27 @@ jobs:
 
       - name: Validate deployment configuration
         shell: bash
+        env:
+          WEFT_SSH_PRIVATE_KEY_CONTENT: ${{ secrets.WEFT_SSH_PRIVATE_KEY }}
+          WEFT_SSH_KNOWN_HOSTS_CONTENT: ${{ secrets.WEFT_SSH_KNOWN_HOSTS }}
+          WEFT_MCP_PROBE_TOKEN: ${{ secrets.WEFT_MCP_PROBE_TOKEN }}
+          WEFT_RELEASE_SHA: ${{ github.sha }}
+          WEFT_PREFLIGHT_ARTIFACT: ${{ runner.temp }}/weft-preflight.json
         run: |
           set -euo pipefail
-          required=(WEFT_VM WEFT_NGINX_CONF WEFT_NGINX_SERVER_NAME PUBLIC_ORIGIN WEFT_API_ORIGIN WEFT_SITE_URL)
-          for name in "${required[@]}"; do
-            if [[ -z "${!name:-}" ]]; then
-              echo "FATAL: production variable $name is not configured in the production environment." >&2
-              exit 2
-            fi
-          done
+          python -B scripts/deploy_preflight.py \
+            --expected-sha "$WEFT_RELEASE_SHA" \
+            --output "$WEFT_PREFLIGHT_ARTIFACT"
           bash -n scripts/push-code-to-vm.sh
-          echo "Deployment variables and push script syntax are valid."
+
+      - name: Upload redacted deployment preflight
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: weft-deploy-preflight-${{ github.run_id }}
+          path: ${{ runner.temp }}/weft-preflight.json
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Prepare ephemeral SSH credentials
         shell: bash

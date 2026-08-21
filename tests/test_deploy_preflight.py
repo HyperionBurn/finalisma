@@ -1,0 +1,96 @@
+from __future__ import annotations
+
+import io
+import json
+import os
+import sys
+import tempfile
+import unittest
+from contextlib import redirect_stdout
+from pathlib import Path
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+
+import deploy_preflight
+
+
+SHA = "a" * 40
+
+
+def _valid_environment() -> dict[str, str]:
+    return {
+        "WEFT_VM": "deploy@vm.example",
+        "WEFT_NGINX_CONF": "/etc/nginx/sites-enabled/weft",
+        "WEFT_NGINX_SERVER_NAME": "weft.example",
+        "PUBLIC_ORIGIN": "https://weft.example",
+        "WEFT_API_ORIGIN": "https://api.weft.example",
+        "WEFT_SITE_URL": "https://weft.example",
+        "WEFT_SSH_PRIVATE_KEY_CONTENT": "PRIVATE-KEY-CONTENT",
+        "WEFT_SSH_KNOWN_HOSTS_CONTENT": "KNOWN-HOSTS-CONTENT",
+        "WEFT_MCP_PROBE_TOKEN": "MCP-PROBE-TOKEN",
+    }
+
+
+class DeployPreflightTests(unittest.TestCase):
+    def test_missing_configuration_fails_without_printing_values(self) -> None:
+        report = deploy_preflight.evaluate(
+            {"WEFT_VM": "secret-host-value"},
+            actual_sha=SHA,
+            expected_sha=SHA,
+        )
+
+        self.assertEqual(report["status"], "fail")
+        self.assertIn("missing production variable: WEFT_NGINX_CONF", report["failures"])
+        self.assertFalse(report["required_secrets"]["WEFT_MCP_PROBE_TOKEN"])
+        rendered = json.dumps(report)
+        self.assertNotIn("secret-host-value", rendered)
+
+    def test_valid_configuration_passes_and_is_redacted(self) -> None:
+        environment = _valid_environment()
+        report = deploy_preflight.evaluate(
+            environment,
+            actual_sha=SHA,
+            expected_sha=SHA,
+        )
+
+        self.assertEqual(report["status"], "pass")
+        self.assertTrue(report["release_sha_matches"])
+        self.assertTrue(all(report["required_variables"].values()))
+        self.assertTrue(all(report["required_secrets"].values()))
+        self.assertTrue(all(report["https_origins"].values()))
+        rendered = json.dumps(report)
+        for value in environment.values():
+            self.assertNotIn(value, rendered)
+
+    def test_http_origin_and_sha_mismatch_fail_closed(self) -> None:
+        environment = _valid_environment()
+        environment["WEFT_API_ORIGIN"] = "http://api.weft.example"
+        report = deploy_preflight.evaluate(
+            environment,
+            actual_sha=SHA,
+            expected_sha="b" * 40,
+        )
+
+        self.assertEqual(report["status"], "fail")
+        self.assertIn("origin must be an absolute HTTPS URL: WEFT_API_ORIGIN", report["failures"])
+        self.assertIn("checked-out release SHA does not match expected release SHA", report["failures"])
+
+    def test_main_writes_redacted_report_and_returns_success(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "preflight.json"
+            stdout = io.StringIO()
+            with patch.object(deploy_preflight, "_checked_out_sha", return_value=SHA), \
+                 patch.dict(os.environ, _valid_environment(), clear=False), \
+                 redirect_stdout(stdout):
+                status = deploy_preflight.main(
+                    ["--expected-sha", SHA, "--output", str(output)]
+                )
+
+            self.assertEqual(status, 0)
+            self.assertEqual(json.loads(output.read_text(encoding="utf-8"))["status"], "pass")
+            self.assertEqual(json.loads(stdout.getvalue())["release_sha"], SHA)
+
+
+if __name__ == "__main__":
+    unittest.main()
