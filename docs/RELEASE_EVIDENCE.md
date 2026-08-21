@@ -7,7 +7,7 @@ compatibility claim.
 ## Latest regression evidence
 
 Measured locally on the current source/test stack (merged base `main` at
-`96a8b55`; a feature branch may be active while a PR is in flight):
+`52585f9`; a feature branch may be active while a PR is in flight):
 
 - Command: `python -B -m unittest discover -s tests -p "test_*.py"`
 - Result: **1236 tests discovered; 1235 passed; 1 skipped**
