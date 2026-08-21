@@ -20,8 +20,8 @@ blocked implementation that needs a second agent.
 
 ## Current diligence proof
 
-The repository currently demonstrates 1231 passing standard-library tests
-(1232 discovered, 1 skipped; measured locally on 2026-08-21),
+The repository currently demonstrates 1234 passing standard-library tests
+(1235 discovered, 1 skipped; measured locally on 2026-08-21),
 including concurrent one-use pairing, member-bound session credentials,
 ordered replay, restart durability, cross-team boundaries, workspace scope
 checks, secret detection, HTTP origin/rate-limit behavior, tenancy isolation,

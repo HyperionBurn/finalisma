@@ -674,6 +674,36 @@ class CloudRoomService:
             raise RoomError("room_not_found", "Room not found", 404)
         return row
 
+    def _close_room_in_transaction(
+        self,
+        tx: Any,
+        tenant_id: str,
+        room_id: str,
+        actor_agent_id: str,
+        reason: str,
+    ) -> bool:
+        """Close a room once and apply every closure side effect atomically."""
+        cursor = tx.execute(
+            "UPDATE cloud_rooms SET state = 'closed' "
+            "WHERE tenant_id = ? AND room_id = ? AND state != 'closed'",
+            (tenant_id, room_id),
+        )
+        if cursor.rowcount != 1:
+            return False
+        tx.execute(
+            "UPDATE cloud_room_links SET revoked = 1 "
+            "WHERE tenant_id = ? AND room_id = ?",
+            (tenant_id, room_id),
+        )
+        tx.execute(
+            "UPDATE cloud_counters SET value = MAX(0, value - 1), updated_at = ? "
+            "WHERE tenant_id = ? AND counter = 'rooms'",
+            (utc_now_iso(), tenant_id),
+        )
+        payload = {"reason": reason} if reason != "explicit" else {"room_id": room_id}
+        self._append_event(tx, tenant_id, room_id, actor_agent_id, "room.closed", payload)
+        return True
+
     def _close_expired_room(self, tenant_id: str, room_id: str) -> None:
         """Lazy TTL close, committed in its OWN short transaction.
 
@@ -695,20 +725,9 @@ class CloudRoomService:
             if expires <= 0 or expires >= _time.time():
                 tx.commit()
                 return
-            tx.execute(
-                "UPDATE cloud_rooms SET state = 'closed' WHERE tenant_id = ? AND room_id = ?",
-                (tenant_id, room_id),
+            self._close_room_in_transaction(
+                tx, tenant_id, room_id, room["owner_agent_id"], "ttl_expired",
             )
-            # Mirror close_room: closing releases the tenant's active-room
-            # quota slot. Clamped at zero so a drifted counter can never go
-            # negative.
-            tx.execute(
-                "UPDATE cloud_counters SET value = MAX(0, value - 1), updated_at = ? "
-                "WHERE tenant_id = ? AND counter = 'rooms'",
-                (utc_now_iso(), tenant_id),
-            )
-            self._append_event(tx, tenant_id, room_id, room["owner_agent_id"],
-                               "room.closed", {"reason": "ttl_expired"})
             tx.commit()
 
     def _resolve_room_tenant(self, tx: Any, room_id: str, agent_id: str | None = None) -> str:
@@ -1076,8 +1095,12 @@ class CloudRoomService:
             return None
         with self.backend.transaction() as tx:
             row = tx.execute(
-                "SELECT room_id FROM cloud_room_links WHERE token_hash = ?",
-                (token_hash,),
+                "SELECT links.room_id FROM cloud_room_links AS links "
+                "JOIN cloud_rooms AS rooms "
+                "ON rooms.tenant_id = links.tenant_id AND rooms.room_id = links.room_id "
+                "WHERE links.token_hash = ? AND links.revoked = 0 "
+                "AND rooms.state != 'closed' AND links.expires_at > ?",
+                (token_hash, _time.time()),
             ).fetchone()
         return row["room_id"] if row is not None else None
 
@@ -1166,17 +1189,9 @@ class CloudRoomService:
                 # Close commits BEFORE the refusal raise, so the close is not
                 # rolled back with it. The tenant's active-room quota slot is
                 # released too (mirror close_room).
-                tx.execute(
-                    "UPDATE cloud_rooms SET state = 'closed' WHERE tenant_id = ? AND room_id = ?",
-                    (real_tenant_id, room_id),
+                self._close_room_in_transaction(
+                    tx, real_tenant_id, room_id, room["owner_agent_id"], "ttl_expired",
                 )
-                tx.execute(
-                    "UPDATE cloud_counters SET value = MAX(0, value - 1), updated_at = ? "
-                    "WHERE tenant_id = ? AND counter = 'rooms'",
-                    (utc_now_iso(), real_tenant_id),
-                )
-                self._append_event(tx, real_tenant_id, room_id, room["owner_agent_id"],
-                                   "room.closed", {"reason": "ttl_expired"})
                 tx.commit()
                 raise RoomError("room_expired", "Room has expired", 410)
             if room["state"] == "closed":
@@ -1440,21 +1455,9 @@ class CloudRoomService:
                 raise RoomError("owner_required", "Only the room owner can close it", 403)
             if room["state"] == "closed":
                 return {"room_id": room_id, "state": "closed"}
-            tx.execute(
-                "UPDATE cloud_rooms SET state = 'closed' WHERE tenant_id = ? AND room_id = ?",
-                (tenant_id, room_id),
+            self._close_room_in_transaction(
+                tx, tenant_id, room_id, caller_agent_id, "explicit",
             )
-            tx.execute(
-                "UPDATE cloud_room_links SET revoked = 1 WHERE tenant_id = ? AND room_id = ?",
-                (tenant_id, room_id),
-            )
-            tx.execute(
-                "UPDATE cloud_counters SET value = MAX(0, value - 1), updated_at = ? "
-                "WHERE tenant_id = ? AND counter = 'rooms'",
-                (utc_now_iso(), tenant_id),
-            )
-            self._append_event(tx, tenant_id, room_id, caller_agent_id, "room.closed",
-                               {"room_id": room_id})
             tx.commit()
         return {"room_id": room_id, "state": "closed"}
 

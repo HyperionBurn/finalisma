@@ -76,6 +76,12 @@ closed rooms where its identity is still a member. `room_close` is owner-only,
 revokes every link, preserves the audit history, releases one active-room
 quota slot, and is idempotent.
 
+Room TTL expiry uses the same atomic close transition as an explicit
+`room_close`: it revokes the link, releases the active-room quota slot, and
+emits one `room.closed` event. The public `/j/<link_token>` descriptor only
+resolves a live, unrevoked, unexpired link, so a closed or expired room cannot
+continue advertising a dead join capability.
+
 Withheld — the other ~45 self-hosted tools (`register_agent`, pairing, task,
 roster, outbox, bridge, metrics, tenancy, …). They assume the self-hosted
 team/actor-token model and each would need a per-tenant reimplementation to be

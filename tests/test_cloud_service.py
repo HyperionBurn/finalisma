@@ -571,6 +571,95 @@ class TestRoomLifecycle(CloudServiceTestBase):
         }, agent_signup["session_token"])
         self.assertIn(status, (409, 410))  # room_closed or link_revoked
 
+    def test_close_room_revokes_the_public_descriptor(self) -> None:
+        signup = self._signup("close-descriptor-owner@example.com", "CorrectHorse!1")
+        room = self._create_room(signup["session_token"], cap=4)
+        before_status, _, _ = _get_url(
+            f"{self.base}/j/{room['link_token']}", accept="application/json",
+        )
+        self.assertEqual(before_status, 200)
+
+        status, body = _post(
+            self.base, "/v1/rooms/close", {"room_id": room["room_id"]},
+            signup["session_token"],
+        )
+        self.assertEqual(status, 200, body)
+
+        after_status, _, _ = _get_url(
+            f"{self.base}/j/{room['link_token']}", accept="application/json",
+        )
+        self.assertEqual(after_status, 404)
+
+    def test_ttl_close_revokes_descriptor_once_and_releases_quota(self) -> None:
+        signup = self._signup("ttl-descriptor-owner@example.com", "CorrectHorse!1")
+        room = self._create_room(
+            signup["session_token"], cap=4, ttl_seconds=1,
+        )
+        time.sleep(1.5)
+
+        send_body = {
+            "room_id": room["room_id"],
+            "target_spec": "*",
+            "payload": {"text": "after-expiry"},
+        }
+        first_status, first = _post(
+            self.base, "/v1/rooms/send", send_body, signup["session_token"],
+        )
+        self.assertIn(first_status, (409, 410), first)
+        self.assertIn(first["error"]["code"], ("room_closed", "room_expired"))
+
+        second_status, second = _post(
+            self.base, "/v1/rooms/send", send_body, signup["session_token"],
+        )
+        self.assertEqual(second_status, 409, second)
+        self.assertEqual(second["error"]["code"], "room_closed")
+
+        descriptor_status, _, _ = _get_url(
+            f"{self.base}/j/{room['link_token']}", accept="application/json",
+        )
+        self.assertEqual(descriptor_status, 404)
+        with self.service.backend.transaction() as tx:
+            link = tx.execute(
+                "SELECT revoked FROM cloud_room_links WHERE room_id = ?",
+                (room["room_id"],),
+            ).fetchone()
+            closed_events = tx.execute(
+                "SELECT COUNT(*) AS c FROM cloud_room_event_log "
+                "WHERE room_id = ? AND kind = 'room.closed'",
+                (room["room_id"],),
+            ).fetchone()
+            counter = tx.execute(
+                "SELECT value FROM cloud_counters WHERE tenant_id = ? AND counter = 'rooms'",
+                (signup["tenant_id"],),
+            ).fetchone()
+        self.assertEqual(link["revoked"], 1)
+        self.assertEqual(closed_events["c"], 1)
+        self.assertEqual(counter["value"], 0)
+
+    def test_ttl_join_refusal_revokes_the_link_descriptor(self) -> None:
+        signup = self._signup("ttl-join-owner@example.com", "CorrectHorse!1")
+        room = self._create_room(
+            signup["session_token"], cap=4, ttl_seconds=1,
+        )
+        time.sleep(1.5)
+        joiner = self._signup("ttl-join-late@example.com", "AgentPass!1")
+        status, body = _post(
+            self.base,
+            "/v1/rooms/join",
+            {
+                "room_id": room["room_id"],
+                "link_token": room["link_token"],
+                "consent": True,
+            },
+            joiner["session_token"],
+        )
+        self.assertEqual(status, 410, body)
+        self.assertEqual(body["error"]["code"], "room_expired")
+        descriptor_status, _, _ = _get_url(
+            f"{self.base}/j/{room['link_token']}", accept="application/json",
+        )
+        self.assertEqual(descriptor_status, 404)
+
     def test_revoke_link_refuses_new_joins(self) -> None:
         signup = self._signup("revoke-owner@example.com", "CorrectHorse!1")
         room = self._create_room(signup["session_token"], cap=4)
