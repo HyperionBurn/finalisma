@@ -288,8 +288,25 @@ def _summary(response: dict) -> dict:
     }
 
 
+def _safe_location(value: object) -> str:
+    """Keep only the origin and path of a redirect target."""
+    parsed = urlsplit(str(value))
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return "<redacted-location>"
+    host = parsed.hostname
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    try:
+        port = parsed.port
+    except ValueError:
+        port = None
+    if port:
+        host = f"{host}:{port}"
+    return f"{parsed.scheme}://{host}{parsed.path or '/'}"
+
+
 def _safe_endpoint_facts(response: dict) -> dict:
-    """Return operator-useful facts without exposing a response body."""
+    """Return operator-useful facts without exposing body or token details."""
     headers = response.get("headers", {})
     facts = {
         "status": response.get("status"),
@@ -298,9 +315,9 @@ def _safe_endpoint_facts(response: dict) -> dict:
         "truncated": bool(response.get("truncated", False)),
     }
     if headers.get("location"):
-        facts["location"] = headers["location"]
+        facts["location"] = _safe_location(headers["location"])
     if response.get("error"):
-        facts["error"] = response["error"]
+        facts["error"] = "transport_error"
     return facts
 
 

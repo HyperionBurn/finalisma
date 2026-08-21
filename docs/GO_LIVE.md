@@ -4,7 +4,8 @@ This is the launch plan for a truthful design-partner release. The current
 product has three real surfaces: the dependency-free single-node coordinator
 (`weft_mcp`, local), the hosted cloud service (`weft_cloud` — accounts,
 sessions, agent keys, rooms over `/v1`, and the authenticated hosted MCP
-endpoint `POST /mcp` with the 12 room tools; deploy runbook in
+endpoint `POST /mcp` with the 14 room tools, including room discovery and
+owner-only quota-releasing close; deploy runbook in
 `docs/DEPLOY.md`), and the local static site. The hosted service is a
 **single-instance SQLite-WAL pair** — one machine, one disk, one writer. It
 is not a horizontally scaled multi-tenant SaaS, and the browser simulation
@@ -140,7 +141,7 @@ boundary; do not present its absolute timings as a hosted-service SLA.
 **Historical gate snapshot (2026-08-15, `feature/product-perfect`):** that
 branch recorded 960 tests and a merge-gate pass, but this is not current
 integration or deployment evidence. The latest local regression is recorded
-in [`RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1206 discovered, 1205 passed,
+in [`RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1210 discovered, 1209 passed,
 and 1 skipped. The performance gate is **red under host-load noise**: recent captures ran with multiple
 agent sessions active on the host, so the standing rule applies — rerun on a
 controlled idle host; never rebaseline to hide it. `docs/PERFORMANCE.md`

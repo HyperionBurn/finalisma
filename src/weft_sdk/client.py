@@ -840,6 +840,16 @@ class WeftClient:
             members=members,
         )
 
+    def list_rooms(self, **kwargs: Any) -> list[dict[str, Any]]:
+        """List rooms where this identity is an active member.
+
+        Hosted clients can use this to discover old rooms before calling
+        :meth:`close_room`. Closed rooms remain listed so the operation is
+        observable and safe to repeat.
+        """
+        result = self._call("room_list", **kwargs)
+        return list(result.get("rooms", []))
+
     def roster(self, room_id: str, agent_id: str | None = None, **kwargs: Any) -> list[RoomMember]:
         """Convenience: the member list from room_info."""
         return self.room_info(room_id, agent_id=agent_id, **kwargs).members

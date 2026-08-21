@@ -17,9 +17,9 @@ nothing about which tenants, rooms, or agents exist.
 
 Tools exposed (the room set the product promise depends on):
 
-    room_create, room_join, room_send, room_receipts, room_poll, room_wait,
-    room_info, room_ack, room_heartbeat, room_leave, room_remove_member,
-    room_event_log
+    room_create, room_list, room_join, room_send, room_receipts, room_poll,
+    room_wait, room_info, room_ack, room_heartbeat, room_leave,
+    room_remove_member, room_close, room_event_log
 
 The full self-hosted 58-tool surface (``register_agent``, pairing, task,
 roster, outbox, bridge, metrics, tenancy, …) is intentionally NOT exposed
@@ -164,6 +164,15 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
         }, ["cap"]),
     },
     {
+        "name": "room_list",
+        "description": (
+            "List the Rooms where you are an active member, including closed rooms. "
+            "Use this to find old Rooms before closing them. Results include each "
+            "Room's state, owner, cap, name, and creation time."
+        ),
+        "inputSchema": _object_schema({}, []),
+    },
+    {
         "name": "room_join",
         "description": (
             "Join a Room with its multi-use link and explicit consent (literal boolean true). "
@@ -267,6 +276,16 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
             "room_id": _STRING,
             "member_id": _STRING,
         }, ["room_id", "member_id"]),
+    },
+    {
+        "name": "room_close",
+        "description": (
+            "Owner-only: close a Room when you no longer need it. Closing revokes "
+            "all share links, refuses new joins and sends, preserves the audit "
+            "history, and releases the Room from your tenant's active-room quota. "
+            "The operation is safe to repeat."
+        ),
+        "inputSchema": _object_schema({"room_id": _STRING}, ["room_id"]),
     },
     {
         "name": "room_event_log",
@@ -587,6 +606,14 @@ class HostedMCPDispatcher:
             actor_account_id=ctx.account_id,
         ))
 
+    def _tool_room_list(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:
+        rooms = self.rooms.list_rooms_for_member_any_tenant(ctx.agent_id)
+        # Cross-tenant memberships are valid, but the connector does not need
+        # to expose tenant identifiers to close a room. Room operations resolve
+        # the effective tenant from the caller's membership instead.
+        fields = ("room_id", "name", "state", "cap", "owner_agent_id", "created_at")
+        return {"rooms": [{field: room[field] for field in fields} for room in rooms]}
+
     def _tool_room_join(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:
         return self._room_call(lambda: self.rooms.join_room(
             tenant_id=ctx.tenant_id,
@@ -693,6 +720,14 @@ class HostedMCPDispatcher:
             room_id=room_id,
             owner_agent_id=ctx.agent_id,
             target_agent_id=member_id,
+        ))
+
+    def _tool_room_close(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:
+        room_id = self._required(args, "room_id")
+        return self._room_call(lambda: self.rooms.close_room(
+            tenant_id=self._room_tenant(room_id, ctx.agent_id),
+            room_id=room_id,
+            caller_agent_id=ctx.agent_id,
         ))
 
     def _tool_room_event_log(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:

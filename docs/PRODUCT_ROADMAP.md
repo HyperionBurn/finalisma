@@ -88,7 +88,7 @@ The goal is complete only when **every** line is true and independently verified
 > **Shipped status (2026-08-13):** the room product object is implemented on
 > both planes — the coordinator (`src/weft_mcp/room.py`, 12 `room_*` tools,
 > `docs/ROOMS_DESIGN.md`) and the hosted cloud (`src/weft_cloud/rooms.py` +
-> the 12-tool hosted MCP surface, `docs/HOSTED_MCP_DESIGN.md`). Lifecycle is
+> the 14-tool hosted MCP surface, `docs/HOSTED_MCP_DESIGN.md`). Lifecycle is
 > complete: members leave with `room_leave`, the owner removes members with
 > `room_remove_member` (seat freed, `room.left` with `reason: removed_by_owner`,
 > not a ban), and `ttl_seconds` closes the room itself (lazy close on the
@@ -111,9 +111,9 @@ The goal is complete only when **every** line is true and independently verified
 > 960/960 green):**
 > the last four closes against this line:
 >
-> - **SDK drives all 12 hosted room tools** (`c9f4e0e`). `WeftClient` grew
+> - **SDK drives all 14 hosted room tools** (`c9f4e0e`). `WeftClient` grew
 >   `room_wait`, `room_event_log`, and `room_remove_member`, so every tool in
->   the hosted 12-tool surface (`docs/HOSTED_MCP_DESIGN.md`, pinned by
+>   the hosted 14-tool surface (`docs/HOSTED_MCP_DESIGN.md`, pinned by
 >   `test_hosted_surface_is_a_small_correct_set`) has an SDK method. Hosted
 >   mode strips client-supplied identity arguments (`team_id` / `agent_id` /
 >   `actor_token`) — identity is derived from the authenticated session or
@@ -191,8 +191,8 @@ The goal is complete only when **every** line is true and independently verified
 - [ ] `AGENTS.md` and `AGENT_HANDOVER.md` current with the code in the same commit.
 
 > **Current local evidence (2026-08-18):** the integration hardening stack is
-> documented in [`docs/RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1206 tests
-> discovered, 1205 passed, and 1 skipped. This is local evidence only; Docker,
+> documented in [`docs/RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1210 tests
+> discovered, 1209 passed, and 1 skipped. This is local evidence only; Docker,
 > hosted deployment, and third-party host-product proof remain open.
 
 ---

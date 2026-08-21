@@ -219,6 +219,34 @@ def _serve_pair(mode: str = "pass") -> tuple[ThreadingHTTPServer, str, Threading
 
 
 class LiveReleaseProbeContractTests(unittest.TestCase):
+    def test_diagnostic_endpoint_facts_redact_redirect_queries_and_transport_errors(self) -> None:
+        redirect = probe_live_release._safe_endpoint_facts(
+            {
+                "status": 302,
+                "headers": {
+                    "content-type": "text/html",
+                    "location": "https://user:pass@example.test/login?token=secret#fragment",
+                },
+                "bytes": 0,
+                "truncated": False,
+            }
+        )
+        self.assertEqual(redirect["location"], "https://example.test/login")
+        self.assertNotIn("secret", json.dumps(redirect))
+        self.assertNotIn("user", json.dumps(redirect))
+
+        transport = probe_live_release._safe_endpoint_facts(
+            {
+                "status": None,
+                "headers": {},
+                "bytes": 0,
+                "truncated": False,
+                "error": "https://example.test/?token=secret: connection refused",
+            }
+        )
+        self.assertEqual(transport["error"], "transport_error")
+        self.assertNotIn("secret", json.dumps(transport))
+
     def test_pass_covers_extended_release_contract_without_mutation(self) -> None:
         api_server, api_origin, site_server, site_origin = _serve_pair()
         try:

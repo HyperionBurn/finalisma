@@ -1438,6 +1438,8 @@ class CloudRoomService:
             self._require_member(tx, tenant_id, room_id, caller_agent_id)
             if room["owner_agent_id"] != caller_agent_id:
                 raise RoomError("owner_required", "Only the room owner can close it", 403)
+            if room["state"] == "closed":
+                return {"room_id": room_id, "state": "closed"}
             tx.execute(
                 "UPDATE cloud_rooms SET state = 'closed' WHERE tenant_id = ? AND room_id = ?",
                 (tenant_id, room_id),
