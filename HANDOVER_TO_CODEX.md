@@ -20,8 +20,8 @@ active while a new PR is in flight.
 - **Branch state:** this checkout contains the merged PR1–68 hardening stack;
   hosted merge status must still be read from GitHub rather than inferred here.
 - **Test count:** the latest local evidence is recorded in
-  `docs/RELEASE_EVIDENCE.md` (1240 discovered, 1239 passed, 1 skipped,
-  measured 2026-08-20). The published count is guarded by
+  `docs/RELEASE_EVIDENCE.md` (1242 discovered, 1241 passed, 1 skipped,
+  measured 2026-08-21). The published count is guarded by
   `tests/test_site.py::TestCountSyncTests`; hosted deployment and merge proof
   are separate claims. Every "721 / 716 / 894" number in this file is historical.
 - **§3 defects 1, 2 and 5 are fixed in this tree**, and §7 items 2 and 3 are done in this tree

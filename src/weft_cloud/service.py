@@ -633,8 +633,8 @@ class WeftCloudService:
         ``owner_agent_id`` and friends was the live cross-tenant impersonation
         vulnerability on this service.         ``allow_self_owner`` lets the room
         create/connect endpoints accept an ``owner_agent_id`` that names the
-        caller THEMSELVES (redundant, but harmless); the handler still verifies
-        it equals ``ctx.agent_id`` (the caller's authenticated identity).
+        caller's account (redundant, but harmless); the handler still verifies
+        it equals ``ctx.account_id``.
         """
         supplied = sorted(set(body) & _FORBIDDEN_IDENTITY_ARGS)
         if not supplied:
@@ -653,8 +653,9 @@ class WeftCloudService:
         Agents who joined via a cross-tenant link have their membership in
         the room's owning tenant, not their own. Resolution goes through the
         membership row keyed on ``agent_id`` — the caller's authenticated
-        ACCOUNT, established by the session and never by the request body — so
-        a caller can only ever resolve a room they are an active member of.
+        account or distinct agent-key identity, established by the credential
+        and never by the request body — so a caller can only ever resolve a
+        room they are an active member of.
         Anything else yields the uniform ``room_not_found`` — identical to a
         fabricated room_id, so the endpoint is not a room-existence oracle.
         A non-string container ``room_id`` (list/dict) is refused here as the
@@ -674,12 +675,12 @@ class WeftCloudService:
         ctx.require_role("admin")
         body = _read_body(handler)
         self._reject_identity_args(body, allow_self_owner=True)
-        owner_agent_id = body.get("owner_agent_id", ctx.agent_id)
-        if owner_agent_id != ctx.agent_id:
+        owner_agent_id = body.get("owner_agent_id", ctx.account_id)
+        if owner_agent_id != ctx.account_id:
             raise _ServiceError(
                 "invalid_argument",
                 "Identity is derived from your authenticated session; "
-                "owner_agent_id must be your own identity",
+                "owner_agent_id must be your account identity",
             )
         cap = body.get("cap", DEFAULT_ROOM_CAP)
         name = body.get("name")
@@ -720,12 +721,12 @@ class WeftCloudService:
         ctx.require_role("admin")
         body = _read_body(handler)
         self._reject_identity_args(body, allow_self_owner=True)
-        owner_agent_id = body.get("owner_agent_id", ctx.agent_id)
-        if owner_agent_id != ctx.agent_id:
+        owner_agent_id = body.get("owner_agent_id", ctx.account_id)
+        if owner_agent_id != ctx.account_id:
             raise _ServiceError(
                 "invalid_argument",
                 "Identity is derived from your authenticated session; "
-                "owner_agent_id must be your own identity",
+                "owner_agent_id must be your account identity",
             )
         cap = body.get("cap", DEFAULT_ROOM_CAP)
         name = body.get("name")

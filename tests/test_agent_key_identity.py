@@ -160,27 +160,29 @@ class KeyIdentityMembershipTests(AgentKeyIdentityTestBase):
     def test_three_keys_from_one_account_join_one_room_show_three_distinct_members(self) -> None:
         _acct, planner, coder, reviewer = self._three_keys("three-keys@example.com")
 
-        # Room owned by the planner key; coder + reviewer redeem the link.
+        # A key may create the room, but the authenticated ACCOUNT owns it.
+        # Every key identity still redeems the link explicitly.
         room = self._create_room(planner["agent_key"], name="three-keys")
-        status, joined = self._join_room(coder["agent_key"], room["room_id"], room["link_token"])
-        self.assertEqual(status, HTTPStatus.OK, f"coder join failed: {joined}")
-        status, joined = self._join_room(reviewer["agent_key"], room["room_id"], room["link_token"])
-        self.assertEqual(status, HTTPStatus.OK, f"reviewer join failed: {joined}")
+        for label, key in (("planner", planner), ("coder", coder), ("reviewer", reviewer)):
+            status, joined = self._join_room(key["agent_key"], room["room_id"], room["link_token"])
+            self.assertEqual(status, HTTPStatus.OK, f"{label} join failed: {joined}")
 
         status, info = self._room_info(planner["agent_key"], room["room_id"])
         self.assertEqual(status, HTTPStatus.OK, f"room_info failed: {info}")
-        self.assertEqual(info["member_count"], 3,
-                         "three keys from one account must be three members, not one")
+        self.assertEqual(info["member_count"], 4,
+                         "the account owner plus three keys must occupy four seats")
         member_ids = {m["agent_id"] for m in info["members"]}
-        self.assertEqual(len(member_ids), 3, "the three members must have distinct identities")
-        self.assertEqual(member_ids, {planner["key_id"], coder["key_id"], reviewer["key_id"]})
-        self.assertNotIn(_acct["account_id"], member_ids,
-                         "a key identity must never collapse to the account id")
+        self.assertEqual(len(member_ids), 4, "the account and keys must have distinct identities")
+        self.assertEqual(
+            member_ids,
+            {_acct["account_id"], planner["key_id"], coder["key_id"], reviewer["key_id"]},
+        )
+        self.assertEqual(room["owner_agent_id"], _acct["account_id"])
 
     def test_each_keys_messages_carry_a_distinct_origin_agent(self) -> None:
         _acct, planner, coder, reviewer = self._three_keys("origin-keys@example.com")
         room = self._create_room(planner["agent_key"], name="origin")
-        for key in (coder, reviewer):
+        for key in (planner, coder, reviewer):
             status, _ = self._join_room(key["agent_key"], room["room_id"], room["link_token"])
             self.assertEqual(status, HTTPStatus.OK)
 
@@ -226,7 +228,7 @@ class KeyIdentityUnicastTests(AgentKeyIdentityTestBase):
     def test_unicast_from_key_a_to_key_b_is_not_visible_to_key_c_same_account(self) -> None:
         _acct, planner, coder, reviewer = self._three_keys("unicast-keys@example.com")
         room = self._create_room(planner["agent_key"], name="unicast")
-        for key in (coder, reviewer):
+        for key in (planner, coder, reviewer):
             status, _ = self._join_room(key["agent_key"], room["room_id"], room["link_token"])
             self.assertEqual(status, HTTPStatus.OK)
 
@@ -254,7 +256,7 @@ class KeyIdentityUnicastTests(AgentKeyIdentityTestBase):
     def test_key_cannot_spoof_another_keys_identity_via_any_argument(self) -> None:
         _acct, planner, coder, reviewer = self._three_keys("spoof-keys@example.com")
         room = self._create_room(planner["agent_key"], name="spoof")
-        for key in (coder, reviewer):
+        for key in (planner, coder, reviewer):
             status, _ = self._join_room(key["agent_key"], room["room_id"], room["link_token"])
             self.assertEqual(status, HTTPStatus.OK)
 
@@ -306,8 +308,9 @@ class KeyIdentityRevocationTests(AgentKeyIdentityTestBase):
         coder = self._mint_key(session, "coder")
 
         room = self._create_room(planner["agent_key"], name="revoke")
-        status, joined = self._join_room(coder["agent_key"], room["room_id"], room["link_token"])
-        self.assertEqual(status, HTTPStatus.OK)
+        for key in (planner, coder):
+            status, joined = self._join_room(key["agent_key"], room["room_id"], room["link_token"])
+            self.assertEqual(status, HTTPStatus.OK, f"key join failed: {joined}")
 
         status, revoked = _post(self.base, "/v1/agent-keys/revoke",
                                 {"key_id": planner["key_id"]}, token=session)
@@ -319,16 +322,15 @@ class KeyIdentityRevocationTests(AgentKeyIdentityTestBase):
         self.assertEqual(status, HTTPStatus.UNAUTHORIZED)
         self.assertEqual(resp["error"]["code"], "invalid_session")
 
-        # A sibling key of the SAME account remains authenticated, but the
-        # ownerless room is fail-closed rather than left consuming quota.
+        # A sibling key of the SAME account remains authenticated and the
+        # account-owned room stays available after the creator key is revoked.
         status, me = _get(self.base, "/v1/me", token=coder["agent_key"])
         self.assertEqual(status, HTTPStatus.OK)
         self.assertEqual(me["agent_id"], coder["key_id"])
-        status, closed = self._send(coder["agent_key"], room["room_id"], {"text": "still alive"})
-        self.assertEqual(status, HTTPStatus.CONFLICT)
-        self.assertEqual(closed["error"]["code"], "room_closed")
+        status, sent = self._send(coder["agent_key"], room["room_id"], {"text": "still alive"})
+        self.assertEqual(status, HTTPStatus.OK, f"sibling key send failed: {sent}")
 
-    def test_revoking_room_owner_key_closes_room_and_releases_quota(self) -> None:
+    def test_revoking_room_creator_key_keeps_account_owned_room_available(self) -> None:
         acct = self._signup("revoke-owner-room@example.com")
         session = acct["session_token"]
         planner = self._mint_key(session, "planner")
@@ -336,8 +338,9 @@ class KeyIdentityRevocationTests(AgentKeyIdentityTestBase):
         reviewer = self._mint_key(session, "reviewer")
 
         room = self._create_room(planner["agent_key"], name="owner-revocation")
-        status, joined = self._join_room(coder["agent_key"], room["room_id"], room["link_token"])
-        self.assertEqual(status, HTTPStatus.OK, f"coder join failed: {joined}")
+        for key in (planner, coder):
+            status, joined = self._join_room(key["agent_key"], room["room_id"], room["link_token"])
+            self.assertEqual(status, HTTPStatus.OK, f"key join failed: {joined}")
 
         status, revoked = _post(self.base, "/v1/agent-keys/revoke",
                                 {"key_id": planner["key_id"]}, token=session)
@@ -346,13 +349,19 @@ class KeyIdentityRevocationTests(AgentKeyIdentityTestBase):
 
         status, info = self._room_info(coder["agent_key"], room["room_id"])
         self.assertEqual(status, HTTPStatus.OK, f"room_info failed: {info}")
-        self.assertEqual(info["state"], "closed")
+        self.assertEqual(info["state"], "active")
+        self.assertEqual(info["owner_agent_id"], acct["account_id"])
 
-        status, join_error = self._join_room(
+        status, joined = self._join_room(
             reviewer["agent_key"], room["room_id"], room["link_token"],
         )
-        self.assertEqual(status, HTTPStatus.CONFLICT)
-        self.assertEqual(join_error["error"]["code"], "room_closed")
+        self.assertEqual(status, HTTPStatus.OK, f"reviewer join failed: {joined}")
+
+        status, closed = _post(
+            self.base, "/v1/rooms/close", {"room_id": room["room_id"]}, token=session,
+        )
+        self.assertEqual(status, HTTPStatus.OK, f"account close failed: {closed}")
+        self.assertEqual(closed["state"], "closed")
 
         # The closed owner room no longer consumes the tenant's room quota.
         for index in range(5):

@@ -598,7 +598,7 @@ class HostedMCPDispatcher:
         ctx.require_role("admin")
         return self._room_call(lambda: self.rooms.create_room(
             tenant_id=ctx.tenant_id,
-            owner_agent_id=ctx.agent_id,
+            owner_agent_id=ctx.account_id,
             actor_token=bearer_token,
             cap=cap,
             name=args.get("name"),
