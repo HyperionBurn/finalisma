@@ -10,6 +10,7 @@ WORKFLOW = (
     / "workflows"
     / "deploy-production.yml"
 )
+PREFLIGHT = WORKFLOW.parents[2] / "scripts" / "deploy_preflight.py"
 
 
 class ProductionDeployWorkflowTests(unittest.TestCase):
@@ -29,19 +30,28 @@ class ProductionDeployWorkflowTests(unittest.TestCase):
         self.assertIn("timeout-minutes: 45", self.text)
 
     def test_workflow_deploys_merged_main_without_checkout_credentials(self) -> None:
-        self.assertIn("ref: main", self.text)
+        self.assertIn("ref: ${{ github.sha }}", self.text)
         self.assertIn("persist-credentials: false", self.text)
         self.assertNotIn("github.head_ref", self.text)
         self.assertNotIn("github.ref_name", self.text)
 
     def test_required_configuration_fails_closed(self) -> None:
-        self.assertIn(
-            "required=(WEFT_VM WEFT_NGINX_CONF WEFT_NGINX_SERVER_NAME "
-            "PUBLIC_ORIGIN WEFT_API_ORIGIN WEFT_SITE_URL)",
-            self.text,
-        )
-        self.assertIn('if [[ -z "' + "$" + '{!name:-}" ]]; then', self.text)
-        self.assertIn("exit 2", self.text)
+        self.assertIn("scripts/deploy_preflight.py", self.text)
+        self.assertIn("WEFT_RELEASE_SHA", self.text)
+        self.assertTrue(PREFLIGHT.exists())
+        preflight = PREFLIGHT.read_text(encoding="utf-8")
+        for name in (
+            "WEFT_VM",
+            "WEFT_NGINX_CONF",
+            "WEFT_NGINX_SERVER_NAME",
+            "PUBLIC_ORIGIN",
+            "WEFT_API_ORIGIN",
+            "WEFT_SITE_URL",
+            "WEFT_SSH_PRIVATE_KEY_CONTENT",
+            "WEFT_SSH_KNOWN_HOSTS_CONTENT",
+            "WEFT_MCP_PROBE_TOKEN",
+        ):
+            self.assertIn(name, preflight)
 
     def test_ssh_material_uses_verified_known_hosts_and_ephemeral_cleanup(self) -> None:
         self.assertIn("secrets.WEFT_SSH_PRIVATE_KEY", self.text)
@@ -57,6 +67,8 @@ class ProductionDeployWorkflowTests(unittest.TestCase):
         self.assertNotIn("StrictHostKeyChecking=no", self.text)
 
     def test_cutover_is_followed_by_both_live_release_gates(self) -> None:
+        self.assertIn("actions/upload-artifact@v4", self.text)
+        self.assertIn("weft-preflight.json", self.text)
         self.assertIn("scripts/push-code-to-vm.sh", self.text)
         self.assertIn("scripts/probe_live_release.py", self.text)
         self.assertIn("scripts/probe_hosted_mcp_surface.py", self.text)

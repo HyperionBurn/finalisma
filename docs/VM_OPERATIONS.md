@@ -56,9 +56,10 @@ file. It inserts `/j/` and the exact-match `/mcp` route independently. If
 
 The repository now includes
 .github/workflows/deploy-production.yml. The workflow is manual-only. It
-checks out merged main, runs the existing fail-closed push-code-to-vm.sh
-cutover, then runs both live release probes. It does not run on push or pull
-request events.
+resolves the dispatched main SHA, runs the read-only deploy_preflight.py
+configuration and origin checks, uploads a redacted preflight artifact, then
+runs the existing fail-closed push-code-to-vm.sh cutover and both live release
+probes. It does not run on push or pull request events.
 
 Configure a GitHub Environment named production before using the workflow.
 Give that environment required reviewers. The workflow must remain approval
@@ -86,10 +87,14 @@ Configure these production secrets:
 The workflow writes the SSH key and known_hosts content only to ephemeral
 runner files with mode 600, uses the existing strict SSH checks, and removes
 the files in an always-run cleanup step. Never generate the known_hosts secret
-with an unverified ssh-keyscan result. A successful workflow run is the first
-point at which the repository can claim that this deployment path completed.
-The repository does not currently contain production credentials, so this
-workflow has not been run from this checkout.
+with an unverified ssh-keyscan result. The preflight artifact records the
+checked-out SHA, presence-only configuration checks, HTTPS-origin checks, and
+failure names without writing secret or host values. A successful workflow run
+is the first point at which the repository can claim that this deployment path
+completed.
+The repository does not currently contain production credentials. The latest
+dispatch reached the preflight and failed closed because `WEFT_VM` was absent;
+it performed no SSH cutover.
 
 ## The four failures
 
