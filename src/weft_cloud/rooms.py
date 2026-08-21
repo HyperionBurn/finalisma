@@ -405,7 +405,12 @@ def offboard_account_memberships_in_tx(tx: Any, tenant_id: str,
 
 
 def close_agent_key_owned_rooms_in_tx(tx: Any, key_id: str) -> int:
-    """Close every open room whose owner identity is a revoked agent key."""
+    """Close legacy open rooms whose owner identity is a revoked agent key.
+
+    New hosted REST and MCP room creation stores the owning account, so
+    revoking a creator key no longer closes that account-owned room. This
+    remains for pre-existing key-owned rows and for safe migration cleanup.
+    """
     exists = tx.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='cloud_rooms'"
     ).fetchone()
@@ -477,9 +482,8 @@ def release_agent_key_seats_in_tx(tx: Any, tenant_id: str, key_id: str) -> int:
     ``leave_room`` does, so the plan-level member quota stays in step with the
     ACTIVE membership set.
     """
-    # If this key owned a room, close it before releasing the key's membership
-    # seats. Otherwise the room would remain open with a dead owner identity,
-    # its link usable, and its tenant room quota permanently occupied.
+    # If a legacy row still names this key as owner, close it before releasing
+    # the key's membership seats. New account-owned rooms are unaffected.
     close_agent_key_owned_rooms_in_tx(tx, key_id)
 
     # The room plane may not be initialized on a bare identity backend
@@ -1006,8 +1010,8 @@ class CloudRoomService:
                     credential = tx.execute(
                         "SELECT account_id FROM cloud_identity_agent_keys "
                         "WHERE token_hash = ? AND tenant_id = ? AND account_id = ? "
-                        "AND key_id = ? AND revoked_at IS NULL",
-                        (_token_hash(actor_token), tenant_id, actor_account_id, owner_agent_id),
+                        "AND revoked_at IS NULL",
+                        (_token_hash(actor_token), tenant_id, actor_account_id),
                     ).fetchone()
                 if credential is None:
                     raise AuthError("invalid_session")

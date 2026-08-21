@@ -26,12 +26,16 @@ Do not present the legacy `fst_*` credentials as aliases for hosted `agk_` keys.
   account no longer has valid membership in the key's tenant.
 - Validation re-derives the current tenant membership and role on every
   request. Demotion therefore takes effect on the next request.
+- Room creation through hosted REST or MCP records the owning account, not the
+  creating key identity. The key remains a distinct agent and must explicitly
+  redeem the returned room link before it can send, poll, or administer that
+  room. This keeps browser/session room lists and close controls aligned with
+  rooms created by a human session.
 - Password reset revokes the account's active sessions and agent keys, and
   releases those keys' active room seats in the same transaction.
-- If a revoked key owned a room, that room is closed and its share link is
-  revoked in the same transaction. This fail-closed rule prevents an ownerless
-  room from retaining tenant quota or an active join capability; other members'
-  credentials remain valid, but they must start a new room.
+- Legacy rooms that still name a key as owner are closed and their share link
+  is revoked when that key is revoked. New account-owned rooms remain open for
+  the account and its other active members.
 - Bulk key revocation follows the same seat-release rule; historical room
   events remain attributed to the revoked identity, while a replacement key
   can take the freed capacity.

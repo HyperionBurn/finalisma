@@ -48,7 +48,9 @@ class HostedMCPAgentKeyTests(HostedMCPTestBase):
         )
         self.assertEqual(status, HTTPStatus.OK)
         self.assertFalse(created["result"].get("isError"))
-        self.assertTrue(created["result"]["structuredContent"]["room_id"].startswith("room_"))
+        created_room = created["result"]["structuredContent"]
+        self.assertTrue(created_room["room_id"].startswith("room_"))
+        self.assertEqual(created_room["owner_agent_id"], account["account_id"])
 
         status, revoked = _post(
             self.base,

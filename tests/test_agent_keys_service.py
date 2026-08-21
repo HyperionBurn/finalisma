@@ -157,6 +157,13 @@ class AgentKeyEndToEndTests(AgentKeyServiceTestBase):
         # The key drives the real room surface end to end.
         room = self._create_room(raw_key, name="e2e")
         room_id = room["room_id"]
+        status, joined = _post(
+            self.base,
+            "/v1/rooms/join",
+            {"room_id": room_id, "link_token": room["link_token"], "consent": True},
+            token=raw_key,
+        )
+        self.assertEqual(status, HTTPStatus.OK, f"key room_join failed: {joined}")
         status, send = _post(self.base, "/v1/rooms/send",
                              {"room_id": room_id, "target_spec": "*",
                               "payload": {"text": "hello"}}, token=raw_key)
@@ -174,6 +181,59 @@ class AgentKeyEndToEndTests(AgentKeyServiceTestBase):
                              token=raw_key)
         self.assertEqual(status, HTTPStatus.UNAUTHORIZED)
         self.assertEqual(resp["error"]["code"], "invalid_session")
+
+    def test_agent_key_created_room_is_account_owned_and_session_administered(self) -> None:
+        acct = self._signup("account-owned-room@example.com")
+        session = acct["session_token"]
+        key = self._create_key(session, label="room-creator")
+        raw_key = key["agent_key"]
+
+        room = self._create_room(raw_key, name="account-owned")
+        self.assertEqual(room["owner_agent_id"], acct["account_id"])
+
+        status, listing = _get(self.base, "/v1/rooms", token=session)
+        self.assertEqual(status, HTTPStatus.OK, f"session room list failed: {listing}")
+        self.assertIn(room["room_id"], {entry["room_id"] for entry in listing["rooms"]})
+
+        # The key remains a distinct agent identity. It must explicitly redeem
+        # the link before it can send, even though its account owns the room.
+        status, denied = _post(
+            self.base,
+            "/v1/rooms/send",
+            {"room_id": room["room_id"], "target_spec": "*", "payload": {}},
+            token=raw_key,
+        )
+        self.assertEqual(status, HTTPStatus.NOT_FOUND)
+        self.assertEqual(denied["error"]["code"], "room_not_found")
+
+        status, closed = _post(
+            self.base, "/v1/rooms/close", {"room_id": room["room_id"]}, token=session,
+        )
+        self.assertEqual(status, HTTPStatus.OK, f"session room close failed: {closed}")
+        self.assertEqual(closed["state"], "closed")
+
+    def test_agent_key_connect_room_is_visible_to_account_session(self) -> None:
+        acct = self._signup("account-owned-connect@example.com")
+        session = acct["session_token"]
+        raw_key = self._create_key(session, label="connect-creator")["agent_key"]
+
+        status, connected = _post(
+            self.base,
+            "/v1/rooms/connect",
+            {"name": "account-owned-connect", "cap": 8},
+            token=raw_key,
+        )
+        self.assertEqual(status, HTTPStatus.CREATED, f"key room connect failed: {connected}")
+
+        status, listing = _get(self.base, "/v1/rooms", token=session)
+        self.assertEqual(status, HTTPStatus.OK, f"session room list failed: {listing}")
+        self.assertIn(connected["room_id"], {entry["room_id"] for entry in listing["rooms"]})
+
+        status, closed = _post(
+            self.base, "/v1/rooms/close", {"room_id": connected["room_id"]}, token=session,
+        )
+        self.assertEqual(status, HTTPStatus.OK, f"session room close failed: {closed}")
+        self.assertEqual(closed["state"], "closed")
 
     def test_revoked_key_refused_on_the_very_next_request(self) -> None:
         acct = self._signup("revoke-next@example.com")
@@ -218,6 +278,13 @@ class AgentKeyIsolationTests(AgentKeyServiceTestBase):
         self.assertEqual(resp["error"]["code"], "room_not_found")
 
         # And A's own key still works (the refusal was confinement, not breakage).
+        status, joined = _post(
+            self.base,
+            "/v1/rooms/join",
+            {"room_id": room_a["room_id"], "link_token": room_a["link_token"], "consent": True},
+            token=key_a,
+        )
+        self.assertEqual(status, HTTPStatus.OK, f"A key join failed: {joined}")
         status, _ = _post(self.base, "/v1/rooms/send",
                           {"room_id": room_a["room_id"], "target_spec": "*",
                            "payload": {"text": "still mine"}}, token=key_a)
