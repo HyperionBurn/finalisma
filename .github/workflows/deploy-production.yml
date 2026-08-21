@@ -1,0 +1,103 @@
+name: Deploy Weft production
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: weft-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy merged main to the approved VM
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment:
+      name: production
+    env:
+      WEFT_VM: ${{ vars.WEFT_VM }}
+      WEFT_NGINX_CONF: ${{ vars.WEFT_NGINX_CONF }}
+      WEFT_NGINX_SERVER_NAME: ${{ vars.WEFT_NGINX_SERVER_NAME }}
+      PUBLIC_ORIGIN: ${{ vars.WEFT_PUBLIC_ORIGIN }}
+      WEFT_API_ORIGIN: ${{ vars.WEFT_API_ORIGIN }}
+      WEFT_SITE_URL: ${{ vars.WEFT_SITE_URL }}
+      WEFT_SRC_DIR: ${{ github.workspace }}
+      WEFT_SSH_KEY: ${{ runner.temp }}/weft-deploy-key
+      WEFT_SSH_KNOWN_HOSTS: ${{ runner.temp }}/weft-known-hosts
+
+    steps:
+      - name: Check out merged main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate deployment configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(WEFT_VM WEFT_NGINX_CONF WEFT_NGINX_SERVER_NAME PUBLIC_ORIGIN WEFT_API_ORIGIN WEFT_SITE_URL)
+          for name in "${required[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "FATAL: production variable $name is not configured in the production environment." >&2
+              exit 2
+            fi
+          done
+          bash -n scripts/push-code-to-vm.sh
+          echo "Deployment variables and push script syntax are valid."
+
+      - name: Prepare ephemeral SSH credentials
+        shell: bash
+        env:
+          WEFT_SSH_PRIVATE_KEY_CONTENT: ${{ secrets.WEFT_SSH_PRIVATE_KEY }}
+          WEFT_SSH_KNOWN_HOSTS_CONTENT: ${{ secrets.WEFT_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ -n "${WEFT_SSH_PRIVATE_KEY_CONTENT:-}" ]] || {
+            echo "FATAL: production secret WEFT_SSH_PRIVATE_KEY is not configured." >&2
+            exit 2
+          }
+          [[ -n "${WEFT_SSH_KNOWN_HOSTS_CONTENT:-}" ]] || {
+            echo "FATAL: production secret WEFT_SSH_KNOWN_HOSTS is not configured." >&2
+            exit 2
+          }
+          printf '%s\n' "$WEFT_SSH_PRIVATE_KEY_CONTENT" > "$WEFT_SSH_KEY"
+          printf '%s\n' "$WEFT_SSH_KNOWN_HOSTS_CONTENT" > "$WEFT_SSH_KNOWN_HOSTS"
+          chmod 600 "$WEFT_SSH_KEY" "$WEFT_SSH_KNOWN_HOSTS"
+          test -s "$WEFT_SSH_KEY"
+          test -s "$WEFT_SSH_KNOWN_HOSTS"
+          echo "Ephemeral SSH key and verified known_hosts files are ready."
+
+      - name: Run the fail-closed VM cutover
+        shell: bash
+        run: bash scripts/push-code-to-vm.sh
+
+      - name: Verify public API and site release
+        shell: bash
+        run: python -B scripts/probe_live_release.py --api-origin "$WEFT_API_ORIGIN" --site-origin "$WEFT_SITE_URL" --pretty
+
+      - name: Verify authenticated hosted MCP catalog
+        shell: bash
+        env:
+          WEFT_MCP_PROBE_TOKEN: ${{ secrets.WEFT_MCP_PROBE_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "${WEFT_MCP_PROBE_TOKEN:-}" ]] || {
+            echo "FATAL: production secret WEFT_MCP_PROBE_TOKEN is not configured." >&2
+            exit 2
+          }
+          python -B scripts/probe_hosted_mcp_surface.py --mcp-origin "$WEFT_API_ORIGIN" --pretty
+
+      - name: Remove ephemeral SSH credentials
+        if: always()
+        shell: bash
+        run: rm -f -- "$WEFT_SSH_KEY" "$WEFT_SSH_KNOWN_HOSTS"

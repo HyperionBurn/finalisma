@@ -52,6 +52,45 @@ When the cutover changes nginx, it keeps a timestamped copy beside the site
 file. It inserts `/j/` and the exact-match `/mcp` route independently. If
 `nginx -t` or the reload fails, it restores the copy and exits non-zero.
 
+## GitHub production dispatch
+
+The repository now includes
+.github/workflows/deploy-production.yml. The workflow is manual-only. It
+checks out merged main, runs the existing fail-closed push-code-to-vm.sh
+cutover, then runs both live release probes. It does not run on push or pull
+request events.
+
+Configure a GitHub Environment named production before using the workflow.
+Give that environment required reviewers. The workflow must remain approval
+gated because it can restart the VM and change the live nginx configuration.
+
+Configure these production environment variables:
+
+| Variable | Meaning |
+|---|---|
+| WEFT_VM | Verified SSH user and VM address, for example azureuser@host |
+| WEFT_NGINX_CONF | Exact remote nginx site file to edit |
+| WEFT_NGINX_SERVER_NAME | Expected server_name value in that file |
+| WEFT_PUBLIC_ORIGIN | Public HTTPS origin for generated join links |
+| WEFT_API_ORIGIN | Authorized API origin for the post-deploy release probes |
+| WEFT_SITE_URL | Authorized static-site origin for the post-deploy release probes |
+
+Configure these production secrets:
+
+| Secret | Meaning |
+|---|---|
+| WEFT_SSH_PRIVATE_KEY | Private key for the verified VM user |
+| WEFT_SSH_KNOWN_HOSTS | Independently verified known_hosts content |
+| WEFT_MCP_PROBE_TOKEN | Release-scoped bearer token for the read-only MCP catalog probe |
+
+The workflow writes the SSH key and known_hosts content only to ephemeral
+runner files with mode 600, uses the existing strict SSH checks, and removes
+the files in an always-run cleanup step. Never generate the known_hosts secret
+with an unverified ssh-keyscan result. A successful workflow run is the first
+point at which the repository can claim that this deployment path completed.
+The repository does not currently contain production credentials, so this
+workflow has not been run from this checkout.
+
 ## The four failures
 
 **1. The deploy didn't restart the services.** `systemctl enable --now` is a
