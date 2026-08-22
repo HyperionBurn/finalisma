@@ -7,16 +7,19 @@ compatibility claim.
 ## Latest regression evidence
 
 Measured locally on the current source/test stack (merged base `main` at
-`41cf754`; PR108 candidate branch):
+`dc572ee`; PR109 candidate branch `codex/hosted-sdk-onboarding-2026-08-22`):
 
 - Command: `python -B -m unittest discover -s tests`
-- Result: **1289 tests discovered; 1288 passed; 1 skipped**
-- Duration: 596.598 seconds on the local Windows runner
+- Result: **1290 tests discovered; 1289 passed; 1 skipped**
+- Duration: 589.406 seconds on the local Windows runner
 - Focused web/deploy readiness suite: 69 tests passed locally
 - Focused hosted-MCP probe/preflight/workflow suite: 37 tests passed locally
 - Focused rollback/deploy/preflight suite: 61 tests passed locally
 - Focused hosted-MCP/count suite: 40 tests passed locally
   (`tests.test_hosted_mcp` and `tests.test_site.TestCountSyncTests`)
+- Focused hosted SDK/onboarding suite: 97 tests passed locally
+  (`tests.test_interop_sdk`, `tests.test_onboarding_consistency`, and
+  `tests.test_cloud_service`)
 - Release-boundary checks passed locally, including Vercel
   materialization, live-probe contracts, and Compose safety contracts
 - Self-hosted cursor/filter subset: 10 tests passed locally, including the
@@ -27,8 +30,10 @@ Measured locally on the current source/test stack (merged base `main` at
   and transport-error details are excluded from emitted endpoint facts
 - Compose parser: not run locally because Docker is not installed; CI must run
   `docker compose -f compose.yaml config --quiet`
-- Site build: `npm run build` passed with no app origin, and the rendered
-  Playwright harness refreshed `artifacts/design-qa/qa-results.json` with exit 0
+- Site build: `npm run build` passed with no app origin. A configured-origin
+  probe with `https://app.example.test` rendered that origin in the SDK `/mcp`
+  example, then the no-origin build was restored. The rendered Playwright
+  harness refreshed `artifacts/design-qa/qa-results.json` with exit 0
 - Rendered UX fallback: the browser harness proved the denied-clipboard path
   leaves a labelled brief visible, focused, and prepared; no console errors,
   failed requests, or HTTP error responses occurred, and axe reported zero

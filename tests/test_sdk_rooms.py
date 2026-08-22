@@ -1,4 +1,4 @@
-"""SDK-tier RED integration tests for the Wave SDK-ROOMS public room API.
+"""SDK-tier integration tests for the Wave SDK-ROOMS public room API.
 
 Drives a REAL coordinator over HTTP using ONLY the public WeftClient
 room methods — the private `_call` is never used here. These tests lock the
@@ -6,9 +6,7 @@ contract the SDK-ROOMS orchestrator must implement on WeftClient.
 
 Run:  python -B -m unittest tests.test_sdk_rooms -v   (<30s)
 
-Expected: FAIL RED — the public room API does not exist yet on WeftClient.
-That is the whole point: this file is the TDD contract, written before the
-implementation.
+Expected: pass. This file protects the public room API contract on WeftClient.
 """
 
 from __future__ import annotations
@@ -152,7 +150,7 @@ atexit.register(_kill_orphaned_coordinators)
 
 
 class SdkRoomsContractTest(unittest.TestCase):
-    """Public-room-API contract tests. RED by design."""
+    """Public-room-API contract tests."""
 
     harness: _RoomHarness | None = None
 
@@ -163,7 +161,7 @@ class SdkRoomsContractTest(unittest.TestCase):
         if missing:
             raise ImportError(
                 f"weft_sdk is missing room dataclasses: {missing} — "
-                "this test is RED until the SDK-ROOMS wave implements them.",
+                "the public SDK room contract is incomplete.",
             )
         cls.harness = _RoomHarness()
         cls.harness.start(n_agents=4)

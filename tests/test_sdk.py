@@ -520,8 +520,8 @@ class SdkHostedSurfaceAuditTests(unittest.TestCase):
     room_wait, room_info, room_ack, room_heartbeat, room_leave,
     room_remove_member, room_close, room_event_log. The SDK must be able to drive all of
     them and must not lose the structured error / cursor information that
-    surface emits. Tests in this class are RED on purpose where the SDK has
-    not caught up — they are the TDD contract for the implementer.
+    surface emits. These tests protect the hosted SDK contract and its
+    structured error and cursor behavior.
     """
 
     _HOSTED_TOOL_TO_SDK_METHOD = {
@@ -577,11 +577,8 @@ class SdkHostedSurfaceAuditTests(unittest.TestCase):
 
         The hosted service refuses with HTTP 429 + {"error":{"code":
         "rate_limited", ..., "retry_after": N}} + a Retry-After header
-        (weft_cloud/service.py _send_rate_limited). The SDK currently
-        flattens every non-200 into WeftError("http_error", ...), losing both
-        the code and the retry_after an agent needs to back off.
-
-        RED: exc.code == "http_error" and details carry no retry_after.
+        (weft_cloud/service.py _send_rate_limited). The SDK preserves the
+        structured code and retry_after so an agent can back off.
         """
         RETRY_AFTER = 7
 
@@ -780,9 +777,7 @@ class SdkHostedSurfaceAuditTests(unittest.TestCase):
         """RoomPoll must expose behind_by — the hosted poll reports how many
         events the caller is skipping between its last ack and its window
         (weft_cloud/rooms.py poll), so a caller can detect a silently skipped
-        window. The SDK parses poll results but drops the field.
-
-        RED: RoomPoll has no behind_by attribute (AttributeError).
+        window. The SDK exposes the field on RoomPoll.
         """
         poll_result = {
             "room_id": "room_abc",

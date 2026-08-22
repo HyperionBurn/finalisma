@@ -52,14 +52,28 @@ test('quickstart states the hosted/self-hosted tool boundary and bridge prerequi
     assert.doesNotMatch(document, /coordinator_db=|nonce=/);
   }
 
-  for (const document of [connectSource, renderedBridge]) {
-    assert.match(
-      document,
-      /coordinator_url=["']http:\/\/127\.0\.0\.1:8787\/mcp["']|coordinator_url=&(?:#34;|quot;)http:\/\/127\.0\.0\.1:8787\/mcp(?:&#34;|&quot;)/,
-      'the SDK example must target the CLI default coordinator port'
-    );
-    assert.doesNotMatch(document, /127\.0\.0\.1:18787/, 'the SDK example must not ship a stale coordinator port');
-  }
+  assert.match(
+    connectSource,
+    /coordinator_url="\$\{HOSTED_ORIGIN\}\/mcp"/,
+    'the SDK source must target the hosted origin'
+  );
+  assert.match(
+    renderedBridge,
+    /coordinator_url="https:\/\/YOUR-VERIFIED-WEFT-ORIGIN\/mcp"/,
+    'the checked-in site must keep the hosted origin explicit until verified'
+  );
+  assert.match(connectSource, /bearer_token=os\.environ\["WEFT_TOKEN"\]/);
+  assert.match(renderedBridge, /bearer_token=os\.environ\["WEFT_TOKEN"\]/);
+  assert.doesNotMatch(connectSource, /SELF_HOSTED_SDK_CODE/);
+  assert.doesNotMatch(renderedBridge, /coordinator_url="http:\/\/127\.0\.0\.1:8787\/mcp"/);
+  const sdkPanelStart = renderedBridge.indexOf('id="tier-panel-sdk"');
+  const sdkCopyStart = renderedBridge.indexOf('data-copy="sdk"', sdkPanelStart);
+  assert.ok(sdkPanelStart >= 0 && sdkCopyStart > sdkPanelStart, 'the generated SDK panel must exist');
+  assert.doesNotMatch(
+    renderedBridge.slice(sdkPanelStart, sdkCopyStart),
+    /actor_token=/,
+    'the generated SDK panel must not teach self-hosted actor credentials'
+  );
 
   const hostedTools = [
     'room_create', 'room_join', 'room_send', 'room_receipts', 'room_poll',

@@ -25,12 +25,16 @@ class OnboardingConsistencyTests(unittest.TestCase):
         self.assertIn('via an MCP stdio\n        bridge configured for remote mode', copy)
 
 
-    def test_connect_tiers_sdk_room_join_uses_public_wrapper(self) -> None:
+    def test_connect_tiers_sdk_example_uses_hosted_bearer_mode(self) -> None:
         copy = _read(CONNECT_TIERS)
 
         self.assertIn('result = client.join_room(', copy)
         self.assertIn('link_token="rm_..."', copy)
         self.assertIn('consent=True', copy)
+        self.assertIn('const SDK_CODE = HOSTED_SDK_CODE', copy)
+        self.assertIn('coordinator_url="${HOSTED_ORIGIN}/mcp"', copy)
+        self.assertIn('bearer_token=os.environ["WEFT_TOKEN"]', copy)
+        self.assertNotIn('SELF_HOSTED_SDK_CODE', copy)
         self.assertNotIn('client._call("room_join", {', copy)
 
 
@@ -42,8 +46,13 @@ class OnboardingConsistencyTests(unittest.TestCase):
         self.assertIn('This is not a hosted stdio server', html)
         self.assertIn('stdio remains a local process boundary', html)
         self.assertIn('weft_sdk.WeftClient', html)
-        self.assertIn('there is no hosted-cloud SDK client', html)
+        self.assertIn('coordinator_url="https://&lt;origin&gt;/mcp"', html)
+        self.assertIn('bearer_token=os.environ["WEFT_TOKEN"]', html)
+        self.assertIn('Hosted mode derives identity from the bearer credential', html)
+        self.assertNotIn('there is no hosted-cloud SDK client', html)
         self.assertIn('a session joins as your account, and an agent key joins as its own distinct agent identity', html)
+        self.assertIn('Treat this URL like a password', html)
+        self.assertIn('revoke the link if it is exposed', html)
         self.assertIn('room_&lt;unsafe&gt;', html)
         self.assertIn('rm_&lt;unsafe&gt;', html)
 
