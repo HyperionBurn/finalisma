@@ -558,7 +558,31 @@ class TestConnectPage(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertNotIn(old_token, after_close)
         self.assertNotRegex(after_close, r"rm_[A-Za-z0-9_-]+")
-        self.assertIn("Join link unavailable", after_close)
+        self.assertIn("Join link revoked", after_close)
+        self.assertNotIn("Generate replacement join link", after_close)
+
+    def test_expired_link_does_not_offer_restart_recovery(self):
+        status, before_expiry, _ = self.driver.get(f"/room/{self.room_id}/connect")
+        self.assertEqual(status, 200)
+        expired_at = time.time() - 1
+        with self.driver.backend.transaction() as tx:
+            tx.execute(
+                "UPDATE cloud_room_links SET expires_at = ? WHERE room_id = ?",
+                (expired_at, self.room_id),
+            )
+            tx.commit()
+
+        status, connect_body, _ = self.driver.get(f"/room/{self.room_id}/connect")
+        self.assertEqual(status, 200)
+        self.assertIn("Join link expired", connect_body)
+        self.assertNotIn("after a web restart", connect_body)
+        self.assertNotIn("Generate replacement join link", connect_body)
+
+        status, detail_body, _ = self.driver.get(f"/room/{self.room_id}")
+        self.assertEqual(status, 200)
+        self.assertIn("Join link expired", detail_body)
+        self.assertNotIn("after a web restart", detail_body)
+        self.assertNotIn("Generate replacement join link", detail_body)
 
     def _assert_connector_configs_use_portable_entrypoint(self):
         from html import unescape
