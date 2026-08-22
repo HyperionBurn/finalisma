@@ -127,6 +127,7 @@ jobs:
           python -B scripts/probe_hosted_mcp_lifecycle.py --mcp-origin "$WEFT_API_ORIGIN" --pretty
 
       - name: Roll back failed cutover or release gate
+        id: rollback
         if: ${{ failure() && steps.cutover.outcome != 'skipped' }}
         shell: bash
         env:
@@ -141,6 +142,37 @@ jobs:
             -i "$WEFT_SSH_KEY" \
             "$WEFT_VM" \
             'bash /opt/weft/scripts/rollback-weft.sh'
+
+      - name: Verify public API and site after rollback
+        if: ${{ always() && steps.rollback.outcome == 'success' }}
+        shell: bash
+        run: python -B scripts/probe_live_release.py --api-origin "$WEFT_API_ORIGIN" --site-origin "$WEFT_SITE_URL" --pretty
+
+      - name: Verify authenticated hosted MCP catalog after rollback
+        if: ${{ always() && steps.rollback.outcome == 'success' }}
+        shell: bash
+        env:
+          WEFT_MCP_PROBE_TOKEN: ${{ secrets.WEFT_MCP_PROBE_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "${WEFT_MCP_PROBE_TOKEN:-}" ]] || {
+            echo "FATAL: production secret WEFT_MCP_PROBE_TOKEN is not configured." >&2
+            exit 2
+          }
+          python -B scripts/probe_hosted_mcp_surface.py --mcp-origin "$WEFT_API_ORIGIN" --pretty
+
+      - name: Verify authenticated hosted MCP room lifecycle after rollback
+        if: ${{ always() && steps.rollback.outcome == 'success' }}
+        shell: bash
+        env:
+          WEFT_MCP_LIFECYCLE_TOKEN: ${{ secrets.WEFT_MCP_LIFECYCLE_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "${WEFT_MCP_LIFECYCLE_TOKEN:-}" ]] || {
+            echo "FATAL: production secret WEFT_MCP_LIFECYCLE_TOKEN is not configured." >&2
+            exit 2
+          }
+          python -B scripts/probe_hosted_mcp_lifecycle.py --mcp-origin "$WEFT_API_ORIGIN" --pretty
 
       - name: Remove ephemeral SSH credentials
         if: always()
