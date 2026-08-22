@@ -7,11 +7,11 @@ compatibility claim.
 ## Latest regression evidence
 
 Measured locally on the current source/test stack (merged base `main` at
-`dc572ee`; PR109 candidate branch `codex/hosted-sdk-onboarding-2026-08-22`):
+`c4da173`; PR110 candidate branch `codex/creator-key-redemption-2026-08-22`):
 
 - Command: `python -B -m unittest discover -s tests`
-- Result: **1290 tests discovered; 1289 passed; 1 skipped**
-- Duration: 589.406 seconds on the local Windows runner
+- Result: **1292 tests discovered; 1291 passed; 1 skipped**
+- Duration: 591.485 seconds on the local Windows runner
 - Focused web/deploy readiness suite: 69 tests passed locally
 - Focused hosted-MCP probe/preflight/workflow suite: 37 tests passed locally
 - Focused rollback/deploy/preflight suite: 61 tests passed locally
@@ -20,6 +20,9 @@ Measured locally on the current source/test stack (merged base `main` at
 - Focused hosted SDK/onboarding suite: 97 tests passed locally
   (`tests.test_interop_sdk`, `tests.test_onboarding_consistency`, and
   `tests.test_cloud_service`)
+- Focused creator-key onboarding suite: 31 tests passed locally
+  (`tests.test_hosted_mcp`, `tests.test_onboarding_consistency`, and
+  `tests.test_site.TestCountSyncTests`)
 - Release-boundary checks passed locally, including Vercel
   materialization, live-probe contracts, and Compose safety contracts
 - Self-hosted cursor/filter subset: 10 tests passed locally, including the

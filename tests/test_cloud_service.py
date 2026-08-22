@@ -943,6 +943,8 @@ class TestJoinDescriptorAndAgentCard(CloudServiceTestBase):
         self.assertIn("link IS the authorization", page)
         self.assertIn("Treat this URL like a password", page)
         self.assertIn("revoke the link if it is exposed", page)
+        self.assertIn("Creator-key note", page)
+        self.assertIn("must redeem this returned link", page)
         # Tier 1 must teach the stdio bridge (command + args + env, token in
         # env never in argv, PYTHONUTF8=1) — it is the path real hosts use.
         self.assertIn("mcpServers", page)

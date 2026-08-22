@@ -22,6 +22,9 @@ test('quickstart states the hosted/self-hosted tool boundary and bridge prerequi
   assert.match(html, /OpenCode has two native config contracts/);
   assert.match(html, /mcp\.servers\.weft/);
   assert.match(html, /mcp\.weft/);
+  assert.match(html, /Required creator-key step/);
+  assert.match(html, /creating key must redeem the returned link with <code>room_join<\/code>/);
+  assert.match(html, /The key is not auto-joined by <code>room_create<\/code>/);
   assert.doesNotMatch(html, /"org_name"\s*:/);
 
   const example = JSON.parse(read('site/examples/mcp.json'));

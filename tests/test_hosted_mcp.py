@@ -274,6 +274,13 @@ class HostedMCPHandshakeTests(HostedMCPTestBase):
             self.assertNotIn("team_id", props)
             self.assertNotIn("agent_id", props)
             self.assertNotIn("actor_token", props)
+        room_create = next(
+            tool for tool in listing["result"]["tools"] if tool["name"] == "room_create"
+        )
+        self.assertIn("agk_ key has a distinct agent identity", room_create["description"])
+        self.assertIn("room_join", room_create["description"])
+        self.assertIn("room_poll", room_create["description"])
+        self.assertIn("room_send", room_create["description"])
 
         status, pong = _mcp(self.base, "ping", None, token=token, request_id=3)
         self.assertEqual(status, HTTPStatus.OK)
@@ -385,6 +392,56 @@ class HostedMCPRoomFlowTests(HostedMCPTestBase):
         a = self._signup(f"{prefix}-a@example.com")
         b = self._signup(f"{prefix}-b@example.com", tenant_id=a["tenant_id"])
         return a, b
+
+    def test_creator_agent_key_must_redeem_its_own_room_link(self) -> None:
+        """An agk_ creator is distinct from the account owner and must join."""
+        account = self._signup("creator-key-room@example.com")
+        status, key = _post(
+            self.base,
+            "/v1/agent-keys",
+            {"label": "creator-key-room"},
+            token=account["session_token"],
+        )
+        self.assertEqual(status, HTTPStatus.CREATED, f"agent key create failed: {key}")
+        creator_token = key["agent_key"]
+
+        created = self._assert_ok(creator_token, "room_create", {"cap": 4}, request_id=1)
+        room_id = created["room_id"]
+        link_token = created["link_token"]
+
+        self._assert_is_error(
+            creator_token, "room_poll", {"room_id": room_id}, "room_not_found", request_id=2,
+        )
+        self._assert_is_error(
+            creator_token,
+            "room_send",
+            {"room_id": room_id, "target_spec": "*", "payload": {"text": "before join"}},
+            "room_not_found",
+            request_id=3,
+        )
+
+        joined = self._assert_ok(
+            creator_token,
+            "room_join",
+            {"room_id": room_id, "link_token": link_token, "consent": True},
+            request_id=4,
+        )
+        self.assertTrue(joined["agent_id"].startswith("key_"))
+
+        polled = self._assert_ok(creator_token, "room_poll", {"room_id": room_id}, request_id=5)
+        self.assertIn("room.created", [event["kind"] for event in polled["events"]])
+        sent = self._assert_ok(
+            creator_token,
+            "room_send",
+            {
+                "room_id": room_id,
+                "target_spec": "*",
+                "payload": {"text": "after join"},
+                "exclude_sender": False,
+            },
+            request_id=6,
+        )
+        self.assertTrue(sent["receipts"])
 
     def test_cross_tenant_isolation_room_id_alone_yields_no_oracle(self) -> None:
         owner_a = self._signup("tenant-a@example.com")

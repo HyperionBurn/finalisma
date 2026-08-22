@@ -155,7 +155,9 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
         "name": "room_create",
         "description": (
             "Create a Room in your tenant: one multi-use link admits up to cap agents. "
-            "The owner (you, the authenticated account) auto-joins as the first active member."
+            "The owning account auto-joins as the first active member. An agk_ key "
+            "has a distinct agent identity, so it must call room_join with the "
+            "returned room_id and link_token before it can call room_poll or room_send."
         ),
         "inputSchema": _object_schema({
             "cap": _INTEGER,
@@ -583,8 +585,9 @@ class HostedMCPDispatcher:
     # ------------------------------------------------------------------
     # Room tools — 1:1 with the /v1 handlers. The tenant is resolved per
     # room via the caller's membership (so cross-tenant link members work,
-    # exactly as on /v1); the agent identity is the session account; the
-    # actor credential on create/join is the authenticated bearer credential.
+    # exactly as on /v1); the agent identity is the session account or the
+    # key-derived agent identity; the actor credential on create/join is the
+    # authenticated bearer credential.
     # ------------------------------------------------------------------
 
     def _tool_room_create(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:
