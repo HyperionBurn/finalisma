@@ -1,10 +1,11 @@
 # Template for review/installation by the VM owner — nothing in this repo
 # installs or enables this unit automatically.
 #
-# Know about an outage before the owner does: probes GET /healthz and an
-# unauthenticated POST /mcp (must be 401 — anything else, including a 303,
-# means the hosted MCP surface is down or silently falling through to the
-# web app's login redirect). Dependency-free (stdlib urllib only) and local —
+# Know about an outage before the owner does: probes storage-backed GET
+# /readyz, process liveness GET /healthz, and an unauthenticated POST /mcp
+# (must be 401 — anything else, including a 303, means the hosted MCP surface
+# is down or silently falling through to the web app's login redirect).
+# Dependency-free (stdlib urllib only) and local —
 # no third-party monitoring service, no outbound call other than to the
 # service itself.
 #
@@ -28,7 +29,7 @@
 #   sudo systemctl enable --now weft-healthcheck.timer
 
 [Unit]
-Description=Weft outage probe: /healthz + unauthenticated POST /mcp
+Description=Weft outage probe: /healthz + /readyz + unauthenticated POST /mcp
 After=network.target
 
 [Service]
