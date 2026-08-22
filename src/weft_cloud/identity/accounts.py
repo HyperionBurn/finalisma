@@ -19,10 +19,13 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
+import re
 import time as _time
 import uuid
 from typing import Any
+from urllib.parse import quote
 
+from weft_cloud.origin import configured_origin
 from weft_cloud.storage import utc_now_iso
 
 from .mailer import LocalOutboxMailer
@@ -39,6 +42,9 @@ PASSWORD_MAX_LENGTH = 256
 
 VERIFY_TTL_SECONDS = 24 * 3600
 RESET_TTL_SECONDS = 30 * 60
+
+_EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
+_DEFAULT_WEB_PUBLIC_ORIGIN = "http://127.0.0.1:18789"
 
 # Dummy credentials used ONLY for the unknown-email timing invariant: we run
 # the real scrypt cost against these and compare against a hash that can never
@@ -57,6 +63,38 @@ def validate_password(password: object) -> None:
         raise ValueError(f"password must be at most {PASSWORD_MAX_LENGTH} characters")
 
 
+def canonicalize_email(email: object) -> str:
+    """Return the one stored and compared form of an email address.
+
+    Identity lookups must not depend on display casing or accidental form
+    whitespace. Syntax validation is deliberately separate so old internal
+    fixtures and migration rows can still be normalized without being treated
+    as interactive customer input.
+    """
+    if not isinstance(email, str):
+        raise ValueError("email is required")
+    canonical = email.strip().casefold()
+    if not canonical:
+        raise ValueError("email is required")
+    return canonical
+
+
+def validate_email(email: object) -> str:
+    """Canonicalize and validate an email supplied by a customer-facing API."""
+    canonical = canonicalize_email(email)
+    if not _EMAIL_RE.fullmatch(canonical):
+        raise ValueError("email must be a valid email address")
+    return canonical
+
+
+def _verification_web_origin() -> str:
+    """Resolve the origin used for human verification links."""
+    return configured_origin(
+        env_names=("WEFT_WEB_PUBLIC_ORIGIN", "WEFT_PUBLIC_ORIGIN"),
+        default=_DEFAULT_WEB_PUBLIC_ORIGIN,
+    )
+
+
 def _scrypt(password: str, salt: bytes) -> bytes:
     return hashlib.scrypt(
         password.encode("utf-8"),
@@ -73,6 +111,7 @@ def _new_id(prefix: str) -> str:
 
 
 def _find_account(backend: Any, tenant_id: str, email: str):
+    email = canonicalize_email(email)
     with backend.transaction() as tx:
         return tx.execute(
             "SELECT * FROM cloud_identity_accounts WHERE tenant_id = ? AND email = ?",
@@ -87,6 +126,7 @@ def _create_account(backend: Any, tenant_id: str, email: str, password: str,
     Internal provisioning used by signup (unverified + verification email) and
     by admin/invite flows (verified, no verification email).
     """
+    email = canonicalize_email(email)
     validate_password(password)
     existing = _find_account(backend, tenant_id, email)
     if existing is not None:
@@ -116,6 +156,7 @@ def signup(backend: Any, tenant_id: str, email: str, password: str) -> tuple[str
     to (re)provision an existing identity use ``_create_account`` directly
     (org/invite flows), never this path.
     """
+    email = canonicalize_email(email)
     validate_password(password)
     ensure_schema(backend)
     raw_token = generate_token("fvt")
@@ -152,7 +193,9 @@ def signup(backend: Any, tenant_id: str, email: str, password: str) -> tuple[str
             "INSERT INTO cloud_identity_outbox(entry_id, tenant_id, to_email, subject, body, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?)",
             (_new_id("idem"), tenant_id, email, "Verify your email",
-             f"Verify your email: {raw_token}", now_iso),
+             "Verify your email: "
+             f"{_verification_web_origin()}/verify?token={quote(raw_token, safe='')}",
+             now_iso),
         )
         tx.commit()
     return account_id, raw_token
@@ -230,6 +273,7 @@ def verify_email(backend: Any, verification_token: str) -> None:
 
 def authenticate(backend: Any, tenant_id: str, email: str, password: str) -> str:
     """Return account_id on success; refuse on wrong/unknown. Timing-invariant for unknown email."""
+    email = canonicalize_email(email)
     validate_password(password)
     ensure_schema(backend)
     row = _find_account(backend, tenant_id, email)
@@ -261,6 +305,7 @@ def burn_scrypt_cost(password: str) -> None:
 
 def request_password_reset(backend: Any, tenant_id: str, email: str) -> None:
     """Enqueue a reset email with an frt_ token. Always succeeds silently (no enumeration)."""
+    email = canonicalize_email(email)
     ensure_schema(backend)
     row = _find_account(backend, tenant_id, email)
     if row is None:

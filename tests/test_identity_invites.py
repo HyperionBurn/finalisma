@@ -263,6 +263,20 @@ class IdentityInvitesContractTests(unittest.TestCase):
             )
         self.assertEqual(ctx.exception.code, "invite_mismatch")
 
+    def test_accept_canonicalizes_invite_email_case_and_whitespace(self) -> None:
+        _, raw_token = invites.create(
+            self.owner_ctx, "Invitee@Example.COM", role="member"
+        )
+        account_id, _ = invites.accept(
+            self.backend, raw_token, "  invitee@example.com  ", self.PASSWORD
+        )
+        with self.backend.transaction() as tx:
+            row = tx.execute(
+                "SELECT email FROM cloud_identity_accounts WHERE account_id = ?",
+                (account_id,),
+            ).fetchone()
+        self.assertEqual(row["email"], "invitee@example.com")
+
     # -- 5. accept twice refused with invite_consumed --
 
     def test_accept_twice_raises_invite_consumed(self) -> None:

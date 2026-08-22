@@ -228,6 +228,25 @@ class TestAccountAndOrgFlow(CloudServiceTestBase):
         # Session token is an fss_ token.
         self.assertTrue(result["session_token"].startswith("fss_"))
 
+    def test_signup_and_signin_use_canonical_email_identity(self) -> None:
+        result = self._signup("  Alice@Example.COM  ", "SecurePass!1")
+        self.assertEqual(result["email"], "alice@example.com")
+
+        status, signin = _post(self.base, "/v1/auth/signin", {
+            "email": "ALICE@EXAMPLE.COM",
+            "password": "SecurePass!1",
+        })
+        self.assertEqual(status, 200, signin)
+        self.assertEqual(signin["account_id"], result["account_id"])
+        self.assertEqual(signin["tenant_id"], result["tenant_id"])
+
+        status, duplicate = _post(self.base, "/v1/auth/signup", {
+            "email": "alice@example.com",
+            "password": "AnotherSecurePass!2",
+        })
+        self.assertEqual(status, 400)
+        self.assertEqual(duplicate["error"]["code"], "email_exists")
+
     def test_signup_requires_valid_email(self) -> None:
         status, body = _post(self.base, "/v1/auth/signup", {
             "email": "not-an-email", "password": "SecurePass!1",

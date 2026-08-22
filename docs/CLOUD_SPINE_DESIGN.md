@@ -30,7 +30,7 @@ src/weft_cloud/
   __init__.py          # package marker
   storage.py           # StorageBackend ABC + SqliteWalBackend (THE interface)
   tenancy.py           # TenantContext guard + storage-boundary tenancy enforcement
-  migrations.py        # versioned migration registry (cloud_001..cloud_014), v3→cloud path
+  migrations.py        # versioned migration registry (cloud_001..cloud_017), v3→cloud path
   quotas.py            # PlanLimits, per-tenant/per-room counters, enforcement seam
   rate_limit.py        # RateLimiter seam (token-bucket / window), per tenant+room
   service.py           # WeftCloudService: the /v1 REST handlers + _CloudHTTPHandler
@@ -326,7 +326,7 @@ MIGRATIONS: list[Migration] = [
     Migration("cloud_001_init", "cloud plane bootstrap", CLOUD_INIT_SQL),
     Migration("cloud_002_identity_accounts", "identity accounts", ACCOUNTS_SQL),
     # ... (canonical registry lives in src/weft_cloud/migrations.py —
-    # currently cloud_001_init through cloud_014_room_receipts_status_rename)
+    # currently cloud_001_init through cloud_017_identity_email_canonical)
 ]
 
 def apply_migrations(backend: StorageBackend) -> None:

@@ -132,7 +132,7 @@ To prevent user enumeration via timing, a lookup for a non-existent email perfor
 CREATE TABLE IF NOT EXISTS cloud_identity_accounts (
     account_id TEXT PRIMARY KEY,            -- acct_{uuid}
     tenant_id TEXT NOT NULL,                -- FK to cloud_tenants
-    email TEXT NOT NULL,                    -- scoped to tenant (see uniqueness)
+    email TEXT NOT NULL,                    -- canonical identity address
     salt BLOB NOT NULL,                     -- 32 random bytes
     password_hash BLOB NOT NULL,            -- scrypt output (64 bytes)
     created_at TEXT NOT NULL,               -- ISO-8601
@@ -147,25 +147,33 @@ CREATE INDEX IF NOT EXISTS idx_identity_accounts_tenant_email
     ON cloud_identity_accounts(tenant_id, email);
 ```
 
-### 3.5 Email uniqueness
+### 3.5 Email identity policy
 
-**Constraint:** Email is unique **per tenant**, not globally. Two different orgs can have the same email address (e.g., `alice@corp.com` in org A and org B are distinct accounts).
+**Constraint:** Email is one global identity. The stored value is trimmed and
+case-folded before every identity lookup or write. One canonical address maps
+to one account across all tenants. This matches the one-organization-per-
+account contract used by signup and invite acceptance.
 
 ```sql
-CREATE UNIQUE INDEX IF NOT EXISTS idx_identity_accounts_tenant_email_unique
-    ON cloud_identity_accounts(tenant_id, email);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_identity_accounts_email_unique
+    ON cloud_identity_accounts(email);
 ```
 
 This means:
-- `UNIQUE(tenant_id, email)` — one account per email within an org.
-- No global `UNIQUE(email)` — the same email may exist across tenants.
+- `UNIQUE(email)` — one account per canonical address across the product.
+- `cloud_017_identity_email_canonical` normalizes historical account, invite,
+  and outbox addresses before creating the index.
+- Historical canonical collisions fail closed and roll back. Operators must
+  resolve ownership explicitly. The migration never merges credentials.
+- Customer-facing REST and browser surfaces accept the same trimmed,
+  case-folded, syntactically validated policy.
 
 ### 3.6 Account lifecycle
 
 | Operation | Method | Behavior |
 | --- | --- | --- |
 | Signup | `accounts.signup(backend, tenant_id, email, password) -> (account_id, verification_token)` | Creates account, generates verification token, enqueues verification email via `Mailer`. |
-| Verify email | `accounts.verify_email(backend, verification_token) -> None` | Single-use, 24h expiry. Sets `email_verified=1`, clears token. |
+| Verify email | `accounts.verify_email(backend, verification_token) -> None` | Single-use, 24h expiry. Sets `email_verified=1`, clears token. Signup mail includes a clickable `/verify?token=...` URL from the configured web origin. |
 | Authenticate | `accounts.authenticate(backend, tenant_id, email, password) -> account_id` | Returns account_id on success; raises `AuthError("invalid_credentials")` on failure. Timing-invariant for unknown emails. |
 | Change password | `accounts.change_password(backend, account_id, old_password, new_password) -> None` | Verifies old, hashes new, revokes all sessions. |
 | Request reset | `accounts.request_password_reset(backend, tenant_id, email) -> None` | Generates reset token, enqueues reset email. Always succeeds silently (no enumeration). |
@@ -813,8 +821,11 @@ Identity migrations extend the existing `MIGRATIONS` list in `migrations.py`. Th
 | `cloud_012_identity_agent_keys` | agent API keys (long-lived, revocable, SHA-256 at rest) | `cloud_identity_agent_keys` |
 | `cloud_013_room_receipts` | durable per-recipient room receipt consumption state | `cloud_room_receipts` (delivery `status` + `read_status`) |
 | `cloud_014_room_receipts_status_rename` | repair interim `cloud_013` receipt tables by renaming `status` → `read_status` | guarded `RENAME COLUMN` on `cloud_room_receipts` |
+| `cloud_015_outbox_claim_indexes` | indexes for queued/retry/lease claim selectors | indexes on `cloud_outbox` and `cloud_identity_outbox` |
+| `cloud_016_room_cursor_resume_marker` | durable per-member room cursor resume marker | ALTER `cloud_room_cursors` |
+| `cloud_017_identity_email_canonical` | canonical identity email storage and global uniqueness | rewrites identity addresses and adds `idx_identity_accounts_email_unique` |
 
-**Note:** `cloud_001_init` is Wave F's and already exists. Wave G appends `cloud_002` through `cloud_006`; later waves append `cloud_007` through `cloud_014`. Migration ids are the ledger's primary key and are **never mutated**: a numbering collision in the `cloud_010` slot was resolved by renumbering the outbox lifecycle migration to `cloud_011` (a new forward migration), and the interim `cloud_013` receipt column naming was repaired by the separate `cloud_014` rename rather than by editing the recorded `cloud_013` body.
+**Note:** `cloud_001_init` is Wave F's and already exists. Wave G appends `cloud_002` through `cloud_006`; later waves append `cloud_007` through `cloud_017`. Migration ids are the ledger's primary key and are **never mutated**: a numbering collision in the `cloud_010` slot was resolved by renumbering the outbox lifecycle migration to `cloud_011` (a new forward migration), the interim `cloud_013` receipt column naming was repaired by the separate `cloud_014` rename rather than by editing the recorded `cloud_013` body, and the identity rewrite ships as `cloud_017`.
 
 ---
 

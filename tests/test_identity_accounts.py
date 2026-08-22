@@ -10,6 +10,7 @@ Authoritative spec: docs/IDENTITY_DESIGN.md sections 3, 5, 9.1, 12.
 from __future__ import annotations
 
 import sys
+from unittest.mock import patch
 import tempfile
 import unittest
 from pathlib import Path
@@ -83,6 +84,42 @@ class IdentityAccountsContractTests(unittest.TestCase):
         self.assertIsNotNone(row["salt"])
         self.assertNotIn(
             self.password, (row["password_hash"], row["salt"])
+        )
+
+    def test_email_is_canonicalized_for_storage_and_authentication(self) -> None:
+        account_id, _ = accounts.signup(
+            self.backend, self.tenant_id, "  Alice@Example.COM  ", self.password
+        )
+        with self.backend.transaction() as tx:
+            row = tx.execute(
+                "SELECT email FROM cloud_identity_accounts WHERE account_id = ?",
+                (account_id,),
+            ).fetchone()
+        self.assertEqual(row["email"], "alice@example.com")
+        self.assertEqual(
+            accounts.authenticate(
+                self.backend, self.tenant_id, "ALICE@EXAMPLE.COM", self.password
+            ),
+            account_id,
+        )
+
+    def test_verification_outbox_contains_clickable_configured_url(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {"WEFT_WEB_PUBLIC_ORIGIN": "https://app.example.test/"},
+            clear=False,
+        ):
+            _, verification_token = accounts.signup(
+                self.backend, self.tenant_id, "link@example.com", self.password
+            )
+        with self.backend.transaction() as tx:
+            row = tx.execute(
+                "SELECT body FROM cloud_identity_outbox WHERE to_email = ?",
+                ("link@example.com",),
+            ).fetchone()
+        self.assertIn(
+            f"https://app.example.test/verify?token={verification_token}",
+            row["body"],
         )
 
     # -- 2. verify_email sets verified; second use raises (single-use) --

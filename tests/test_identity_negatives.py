@@ -357,7 +357,7 @@ class IdentityNegatives(unittest.TestCase):
         with self.backend.transaction() as tx:
             row = tx.execute(
                 "SELECT body FROM cloud_identity_outbox WHERE to_email = ? ORDER BY created_at DESC LIMIT 1",
-                (KNOWN_PASSWORD,),
+                (KNOWN_PASSWORD.casefold(),),
             ).fetchone()
         # The reset URL/body contains the token — extract it.
         import re

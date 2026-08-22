@@ -983,6 +983,7 @@ class RoomMembershipAccountRecoveryTests(unittest.TestCase):
         finally:
             conn.close()
 
+
     def _owner(self, room_id: str) -> str:
         conn = sqlite3.connect(self.cloud_path)
         try:
@@ -1048,6 +1049,115 @@ class RoomMembershipAccountRecoveryTests(unittest.TestCase):
             self.assertEqual(n, 1, "cloud_010 must be recorded exactly once")
         finally:
             conn.close()
+
+
+class IdentityEmailCanonicalMigrationTests(unittest.TestCase):
+    """cloud_017 normalizes historical identity rows and fails closed on collisions."""
+
+    def setUp(self) -> None:
+        from weft_cloud.storage import SqliteWalBackend
+
+        self.tmp = tempfile.TemporaryDirectory(prefix="identity-email-migration-")
+        self.cloud_path = Path(self.tmp.name) / "cloud.db"
+        self.backend = SqliteWalBackend(self.cloud_path)
+        self.backend.initialize()
+        apply_migrations(self.backend)
+
+    def tearDown(self) -> None:
+        try:
+            self.backend.close()
+        finally:
+            self.tmp.cleanup()
+
+    def _prepare_pre_017_rows(self, emails: tuple[str, str]) -> None:
+        now = "2026-08-22T00:00:00.000Z"
+        with self.backend._transaction() as conn:
+            conn.execute(
+                "DELETE FROM schema_migrations WHERE migration_id = ?",
+                ("cloud_017_identity_email_canonical",),
+            )
+            conn.execute("DROP INDEX idx_identity_accounts_email_unique")
+            for tenant_id in ("tenant_a", "tenant_b"):
+                conn.execute(
+                    "INSERT INTO cloud_tenants(tenant_id, name, plan_id, created_at) "
+                    "VALUES (?, ?, 'free', ?)",
+                    (tenant_id, tenant_id, now),
+                )
+            for account_id, tenant_id, email in (
+                ("acct_a", "tenant_a", emails[0]),
+                ("acct_b", "tenant_b", emails[1]),
+            ):
+                conn.execute(
+                    "INSERT INTO cloud_identity_accounts("
+                    "account_id, tenant_id, email, salt, password_hash, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (account_id, tenant_id, email, b"s" * 16, b"h" * 32, now),
+                )
+            conn.execute(
+                "INSERT INTO cloud_identity_invites("
+                "invite_id, tenant_id, email, role, token_hash, created_at, "
+                "expires_at, created_by) VALUES (?, ?, ?, 'member', ?, ?, ?, ?)",
+                ("inv_a", "tenant_a", emails[0], "token-hash-a", now, 9999999999, "acct_a"),
+            )
+            conn.execute(
+                "INSERT INTO cloud_identity_outbox("
+                "entry_id, tenant_id, to_email, subject, body, created_at) "
+                "VALUES (?, ?, ?, 'Verify your email', 'body', ?)",
+                ("out_a", "tenant_a", emails[0], now),
+            )
+
+    def test_canonicalizes_accounts_invites_and_outbox_and_adds_global_index(self) -> None:
+        self._prepare_pre_017_rows(("  Alice@Example.COM ", "bob@example.com"))
+
+        apply_migrations(self.backend)
+
+        with self.backend._transaction() as conn:
+            accounts = conn.execute(
+                "SELECT account_id, email FROM cloud_identity_accounts ORDER BY account_id"
+            ).fetchall()
+            invite = conn.execute(
+                "SELECT email FROM cloud_identity_invites WHERE invite_id = 'inv_a'"
+            ).fetchone()
+            outbox = conn.execute(
+                "SELECT to_email FROM cloud_identity_outbox WHERE entry_id = 'out_a'"
+            ).fetchone()
+            migration = conn.execute(
+                "SELECT 1 FROM schema_migrations WHERE migration_id = ?",
+                ("cloud_017_identity_email_canonical",),
+            ).fetchone()
+            indexes = conn.execute("PRAGMA index_list('cloud_identity_accounts')").fetchall()
+
+        self.assertEqual([(row["account_id"], row["email"]) for row in accounts], [
+            ("acct_a", "alice@example.com"),
+            ("acct_b", "bob@example.com"),
+        ])
+        self.assertEqual(invite["email"], "alice@example.com")
+        self.assertEqual(outbox["to_email"], "alice@example.com")
+        self.assertIsNotNone(migration)
+        self.assertTrue(any(row["name"] == "idx_identity_accounts_email_unique" for row in indexes))
+
+    def test_duplicate_canonical_email_aborts_without_partial_rewrite(self) -> None:
+        self._prepare_pre_017_rows(("Alice@Example.COM", " alice@example.com "))
+
+        with self.assertRaises(RuntimeError) as exc:
+            apply_migrations(self.backend)
+        self.assertIn("duplicate identity email", str(exc.exception))
+
+        with self.backend._transaction() as conn:
+            emails = conn.execute(
+                "SELECT account_id, email FROM cloud_identity_accounts ORDER BY account_id"
+            ).fetchall()
+            migration = conn.execute(
+                "SELECT 1 FROM schema_migrations WHERE migration_id = ?",
+                ("cloud_017_identity_email_canonical",),
+            ).fetchone()
+            indexes = conn.execute("PRAGMA index_list('cloud_identity_accounts')").fetchall()
+        self.assertEqual([tuple(row) for row in emails], [
+            ("acct_a", "Alice@Example.COM"),
+            ("acct_b", " alice@example.com "),
+        ])
+        self.assertIsNone(migration)
+        self.assertFalse(any(row["name"] == "idx_identity_accounts_email_unique" for row in indexes))
 
 
 if __name__ == "__main__":

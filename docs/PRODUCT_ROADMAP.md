@@ -144,7 +144,7 @@ The goal is complete only when **every** line is true and independently verified
 > (`TenantContext` guard + `WHERE tenant_id = ?` scoping) and negative-tested
 > (`tests/test_tenancy_negative.py`, and the hosted-MCP cross-tenant
 > no-oracle suite); storage is the `StorageBackend` ABC over SQLite-WAL with a
-> forward-only, idempotent migration ledger (`cloud_001` … `cloud_014`;
+> forward-only, idempotent migration ledger (`cloud_001` … `cloud_017`;
 > ids are the ledger's primary key and are never mutated), with backup/restore
 > documented in `docs/DEPLOY.md`; the hosted delivery outbox has a full
 > lifecycle (lease/retry/dead-letter, `cloud_011`) and real crash-kill
@@ -194,8 +194,8 @@ The goal is complete only when **every** line is true and independently verified
 - [ ] `AGENTS.md` and `AGENT_HANDOVER.md` current with the code in the same commit.
 
 > **Current local evidence (2026-08-22):** the integration hardening stack is
-> documented in [`docs/RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1268 tests
-> discovered, 1267 passed, and 1 skipped. This is local evidence only; Docker,
+> documented in [`docs/RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1276 tests
+> discovered, 1275 passed, and 1 skipped. This is local evidence only; Docker,
 > hosted deployment, and third-party host-product proof remain open.
 
 ---
