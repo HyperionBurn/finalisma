@@ -1,8 +1,11 @@
 """Fail-closed, read-only preflight for the production deployment workflow.
 
 The command checks deployment configuration without printing variable values or
-secret contents. It records only names, presence booleans, origin validity, and
-the checked-out release SHA in a redacted JSON report.
+secret contents. It records only names, presence booleans, origin validity, the
+shared public/API-origin contract, and the checked-out release SHA in a redacted
+JSON report. ``PUBLIC_ORIGIN`` and ``WEFT_API_ORIGIN`` must identify the same
+canonical HTTPS origin served by the public reverse proxy. ``WEFT_SITE_URL``
+may identify the separate static marketing site.
 """
 
 from __future__ import annotations
@@ -64,6 +67,29 @@ def _valid_https_origin(value: str) -> bool:
     )
 
 
+def _normalized_https_origin(value: str) -> str | None:
+    """Return a redaction-safe comparison key for a valid HTTPS origin."""
+
+    candidate = value.strip()
+    if not _valid_https_origin(candidate):
+        return None
+    parsed = urlsplit(candidate)
+    hostname = parsed.hostname
+    if not hostname:
+        return None
+    try:
+        port = parsed.port
+    except ValueError:
+        return None
+
+    host = hostname.lower()
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    if port is not None and port != 443:
+        host = f"{host}:{port}"
+    return f"https://{host}"
+
+
 def evaluate(
     environment: Mapping[str, str],
     *,
@@ -98,6 +124,15 @@ def evaluate(
         if not valid:
             failures.append(f"origin must be an absolute HTTPS URL: {name}")
 
+    public_api_origin_match = False
+    if origin_validity["PUBLIC_ORIGIN"] and origin_validity["WEFT_API_ORIGIN"]:
+        public_api_origin_match = (
+            _normalized_https_origin(environment["PUBLIC_ORIGIN"])
+            == _normalized_https_origin(environment["WEFT_API_ORIGIN"])
+        )
+        if not public_api_origin_match:
+            failures.append("PUBLIC_ORIGIN must match WEFT_API_ORIGIN")
+
     actual = actual_sha.strip().lower()
     release_ref = actual_ref.strip()
     if release_ref != ALLOWED_RELEASE_REF:
@@ -122,6 +157,7 @@ def evaluate(
         "required_variables": variable_presence,
         "required_secrets": secret_presence,
         "https_origins": origin_validity,
+        "public_api_origin_match": public_api_origin_match,
         "failures": failures,
     }
 

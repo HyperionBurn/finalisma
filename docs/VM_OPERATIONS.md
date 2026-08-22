@@ -77,6 +77,12 @@ Configure these production environment variables:
 | WEFT_API_ORIGIN | Authorized API origin for the post-deploy release probes |
 | WEFT_SITE_URL | Authorized static-site origin for the post-deploy release probes |
 
+`WEFT_PUBLIC_ORIGIN` and `WEFT_API_ORIGIN` must resolve to the same canonical
+HTTPS origin served by the public reverse proxy. The preflight compares them
+after it removes a trailing slash, normalizes case, and treats explicit HTTPS
+port 443 as the default. `WEFT_SITE_URL` is independent because it can point to
+the separately hosted static marketing site.
+
 Configure these production secrets:
 
 | Secret | Meaning |
