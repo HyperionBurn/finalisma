@@ -5,10 +5,11 @@ surfaces cannot drift from each other or from the API. The Tier 2 sequence
 here is the one verified end to end against the real ``/v1/rooms/join``
 handler: signup (public) -> signin -> mint an agent key (``POST
 /v1/agent-keys``, session-only) -> join with ``Authorization: Bearer`` and
-``consent: true``. The other three tiers are the self-hosted coordinator
-plane (``weft-mcp``, bridge adapters, ``weft_sdk``); they cannot redeem a
-hosted cloud room's link directly, so the page says so instead of printing
-commands that fail.
+``consent: true``. The bridge-adapter tier remains on the self-hosted
+coordinator plane, but ``weft_sdk`` also supports hosted mode: give it the
+hosted ``/mcp`` origin and a bearer credential, and it derives identity from
+that credential. Keep the self-hosted fallback explicit instead of claiming
+that the SDK cannot use a hosted room.
 
 Tier 1 (MCP stdio) is the exception that makes the product usable: real MCP
 hosts (Claude Desktop, Codex, Cursor, OpenCode) launch servers as ``command`` + ``args``
@@ -61,6 +62,9 @@ def connect_page_body(room_id: str, link_token: str) -> str:
         "an authenticated credential. Joining is cross-tenant: an agent that "
         "signs up under its own brand-new org can redeem someone else's link — "
         "the link IS the authorization.</p>"
+        '<p><strong>Treat this URL like a password.</strong> Anyone who obtains '
+        'it can join. Share it only with the intended agent and revoke the link '
+        'if it is exposed.</p>'
 
         "<h2>Step 1 — get a session token (public, no auth required)</h2>"
         '<pre tabindex="0" role="region" aria-label="Code example">POST /v1/auth/signup\n'
@@ -176,12 +180,33 @@ def connect_page_body(room_id: str, link_token: str) -> str:
         '<code>bridge webhook</code> CLI. To join this hosted room use the '
         'Streamable HTTP call above.</p>'
 
-        "<h3>Tier 4 — SDK</h3>"
-        '<p><code>weft_sdk.WeftClient</code> connects to a self-hosted '
-        'coordinator over JSON-RPC and cannot redeem a hosted cloud room\'s '
-        'link; there is no hosted-cloud SDK client and '
-        '<code>WeftClient.connect()</code> takes no arguments. To join this '
-        'hosted room use the Streamable HTTP call above.</p>'
+        "<h3>Tier 4 — SDK (hosted)</h3>"
+        '<p><code>weft_sdk.WeftClient</code> supports the hosted room surface '
+        'when you pass the hosted <code>/mcp</code> URL and a bearer credential. '
+        'Use an <code>agk_</code> agent key for a long-lived connector, or use '
+        'the <code>fss_</code> session while you set up the account. Hosted mode '
+        'derives identity from the bearer credential and ignores the constructor\'s '
+        'compatibility identity values.</p>'
+        '<pre tabindex="0" role="region" aria-label="Code example">import os\n'
+        'from weft_sdk import WeftClient\n'
+        '\n'
+        'client = WeftClient(\n'
+        '    coordinator_url="https://&lt;origin&gt;/mcp",\n'
+        '    agent_id="hosted-agent", team_id="hosted",\n'
+        '    bearer_token=os.environ["WEFT_TOKEN"],\n'
+        ')\n'
+        '\n'
+        'result = client.join_room(\n'
+        '    room_id="room_8cc840e0fd9044b7ab2154af9e9c1222",\n'
+        '    link_token="rm_...",\n'
+        '    consent=True,\n'
+        ')</pre>'
+        '<p>The <code>agent_id</code> and <code>team_id</code> values above are '
+        'required by the current constructor for compatibility. The hosted '
+        'dispatcher does not use them. Keep <code>WEFT_TOKEN</code> in secret '
+        'storage and never put it in a command-line argument. For the local '
+        'self-hosted coordinator, use the separate actor-token example in '
+        '<code>docs/SDK.md</code>.</p>'
 
         f'<p>Link token: <code>{token}</code></p>'
     )

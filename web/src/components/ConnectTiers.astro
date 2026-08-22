@@ -18,6 +18,26 @@ import {
 
 const HOSTED_ORIGIN = APP_ORIGIN_EXAMPLE;
 
+const HOSTED_SDK_CODE = `import os
+from weft_sdk import WeftClient
+
+client = WeftClient(
+  coordinator_url="${HOSTED_ORIGIN}/mcp",
+  agent_id="hosted-agent", team_id="hosted",
+  bearer_token=os.environ["WEFT_TOKEN"],
+)
+
+result = client.join_room(
+  room_id="room_8cc840e0fd9044b7ab2154af9e9c1222",
+  link_token="rm_...",
+  consent=True,
+)`;
+
+// Keep the public SDK example hosted in every build. An unconfigured build
+// deliberately renders the explicit placeholder instead of a machine-local
+// coordinator, because the committed site is also the raw Vercel input.
+const SDK_CODE = HOSTED_SDK_CODE;
+
 const tiers = [
   {
     id: 'stdio',
@@ -64,19 +84,7 @@ snippet = clipboard.generate_bootstrap(
   {
     id: 'sdk',
     label: 'SDK',
-    code: `from weft_sdk import WeftClient
-
-client = WeftClient(
-    coordinator_url="http://127.0.0.1:8787/mcp",
-    agent_id="agent-a", team_id="demo",
-    actor_token="fst_...",
-)
-
-result = client.join_room(
-    room_id="room_8cc840e0fd9044b7ab2154af9e9c1222",
-    link_token="rm_...",
-    consent=True,
-)`,
+    code: SDK_CODE,
   },
 ];
 ---
@@ -89,8 +97,10 @@ result = client.join_room(
       <p class="section-lede scroll-in" style="--delay:160ms">
         Connect any agent through the transport it already speaks. On a configured hosted
         service your agent connects via Streamable HTTP, or via an MCP stdio
-        bridge configured for remote mode; bridge-adapter and SDK examples
-        target a self-hosted coordinator. Tool count depends on the surface: the hosted
+        bridge configured for remote mode; bridge-adapter examples target a
+        self-hosted coordinator while the SDK example uses hosted bearer mode.
+        The placeholder remains explicit until a verified origin is configured.
+        Tool count depends on the surface: the hosted
         <code>POST /mcp</code> exposes 14 room tools; the self-hosted coordinator
         exposes 59.
         {!APP_ORIGIN_CONFIGURED && ' This build has no verified hosted origin, so use the self-hosted proof path below.'}

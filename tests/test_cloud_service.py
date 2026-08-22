@@ -925,9 +925,8 @@ class TestJoinDescriptorAndAgentCard(CloudServiceTestBase):
     def test_join_descriptor_html_page_keeps_tier_disclaimers(self) -> None:
         # The honest disclaimers are the part a future edit could quietly drop.
         # Tier 1 (MCP stdio) reaches a hosted room through the remote bridge —
-        # the only stdio path that works — while Tiers 3 and 4 run on a
-        # self-hosted coordinator and cannot redeem a hosted cloud room link;
-        # both point at the Streamable HTTP call. Consent is an attestation,
+        # the only stdio path that works — while Tier 3 remains self-hosted and
+        # Tier 4 uses the SDK's hosted bearer mode. Consent is an attestation,
         # not proof of a human-approved screen.
         status, raw, _ = _get_url(f"{self.base}/j/{self.link_token}", accept="text/html")
         self.assertEqual(status, 200)
@@ -935,20 +934,24 @@ class TestJoinDescriptorAndAgentCard(CloudServiceTestBase):
         self.assertIn("This is not a hosted stdio server", page)
         self.assertIn("remote mode", page)
         self.assertIn("no <code>bridge webhook</code> CLI", page)
-        self.assertIn("WeftClient.connect()", page)
+        self.assertIn('coordinator_url="https://&lt;origin&gt;/mcp"', page)
+        self.assertIn('bearer_token=os.environ["WEFT_TOKEN"]', page)
+        self.assertIn("Hosted mode derives identity from the bearer credential", page)
         self.assertIn("not proof that a human saw and approved", page)
         self.assertIn("never from a request body argument", page)
         self.assertIn("cross-tenant", page)
         self.assertIn("link IS the authorization", page)
+        self.assertIn("Treat this URL like a password", page)
+        self.assertIn("revoke the link if it is exposed", page)
         # Tier 1 must teach the stdio bridge (command + args + env, token in
         # env never in argv, PYTHONUTF8=1) — it is the path real hosts use.
         self.assertIn("mcpServers", page)
         self.assertIn("PYTHONUTF8", page)
         self.assertIn("--token-env", page)
         self.assertIn("never in <code>args</code>", page)
-        self.assertGreaterEqual(
+        self.assertEqual(
             page.count("To join this hosted room use the Streamable HTTP call above"),
-            2,
+            1,
         )
 
     def test_join_descriptor_html_documents_a_working_join(self) -> None:

@@ -178,7 +178,7 @@ boundary; do not present its absolute timings as a hosted-service SLA.
 **Historical gate snapshot (2026-08-15, `feature/product-perfect`):** that
 branch recorded 960 tests and a merge-gate pass, but this is not current
 integration or deployment evidence. The latest local regression is recorded
-in [`RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1289 discovered, 1288 passed,
+in [`RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1290 discovered, 1289 passed,
 and 1 skipped. The performance gate is **red under host-load noise**: recent captures ran with multiple
 agent sessions active on the host, so the standing rule applies — rerun on a
 controlled idle host; never rebaseline to hide it. `docs/PERFORMANCE.md`

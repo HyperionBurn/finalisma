@@ -287,10 +287,9 @@ class SdkHostedInteropTests(unittest.TestCase):
     """The SDK must be able to drive the HOSTED MCP surface with a bearer
     credential — the same endpoint the stdio bridge and the web app use.
 
-    RED: ``WeftClient._call`` injects ``team_id`` and ``agent_id`` into every
-    tool call, and the hosted dispatcher rejects client-supplied identity
-    arguments (``weft_cloud/mcp.py`` ``_FORBIDDEN_IDENTITY_ARGS``), so a room
-    call is refused with ``invalid_argument`` instead of succeeding.
+    Hosted mode must strip self-hosted identity arguments before dispatching to
+    the hosted surface. The hosted dispatcher rejects those arguments
+    (``weft_cloud/mcp.py`` ``_FORBIDDEN_IDENTITY_ARGS``).
     """
 
     @classmethod
@@ -372,6 +371,39 @@ class SdkHostedInteropTests(unittest.TestCase):
             self.assertIn("room.created",
                           [e.kind for e in poll.events],
                           "owner must see the room.created lifecycle event")
+        finally:
+            client.close()
+
+    def test_sdk_join_room_uses_agent_key_identity_on_hosted_surface(self) -> None:
+        """A hosted SDK client can redeem the room link with an ``agk_`` key."""
+        status, acct = self._post("/v1/auth/signup", {
+            "email": "sdk-hosted-join@example.com", "password": "password-123",
+        })
+        self.assertEqual(status, 201, f"signup failed: {acct}")
+        status, room = self._post(
+            "/v1/rooms/create", {"cap": 4}, token=acct["session_token"],
+        )
+        self.assertEqual(status, 201, f"room create failed: {room}")
+        status, key = self._post(
+            "/v1/agent-keys", {"label": "hosted-sdk-join"},
+            token=acct["session_token"],
+        )
+        self.assertEqual(status, 201, f"agent key create failed: {key}")
+
+        client = WeftClient(
+            f"{self.base}/mcp",
+            "compatibility-agent",
+            "compatibility-team",
+            actor_token="fst_must-not-reach-hosted-surface",
+            bearer_token=key["agent_key"],
+        )
+        try:
+            joined = client.join_room(
+                room["room_id"], room["link_token"], consent=True,
+            )
+            self.assertEqual(joined.room_id, room["room_id"])
+            self.assertTrue(joined.agent_id.startswith("key_"))
+            self.assertNotEqual(joined.agent_id, acct["account_id"])
         finally:
             client.close()
 

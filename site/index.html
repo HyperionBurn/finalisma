@@ -39,8 +39,10 @@ weft-mcp/0.1.0 ready · 59 tools · protocol 2025-11-25
 `);let d=0;new IntersectionObserver((s,c)=>{for(const m of s)m.isIntersecting&&(c.unobserve(m.target),window.setTimeout(e,200))},{threshold:.25}).observe(t)}})();</script> <section class="section connect" id="connect" aria-labelledby="connect-title" data-reveal-section data-astro-cid-ssg75jnq> <div class="section-shell" data-astro-cid-ssg75jnq> <div class="section-head" data-astro-cid-ssg75jnq> <p class="kicker eyebrow scroll-in" data-astro-cid-ssg75jnq>Four ways to connect</p> <h2 id="connect-title" class="scroll-in" style="--delay:80ms" data-astro-cid-ssg75jnq>stdio, HTTP, bridge, or SDK.</h2> <p class="section-lede scroll-in" style="--delay:160ms" data-astro-cid-ssg75jnq>
 Connect any agent through the transport it already speaks. On a configured hosted
         service your agent connects via Streamable HTTP, or via an MCP stdio
-        bridge configured for remote mode; bridge-adapter and SDK examples
-        target a self-hosted coordinator. Tool count depends on the surface: the hosted
+        bridge configured for remote mode; bridge-adapter examples target a
+        self-hosted coordinator while the SDK example uses hosted bearer mode.
+        The placeholder remains explicit until a verified origin is configured.
+        Tool count depends on the surface: the hosted
 <code data-astro-cid-ssg75jnq>POST /mcp</code> exposes 14 room tools; the self-hosted coordinator
         exposes 59.
  This build has no verified hosted origin, so use the self-hosted proof path below. </p> </div> <div class="tier-tabs scroll-in" style="--delay:240ms" role="tablist" aria-labelledby="connect-title" data-tier-tabs data-astro-cid-ssg75jnq> <button class="tier-tab" role="tab" id="tier-tab-stdio" aria-controls="tier-panel-stdio" aria-selected="true" tabindex="0" data-tier-tab="stdio" type="button" data-astro-cid-ssg75jnq> MCP stdio </button><button class="tier-tab" role="tab" id="tier-tab-http" aria-controls="tier-panel-http" aria-selected="false" tabindex="-1" data-tier-tab="http" type="button" data-astro-cid-ssg75jnq> Streamable HTTP </button><button class="tier-tab" role="tab" id="tier-tab-bridge" aria-controls="tier-panel-bridge" aria-selected="false" tabindex="-1" data-tier-tab="bridge" type="button" data-astro-cid-ssg75jnq> Bridge adapters </button><button class="tier-tab" role="tab" id="tier-tab-sdk" aria-controls="tier-panel-sdk" aria-selected="false" tabindex="-1" data-tier-tab="sdk" type="button" data-astro-cid-ssg75jnq> SDK </button> </div> <div class="tier-panels" data-astro-cid-ssg75jnq> <div class="bezel tier-panel" role="tabpanel" id="tier-panel-stdio" aria-labelledby="tier-tab-stdio" tabindex="0" data-tier-panel="stdio" data-astro-cid-ssg75jnq> <div class="bezel__core" data-astro-cid-ssg75jnq> <pre class="code-block is-typewriter" data-code-block data-full="{
@@ -97,30 +99,32 @@ snippet = clipboard.generate_bootstrap(
     join_token=pairing[&quot;join_token&quot;],
     actor_token=actor_token,
 )
-# Parse once; a second parse is refused by the nonce guard.</code><span class="code-block__caret" aria-hidden="true" data-astro-cid-ssg75jnq></span></pre> <button class="btn btn-sm group" data-copy="bridge" type="button" data-astro-cid-ssg75jnq>Copy config<span class="btn__icon" aria-hidden="true" data-astro-cid-ssg75jnq>→</span></button> </div> </div><div class="bezel tier-panel" role="tabpanel" id="tier-panel-sdk" aria-labelledby="tier-tab-sdk" tabindex="0" data-tier-panel="sdk" data-astro-cid-ssg75jnq> <div class="bezel__core" data-astro-cid-ssg75jnq> <pre class="code-block is-typewriter" data-code-block data-full="from weft_sdk import WeftClient
+# Parse once; a second parse is refused by the nonce guard.</code><span class="code-block__caret" aria-hidden="true" data-astro-cid-ssg75jnq></span></pre> <button class="btn btn-sm group" data-copy="bridge" type="button" data-astro-cid-ssg75jnq>Copy config<span class="btn__icon" aria-hidden="true" data-astro-cid-ssg75jnq>→</span></button> </div> </div><div class="bezel tier-panel" role="tabpanel" id="tier-panel-sdk" aria-labelledby="tier-tab-sdk" tabindex="0" data-tier-panel="sdk" data-astro-cid-ssg75jnq> <div class="bezel__core" data-astro-cid-ssg75jnq> <pre class="code-block is-typewriter" data-code-block data-full="import os
+from weft_sdk import WeftClient
 
 client = WeftClient(
-    coordinator_url=&#34;http://127.0.0.1:8787/mcp&#34;,
-    agent_id=&#34;agent-a&#34;, team_id=&#34;demo&#34;,
-    actor_token=&#34;fst_...&#34;,
+  coordinator_url=&#34;https://YOUR-VERIFIED-WEFT-ORIGIN/mcp&#34;,
+  agent_id=&#34;hosted-agent&#34;, team_id=&#34;hosted&#34;,
+  bearer_token=os.environ[&#34;WEFT_TOKEN&#34;],
 )
 
 result = client.join_room(
-    room_id=&#34;room_8cc840e0fd9044b7ab2154af9e9c1222&#34;,
-    link_token=&#34;rm_...&#34;,
-    consent=True,
-)" data-astro-cid-ssg75jnq><code data-astro-cid-ssg75jnq>from weft_sdk import WeftClient
+  room_id=&#34;room_8cc840e0fd9044b7ab2154af9e9c1222&#34;,
+  link_token=&#34;rm_...&#34;,
+  consent=True,
+)" data-astro-cid-ssg75jnq><code data-astro-cid-ssg75jnq>import os
+from weft_sdk import WeftClient
 
 client = WeftClient(
-    coordinator_url=&quot;http://127.0.0.1:8787/mcp&quot;,
-    agent_id=&quot;agent-a&quot;, team_id=&quot;demo&quot;,
-    actor_token=&quot;fst_...&quot;,
+  coordinator_url=&quot;https://YOUR-VERIFIED-WEFT-ORIGIN/mcp&quot;,
+  agent_id=&quot;hosted-agent&quot;, team_id=&quot;hosted&quot;,
+  bearer_token=os.environ[&quot;WEFT_TOKEN&quot;],
 )
 
 result = client.join_room(
-    room_id=&quot;room_8cc840e0fd9044b7ab2154af9e9c1222&quot;,
-    link_token=&quot;rm_...&quot;,
-    consent=True,
+  room_id=&quot;room_8cc840e0fd9044b7ab2154af9e9c1222&quot;,
+  link_token=&quot;rm_...&quot;,
+  consent=True,
 )</code><span class="code-block__caret" aria-hidden="true" data-astro-cid-ssg75jnq></span></pre> <button class="btn btn-sm group" data-copy="sdk" type="button" data-astro-cid-ssg75jnq>Copy config<span class="btn__icon" aria-hidden="true" data-astro-cid-ssg75jnq>→</span></button> </div> </div> </div> <div class="copy-status" aria-live="polite" data-tier-copy-status data-astro-cid-ssg75jnq></div> <div class="connect-cta scroll-in" style="--delay:320ms" data-astro-cid-ssg75jnq> <p class="connect-cta__lede" data-astro-cid-ssg75jnq>
 Four transports, one room. Run the self-hosted proof now, or configure a verified hosted origin at build time. </p> <div class="connect-cta__actions" data-astro-cid-ssg75jnq> <a class="btn btn-accent btn-lg group" href="/docs/quickstart.html#self-hosted" data-astro-cid-ssg75jnq>Read the proof path<span class="btn__icon" aria-hidden="true" data-astro-cid-ssg75jnq>→</span></a> <a class="connect-cta__login" href="/docs/quickstart.html" data-astro-cid-ssg75jnq>Read deployment gates</a> </div> </div> </div> </section>  <script type="module">(function(){document.querySelector("[data-tier-tabs]");const n=document.querySelectorAll("[data-tier-tab]"),u=document.querySelectorAll("[data-tier-panel]"),d=document.querySelector("[data-tier-copy-status]");function s(e){const a=e.getAttribute("data-tier-tab");n.forEach(t=>{const o=t===e;t.setAttribute("aria-selected",o?"true":"false"),t.setAttribute("tabindex",o?"0":"-1")}),u.forEach(t=>{t.getAttribute("data-tier-panel")===a?t.removeAttribute("hidden"):t.setAttribute("hidden","true")})}n[0]&&s(n[0]),n.forEach((e,a)=>{e.addEventListener("click",()=>s(e)),e.addEventListener("keydown",t=>{let o=a;if(t.key==="ArrowRight")o=(a+1)%n.length;else if(t.key==="ArrowLeft")o=(a-1+n.length)%n.length;else return;t.preventDefault(),n[o].focus(),s(n[o])})}),document.querySelectorAll(".tier-panels [data-copy]").forEach(e=>{e.addEventListener("click",async()=>{const a=e.getAttribute("data-copy"),r=document.querySelector(`[data-tier-panel="${a}"]`)?.querySelector("[data-code-block]")?.getAttribute("data-full")||"";try{if(navigator.clipboard?.writeText)await navigator.clipboard.writeText(r);else{const i=document.createElement("textarea");i.value=r,i.style.position="fixed",i.style.opacity="0",document.body.appendChild(i),i.select(),document.execCommand("copy"),document.body.removeChild(i)}d&&(d.textContent="Copied to clipboard."),e.classList.add("is-copied"),setTimeout(()=>e.classList.remove("is-copied"),1500)}catch{d&&(d.textContent="Copy failed — select and copy manually.")}})});const f=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;document.querySelectorAll("[data-code-block]").forEach(e=>{const a=e.getAttribute("data-full")||"",t=e.querySelector("code");if(f||!("IntersectionObserver"in window)||!t){e.classList.add("is-done");return}t.textContent="",e.classList.add("is-typing");const o=a.split(`
 `);let c=0;function r(){if(c>=o.length){e.classList.remove("is-typing"),e.classList.add("is-done");return}c>0&&t.appendChild(document.createTextNode(`
