@@ -598,6 +598,22 @@ class HostedMCPRoomFlowTests(HostedMCPTestBase):
                                     token=a["session_token"])
         self.assertEqual(status, HTTPStatus.CREATED)
 
+    def test_room_create_defaults_to_fifteen_members_when_cap_is_omitted(self) -> None:
+        account = self._signup("default-cap-mcp@example.com")
+        status, listing = _mcp(
+            self.base, "tools/list", None, token=account["session_token"], request_id=76,
+        )
+        self.assertEqual(status, HTTPStatus.OK)
+        room_create = next(
+            tool for tool in listing["result"]["tools"] if tool["name"] == "room_create"
+        )
+        self.assertNotIn("cap", room_create["inputSchema"].get("required", []))
+
+        created = self._assert_ok(
+            account["session_token"], "room_create", {"name": "default-cap"}, request_id=77,
+        )
+        self.assertEqual(created["cap"], 15)
+
     def test_member_cannot_create_room_through_hosted_mcp(self) -> None:
         """MCP room creation must enforce the same admin boundary as REST."""
         owner = self._signup("member-create-owner@example.com")

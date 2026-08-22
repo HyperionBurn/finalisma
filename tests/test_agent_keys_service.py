@@ -341,6 +341,29 @@ class AgentKeyEndToEndTests(AgentKeyServiceTestBase):
         self.assertEqual(status, HTTPStatus.OK, f"session room close failed: {closed}")
         self.assertEqual(closed["state"], "closed")
 
+    def test_agent_key_create_and_connect_default_to_fifteen_members(self) -> None:
+        acct = self._signup("agent-key-default-cap@example.com")
+        session = acct["session_token"]
+        raw_key = self._create_key(session, label="default-cap")["agent_key"]
+
+        status, created = _post(
+            self.base, "/v1/rooms/create", {"name": "default-create"}, token=raw_key,
+        )
+        self.assertEqual(status, HTTPStatus.CREATED, f"default key create failed: {created}")
+        self.assertEqual(created["cap"], 15)
+
+        status, connected = _post(
+            self.base, "/v1/rooms/connect", {"name": "default-connect"}, token=raw_key,
+        )
+        self.assertEqual(status, HTTPStatus.CREATED, f"default key connect failed: {connected}")
+        self.assertEqual(connected["cap"], 15)
+
+        for room_id in (created["room_id"], connected["room_id"]):
+            status, closed = _post(
+                self.base, "/v1/rooms/close", {"room_id": room_id}, token=session,
+            )
+            self.assertEqual(status, HTTPStatus.OK, f"cleanup close failed: {closed}")
+
     def test_revoked_key_refused_on_the_very_next_request(self) -> None:
         acct = self._signup("revoke-next@example.com")
         key = self._create_key(acct["session_token"])

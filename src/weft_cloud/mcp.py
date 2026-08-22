@@ -56,7 +56,7 @@ import threading as _threading
 from typing import Any, Callable
 
 from weft_cloud.identity import AuthError, RoleError, SessionContext
-from weft_cloud.quotas import QuotaError
+from weft_cloud.quotas import DEFAULT_ROOM_CAP, QuotaError
 from weft_cloud.rate_limit import RateLimitedError
 from weft_cloud.rooms import CloudRoomService, RoomError
 from weft_mcp.core import MCP_PROTOCOL_VERSION, SUPPORTED_MCP_VERSIONS, WeftError
@@ -161,7 +161,7 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
             "cap": _INTEGER,
             "name": _STRING,
             "ttl_seconds": _INTEGER,
-        }, ["cap"]),
+        }, []),
     },
     {
         "name": "room_list",
@@ -588,7 +588,7 @@ class HostedMCPDispatcher:
     # ------------------------------------------------------------------
 
     def _tool_room_create(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:
-        cap = args.get("cap")
+        cap = args.get("cap", DEFAULT_ROOM_CAP)
         if not isinstance(cap, int):
             raise WeftError("invalid_argument", "cap must be an integer")
         # Room creation is an organization-level mutation. Keep the fast
