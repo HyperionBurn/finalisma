@@ -54,6 +54,8 @@ class _ContractHandler(BaseHTTPRequestHandler):
         if self.surface == "api":
             if self.path == "/healthz":
                 self._reply(200, b'{"status":"ok"}', content_type="application/json")
+            elif self.path == "/readyz":
+                self._reply(200, b'{"status":"ready"}', content_type="application/json")
             elif self.path == "/":
                 self._reply(303, location="/login")
             elif self.path == "/login":
@@ -263,6 +265,7 @@ class LiveReleaseProbeContractTests(unittest.TestCase):
             self.assertEqual(result["diagnostics"], [])
             self.assertNotIn("sha256", json.dumps(result))
             for check in (
+                "api_readiness",
                 "site_docs_reachable",
                 "site_quickstart_reachable",
                 "site_demo_reachable",

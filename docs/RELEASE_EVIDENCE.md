@@ -7,11 +7,14 @@ compatibility claim.
 ## Latest regression evidence
 
 Measured locally on the current source/test stack (merged base `main` at
-`c4da173`; PR110 candidate branch `codex/creator-key-redemption-2026-08-22`):
+`77f02d3`; PR111 candidate branch `codex/storage-readiness-deploy-gate-2026-08-22`):
 
 - Command: `python -B -m unittest discover -s tests`
-- Result: **1292 tests discovered; 1291 passed; 1 skipped**
-- Duration: 591.485 seconds on the local Windows runner
+- Result: **1295 tests discovered; 1294 passed; 1 skipped**
+- Duration: 591.880 seconds on the local Windows runner
+- Focused storage-readiness/deploy-gate suite: 47 tests passed locally
+  (`tests.test_probe_live_release`, `tests.test_probe_live_release_contract`,
+  and `tests.test_deploy_gate`)
 - Focused web/deploy readiness suite: 69 tests passed locally
 - Focused hosted-MCP probe/preflight/workflow suite: 37 tests passed locally
 - Focused rollback/deploy/preflight suite: 61 tests passed locally
