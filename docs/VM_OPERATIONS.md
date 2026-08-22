@@ -90,6 +90,7 @@ Configure these production secrets:
 | WEFT_SSH_PRIVATE_KEY | Private key for the verified VM user |
 | WEFT_SSH_KNOWN_HOSTS | Independently verified known_hosts content |
 | WEFT_MCP_PROBE_TOKEN | Release-scoped bearer token for the read-only MCP catalog probe |
+| WEFT_MCP_LIFECYCLE_TOKEN | Separate owner/admin agent key for the authenticated MCP room lifecycle probe |
 
 The workflow writes the SSH key and known_hosts content only to ephemeral
 runner files with mode 600, uses the existing strict SSH checks, and removes

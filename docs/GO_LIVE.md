@@ -153,6 +153,24 @@ service is reachable but the authenticated release surface has drifted, exit
 3 means it is unreachable, exit 4 means the operator did not supply an
 explicit origin or token, and exit 5 means the token was rejected.
 
+The catalog gate does not prove that an authenticated customer can use the
+room lifecycle. Run the separate lifecycle gate with a dedicated owner/admin
+agent key. Do not reuse the read-only catalog token:
+
+~~~powershell
+$env:WEFT_MCP_LIFECYCLE_TOKEN = "<read-from-the-authorized-secret-store>"
+python -B .\scripts\probe_hosted_mcp_lifecycle.py --pretty
+Remove-Item Env:WEFT_MCP_LIFECYCLE_TOKEN
+~~~
+
+This probe performs initialize, tools/list, `room_create` with a short-lived
+non-secret name, and `room_close` in a `finally` path. It emits only redacted
+endpoint facts and never prints a room id, link token, bearer token, or
+response body. Exit 0 is required before the deployment gate can pass. Exit 2
+means the lifecycle surface drifted, exit 3 means it is unreachable, exit 4
+means the operator did not supply an explicit origin or lifecycle token, and
+exit 5 means the token was rejected.
+
 The performance command is a same-machine single-node gate. Read
 [PERFORMANCE.md](PERFORMANCE.md) for the baseline contract and deployment
 boundary; do not present its absolute timings as a hosted-service SLA.
@@ -160,7 +178,7 @@ boundary; do not present its absolute timings as a hosted-service SLA.
 **Historical gate snapshot (2026-08-15, `feature/product-perfect`):** that
 branch recorded 960 tests and a merge-gate pass, but this is not current
 integration or deployment evidence. The latest local regression is recorded
-in [`RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1281 discovered, 1280 passed,
+in [`RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1288 discovered, 1287 passed,
 and 1 skipped. The performance gate is **red under host-load noise**: recent captures ran with multiple
 agent sessions active on the host, so the standing rule applies — rerun on a
 controlled idle host; never rebaseline to hide it. `docs/PERFORMANCE.md`
