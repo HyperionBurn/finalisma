@@ -46,7 +46,7 @@ services:
   # which is safe only because both open it in WAL mode (one writer, many
   # readers). The image's baked-in HEALTHCHECK probes WEFT_PORT/readyz,
   # which nothing in this container listens on, so it is overridden here to
-  # probe the web port; GET /login returns 200 without a session.
+  # probe the web port's storage-backed /readyz endpoint.
   weft-web:
     image: weft-cloud:local
     command: ["python", "-B", "-m", "weft_cloud.web"]
@@ -62,7 +62,7 @@ services:
     volumes:
       - weft-cloud-data:/data
     healthcheck:
-      test: ["CMD", "python", "-c", "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('WEFT_WEB_PORT','18789')+'/login', timeout=3)"]
+      test: ["CMD", "python", "-c", "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('WEFT_WEB_PORT','18789')+'/readyz', timeout=3)"]
       interval: 30s
       timeout: 5s
       start_period: 10s

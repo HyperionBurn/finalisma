@@ -82,6 +82,7 @@ All state-changing routes are POST; all reads are GET. Auth is enforced per-rout
 | POST | `/login` | `auth_post_login` | public | `accounts.authenticate(backend, tenant_id, email, password)` → `sessions.create(backend, tenant_id, account_id, role)` → set cookie → 303 to `/` |
 | POST | `/logout` | `auth_post_logout` | public (best-effort; CSRF-gated) | Revoke session if present, clear cookie, 303 to `/login`. **Delta:** the implementation validates `_csrf` first (403 on mismatch) and revokes via `sessions.revoke`; web sessions are `fss_`-only, so there is no `agk_` branch here (the `agk_` branch lives in the REST `/v1/auth/signout` funnel). |
 | GET | `/health` | `handle_get_health` | public | Liveness endpoint for load balancers (200 without auth). **Delta:** shipped; not in the original table. |
+| GET | `/readyz` | `handle_get_ready` | public | Storage-readiness endpoint (200 when `SELECT 1` succeeds, 503 when the shared database is unavailable). |
 | GET | `/verify` | `auth_get_verify` | public (token in query) | Render "verify" landing; if token valid, auto-verify and redirect to `/login?verified=1` |
 | POST | `/verify` | `auth_post_verify` | public | `accounts.verify_email(backend, token)` → 303 to `/login?verified=1` |
 | GET | `/reset-request` | `auth_get_reset_request` | public | Render reset-request form |
