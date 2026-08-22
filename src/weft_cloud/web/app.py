@@ -930,6 +930,27 @@ class WeftWebApp:
         """
         self._send_json(handler, HTTPStatus.OK, {"status": "ok"})
 
+    def handle_get_ready(self, handler: BaseHTTPRequestHandler) -> None:
+        """Public storage-readiness endpoint (GET /readyz).
+
+        Keep ``/health`` as process liveness. This endpoint performs the
+        smallest storage operation required by authenticated web traffic so a
+        container scheduler can remove the web process from service when the
+        shared database is unavailable.
+        """
+        try:
+            with self.backend.transaction() as tx:
+                tx.execute("SELECT 1").fetchone()
+        except Exception:
+            # Readiness must fail closed without exposing database details.
+            self._send_json(
+                handler,
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                {"status": "unavailable", "service": "weft-web"},
+            )
+            return
+        self._send_json(handler, HTTPStatus.OK, {"status": "ready", "service": "weft-web"})
+
     def handle_get_signup(self, handler: BaseHTTPRequestHandler) -> None:
         token = _new_csrf()
         form = (
@@ -2513,6 +2534,9 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
                 return
             if method == "GET" and path == "/health":
                 app.handle_get_health(self)
+                return
+            if method == "GET" and path == "/readyz":
+                app.handle_get_ready(self)
                 return
 
             # --- Public pre-auth routes (POST) ---

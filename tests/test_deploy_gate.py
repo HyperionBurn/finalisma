@@ -426,6 +426,8 @@ class RedeployBackupSafetyTests(unittest.TestCase):
         compose = (REPO_ROOT / "compose.yaml").read_text(encoding="utf-8")
         self.assertIn("baked-in HEALTHCHECK probes WEFT_PORT/readyz", compose)
         self.assertNotIn("baked-in HEALTHCHECK probes WEFT_PORT/healthz", compose)
+        self.assertIn("WEFT_WEB_PORT','18789')+'/readyz", compose)
+        self.assertNotIn("WEFT_WEB_PORT','18789')+'/login", compose)
 
         unit = (SCRIPTS_DIR / "systemd" / "weft-healthcheck.service").read_text(encoding="utf-8")
         self.assertIn("EnvironmentFile=/etc/weft/healthcheck.env", unit)

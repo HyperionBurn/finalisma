@@ -346,6 +346,21 @@ class TestPublicPathAllowlist(unittest.TestCase):
         for leaked in ("version", "build", "hash", ".sqlite", "commit"):
             self.assertNotIn(leaked, body.lower())
 
+    def test_readyz_reports_storage_ready_without_auth(self):
+        status, body, hdrs = self.d.get("/readyz")
+        self.assertEqual(status, 200)
+        self.assertEqual(body, '{"status":"ready","service":"weft-web"}')
+        self.assertEqual(hdrs.get("Content-Type"), "application/json")
+
+    def test_readyz_fails_closed_when_storage_is_unavailable(self):
+        with mock.patch.object(self.d.backend, "transaction", side_effect=RuntimeError("db unavailable")):
+            status, body, _ = self.d.get("/readyz")
+            self.assertEqual(status, 503)
+            self.assertEqual(body, '{"status":"unavailable","service":"weft-web"}')
+            live_status, live_body, _ = self.d.get("/health")
+        self.assertEqual(live_status, 200)
+        self.assertEqual(live_body, '{"status":"ok"}')
+
     def test_robots_txt_served_publicly_as_text_plain(self):
         status, body, hdrs = self.d.get("/robots.txt")
         self.assertEqual(status, 200)
@@ -375,7 +390,7 @@ class TestPublicPathAllowlist(unittest.TestCase):
     def test_public_paths_carry_the_security_header_block(self):
         # A public response must not be an unsecured hole: the always-on
         # header block applies to every public path too.
-        for path in ("/health", "/robots.txt", "/sitemap.xml"):
+        for path in ("/health", "/readyz", "/robots.txt", "/sitemap.xml"):
             with self.subTest(path=path):
                 status, _, hdrs = self.d.get(path)
                 self.assertEqual(status, 200)

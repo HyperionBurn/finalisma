@@ -124,6 +124,7 @@ class TestWebEntryPointBootsAndServes(unittest.TestCase):
                 self._wait_until_serving(port)
                 self.assertEqual(_get(port, "/signup"), 200, "GET /signup")
                 self.assertEqual(_get(port, "/login"), 200, "GET /login")
+                self.assertEqual(_get(port, "/readyz"), 200, "GET /readyz")
             finally:
                 proc.terminate()
                 try:

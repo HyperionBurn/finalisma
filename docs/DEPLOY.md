@@ -145,9 +145,10 @@ curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18789/rooms    # 303 
 
 The API image healthcheck probes storage-backed `GET /readyz`, so the delivery
 profiles wait for the shared SQLite store to be usable before they start. The
-web container has no `/healthz` or `/readyz`; its healthcheck probes `GET /login`
-(200 without a session) instead. This checks web-process reachability, not web
-database readiness.
+web container keeps `GET /health` as process liveness and exposes its own
+storage-backed `GET /readyz`; its healthcheck probes that endpoint using
+`WEFT_WEB_PORT`. Both containers therefore fail readiness when the shared
+SQLite store is unavailable.
 
 Acceptance proof — this drives a real signup → one room → 4 agents → ordered
 broadcast → unicast → refusal flow **against the containerised agent API** (it
@@ -311,7 +312,7 @@ Executed and confirmed on the authoring machine:
 - Both processes started against one shared database file; the shared-store
   suite `tests/test_webapp_entrypoint.py` (6 tests) passes.
 - The latest local regression is recorded in
-  [`RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1279 tests discovered, 1278
+  [`RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1281 tests discovered, 1280
   passed, and 1 skipped (measured 2026-08-22 on the hosted room lifecycle
   stack). This is not Docker, VM, hosted-edge, SMTP, or merge proof; the
   historical 915-test and 524-test snapshots above remain provenance for
