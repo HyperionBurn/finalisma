@@ -880,6 +880,38 @@ class WeftWebApp:
         with self._link_token_lock:
             self._link_token_cache[room_id] = raw_token
 
+    def _get_room_link_state(self, room_id: str) -> str:
+        """Return why a room's cached join link cannot be rendered.
+
+        ``None`` from ``_get_room_link_token`` can mean a normal process
+        restart or a durable invalidation. The page must distinguish those
+        states because only a restart can use the replacement-link action.
+        """
+        with self.backend.transaction() as tx:
+            row = tx.execute(
+                "SELECT r.state, r.expires_at AS room_expires_at, "
+                "l.expires_at AS link_expires_at, l.revoked "
+                "FROM cloud_rooms r "
+                "LEFT JOIN cloud_room_links l "
+                "  ON l.tenant_id = r.tenant_id AND l.room_id = r.room_id "
+                "WHERE r.room_id = ? LIMIT 1",
+                (room_id,),
+            ).fetchone()
+        if row is None:
+            return "missing"
+        if row["state"] == "closed":
+            return "closed"
+        if row["revoked"]:
+            return "revoked"
+        now = _time.time()
+        if float(row["room_expires_at"] or 0.0) <= now:
+            return "room_expired"
+        if float(row["link_expires_at"] or 0.0) <= now:
+            return "link_expired"
+        if row["link_expires_at"] is None:
+            return "missing"
+        return "valid"
+
     # ------------------------------------------------------------------
     # Route handlers — public pre-auth
     # ------------------------------------------------------------------
@@ -2026,14 +2058,22 @@ class WeftWebApp:
                         '</div>'
                     )
                 else:
-                    link_section = (
-                        '<div class="flash"><strong>Join link unavailable after '
-                        'a web restart.</strong> The raw token is stored only in '
-                        'the creating process (the database keeps only its hash). '
-                        'The room is still intact; the owner can safely generate '
-                        'a replacement link below.</div>'
-                    )
-                    if is_owner:
+                    link_state = self._get_room_link_state(room_id)
+                    if link_state in {"room_expired", "link_expired"}:
+                        link_section = (
+                            '<div class="warn"><strong>Join link expired.</strong> '
+                            'This link cannot be restored. Create a new room to '
+                            'connect an agent.</div>'
+                        )
+                    else:
+                        link_section = (
+                            '<div class="flash"><strong>Join link unavailable after '
+                            'a web restart.</strong> The raw token is stored only in '
+                            'the creating process (the database keeps only its hash). '
+                            'The room is still intact; the owner can safely generate '
+                            'a replacement link below.</div>'
+                        )
+                    if is_owner and link_state == "valid":
                         link_section += (
                             '<form method="post" '
                             f'action="/room/{_esc(room_id)}/regenerate-link">'
@@ -2228,14 +2268,30 @@ class WeftWebApp:
             csrf_token = None
         else:
             info = self._room_info_for_member(ctx.tenant_id, room_id, ctx.account_id)
+            link_state = self._get_room_link_state(room_id)
             csrf_token = _new_csrf()
-            body_html = (
-                '<h1>Connect an agent</h1>'
-                '<div class="warn"><strong>Join link unavailable after a web '
-                'restart.</strong> The owner can generate a replacement link; '
-                'no blank or unusable join request is shown.</div>'
-            )
-            if info.get("owner_agent_id") == ctx.account_id:
+            if info.get("link_revoked") or link_state in {"closed", "revoked"}:
+                body_html = (
+                    '<h1>Connect an agent</h1>'
+                    '<div class="warn"><strong>Join link revoked.</strong> This '
+                    'link no longer admits anyone. Create a new room to connect '
+                    'an agent.</div>'
+                )
+            elif link_state in {"room_expired", "link_expired"}:
+                body_html = (
+                    '<h1>Connect an agent</h1>'
+                    '<div class="warn"><strong>Join link expired.</strong> This '
+                    'link cannot be restored. Create a new room to connect an '
+                    'agent.</div>'
+                )
+            else:
+                body_html = (
+                    '<h1>Connect an agent</h1>'
+                    '<div class="warn"><strong>Join link unavailable after a web '
+                    'restart.</strong> The owner can generate a replacement link; '
+                    'no blank or unusable join request is shown.</div>'
+                )
+            if info.get("owner_agent_id") == ctx.account_id and link_state == "valid":
                 body_html += (
                     '<form method="post" '
                     f'action="/room/{_esc(room_id)}/regenerate-link">'
