@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import threading
@@ -8,6 +9,10 @@ from contextlib import redirect_stdout
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from scripts import probe_live_release
+
+
+def _sha256(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
 
 
 class _ContractHandler(BaseHTTPRequestHandler):
@@ -167,10 +172,10 @@ class _ContractHandler(BaseHTTPRequestHandler):
                 "page_count": 4,
                 "sitemap_url_count": 4,
                 "media_sha256": {
-                    "weft-demo.mp4": "a" * 64,
-                    "weft-demo.webm": "b" * 64,
-                    "weft-demo.vtt": "c" * 64,
-                    "weft-demo-poster.png": "d" * 64,
+                    "weft-demo.mp4": _sha256(b"media"),
+                    "weft-demo.webm": _sha256(b"media"),
+                    "weft-demo.vtt": _sha256(b"WEBVTT\n"),
+                    "weft-demo-poster.png": _sha256(b"media"),
                 },
             }
             if self.mode == "manifest-drift":
@@ -188,7 +193,10 @@ class _ContractHandler(BaseHTTPRequestHandler):
             "/assets/weft-demo-poster.png": "image/png",
         }
         if self.path in media:
-            self._reply(200, b"WEBVTT\n" if self.path.endswith(".vtt") else b"media", content_type=media[self.path])
+            body = b"WEBVTT\n" if self.path.endswith(".vtt") else b"media"
+            if self.mode == "media-drift" and self.path == "/assets/weft-demo.mp4":
+                body = b"media-drift"
+            self._reply(200, body, content_type=media[self.path])
             return
         self._reply(404, b"not found")
 
@@ -253,6 +261,7 @@ class LiveReleaseProbeContractTests(unittest.TestCase):
             result = probe_live_release.probe(api_origin, site_origin, timeout=2)
             self.assertEqual(result["status"], "PASS")
             self.assertEqual(result["diagnostics"], [])
+            self.assertNotIn("sha256", json.dumps(result))
             for check in (
                 "site_docs_reachable",
                 "site_quickstart_reachable",
@@ -309,6 +318,21 @@ class LiveReleaseProbeContractTests(unittest.TestCase):
             diagnostics = {item["check"]: item for item in result["diagnostics"]}
             self.assertIn("site_release_manifest", diagnostics)
             self.assertIn("site_manifest", diagnostics["site_release_manifest"]["endpoints"])
+        finally:
+            for server in (api_server, site_server):
+                server.shutdown()
+                server.server_close()
+
+    def test_media_byte_drift_fails_release_alignment(self) -> None:
+        api_server, api_origin, site_server, site_origin = _serve_pair("media-drift")
+        try:
+            result = probe_live_release.probe(api_origin, site_origin, timeout=2)
+            self.assertEqual(result["status"], "DRIFT")
+            self.assertTrue(result["checks"]["reachability"])
+            self.assertFalse(result["checks"]["site_release_manifest"])
+            self.assertFalse(result["checks"]["release_alignment"])
+            self.assertEqual(api_server.RequestHandlerClass.mutation_attempts, 0)
+            self.assertEqual(site_server.RequestHandlerClass.mutation_attempts, 0)
         finally:
             for server in (api_server, site_server):
                 server.shutdown()

@@ -3,12 +3,15 @@
 The probe deliberately separates reachability from release alignment.  A
 reachable old deployment is reported as ``DRIFT`` rather than being mistaken
 for proof that the current source bundle is live.  It never authenticates,
-mutates state, prints response bodies, or accepts bearer credentials.
+mutates state, prints response bodies, or accepts bearer credentials. It hashes
+complete media responses and compares them with the release manifest while
+retaining only a bounded preview for diagnostics.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -64,24 +67,67 @@ def _origin(value: str) -> str:
     return value
 
 
-def _fetch(url: str, timeout: float) -> dict:
+def _read_body(stream) -> tuple[bytes, int, str]:
+    """Hash the full response while retaining only a bounded diagnostic preview."""
+
+    digest = hashlib.sha256()
+    preview = bytearray()
+    total = 0
+    while True:
+        chunk = stream.read(64 * 1024)
+        if not chunk:
+            break
+        digest.update(chunk)
+        total += len(chunk)
+        remaining = (_MAX_BODY_BYTES + 1) - len(preview)
+        if remaining > 0:
+            preview.extend(chunk[:remaining])
+    return bytes(preview), total, digest.hexdigest()
+
+
+def _fetch(url: str, timeout: float, *, include_sha256: bool = False) -> dict:
     request = Request(url, headers={"User-Agent": "weft-live-release-probe/1"})
     try:
         with _OPENER.open(request, timeout=timeout) as response:
+            if include_sha256:
+                raw, byte_count, sha256 = _read_body(response)
+                return _response(
+                    response.status,
+                    response.headers,
+                    raw,
+                    byte_count=byte_count,
+                    sha256=sha256,
+                )
             raw = response.read(_MAX_BODY_BYTES + 1)
             return _response(response.status, response.headers, raw)
     except HTTPError as exc:
         try:
+            if include_sha256:
+                raw, byte_count, sha256 = _read_body(exc)
+                return _response(
+                    exc.code,
+                    exc.headers,
+                    raw,
+                    byte_count=byte_count,
+                    sha256=sha256,
+                )
             raw = exc.read(_MAX_BODY_BYTES + 1)
+            return _response(exc.code, exc.headers, raw)
         finally:
             exc.close()
-        return _response(exc.code, exc.headers, raw)
     except (HTTPException, OSError, URLError, TimeoutError) as exc:
         return {"status": None, "headers": {}, "bytes": 0, "error": str(exc)}
 
 
-def _response(status: int, headers, raw: bytes) -> dict:
-    return {
+def _response(
+    status: int,
+    headers,
+    raw: bytes,
+    *,
+    byte_count: int | None = None,
+    sha256: str | None = None,
+) -> dict:
+    response = {
         "status": int(status),
         "headers": {
             name.lower(): value
@@ -99,10 +145,13 @@ def _response(status: int, headers, raw: bytes) -> dict:
                 "x-frame-options",
             }
         },
-        "bytes": len(raw),
-        "truncated": len(raw) > _MAX_BODY_BYTES,
+        "bytes": len(raw) if byte_count is None else byte_count,
+        "truncated": (len(raw) if byte_count is None else byte_count) > _MAX_BODY_BYTES,
         "body": raw[:_MAX_BODY_BYTES].decode("utf-8", "replace"),
     }
+    if sha256 is not None:
+        response["sha256"] = sha256
+    return response
 
 
 def _has_headers(response: dict, names: tuple[str, ...]) -> bool:
@@ -245,7 +294,30 @@ def _sitemap_urls(response: dict, site_origin: str) -> list[str]:
     )
 
 
-def _manifest_ok(response: dict, site_origin: str, sitemap_response: dict) -> bool:
+def _manifest_media_ok(
+    media_hashes: object,
+    media_responses: dict[str, dict],
+) -> bool:
+    if not isinstance(media_hashes, dict):
+        return False
+    for name in _MANIFEST_MEDIA:
+        expected = media_hashes.get(name)
+        if not isinstance(expected, str) or re.fullmatch(r"[0-9a-fA-F]{64}", expected) is None:
+            return False
+    return all(
+        media_responses.get(name, {}).get("status") == 200
+        and media_responses.get(name, {}).get("sha256", "").lower()
+        == media_hashes[name].lower()
+        for name in _MANIFEST_MEDIA
+    )
+
+
+def _manifest_ok(
+    response: dict,
+    site_origin: str,
+    sitemap_response: dict,
+    media_responses: dict[str, dict],
+) -> bool:
     manifest = _json_body(response)
     if manifest is None:
         return False
@@ -261,12 +333,7 @@ def _manifest_ok(response: dict, site_origin: str, sitemap_response: dict) -> bo
         and manifest["sitemap_url_count"] <= manifest["page_count"]
         and manifest["sitemap_url_count"] == len(sitemap_urls)
         and manifest["page_count"] == len(sitemap_urls)
-        and isinstance(media_hashes, dict)
-        and all(
-            isinstance(media_hashes.get(name), str)
-            and re.fullmatch(r"[0-9a-fA-F]{64}", media_hashes[name])
-            for name in _MANIFEST_MEDIA
-        )
+        and _manifest_media_ok(media_hashes, media_responses)
     )
 
 
@@ -284,7 +351,7 @@ def _summary(response: dict) -> dict:
     return {
         key: value
         for key, value in response.items()
-        if key != "body"
+        if key not in {"body", "sha256"}
     }
 
 
@@ -377,7 +444,11 @@ def probe(api_origin: str, site_origin: str, timeout: float = 20.0) -> dict:
         "site_manifest": _fetch(f"{site_origin}/release-manifest.json", timeout),
     }
     for name, (path, _content_type) in _MEDIA.items():
-        endpoints[name] = _fetch(f"{site_origin}{path}", timeout)
+        endpoints[name] = _fetch(
+            f"{site_origin}{path}",
+            timeout,
+            include_sha256=True,
+        )
 
     api_health_ok = (
         endpoints["api_health"]["status"] == 200
@@ -424,7 +495,13 @@ def probe(api_origin: str, site_origin: str, timeout: float = 20.0) -> dict:
         and all(url.startswith(f"{site_origin}/") for url in sitemap_urls)
     )
     site_manifest_ok = _manifest_ok(
-        endpoints["site_manifest"], site_origin, endpoints["site_sitemap"]
+        endpoints["site_manifest"],
+        site_origin,
+        endpoints["site_sitemap"],
+        {
+            path.rsplit("/", 1)[-1]: endpoints[name]
+            for name, (path, _content_type) in _MEDIA.items()
+        },
     )
     expected_metadata = {
         "site_home": f"{site_origin}/",

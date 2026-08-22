@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import os
@@ -10,6 +11,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import patch
 
 from scripts import probe_live_release
+
+
+def _sha256(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
 
 
 class _ProbeHandler(BaseHTTPRequestHandler):
@@ -147,10 +152,10 @@ class _ProbeHandler(BaseHTTPRequestHandler):
                 "page_count": 4,
                 "sitemap_url_count": 4,
                 "media_sha256": {
-                    "weft-demo.mp4": "0" * 64,
-                    "weft-demo.webm": "1" * 64,
-                    "weft-demo.vtt": "2" * 64,
-                    "weft-demo-poster.png": "3" * 64,
+                    "weft-demo.mp4": _sha256(b"mp4-fixture"),
+                    "weft-demo.webm": _sha256(b"webm-fixture"),
+                    "weft-demo.vtt": _sha256(b"WEBVTT\n"),
+                    "weft-demo-poster.png": _sha256(b"png-fixture"),
                 },
             }
             self._reply(
