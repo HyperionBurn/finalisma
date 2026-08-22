@@ -105,12 +105,16 @@ class ProductionDeployWorkflowTests(unittest.TestCase):
             "Verify authenticated hosted MCP catalog",
             "Verify authenticated hosted MCP room lifecycle",
             "Roll back failed cutover or release gate",
+            "Verify public API and site after rollback",
+            "Verify authenticated hosted MCP catalog after rollback",
+            "Verify authenticated hosted MCP room lifecycle after rollback",
             "Remove ephemeral SSH credentials",
         )
         self.assertEqual(order, sorted(order))
         cutover = self._step_block("Run the fail-closed VM cutover")
         rollback = self._step_block("Roll back failed cutover or release gate")
         self.assertIn("id: cutover", cutover)
+        self.assertIn("id: rollback", rollback)
         self.assertIn("failure()", rollback)
         self.assertIn("steps.cutover.outcome != 'skipped'", rollback)
         self.assertIn("StrictHostKeyChecking=yes", rollback)
@@ -137,12 +141,39 @@ class ProductionDeployWorkflowTests(unittest.TestCase):
             "Verify authenticated hosted MCP catalog",
             "Verify authenticated hosted MCP room lifecycle",
             "Roll back failed cutover or release gate",
+            "Verify public API and site after rollback",
+            "Verify authenticated hosted MCP catalog after rollback",
+            "Verify authenticated hosted MCP room lifecycle after rollback",
             "Remove ephemeral SSH credentials",
         )
         self.assertEqual(order, sorted(order))
         cleanup = self._step_block("Remove ephemeral SSH credentials")
         self.assertIn("if: always()", cleanup)
         self.assertIn('rm -f -- "$WEFT_SSH_KEY" "$WEFT_SSH_KNOWN_HOSTS"', cleanup)
+
+    def test_successful_rollback_requires_public_release_reverification(self) -> None:
+        post_rollback = (
+            ("Verify public API and site after rollback", "scripts/probe_live_release.py"),
+            ("Verify authenticated hosted MCP catalog after rollback", "scripts/probe_hosted_mcp_surface.py"),
+            ("Verify authenticated hosted MCP room lifecycle after rollback", "scripts/probe_hosted_mcp_lifecycle.py"),
+        )
+        for name, script in post_rollback:
+            with self.subTest(step=name):
+                block = self._step_block(name)
+                self.assertIn("always()", block)
+                self.assertIn("steps.rollback.outcome == 'success'", block)
+                self.assertIn(script, block)
+                self.assertNotIn("continue-on-error: true", block)
+                self.assertNotIn("|| true", block)
+
+        order = self._step_order(
+            "Roll back failed cutover or release gate",
+            "Verify public API and site after rollback",
+            "Verify authenticated hosted MCP catalog after rollback",
+            "Verify authenticated hosted MCP room lifecycle after rollback",
+            "Remove ephemeral SSH credentials",
+        )
+        self.assertEqual(order, sorted(order))
 
     def test_probe_steps_fail_closed_before_workflow_can_finish(self) -> None:
         public_probe = self._step_block("Verify public API and site release")
