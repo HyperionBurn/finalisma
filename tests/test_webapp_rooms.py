@@ -606,6 +606,7 @@ class TestConnectPage(unittest.TestCase):
         )
         # Four tier sections.
         self.assertIn("mcpServers", body)        # Tier 1 — MCP stdio
+        self.assertIn("OpenCode", body)          # Native config is documented
         self.assertIn("Streamable HTTP", body)   # Tier 2 — MCP Streamable HTTP
         self.assertIn("bridge", body)            # Tier 3 — bridge/webhook
         self.assertIn("WeftClient", body)   # Tier 4 — SDK
@@ -658,7 +659,7 @@ class TestConnectPage(unittest.TestCase):
     def _assert_connector_configs_use_portable_entrypoint(self):
         from html import unescape
 
-        for client in ("claude-desktop", "cursor", "codex"):
+        for client in ("claude-desktop", "cursor", "opencode-v2", "opencode-legacy", "codex"):
             csrf = self.driver.csrf("/config")
             status, body, headers = self.driver.post(
                 "/config", {"client": client, "_csrf": csrf}
@@ -673,7 +674,25 @@ class TestConnectPage(unittest.TestCase):
             self.assertNotIn("scripts/weft-mcp.py", config_text)
             self.assertNotIn("/app/", config_text)
             self.assertNotIn("\\scripts\\", config_text)
-            if client != "codex":
+            if client.startswith("opencode"):
+                payload = json.loads(config_text)
+                self.assertEqual(payload["$schema"], "https://opencode.ai/config.json")
+                if client == "opencode-v2":
+                    server = payload["mcp"]["servers"]["weft"]
+                    self.assertEqual(server.get("disabled"), False)
+                    self.assertNotIn("enabled", server)
+                else:
+                    server = payload["mcp"]["weft"]
+                    self.assertTrue(server["enabled"])
+                    self.assertNotIn("disabled", server)
+                self.assertEqual(server["type"], "local")
+                self.assertEqual(server["command"][:4], ["python", "-B", "-m", "weft_mcp"])
+                token = server["environment"].get("WEFT_TOKEN")
+                self.assertTrue(token.startswith("agk_"))
+                self.assertFalse(any(token in arg for arg in server["command"]))
+                self.assertEqual(config_text.count(token), 1)
+                self.assertEqual(server["environment"].get("PYTHONUTF8"), "1")
+            elif client != "codex":
                 payload = json.loads(config_text)
                 args = payload["mcpServers"]["weft"]["args"]
                 self.assertEqual(args[:3], ["-B", "-m", "weft_mcp"])

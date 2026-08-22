@@ -1361,7 +1361,8 @@ class WeftWebApp:
             'holds it can join the room, from any tenant.</p>'
             '<h2>Connect a client</h2>'
             '<p><a href="/config">Generate a connector config</a> for Claude '
-            'Desktop, Codex or Cursor — a complete, working stdio MCP config '
+            'Desktop, Codex, Cursor or OpenCode — with version-specific native '
+            'config shapes and a complete, working stdio MCP config '
             'with a fresh agent key already embedded.</p>'
             '<h2>Account</h2>'
             '<p><a href="/agent-keys">Agent keys</a> · '
@@ -1834,7 +1835,7 @@ class WeftWebApp:
             self._send_html(handler, HTTPStatus.BAD_REQUEST,
                             _page("Config failed",
                                   '<p>Unknown client. Choose Claude Desktop, '
-                                  'Cursor or Codex.</p>'))
+                                  'Cursor, OpenCode or Codex.</p>'))
             return
         label = f"connector:{client}"[:64]
         _, raw_token = self.agent_keys.create(
@@ -1869,10 +1870,13 @@ class WeftWebApp:
             'replace the generated <code>command</code> with its absolute '
             'interpreter path. '
             'The config invokes <code>python -m weft_mcp</code> and does not '
-            'depend on the server checkout path. The token is in the '
-            '<code>env</code> block — never in '
-            '<code>args</code> (argv is visible to every process on the '
-            'machine). The <code>PYTHONUTF8=1</code> entry is required on '
+            'depend on the server checkout path. The token is in the client '
+            'environment field (<code>env</code> for JSON hosts, '
+            '<code>environment</code> for OpenCode) — never in '
+            '<code>args</code>. Command-line arguments are commonly visible '
+            'to other processes. The config file still contains the live '
+            'credential, so protect it. '
+            'The <code>PYTHONUTF8=1</code> entry is required on '
             'Windows: without it the client&#39;s UTF-8 JSON-RPC is decoded as '
             'cp1252 and every non-ASCII character is destroyed.</p>'
             + '<h2>Config</h2>'
