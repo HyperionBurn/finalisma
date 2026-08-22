@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import unittest
 from pathlib import Path
 
@@ -17,6 +18,20 @@ class ProductionDeployWorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.text = WORKFLOW.read_text(encoding="utf-8")
+
+    def _step_block(self, name: str) -> str:
+        pattern = rf"(?ms)^      - name: {re.escape(name)}\n.*?(?=^      - name:|\Z)"
+        match = re.search(pattern, self.text)
+        self.assertIsNotNone(match, f"workflow step missing: {name}")
+        return match.group(0)  # type: ignore[union-attr]
+
+    def _step_order(self, *names: str) -> list[int]:
+        return [self.text.index(f"      - name: {name}\n") for name in names]
+
+    def _step_env_value(self, block: str, name: str) -> str:
+        match = re.search(rf"(?m)^\s+{re.escape(name)}: (.+)$", block)
+        self.assertIsNotNone(match, f"step environment value missing: {name}")
+        return match.group(1).strip()  # type: ignore[union-attr]
 
     def test_workflow_is_manual_only(self) -> None:
         self.assertIn("\non:\n  workflow_dispatch:\n", self.text)
@@ -78,6 +93,82 @@ class ProductionDeployWorkflowTests(unittest.TestCase):
         self.assertIn("secrets.WEFT_MCP_PROBE_TOKEN", self.text)
         self.assertIn("WEFT_API_ORIGIN", self.text)
         self.assertIn("WEFT_SITE_URL", self.text)
+
+    def test_preflight_artifact_and_credential_setup_precede_cutover(self) -> None:
+        order = self._step_order(
+            "Validate deployment configuration",
+            "Upload redacted deployment preflight",
+            "Prepare ephemeral SSH credentials",
+            "Run the fail-closed VM cutover",
+        )
+        self.assertEqual(order, sorted(order))
+        upload = self._step_block("Upload redacted deployment preflight")
+        self.assertIn("if: always()", upload)
+        self.assertIn("if-no-files-found: error", upload)
+
+    def test_live_probes_follow_cutover_and_cleanup_runs_last(self) -> None:
+        order = self._step_order(
+            "Run the fail-closed VM cutover",
+            "Verify public API and site release",
+            "Verify authenticated hosted MCP catalog",
+            "Remove ephemeral SSH credentials",
+        )
+        self.assertEqual(order, sorted(order))
+        cleanup = self._step_block("Remove ephemeral SSH credentials")
+        self.assertIn("if: always()", cleanup)
+        self.assertIn('rm -f -- "$WEFT_SSH_KEY" "$WEFT_SSH_KNOWN_HOSTS"', cleanup)
+
+    def test_probe_steps_fail_closed_before_workflow_can_finish(self) -> None:
+        public_probe = self._step_block("Verify public API and site release")
+        mcp_probe = self._step_block("Verify authenticated hosted MCP catalog")
+        self.assertIn("scripts/probe_live_release.py", public_probe)
+        self.assertIn("scripts/probe_hosted_mcp_surface.py", mcp_probe)
+        self.assertIn("set -euo pipefail", mcp_probe)
+        self.assertIn('[[ -n "${WEFT_MCP_PROBE_TOKEN:-}" ]]', mcp_probe)
+
+    def test_validation_cutover_and_probes_cannot_become_fail_open(self) -> None:
+        guarded_steps = (
+            "Validate deployment configuration",
+            "Prepare ephemeral SSH credentials",
+            "Run the fail-closed VM cutover",
+            "Verify public API and site release",
+            "Verify authenticated hosted MCP catalog",
+        )
+        for name in guarded_steps:
+            with self.subTest(step=name):
+                block = self._step_block(name)
+                self.assertNotIn("if: always()", block)
+                self.assertNotIn("continue-on-error: true", block)
+                self.assertNotIn("|| true", block)
+
+    def test_preflight_receives_probe_token_before_ssh_materialization(self) -> None:
+        validation = self._step_block("Validate deployment configuration")
+        validation_index, ssh_index = self._step_order(
+            "Validate deployment configuration", "Prepare ephemeral SSH credentials",
+        )
+        self.assertLess(validation_index, ssh_index)
+        self.assertIn("WEFT_MCP_PROBE_TOKEN: ${{ secrets.WEFT_MCP_PROBE_TOKEN }}", validation)
+
+    def test_checkout_sha_and_preflight_expected_sha_are_one_data_flow(self) -> None:
+        checkout = self._step_block("Check out merged main")
+        validation = self._step_block("Validate deployment configuration")
+        checkout_index, validation_index = self._step_order(
+            "Check out merged main", "Validate deployment configuration",
+        )
+        self.assertLess(checkout_index, validation_index)
+        self.assertIn("ref: ${{ github.sha }}", checkout)
+        self.assertIn("WEFT_RELEASE_SHA: ${{ github.sha }}", validation)
+        self.assertIn('--expected-sha "$WEFT_RELEASE_SHA"', validation)
+
+    def test_ssh_cleanup_reuses_preparation_paths_exactly(self) -> None:
+        prepare = self._step_block("Prepare ephemeral SSH credentials")
+        cleanup = self._step_block("Remove ephemeral SSH credentials")
+        for name in ("WEFT_SSH_KEY", "WEFT_SSH_KNOWN_HOSTS"):
+            with self.subTest(name=name):
+                self.assertEqual(
+                    self._step_env_value(prepare, name),
+                    self._step_env_value(cleanup, name),
+                )
 
     def test_permissions_are_read_only_for_repository_contents(self) -> None:
         self.assertIn("permissions:\n  contents: read", self.text)
