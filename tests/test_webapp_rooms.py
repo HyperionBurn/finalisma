@@ -27,6 +27,7 @@ import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from unittest.mock import patch
 from urllib.parse import quote, urlencode
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -255,6 +256,51 @@ class TestCreateRoom(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertIn("Cap must be a whole number", body)
         self.assertNotIn("Internal server error", body)
+
+    def test_room_create_rechecks_admin_role_inside_mutation_transaction(self):
+        html = self.driver.get("/rooms")[1]
+        csrf = self.driver.extract_csrf(html)
+        original_create = self.driver.app.rooms.create_room
+
+        def demote_before_create(**kwargs):
+            with self.driver.backend.transaction() as tx:
+                account = tx.execute(
+                    "SELECT account_id FROM cloud_identity_accounts WHERE email = ?",
+                    (self.email,),
+                ).fetchone()
+                tx.execute(
+                    "UPDATE cloud_identity_members SET role = 'member' "
+                    "WHERE account_id = ?",
+                    (account["account_id"],),
+                )
+                tx.commit()
+            return original_create(**kwargs)
+
+        with patch.object(
+            self.driver.app.rooms, "create_room", side_effect=demote_before_create,
+        ):
+            status, body, _ = self.driver.post(
+                "/rooms", {"name": "Demoted race", "cap": "15", "_csrf": csrf}
+            )
+
+        self.assertEqual(status, 403)
+        self.assertIn("Only admins can create rooms", body)
+        with self.driver.backend.transaction() as tx:
+            account = tx.execute(
+                "SELECT tenant_id FROM cloud_identity_accounts WHERE email = ?",
+                (self.email,),
+            ).fetchone()
+            rooms = tx.execute(
+                "SELECT COUNT(*) AS count FROM cloud_rooms WHERE tenant_id = ?",
+                (account["tenant_id"],),
+            ).fetchone()
+            quota = tx.execute(
+                "SELECT value FROM cloud_counters "
+                "WHERE tenant_id = ? AND counter = 'rooms'",
+                (account["tenant_id"],),
+            ).fetchone()
+        self.assertEqual(rooms["count"], 0)
+        self.assertIsNone(quota)
 
     def test_create_room_validation_error_returns_400_html(self):
         html = self.driver.get("/rooms")[1]

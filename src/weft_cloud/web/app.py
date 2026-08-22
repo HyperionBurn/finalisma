@@ -1932,10 +1932,21 @@ class WeftWebApp:
             result = self.rooms.create_room(
                 tenant_id=ctx.tenant_id,
                 owner_agent_id=ctx.account_id,
-                actor_token=secrets.token_urlsafe(32),
+                actor_token=self._read_cookie(handler, SESSION_COOKIE) or "",
                 cap=cap,
                 name=name,
+                actor_account_id=ctx.account_id,
             )
+        except AuthError:
+            self._send_html(handler, HTTPStatus.UNAUTHORIZED,
+                            _page("Session expired",
+                                  '<p>Your session is no longer valid. Please sign in again.</p>'))
+            return
+        except RoleError:
+            self._send_html(handler, HTTPStatus.FORBIDDEN,
+                            _page("Forbidden",
+                                  '<p>Only admins can create rooms.</p>'))
+            return
         except QuotaError as exc:
             self._send_html(handler, HTTPStatus.BAD_REQUEST,
                             _page("Create room failed",
