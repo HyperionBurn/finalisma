@@ -7,11 +7,13 @@ compatibility claim.
 ## Latest regression evidence
 
 Measured locally on the current source/test stack (merged base `main` at
-`77f02d3`; PR111 candidate branch `codex/storage-readiness-deploy-gate-2026-08-22`):
+`9dd484c`; PR112 candidate branch `codex/hosted-sdk-connect-2026-08-22`):
 
 - Command: `python -B -m unittest discover -s tests`
-- Result: **1295 tests discovered; 1294 passed; 1 skipped**
-- Duration: 591.880 seconds on the local Windows runner
+- Result: **1296 tests discovered; 1295 passed; 1 skipped**
+- Duration: 613.429 seconds on the local Windows runner
+- Focused hosted SDK connect suite: 33 tests passed locally
+  (`tests.test_interop_sdk` and `tests.test_sdk`)
 - Focused storage-readiness/deploy-gate suite: 47 tests passed locally
   (`tests.test_probe_live_release`, `tests.test_probe_live_release_contract`,
   and `tests.test_deploy_gate`)
