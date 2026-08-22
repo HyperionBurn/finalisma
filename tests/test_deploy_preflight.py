@@ -30,6 +30,7 @@ def _valid_environment() -> dict[str, str]:
         "WEFT_SSH_PRIVATE_KEY_CONTENT": "PRIVATE-KEY-CONTENT",
         "WEFT_SSH_KNOWN_HOSTS_CONTENT": "KNOWN-HOSTS-CONTENT",
         "WEFT_MCP_PROBE_TOKEN": "MCP-PROBE-TOKEN",
+        "WEFT_MCP_LIFECYCLE_TOKEN": "MCP-LIFECYCLE-TOKEN",
     }
 
 
@@ -45,6 +46,7 @@ class DeployPreflightTests(unittest.TestCase):
         self.assertEqual(report["status"], "fail")
         self.assertIn("missing production variable: WEFT_NGINX_CONF", report["failures"])
         self.assertFalse(report["required_secrets"]["WEFT_MCP_PROBE_TOKEN"])
+        self.assertFalse(report["required_secrets"]["WEFT_MCP_LIFECYCLE_TOKEN"])
         rendered = json.dumps(report)
         self.assertNotIn("secret-host-value", rendered)
 

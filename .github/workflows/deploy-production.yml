@@ -44,6 +44,7 @@ jobs:
           WEFT_SSH_PRIVATE_KEY_CONTENT: ${{ secrets.WEFT_SSH_PRIVATE_KEY }}
           WEFT_SSH_KNOWN_HOSTS_CONTENT: ${{ secrets.WEFT_SSH_KNOWN_HOSTS }}
           WEFT_MCP_PROBE_TOKEN: ${{ secrets.WEFT_MCP_PROBE_TOKEN }}
+          WEFT_MCP_LIFECYCLE_TOKEN: ${{ secrets.WEFT_MCP_LIFECYCLE_TOKEN }}
           WEFT_RELEASE_REF: ${{ github.ref }}
           WEFT_RELEASE_SHA: ${{ github.sha }}
           WEFT_PREFLIGHT_ARTIFACT: ${{ runner.temp }}/weft-preflight.json
@@ -112,6 +113,18 @@ jobs:
             exit 2
           }
           python -B scripts/probe_hosted_mcp_surface.py --mcp-origin "$WEFT_API_ORIGIN" --pretty
+
+      - name: Verify authenticated hosted MCP room lifecycle
+        shell: bash
+        env:
+          WEFT_MCP_LIFECYCLE_TOKEN: ${{ secrets.WEFT_MCP_LIFECYCLE_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "${WEFT_MCP_LIFECYCLE_TOKEN:-}" ]] || {
+            echo "FATAL: production secret WEFT_MCP_LIFECYCLE_TOKEN is not configured." >&2
+            exit 2
+          }
+          python -B scripts/probe_hosted_mcp_lifecycle.py --mcp-origin "$WEFT_API_ORIGIN" --pretty
 
       - name: Roll back failed cutover or release gate
         if: ${{ failure() && steps.cutover.outcome != 'skipped' }}

@@ -51,6 +51,7 @@ jobs:
             tests.test_probe_live_release \
             tests.test_probe_live_release_contract \
             tests.test_probe_hosted_mcp_surface \
+            tests.test_probe_hosted_mcp_lifecycle \
             tests.test_site.VercelDeployMaterializesReleaseTests \
             tests.test_site.DeployproofReleaseContentTests \
             tests.test_deploy_gate.RedeployBackupSafetyTests.test_compose_delivery_profile_shares_store_without_committing_secrets

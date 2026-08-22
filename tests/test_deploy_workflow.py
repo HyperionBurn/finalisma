@@ -68,6 +68,7 @@ class ProductionDeployWorkflowTests(unittest.TestCase):
             "WEFT_SSH_PRIVATE_KEY_CONTENT",
             "WEFT_SSH_KNOWN_HOSTS_CONTENT",
             "WEFT_MCP_PROBE_TOKEN",
+            "WEFT_MCP_LIFECYCLE_TOKEN",
         ):
             self.assertIn(name, preflight)
 
@@ -90,7 +91,9 @@ class ProductionDeployWorkflowTests(unittest.TestCase):
         self.assertIn("scripts/push-code-to-vm.sh", self.text)
         self.assertIn("scripts/probe_live_release.py", self.text)
         self.assertIn("scripts/probe_hosted_mcp_surface.py", self.text)
+        self.assertIn("scripts/probe_hosted_mcp_lifecycle.py", self.text)
         self.assertIn("secrets.WEFT_MCP_PROBE_TOKEN", self.text)
+        self.assertIn("secrets.WEFT_MCP_LIFECYCLE_TOKEN", self.text)
         self.assertIn("WEFT_API_ORIGIN", self.text)
         self.assertIn("WEFT_SITE_URL", self.text)
         self.assertIn("scripts/rollback-weft.sh", self.text)
@@ -100,6 +103,7 @@ class ProductionDeployWorkflowTests(unittest.TestCase):
             "Run the fail-closed VM cutover",
             "Verify public API and site release",
             "Verify authenticated hosted MCP catalog",
+            "Verify authenticated hosted MCP room lifecycle",
             "Roll back failed cutover or release gate",
             "Remove ephemeral SSH credentials",
         )
@@ -131,6 +135,7 @@ class ProductionDeployWorkflowTests(unittest.TestCase):
             "Run the fail-closed VM cutover",
             "Verify public API and site release",
             "Verify authenticated hosted MCP catalog",
+            "Verify authenticated hosted MCP room lifecycle",
             "Roll back failed cutover or release gate",
             "Remove ephemeral SSH credentials",
         )
@@ -142,10 +147,14 @@ class ProductionDeployWorkflowTests(unittest.TestCase):
     def test_probe_steps_fail_closed_before_workflow_can_finish(self) -> None:
         public_probe = self._step_block("Verify public API and site release")
         mcp_probe = self._step_block("Verify authenticated hosted MCP catalog")
+        lifecycle_probe = self._step_block("Verify authenticated hosted MCP room lifecycle")
         self.assertIn("scripts/probe_live_release.py", public_probe)
         self.assertIn("scripts/probe_hosted_mcp_surface.py", mcp_probe)
+        self.assertIn("scripts/probe_hosted_mcp_lifecycle.py", lifecycle_probe)
         self.assertIn("set -euo pipefail", mcp_probe)
         self.assertIn('[[ -n "${WEFT_MCP_PROBE_TOKEN:-}" ]]', mcp_probe)
+        self.assertIn("set -euo pipefail", lifecycle_probe)
+        self.assertIn('[[ -n "${WEFT_MCP_LIFECYCLE_TOKEN:-}" ]]', lifecycle_probe)
 
     def test_validation_cutover_and_probes_cannot_become_fail_open(self) -> None:
         guarded_steps = (
@@ -154,6 +163,7 @@ class ProductionDeployWorkflowTests(unittest.TestCase):
             "Run the fail-closed VM cutover",
             "Verify public API and site release",
             "Verify authenticated hosted MCP catalog",
+            "Verify authenticated hosted MCP room lifecycle",
         )
         for name in guarded_steps:
             with self.subTest(step=name):
@@ -169,6 +179,7 @@ class ProductionDeployWorkflowTests(unittest.TestCase):
         )
         self.assertLess(validation_index, ssh_index)
         self.assertIn("WEFT_MCP_PROBE_TOKEN: ${{ secrets.WEFT_MCP_PROBE_TOKEN }}", validation)
+        self.assertIn("WEFT_MCP_LIFECYCLE_TOKEN: ${{ secrets.WEFT_MCP_LIFECYCLE_TOKEN }}", validation)
 
     def test_checkout_sha_and_preflight_expected_sha_are_one_data_flow(self) -> None:
         checkout = self._step_block("Check out merged main")
