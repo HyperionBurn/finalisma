@@ -55,9 +55,10 @@ file. It inserts `/j/` and the exact-match `/mcp` route independently. If
 ## GitHub production dispatch
 
 The repository now includes
-.github/workflows/deploy-production.yml. The workflow is manual-only. It
-resolves the dispatched main SHA, runs the read-only deploy_preflight.py
-configuration and origin checks, uploads a redacted preflight artifact, then
+.github/workflows/deploy-production.yml. The workflow is manual-only and
+accepts only a dispatch from `refs/heads/main`. It resolves that dispatched
+main SHA, runs the read-only deploy_preflight.py configuration and strict
+origin checks, uploads a redacted preflight artifact, then
 runs the existing fail-closed push-code-to-vm.sh cutover and both live release
 probes. It does not run on push or pull request events.
 

@@ -16,6 +16,7 @@ import deploy_preflight
 
 
 SHA = "a" * 40
+MAIN_REF = "refs/heads/main"
 
 
 def _valid_environment() -> dict[str, str]:
@@ -37,6 +38,7 @@ class DeployPreflightTests(unittest.TestCase):
         report = deploy_preflight.evaluate(
             {"WEFT_VM": "secret-host-value"},
             actual_sha=SHA,
+            actual_ref=MAIN_REF,
             expected_sha=SHA,
         )
 
@@ -51,6 +53,7 @@ class DeployPreflightTests(unittest.TestCase):
         report = deploy_preflight.evaluate(
             environment,
             actual_sha=SHA,
+            actual_ref=MAIN_REF,
             expected_sha=SHA,
         )
 
@@ -69,12 +72,65 @@ class DeployPreflightTests(unittest.TestCase):
         report = deploy_preflight.evaluate(
             environment,
             actual_sha=SHA,
+            actual_ref=MAIN_REF,
             expected_sha="b" * 40,
         )
 
         self.assertEqual(report["status"], "fail")
         self.assertIn("origin must be an absolute HTTPS URL: WEFT_API_ORIGIN", report["failures"])
         self.assertIn("checked-out release SHA does not match expected release SHA", report["failures"])
+
+    def test_non_main_release_ref_fails_closed(self) -> None:
+        report = deploy_preflight.evaluate(
+            _valid_environment(),
+            actual_sha=SHA,
+            actual_ref="refs/heads/codex/not-main",
+            expected_sha=SHA,
+        )
+
+        self.assertEqual(report["status"], "fail")
+        self.assertFalse(report["release_ref_allowed"])
+        self.assertIn("deployment ref must be refs/heads/main", report["failures"])
+
+    def test_origin_paths_credentials_and_invalid_ports_fail_closed(self) -> None:
+        environment = _valid_environment()
+        invalid_origins = {
+            "https://api.weft.example/base": "path",
+            "https://user:password@api.weft.example": "credentials",
+            "https://api.weft.example:bad": "port",
+            "https://api.weft.example?probe=1": "query",
+            "https://api.weft.example#fragment": "fragment",
+        }
+        for origin, label in invalid_origins.items():
+            with self.subTest(origin=label):
+                environment["WEFT_API_ORIGIN"] = origin
+                report = deploy_preflight.evaluate(
+                    environment,
+                    actual_sha=SHA,
+                    actual_ref=MAIN_REF,
+                    expected_sha=SHA,
+                )
+                self.assertEqual(report["status"], "fail")
+                self.assertFalse(report["https_origins"]["WEFT_API_ORIGIN"])
+
+    def test_main_writes_redacted_failure_report_and_returns_two(self) -> None:
+        environment = _valid_environment()
+        environment["WEFT_API_ORIGIN"] = "https://api.weft.example/base"
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "preflight.json"
+            stdout = io.StringIO()
+            with patch.object(deploy_preflight, "_checked_out_sha", return_value=SHA), \
+                 patch.dict(os.environ, {**environment, "GITHUB_REF": "refs/heads/release"}, clear=False), \
+                 redirect_stdout(stdout):
+                status = deploy_preflight.main(
+                    ["--expected-sha", SHA, "--output", str(output)]
+                )
+
+            self.assertEqual(status, 2)
+            report = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(report["status"], "fail")
+            self.assertIn("deployment ref must be refs/heads/main", report["failures"])
+            self.assertNotIn("api.weft.example/base", stdout.getvalue())
 
     def test_main_writes_redacted_report_and_returns_success(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -84,7 +140,7 @@ class DeployPreflightTests(unittest.TestCase):
                  patch.dict(os.environ, _valid_environment(), clear=False), \
                  redirect_stdout(stdout):
                 status = deploy_preflight.main(
-                    ["--expected-sha", SHA, "--output", str(output)]
+                    ["--release-ref", MAIN_REF, "--expected-sha", SHA, "--output", str(output)]
                 )
 
             self.assertEqual(status, 0)

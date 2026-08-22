@@ -32,6 +32,7 @@ REQUIRED_SECRETS = (
     "WEFT_MCP_PROBE_TOKEN",
 )
 ORIGIN_VARIABLES = ("PUBLIC_ORIGIN", "WEFT_API_ORIGIN", "WEFT_SITE_URL")
+ALLOWED_RELEASE_REF = "refs/heads/main"
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
@@ -40,12 +41,24 @@ def _present(environment: Mapping[str, str], name: str) -> bool:
 
 
 def _valid_https_origin(value: str) -> bool:
-    parsed = urlsplit(value.strip().rstrip("/"))
+    candidate = value.strip()
+    if not candidate or any(
+        ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in candidate
+    ):
+        return False
+    parsed = urlsplit(candidate)
+    try:
+        hostname = parsed.hostname
+        parsed.port
+    except ValueError:
+        return False
     return bool(
-        parsed.scheme == "https"
+        parsed.scheme.lower() == "https"
+        and hostname
         and parsed.netloc
         and not parsed.username
         and not parsed.password
+        and parsed.path in ("", "/")
         and not parsed.query
         and not parsed.fragment
     )
@@ -55,6 +68,7 @@ def evaluate(
     environment: Mapping[str, str],
     *,
     actual_sha: str,
+    actual_ref: str,
     expected_sha: str | None = None,
 ) -> dict:
     """Return a redacted preflight report without exposing configuration values."""
@@ -85,6 +99,9 @@ def evaluate(
             failures.append(f"origin must be an absolute HTTPS URL: {name}")
 
     actual = actual_sha.strip().lower()
+    release_ref = actual_ref.strip()
+    if release_ref != ALLOWED_RELEASE_REF:
+        failures.append(f"deployment ref must be {ALLOWED_RELEASE_REF}")
     if not _SHA_RE.fullmatch(actual):
         failures.append("checked-out release SHA is not a 40-character commit SHA")
     if expected is not None:
@@ -96,6 +113,8 @@ def evaluate(
     return {
         "schema_version": 1,
         "status": "pass" if not failures else "fail",
+        "release_ref": release_ref,
+        "release_ref_allowed": release_ref == ALLOWED_RELEASE_REF,
         "release_sha": actual,
         "expected_release_sha": expected,
         "release_sha_matches": expected is None or actual == expected,
@@ -120,6 +139,11 @@ def _checked_out_sha() -> str:
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
+        "--release-ref",
+        default=os.environ.get("GITHUB_REF", ""),
+        help="Git ref selected for deployment. Only refs/heads/main is allowed.",
+    )
+    parser.add_argument(
         "--expected-sha",
         default=os.environ.get("WEFT_RELEASE_SHA"),
         help="Expected checked-out commit SHA. Defaults to WEFT_RELEASE_SHA.",
@@ -137,6 +161,7 @@ def main(argv: list[str] | None = None) -> int:
     report = evaluate(
         os.environ,
         actual_sha=_checked_out_sha(),
+        actual_ref=args.release_ref,
         expected_sha=args.expected_sha,
     )
     rendered = json.dumps(report, indent=2, sort_keys=True) + "\n"

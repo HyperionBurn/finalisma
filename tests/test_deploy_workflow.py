@@ -37,7 +37,10 @@ class ProductionDeployWorkflowTests(unittest.TestCase):
 
     def test_required_configuration_fails_closed(self) -> None:
         self.assertIn("scripts/deploy_preflight.py", self.text)
+        self.assertIn("WEFT_RELEASE_REF", self.text)
         self.assertIn("WEFT_RELEASE_SHA", self.text)
+        self.assertIn('--release-ref "$WEFT_RELEASE_REF"', self.text)
+        self.assertIn("github.ref", self.text)
         self.assertTrue(PREFLIGHT.exists())
         preflight = PREFLIGHT.read_text(encoding="utf-8")
         for name in (

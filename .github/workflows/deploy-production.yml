@@ -44,11 +44,13 @@ jobs:
           WEFT_SSH_PRIVATE_KEY_CONTENT: ${{ secrets.WEFT_SSH_PRIVATE_KEY }}
           WEFT_SSH_KNOWN_HOSTS_CONTENT: ${{ secrets.WEFT_SSH_KNOWN_HOSTS }}
           WEFT_MCP_PROBE_TOKEN: ${{ secrets.WEFT_MCP_PROBE_TOKEN }}
+          WEFT_RELEASE_REF: ${{ github.ref }}
           WEFT_RELEASE_SHA: ${{ github.sha }}
           WEFT_PREFLIGHT_ARTIFACT: ${{ runner.temp }}/weft-preflight.json
         run: |
           set -euo pipefail
           python -B scripts/deploy_preflight.py \
+            --release-ref "$WEFT_RELEASE_REF" \
             --expected-sha "$WEFT_RELEASE_SHA" \
             --output "$WEFT_PREFLIGHT_ARTIFACT"
           bash -n scripts/push-code-to-vm.sh
