@@ -162,6 +162,17 @@ def _has(response: dict, marker: str) -> bool:
     return marker in response.get("body", "")
 
 
+def _json_status(response: dict, expected: str) -> bool:
+    """Require an HTTP 200 JSON response with the expected status marker."""
+    if response.get("status") != 200:
+        return False
+    try:
+        payload = json.loads(response.get("body", ""))
+    except (TypeError, ValueError):
+        return False
+    return isinstance(payload, dict) and payload.get("status") == expected
+
+
 class _PageFacts(HTMLParser):
     """Collect only release-contract metadata; never expose page text."""
 
@@ -391,10 +402,19 @@ def _safe_endpoint_facts(response: dict) -> dict:
 def _diagnostics(checks: dict[str, bool], endpoints: dict[str, dict]) -> list[dict]:
     """Explain failed checks using redacted endpoint facts only."""
     specs = (
-        ("reachability", "API health and site home must return HTTP 200", ("api_health", "site_home")),
+        (
+            "reachability",
+            "API liveness, storage readiness, and site home must return HTTP 200",
+            ("api_health", "api_readiness", "site_home"),
+        ),
         ("api_health", "API health must return HTTP 200 with a status/ok marker", ("api_health",)),
+        ("api_readiness", "API readiness must return HTTP 200 with a status/ready marker", ("api_readiness",)),
         ("api_root_redirects_to_login", "API root must redirect to /login", ("api_root",)),
-        ("api_security_headers", "API responses must include the required security headers", ("api_health", "api_root", "api_login", "api_signup")),
+        (
+            "api_security_headers",
+            "API responses must include the required security headers",
+            ("api_health", "api_readiness", "api_root", "api_login", "api_signup"),
+        ),
         ("api_signup_reachable", "API signup must return HTTP 200", ("api_signup",)),
         ("site_home_reachable", "Site home must return HTTP 200", ("site_home",)),
         ("site_docs_reachable", "Site docs must return HTTP 200", ("site_docs",)),
@@ -431,6 +451,7 @@ def probe(api_origin: str, site_origin: str, timeout: float = 20.0) -> dict:
 
     endpoints = {
         "api_health": _fetch(f"{api_origin}/healthz", timeout),
+        "api_readiness": _fetch(f"{api_origin}/readyz", timeout),
         "api_root": _fetch(f"{api_origin}/", timeout),
         "api_login": _fetch(f"{api_origin}/login", timeout),
         "api_signup": _fetch(f"{api_origin}/signup", timeout),
@@ -455,6 +476,7 @@ def probe(api_origin: str, site_origin: str, timeout: float = 20.0) -> dict:
         and _has(endpoints["api_health"], '"status"')
         and _has(endpoints["api_health"], '"ok"')
     )
+    api_readiness_ok = _json_status(endpoints["api_readiness"], "ready")
     api_login_redirect_ok = (
         endpoints["api_root"]["status"] in {301, 302, 303, 307, 308}
         and endpoints["api_root"]["headers"].get("location", "").rstrip("/")
@@ -462,6 +484,7 @@ def probe(api_origin: str, site_origin: str, timeout: float = 20.0) -> dict:
     )
     api_headers_ok = (
         _has_headers(endpoints["api_health"], _API_HEADERS)
+        and _has_headers(endpoints["api_readiness"], _API_HEADERS)
         and _has_headers(endpoints["api_root"], _API_HEADERS)
         and _has_headers(endpoints["api_login"], _LOGIN_HEADERS)
         and _has_headers(endpoints["api_signup"], _LOGIN_HEADERS)
@@ -551,7 +574,7 @@ def probe(api_origin: str, site_origin: str, timeout: float = 20.0) -> dict:
         )
     )
 
-    reachability_ok = api_health_ok and site_home_ok
+    reachability_ok = api_health_ok and api_readiness_ok and site_home_ok
     release_alignment_ok = (
         site_release_markers_ok
         and site_docs_ok
@@ -576,6 +599,7 @@ def probe(api_origin: str, site_origin: str, timeout: float = 20.0) -> dict:
     checks = {
         "reachability": reachability_ok,
         "api_health": api_health_ok,
+        "api_readiness": api_readiness_ok,
         "api_root_redirects_to_login": api_login_redirect_ok,
         "api_security_headers": api_headers_ok,
         "api_signup_reachable": endpoints["api_signup"]["status"] == 200,

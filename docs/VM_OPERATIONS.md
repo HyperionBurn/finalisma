@@ -16,7 +16,7 @@ not been pointed at the live VM as part of writing it.
 | Script | Runs on | Purpose |
 |---|---|---|
 | `scripts/final-verify.sh` | dev machine | Pre-deploy gate. Refuses to deploy an unverified or broken tree. |
-| `scripts/push-code-to-vm.sh` | dev machine | Calls the gate, stages `git archive HEAD`, ships it, runs the cutover. |
+| `scripts/push-code-to-vm.sh` | dev machine | Calls the gate, stages `git archive HEAD`, ships it, runs the cutover, then checks public liveness and storage readiness. |
 | `scripts/redeploy-weft.sh` | VM | The cutover: backup, promote code, write units, restart, prove the restart, verify. |
 | `scripts/rollback-weft.sh` | VM | One documented, tested command back to the previous release. |
 | `scripts/suite-check.sh` | either | Standalone robust test-suite runner (same 3-outcome classifier as the gate). |
@@ -99,7 +99,10 @@ with an unverified ssh-keyscan result. The preflight artifact records the
 checked-out SHA, presence-only configuration checks, HTTPS-origin checks, and
 failure names without writing secret or host values. A successful workflow run
 is the first point at which the repository can claim that this deployment path
-completed.
+completed. The public release probe requires process liveness (`/healthz`) and
+storage readiness (`GET /readyz` with HTTP 200 and `{"status":"ready"}`), so
+a process that is alive but cannot read its database cannot pass the deployment
+or rollback gate.
 If the cutover is reached and either public release probe fails, the workflow
 invokes `/opt/weft/scripts/rollback-weft.sh` through the same pinned SSH
 identity before it removes the ephemeral credentials. After a successful
@@ -202,7 +205,8 @@ tables each fail loudly with a distinct, specific message.
 
 ## Outage visibility
 
-`healthcheck.py` probes backend `GET /healthz` and an unauthenticated edge
+`healthcheck.py` probes backend storage readiness `GET /readyz`, process
+liveness `GET /healthz`, and an unauthenticated edge
 `POST /mcp`, which must be 401. The systemd template keeps the backend URL at
 `127.0.0.1:18788` and sends the MCP probe through `WEFT_EDGE_URL` (set it to
 the public HTTPS origin when that is the customer path). A 303/302 means the

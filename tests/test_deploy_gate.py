@@ -419,6 +419,18 @@ class RedeployBackupSafetyTests(unittest.TestCase):
         self.assertIn("location = /mcp", helper,
                       "nginx must continue forwarding hosted MCP to weft-cloud")
 
+    def test_release_and_rollback_verification_require_storage_readiness(self):
+        push = (SCRIPTS_DIR / "push-code-to-vm.sh").read_text(encoding="utf-8")
+        rollback = (SCRIPTS_DIR / "rollback-weft.sh").read_text(encoding="utf-8")
+        for script in (push, rollback):
+            self.assertIn("/healthz", script)
+            self.assertIn("/readyz", script)
+            self.assertIn('"status":"ready"', script)
+        self.assertLess(push.index("$PUBLIC_ORIGIN/healthz"), push.index("$PUBLIC_ORIGIN/readyz"))
+        self.assertLess(rollback.index(":18788/healthz"), rollback.index(":18788/readyz"))
+        self.assertIn("expected HTTP 200 with status=ready", push)
+        self.assertIn("expected HTTP 200 with status=ready", rollback)
+
     def test_healthcheck_template_probes_edge_separately(self):
         dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
         self.assertIn("/readyz", dockerfile)

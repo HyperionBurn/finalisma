@@ -20,6 +20,7 @@ def _sha256(value: bytes) -> str:
 class _ProbeHandler(BaseHTTPRequestHandler):
     surface = "api"
     drift = False
+    storage_ready = True
     api_origin = ""
 
     def _headers(self, *, site: bool = False) -> None:
@@ -53,6 +54,11 @@ class _ProbeHandler(BaseHTTPRequestHandler):
         if self.surface == "api":
             if self.path == "/healthz":
                 self._reply(200, b'{"status":"ok"}')
+            elif self.path == "/readyz":
+                if self.storage_ready:
+                    self._reply(200, b'{"status":"ready"}')
+                else:
+                    self._reply(503, b'{"status":"unavailable"}')
             elif self.path == "/":
                 self._reply(303, location="/login")
             elif self.path in {"/login", "/signup"}:
@@ -185,11 +191,22 @@ class _ProbeHandler(BaseHTTPRequestHandler):
         return
 
 
-def _serve(surface: str, drift: bool = False, *, api_origin: str = "") -> tuple[ThreadingHTTPServer, str]:
+def _serve(
+    surface: str,
+    drift: bool = False,
+    *,
+    api_origin: str = "",
+    storage_ready: bool = True,
+) -> tuple[ThreadingHTTPServer, str]:
     handler = type(
         f"{surface.title()}ProbeHandler",
         (_ProbeHandler,),
-        {"surface": surface, "drift": drift, "api_origin": api_origin},
+        {
+            "surface": surface,
+            "drift": drift,
+            "storage_ready": storage_ready,
+            "api_origin": api_origin,
+        },
     )
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     server.site_origin = f"http://127.0.0.1:{server.server_address[1]}"
@@ -224,6 +241,7 @@ class LiveReleaseProbeTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertEqual(result["status"], "PASS")
             self.assertTrue(result["checks"]["release_alignment"])
+            self.assertTrue(result["checks"]["api_readiness"])
         finally:
             api_server.shutdown()
             site_server.shutdown()
@@ -249,6 +267,36 @@ class LiveReleaseProbeTests(unittest.TestCase):
             site_server.shutdown()
             api_server.server_close()
             site_server.server_close()
+
+    def test_storage_readiness_failure_blocks_release_even_when_liveness_is_ok(self) -> None:
+        api_server, api_origin = _serve("api", storage_ready=False)
+        site_server, site_origin = _serve("site", api_origin=api_origin)
+        try:
+            output = io.StringIO()
+            with redirect_stdout(output):
+                code = probe_live_release.main(
+                    ["--api-origin", api_origin, "--site-origin", site_origin]
+                )
+
+            result = json.loads(output.getvalue())
+            self.assertEqual(code, 3)
+            self.assertEqual(result["status"], "UNREACHABLE")
+            self.assertTrue(result["checks"]["api_health"])
+            self.assertFalse(result["checks"]["api_readiness"])
+            self.assertFalse(result["checks"]["reachability"])
+            self.assertTrue(
+                any(item["check"] == "api_readiness" for item in result["diagnostics"])
+            )
+            self.assertNotIn('"status":"unavailable"', output.getvalue())
+        finally:
+            api_server.shutdown()
+            site_server.shutdown()
+            api_server.server_close()
+            site_server.server_close()
+
+    def test_readiness_requires_ready_marker_not_only_http_200(self) -> None:
+        response = {"status": 200, "body": '{"status":"unavailable"}'}
+        self.assertFalse(probe_live_release._json_status(response, "ready"))
 
 
 if __name__ == "__main__":
