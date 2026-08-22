@@ -2,9 +2,9 @@
 
 Covers:
 
-- scripts/healthcheck.py: a dependency-free /healthz + unauthenticated
-  POST /mcp probe. Runs fully offline against a tiny in-process HTTP server
-  (stdlib http.server) — no real network, no VM.
+- scripts/healthcheck.py: a dependency-free /healthz + storage-backed /readyz
+  + unauthenticated POST /mcp probe. Runs fully offline against a tiny
+  in-process HTTP server (stdlib http.server) — no real network, no VM.
 - scripts/mail_error_detail.py: structured SMTP failure detail instead of
   the real production bug, where `last_error` was the literal string
   "permanent" for all 104 failed rows with no SMTP code and no reason.
@@ -34,11 +34,16 @@ class _FakeApp(BaseHTTPRequestHandler):
     """Minimal stand-in for the real cloud service: one status per test."""
 
     healthz_status = 200
+    readyz_status = 200
     mcp_status = 401
 
     def do_GET(self):
         if self.path == "/healthz":
             self.send_response(self.healthz_status)
+            self.end_headers()
+            self.wfile.write(b"{}")
+        elif self.path == "/readyz":
+            self.send_response(self.readyz_status)
             self.end_headers()
             self.wfile.write(b"{}")
         else:
@@ -60,11 +65,13 @@ class _FakeApp(BaseHTTPRequestHandler):
 
 class _ServerCase(unittest.TestCase):
     healthz_status = 200
+    readyz_status = 200
     mcp_status = 401
 
     def setUp(self):
         handler = type("Handler", (_FakeApp,), {
             "healthz_status": self.healthz_status,
+            "readyz_status": self.readyz_status,
             "mcp_status": self.mcp_status,
         })
         self.server = HTTPServer(("127.0.0.1", 0), handler)
@@ -88,9 +95,25 @@ class HealthcheckHappyPathTests(_ServerCase):
         ok, record = run(self.base_url)
         self.assertTrue(ok)
         self.assertTrue(record["healthz"]["ok"])
+        self.assertTrue(record["readyz"]["ok"])
         self.assertTrue(record["mcp_unauth"]["ok"])
         self.assertEqual(record["healthz"]["status"], 200)
+        self.assertEqual(record["readyz"]["status"], 200)
         self.assertEqual(record["mcp_unauth"]["status"], 401)
+
+
+class HealthcheckReadyzDownTests(_ServerCase):
+    healthz_status = 200
+    readyz_status = 503
+    mcp_status = 401
+
+    def test_healthy_healthz_but_failed_readyz_is_not_green(self):
+        ok, record = run(self.base_url)
+        self.assertFalse(ok)
+        self.assertTrue(record["healthz"]["ok"])
+        self.assertFalse(record["readyz"]["ok"])
+        self.assertEqual(record["readyz"]["status"], 503)
+        self.assertTrue(record["mcp_unauth"]["ok"])
 
 
 class HealthcheckEdgeBoundaryTests(_ServerCase):

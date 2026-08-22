@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Dependency-free outage probe: know about it before the owner does.
 
-Hits `GET /healthz` and an unauthenticated `POST /mcp` (which must return
-401 — anything else means the hosted MCP surface is either down or, worse,
-silently falling through to the web app's login redirect, which is exactly
-the bug that once made the hosted service unreachable from MCP clients).
+Hits storage-backed `GET /readyz`, process liveness `GET /healthz`, and an
+unauthenticated `POST /mcp` (which must return 401 — anything else means the
+hosted MCP surface is either down or, worse, silently falling through to the
+web app's login redirect, which is exactly the bug that once made the hosted
+service unreachable from MCP clients).
 Appends one JSON line per run to a local log, and exits non-zero on any
 failure so a systemd timer's failure state (`systemctl --failed`) makes the
 outage visible without anyone needing to notice it first.
@@ -93,6 +94,37 @@ def probe_healthz(base_url: str, *, timeout: float = 5.0) -> ProbeResult:
     return ProbeResult(False, status, round(latency_ms, 1), f"expected 200, got {status}")
 
 
+def probe_readyz(base_url: str, *, timeout: float = 5.0) -> ProbeResult:
+    """Probe the storage-backed readiness endpoint. Must return 200."""
+    url = base_url.rstrip("/") + "/readyz"
+    started = time.monotonic()
+    last_error: Exception | None = None
+    for attempt in range(2):
+        try:
+            with urllib.request.urlopen(url, timeout=timeout) as resp:
+                status = resp.status
+            break
+        except urllib.error.HTTPError as exc:
+            status = exc.code
+            exc.close()
+            break
+        except (urllib.error.URLError, OSError, TimeoutError) as exc:
+            last_error = exc
+            if attempt == 0:
+                time.sleep(0.01)
+                continue
+            latency_ms = (time.monotonic() - started) * 1000
+            return ProbeResult(False, None, round(latency_ms, 1), f"unreachable: {exc}")
+    else:
+        latency_ms = (time.monotonic() - started) * 1000
+        return ProbeResult(False, None, round(latency_ms, 1), f"unreachable: {last_error}")
+
+    latency_ms = (time.monotonic() - started) * 1000
+    if status == 200:
+        return ProbeResult(True, status, round(latency_ms, 1), "ok")
+    return ProbeResult(False, status, round(latency_ms, 1), f"expected 200, got {status}")
+
+
 def probe_unauth_mcp(base_url: str, *, timeout: float = 5.0) -> ProbeResult:
     """POST /mcp with no auth header. Must be 401.
 
@@ -158,15 +190,17 @@ def run(base_url: str, *, edge_url: str | None = None,
     """
     edge_url = edge_url or base_url
     healthz = probe_healthz(base_url, timeout=timeout)
+    readyz = probe_readyz(base_url, timeout=timeout)
     mcp = probe_unauth_mcp(edge_url, timeout=timeout)
     record = {
         "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "base_url": base_url,
         "edge_url": edge_url,
         "healthz": asdict(healthz),
+        "readyz": asdict(readyz),
         "mcp_unauth": asdict(mcp),
     }
-    return (healthz.ok and mcp.ok), record
+    return (healthz.ok and readyz.ok and mcp.ok), record
 
 
 def append_log(log_path: Path, record: dict) -> None:
