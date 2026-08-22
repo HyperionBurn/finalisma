@@ -7,11 +7,11 @@ compatibility claim.
 ## Latest regression evidence
 
 Measured locally on the current source/test stack (merged base `main` at
-`83e9497`; a feature branch may be active while a PR is in flight):
+`3071921`; a feature branch may be active while a PR is in flight):
 
 - Command: `python -B -m unittest discover -s tests`
-- Result: **1266 tests discovered; 1265 passed; 1 skipped**
-- Duration: 577.023 seconds on the local Windows runner
+- Result: **1267 tests discovered; 1266 passed; 1 skipped**
+- Duration: 600.579 seconds on the local Windows runner
 - Focused hosted-MCP/count suite: 40 tests passed locally
   (`tests.test_hosted_mcp` and `tests.test_site.TestCountSyncTests`)
 - Release-boundary subset: 18 tests passed locally, including Vercel

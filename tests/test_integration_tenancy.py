@@ -16,9 +16,9 @@ class TenancyIntegrationTests(unittest.TestCase):
     """Integration tests for the tenancy module driven through the REAL MCP
     JSON-RPC surface (WeftDispatcher.call_tool).
 
-    The tenancy tool handlers are not wired yet, so every org_*
-    call_tool must raise WeftError("unknown_tool", ...). That RED is the
-    deliverable.
+    The legacy tenancy tools remain available through trusted local stdio.
+    Actor-authenticated transports must hide and reject them, which is covered
+    by ``test_actor_credentials_server.py``.
     """
 
     TENANCY_TOOLS = (
@@ -31,7 +31,7 @@ class TenancyIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
-        self.store = WeftStore(root / "state.db", root, require_actor_auth=True)
+        self.store = WeftStore(root / "state.db", root)
         self.dispatcher = WeftDispatcher(self.store)
 
     def tearDown(self) -> None:

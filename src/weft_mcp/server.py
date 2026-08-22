@@ -39,6 +39,12 @@ SERVER_VERSION = "0.1.0"
 MAX_JSON_RPC_BYTES = 512 * 1024
 REQUEST_TIMEOUT_SECONDS = 30
 MAX_HTTP_HANDLERS = 32
+LEGACY_TENANCY_TOOLS = frozenset({
+    "org_create",
+    "org_add_member",
+    "org_is_member",
+    "org_assert_scope",
+})
 
 
 def _uuid_hex() -> str:
@@ -907,9 +913,26 @@ class WeftDispatcher:
             if status["team_id"] != self.team_scope:
                 raise WeftError("team_scope_forbidden", "This coordinator is scoped to a different team")
 
+    def tool_schemas(self) -> list[dict[str, Any]]:
+        """Return the tools safe for this transport's authentication mode.
+
+        The legacy tenancy helpers predate actor-bound transport credentials.
+        Keep them available for trusted local stdio, but never advertise or
+        dispatch them on an actor-authenticated transport where the bearer
+        token alone must not grant org administration or membership probes.
+        """
+        if not self.store.require_actor_auth:
+            return TOOLS
+        return [tool for tool in TOOLS if tool["name"] not in LEGACY_TENANCY_TOOLS]
+
     def call_tool(self, name: str, args: dict[str, Any]) -> Any:
         if not isinstance(args, dict):
             raise WeftError("invalid_argument", "Tool arguments must be a JSON object")
+        if self.store.require_actor_auth and name in LEGACY_TENANCY_TOOLS:
+            raise WeftError(
+                "actor_auth_required",
+                "Legacy tenancy tools are disabled when actor authentication is required",
+            )
         args = self._apply_team_scope(args)
         self._assert_capability_scope(name, args)
         if name == "protocol":
@@ -1629,7 +1652,7 @@ def handle_json_rpc(dispatcher: WeftDispatcher, request: dict[str, Any]) -> dict
     if method == "ping":
         return None if is_notification else {"jsonrpc": "2.0", "id": request_id, "result": {}}
     if method == "tools/list":
-        return None if is_notification else {"jsonrpc": "2.0", "id": request_id, "result": {"tools": TOOLS}}
+        return None if is_notification else {"jsonrpc": "2.0", "id": request_id, "result": {"tools": dispatcher.tool_schemas()}}
     if method == "tools/call":
         name = params.get("name")
         if not isinstance(name, str):

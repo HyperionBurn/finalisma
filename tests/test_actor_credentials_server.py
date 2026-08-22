@@ -16,7 +16,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from weft_mcp.__main__ import _resolve_actor_auth
 from weft_mcp.core import WeftError, WeftStore
-from weft_mcp.server import WeftDispatcher, TOOLS, _MCPRequestHandler, _Metrics, _WindowRateLimiter, run_stdio
+from weft_mcp.server import (
+    WeftDispatcher,
+    TOOLS,
+    _MCPRequestHandler,
+    _Metrics,
+    _WindowRateLimiter,
+    handle_json_rpc,
+    run_stdio,
+)
 
 
 class ActorCredentialTransportTests(unittest.TestCase):
@@ -83,6 +91,31 @@ class ActorCredentialTransportTests(unittest.TestCase):
             {"team_id": "demo", "created_by": "agent-a", "title": "Bound proof", "actor_token": self.token_a},
         )
         self.assertTrue(created["created"])
+
+    def test_actor_auth_transport_hides_and_rejects_legacy_tenancy_tools(self) -> None:
+        response = handle_json_rpc(
+            self.dispatcher,
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
+        )
+        names = {tool["name"] for tool in response["result"]["tools"]}
+        for name in ("org_create", "org_add_member", "org_is_member", "org_assert_scope"):
+            self.assertNotIn(name, names)
+            with self.assertRaises(WeftError) as caught:
+                self.dispatcher.call_tool(name, {})
+            self.assertEqual(caught.exception.code, "actor_auth_required")
+
+        trusted_store = WeftStore(Path(self.temp.name) / "trusted-tenancy.db", Path(self.temp.name))
+        try:
+            trusted_names = {
+                tool["name"]
+                for tool in handle_json_rpc(
+                    WeftDispatcher(trusted_store),
+                    {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+                )["result"]["tools"]
+            }
+            self.assertTrue({"org_create", "org_add_member", "org_is_member", "org_assert_scope"} <= trusted_names)
+        finally:
+            trusted_store.close()
 
     def test_existing_identity_join_needs_its_token_and_http_does_not_leak_it(self) -> None:
         missing_proof_pairing = self.dispatcher.call_tool(
