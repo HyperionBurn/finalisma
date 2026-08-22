@@ -467,6 +467,71 @@ class AgentKeyQuotaAndRateLimitTests(AgentKeyServiceTestBase):
         self.assertEqual(status_s, HTTPStatus.CONFLICT)
         self.assertEqual(resp_s, resp)
 
+    def test_member_cap_boundaries_match_session_path(self) -> None:
+        acct = self._signup("cap-boundary-key@example.com")
+        session = acct["session_token"]
+        key = self._create_key(session, label="cap-boundary")["agent_key"]
+
+        status, session_refused = _post(
+            self.base, "/v1/rooms/create", {"name": "session-over", "cap": 16}, token=session,
+        )
+        self.assertEqual(status, HTTPStatus.CONFLICT)
+
+        status, refused = _post(
+            self.base, "/v1/rooms/create", {"name": "over", "cap": 16}, token=key,
+        )
+        self.assertEqual(status, HTTPStatus.CONFLICT)
+        self.assertEqual(refused["error"], session_refused["error"])
+        self.assertEqual(refused["error"]["code"], "quota_exceeded")
+        self.assertEqual(refused["error"]["limit"], {
+            "name": "max_members_per_room", "value": 15, "plan": "free",
+        })
+
+        status, accepted = _post(
+            self.base, "/v1/rooms/create", {"name": "at-limit", "cap": 15}, token=key,
+        )
+        self.assertEqual(status, HTTPStatus.CREATED, f"cap 15 should pass: {accepted}")
+        self.assertEqual(accepted["cap"], 15)
+        status, closed = _post(
+            self.base, "/v1/rooms/close", {"room_id": accepted["room_id"]}, token=session,
+        )
+        self.assertEqual(status, HTTPStatus.OK, f"cleanup close failed: {closed}")
+
+    def test_room_count_quota_is_shared_between_key_and_session(self) -> None:
+        acct = self._signup("room-count-key@example.com")
+        session = acct["session_token"]
+        key = self._create_key(session, label="room-count")["agent_key"]
+        rooms = []
+        for index in range(5):
+            status, room = _post(
+                self.base, "/v1/rooms/create", {"name": f"room-{index}", "cap": 2}, token=key,
+            )
+            self.assertEqual(status, HTTPStatus.CREATED, f"room {index} failed: {room}")
+            rooms.append(room)
+
+        status, refused = _post(
+            self.base, "/v1/rooms/create", {"name": "room-over", "cap": 2}, token=session,
+        )
+        self.assertEqual(status, HTTPStatus.CONFLICT)
+        self.assertEqual(refused["error"]["code"], "quota_exceeded")
+        self.assertEqual(refused["error"]["limit"]["name"], "max_rooms")
+        self.assertEqual(refused["error"]["limit"]["value"], 5)
+        self.assertEqual(refused["error"]["limit"]["plan"], "free")
+
+        status, closed = _post(
+            self.base, "/v1/rooms/close", {"room_id": rooms[0]["room_id"]}, token=session,
+        )
+        self.assertEqual(status, HTTPStatus.OK, f"session cleanup close failed: {closed}")
+        status, replacement = _post(
+            self.base, "/v1/rooms/create", {"name": "room-replacement", "cap": 2}, token=key,
+        )
+        self.assertEqual(status, HTTPStatus.CREATED, f"replacement failed: {replacement}")
+        for room in [*rooms[1:], replacement]:
+            status, closed = _post(
+                self.base, "/v1/rooms/close", {"room_id": room["room_id"]}, token=session,
+            )
+            self.assertEqual(status, HTTPStatus.OK, f"room cleanup close failed: {closed}")
+
     def test_message_rate_limit_shared_between_session_and_key(self) -> None:
         acct = self._signup("ratelimit-key@example.com")
         session = acct["session_token"]

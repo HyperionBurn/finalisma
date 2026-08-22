@@ -29,8 +29,8 @@ conversation or sharing provider credentials.
 - One-use pairing links with preview-before-consent.
 - Member-bound session credentials and replayable ordered events.
 - Scoped tasks, leases, fencing tokens, artifact hashes, and evidence gates.
- - 1252 passing standard-library tests (1253 discovered, 1 skipped; measured
-  locally on 2026-08-21), including concurrency, restart, HTTP,
+ - 1255 passing standard-library tests (1256 discovered, 1 skipped; measured
+  locally on 2026-08-22), including concurrency, restart, HTTP,
   tenancy isolation, roster routing, durable outbox, bridge adapters, SDK
   flows, room lifecycle, cloud storage, cross-team boundary cases, identity,
   and the stdio-to-hosted bridge (docs/STDIO_BRIDGE.md).

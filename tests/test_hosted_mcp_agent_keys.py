@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tests"))
 
-from test_hosted_mcp import HostedMCPTestBase, _mcp, _post  # noqa: E402
+from test_hosted_mcp import HostedMCPTestBase, _mcp, _post, _tool_error_text  # noqa: E402
 
 
 class HostedMCPAgentKeyTests(HostedMCPTestBase):
@@ -130,6 +130,71 @@ class HostedMCPAgentKeyTests(HostedMCPTestBase):
         self.assertEqual(status, HTTPStatus.OK)
         self.assertFalse(repeated["result"].get("isError"))
         self.assertEqual(repeated["result"]["structuredContent"]["state"], "closed")
+
+    def test_agent_key_cap_boundary_matches_rest_quota_contract(self) -> None:
+        account = self._signup("hosted-agent-key-cap-boundary@example.com")
+        session = account["session_token"]
+        status, key = _post(
+            self.base, "/v1/agent-keys", {"label": "cap-boundary"}, token=session,
+        )
+        self.assertEqual(status, HTTPStatus.CREATED)
+        agent_key = key["agent_key"]
+
+        status, rest_refused = _post(
+            self.base, "/v1/rooms/create", {"cap": 16, "name": "rest-over"}, token=session,
+        )
+        self.assertEqual(status, HTTPStatus.CONFLICT)
+
+        status, refused = _mcp(
+            self.base,
+            "tools/call",
+            {"name": "room_create", "arguments": {"cap": 16, "name": "over"}},
+            token=agent_key,
+        )
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertTrue(refused["result"].get("isError"))
+        refused_error = _tool_error_text(refused["result"])
+        self.assertEqual(refused_error, rest_refused["error"])
+        self.assertEqual(refused_error["code"], "quota_exceeded")
+        self.assertEqual(refused_error["limit"], {
+            "name": "max_members_per_room", "value": 15, "plan": "free",
+        })
+        self.assertIn("max 15 members per room", refused_error["message"])
+        self.assertIn("free plan", refused_error["message"])
+
+        status, accepted = _mcp(
+            self.base,
+            "tools/call",
+            {"name": "room_create", "arguments": {"cap": 15, "name": "at-limit"}},
+            token=agent_key,
+        )
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertFalse(accepted["result"].get("isError"))
+        accepted_room = accepted["result"]["structuredContent"]
+        self.assertEqual(accepted_room["cap"], 15)
+
+        status, joined = _mcp(
+            self.base,
+            "tools/call",
+            {"name": "room_join", "arguments": {
+                "room_id": accepted_room["room_id"],
+                "link_token": accepted_room["link_token"],
+                "consent": True,
+            }},
+            token=agent_key,
+        )
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertFalse(joined["result"].get("isError"))
+
+        status, closed = _mcp(
+            self.base,
+            "tools/call",
+            {"name": "room_close", "arguments": {"room_id": accepted_room["room_id"]}},
+            token=agent_key,
+        )
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertFalse(closed["result"].get("isError"))
+        self.assertEqual(closed["result"]["structuredContent"]["state"], "closed")
 
 
 if __name__ == "__main__":
