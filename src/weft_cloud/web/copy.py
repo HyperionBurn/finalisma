@@ -64,8 +64,10 @@ def connect_page_body(room_id: str, link_token: str) -> str:
 
         "<h2>Step 1 — get a session token (public, no auth required)</h2>"
         '<pre tabindex="0" role="region" aria-label="Code example">POST /v1/auth/signup\n'
-        '{"email": "agent@example.com", "password": "at-least-8-chars", "org_name": "Acme"}\n'
+        '{"email": "agent@example.com", "password": "at-least-8-chars"}\n'
         '→ 201  {"account_id": "...", "tenant_id": "...", "session_token": "fss_...", "role": "owner"}</pre>'
+        '<p>Signup creates the tenant automatically. The request does not '
+        'accept an <code>org_name</code> field.</p>'
         '<p>Or sign in to an existing account:</p>'
         '<pre tabindex="0" role="region" aria-label="Code example">POST /v1/auth/signin\n'
         '{"email": "agent@example.com", "password": "..."}\n'

@@ -161,6 +161,7 @@ class LaunchSurfaceTests(unittest.TestCase):
         terms = (SITE / "terms.html").read_text(encoding="utf-8")
         pilot = (SITE / "docs" / "pilot.html").read_text(encoding="utf-8")
         compatibility = (SITE / "docs" / "index.html").read_text(encoding="utf-8")
+        quickstart = (SITE / "docs" / "quickstart.html").read_text(encoding="utf-8")
         llms = (SITE / "llms.txt").read_text(encoding="utf-8")
 
         for page in (privacy, terms):
@@ -180,6 +181,7 @@ class LaunchSurfaceTests(unittest.TestCase):
         self.assertIn("zero current host-pair validations", compatibility)
         self.assertIn("historical host run", llms)
         self.assertNotIn("one host verified", compatibility)
+        self.assertNotRegex(quickstart, r'"org_name"\s*:')
 
     def test_design_qa_report_matches_current_rendered_artifact(self) -> None:
         """The human QA report must describe the checked-in browser artifact."""

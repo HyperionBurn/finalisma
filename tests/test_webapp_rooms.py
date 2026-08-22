@@ -752,6 +752,7 @@ class TestConnectPage(unittest.TestCase):
         # How to obtain the session token: signup/signin steps.
         self.assertIn("/v1/auth/signup", body)
         self.assertIn("/v1/auth/signin", body)
+        self.assertNotRegex(body, r'"org_name"\s*:')
         self.assertIn(
             '<pre tabindex="0" role="region" aria-label="Code example">',
             body,

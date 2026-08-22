@@ -93,6 +93,12 @@ checked-out SHA, presence-only configuration checks, HTTPS-origin checks, and
 failure names without writing secret or host values. A successful workflow run
 is the first point at which the repository can claim that this deployment path
 completed.
+If the cutover is reached and either public release probe fails, the workflow
+invokes `/opt/weft/scripts/rollback-weft.sh` through the same pinned SSH
+identity before it removes the ephemeral credentials. The workflow remains
+failed after the rollback, so operators must inspect the failed probe and the
+rollback output. The rollback is code-only and does not restore the database.
+The documented backup and restore-drill path remains a deliberate data action.
 The repository does not currently contain production credentials. The latest
 dispatch reached the preflight and failed closed because `WEFT_VM` was absent;
 it performed no SSH cutover.

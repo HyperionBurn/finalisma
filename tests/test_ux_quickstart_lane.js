@@ -22,6 +22,7 @@ test('quickstart states the hosted/self-hosted tool boundary and bridge prerequi
   assert.match(html, /OpenCode has two native config contracts/);
   assert.match(html, /mcp\.servers\.weft/);
   assert.match(html, /mcp\.weft/);
+  assert.doesNotMatch(html, /"org_name"\s*:/);
 
   const example = JSON.parse(read('site/examples/mcp.json'));
   assert.equal(example.mcpServers.weft.env.PYTHONUTF8, '1');
