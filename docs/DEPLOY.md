@@ -143,8 +143,11 @@ curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18789/login    # 200
 curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18789/rooms    # 303 → /login
 ```
 
-The web container has no `/healthz`; its healthcheck probes `GET /login`
-(200 without a session) instead.
+The API image healthcheck probes storage-backed `GET /readyz`, so the delivery
+profiles wait for the shared SQLite store to be usable before they start. The
+web container has no `/healthz` or `/readyz`; its healthcheck probes `GET /login`
+(200 without a session) instead. This checks web-process reachability, not web
+database readiness.
 
 Acceptance proof — this drives a real signup → one room → 4 agents → ordered
 broadcast → unicast → refusal flow **against the containerised agent API** (it

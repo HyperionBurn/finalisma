@@ -44,7 +44,7 @@ services:
   # cloud service, this service overrides it to the web entry point. Both
   # containers mount the same named volume and point at the same SQLite file,
   # which is safe only because both open it in WAL mode (one writer, many
-  # readers). The image's baked-in HEALTHCHECK probes WEFT_PORT/healthz,
+  # readers). The image's baked-in HEALTHCHECK probes WEFT_PORT/readyz,
   # which nothing in this container listens on, so it is overridden here to
   # probe the web port; GET /login returns 200 without a session.
   weft-web:
