@@ -219,6 +219,21 @@ class TestSignup(unittest.TestCase):
         )
         self.assertEqual(status2, 400)
 
+    def test_signup_canonicalizes_email_for_later_mixed_case_login(self):
+        status, _, _ = self.driver.post(
+            "/signup",
+            {"email": "  BrowserUser@Example.COM  ", "password": "first-password-ok"},
+        )
+        self.assertEqual(status, 303)
+        self.assertIsNotNone(self.driver.last_outbox_body("browseruser@example.com"))
+
+        status, body, _ = self.driver.post(
+            "/login",
+            {"email": "BROWSERUSER@EXAMPLE.COM", "password": "first-password-ok"},
+        )
+        self.assertEqual(status, 303, body)
+        self.assertIn("fss_session", self.driver.cookies)
+
 
 class TestLogin(unittest.TestCase):
     def setUp(self):
@@ -258,6 +273,13 @@ class TestLogin(unittest.TestCase):
         self.assertEqual(headers["Location"], "/")
         self.assertIn("fss_session", self.driver.cookies)
         self.assertNotEqual(csrf_before, self.driver.cookies.get("fss_csrf"))
+
+    def test_login_accepts_case_and_whitespace_variants(self):
+        status, _, _ = self.driver.post(
+            "/login", {"email": f"  {self.email.upper()}  ", "password": self.password}
+        )
+        self.assertEqual(status, 303)
+        self.assertIn("fss_session", self.driver.cookies)
 
     def test_login_wrong_password_renders_error_no_cookie(self):
         status, body, _ = self.driver.post(

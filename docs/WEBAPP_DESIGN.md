@@ -171,13 +171,13 @@ For each authenticated request:
 > HttpOnly `fss_csrf` cookie, and embeds it in the `_csrf` hidden input; every
 > state-changing POST compares the submitted value with the cookie via
 > `secrets.compare_digest` (`_validate_csrf`, 403 on mismatch). No
-> `cloud_identity_csrf` table exists and the migration registry still ends at
-> `cloud_014`. The security property claimed below (HttpOnly + SameSite=Lax
+> `cloud_identity_csrf` table exists and the migration registry now ends at
+> `cloud_017`. The security property claimed below (HttpOnly + SameSite=Lax
 > cookies make a cross-site attacker unable to read or set the token) holds
 > for the cookie scheme too. The proposed design is retained below for
 > reference.
 
-- **Strategy (as designed, superseded):** per-session token (not per-form). One CSRF token per session, stored in a dedicated `cloud_identity_csrf(session_id, csrf_token)` table (migration `cloud_015_web_csrf` — proposed id; the canonical ledger in `src/weft_cloud/migrations.py` ends at `cloud_014`, and migration ids are the ledger's primary key and are never mutated, so any proposal must take a fresh id). No ALTER on the Wave G `cloud_identity_sessions` table — sessions stay untouched.
+- **Strategy (as designed, superseded):** per-session token (not per-form). One CSRF token per session, stored in a dedicated `cloud_identity_csrf(session_id, csrf_token)` table (migration `cloud_018_web_csrf` — proposed id; the canonical ledger in `src/weft_cloud/migrations.py` ends at `cloud_017`, and migration ids are the ledger's primary key and are never mutated, so any proposal must take a fresh id). No ALTER on the Wave G `cloud_identity_sessions` table — sessions stay untouched.
 - **Session id plumbing:** `SessionContext` gains an OPTIONAL `session_id` field (default `None`, backward-compatible — Wave G constructs it with keyword args and never inspects it). `sessions.validate` fills it from the session row. Handlers use `ctx.session_id` to read the CSRF row. `sessions.revoke` deletes the CSRF row alongside the revocation.
 - **Generation:** `secrets.token_urlsafe(32)` at session creation, stored alongside the session row.
 - **Injection:** every state-changing form includes `<input type="hidden" name="_csrf" value="{{csrf_token}}">`. The base template injects it for all forms automatically.
@@ -281,7 +281,7 @@ When an admin+ member creates a room:
 3. **Open (or create) the coordinator DB for this tenant:** the web app maintains ONE coordinator DB per tenant at `coordinator_db_path = <state_dir>/coordinator/<tenant_id>/rooms.db`. This path is stored in `cloud_tenant_rooms` via `bind_room`.
 4. **Instantiate `RoomStore(coordinator_db_path)`** and call `room_store.create_room(team_id=tenant_id, owner_agent_id=owner_agent_id, cap=cap, actor_token_hash=actor_token_hash, name=name, ttl_seconds=ttl_seconds)`.
 5. **Bind to tenant:** `backend.bind_room(tenant_id, room_id, coordinator_db_path)`.
-6. **Store the raw link token + synthetic owner actor token** for the copy-link UX: the web app stores `link_token` and `owner_actor_token` in a new `cloud_room_links` table (migration `cloud_016_web_room_links` — proposed id; `cloud_007`/`cloud_008` are already taken by `cloud_007_room_tables` and `cloud_008_identity_outbox_delivery`, and migration ids are never mutated) so the connect page can re-render it for members. The raw link token is NEVER exposed to non-members (see §9); the raw `owner_actor_token` is never rendered anywhere.
+6. **Store the raw link token + synthetic owner actor token** for the copy-link UX: the web app stores `link_token` and `owner_actor_token` in a new `cloud_room_links` table (migration `cloud_019_web_room_links` — proposed id; `cloud_007`/`cloud_008` are already taken by `cloud_007_room_tables` and `cloud_008_identity_outbox_delivery`, and migration ids are never mutated) so the connect page can re-render it for members. The raw link token is NEVER exposed to non-members (see §9); the raw `owner_actor_token` is never rendered anywhere.
 7. **Audit:** `backend.append_audit(tenant_id, "room.created", ctx.account_id, room_id, json_payload)`.
 8. **Redirect** 303 to `/room/{room_id}`.
 
@@ -635,7 +635,10 @@ Mirrors IDENTITY_DESIGN.md §14 style.
 | `cloud_identity_csrf(session_id, csrf_token)` | migration `cloud_015_web_csrf` (proposed id — ledger head is `cloud_014`; ids are never mutated) | Stores per-session CSRF tokens (separate table — no ALTER on Wave G tables). **Delta:** not shipped; the registry still ends at `cloud_014`. CSRF is the `fss_csrf` cookie + `secrets.compare_digest` scheme (§4.4). |
 | `cloud_room_links(tenant_id, room_id, link_id, link_token, owner_actor_token, created_at)` | migration `cloud_016_web_room_links` (proposed id — `cloud_007`/`cloud_008` are taken) | Stores raw room link token (connect-page UX) and the synthetic room-owner actor token (for RoomStore calls), both tenant-scoped. **Delta:** not shipped. The raw link token lives in the in-process `_link_token_cache`; the synthetic owner token was never needed (§6.0). The `cloud_room_links` table that DOES exist belongs to the cloud room service (hash-only link rows, created by `cloud_007_room_tables`). |
 
-All migrations are additive — no existing Wave F/G table is altered.
+All migrations are additive — no existing Wave F/G table is altered. The
+historical proposal rows above predate the shipped `cloud_015` through
+`cloud_017` migrations. Any future migration proposal must use an id after
+`cloud_017`.
 
 ---
 

@@ -47,7 +47,7 @@ from weft_cloud.identity import (
     SessionStore,
     ensure_identity_schema,
 )
-from weft_cloud.identity.accounts import validate_password
+from weft_cloud.identity.accounts import validate_email, validate_password
 from weft_cloud.identity.schema import ensure_schema as _ensure_identity_schema
 from weft_cloud.identity.sessions import DEFAULT_TTL_SECONDS
 from weft_cloud.mcp import (
@@ -388,8 +388,10 @@ class WeftCloudService:
             validate_password(password)
         except ValueError as exc:
             raise _ServiceError("invalid_argument", str(exc)) from exc
-        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
-            raise _ServiceError("invalid_argument", "email must be a valid email address")
+        try:
+            email = validate_email(email)
+        except ValueError as exc:
+            raise _ServiceError("invalid_argument", str(exc)) from exc
         if len(password) < 8:
             raise _ServiceError("invalid_argument", "password must be at least 8 characters")
 
@@ -449,6 +451,10 @@ class WeftCloudService:
             raise _ServiceError("invalid_argument", "email and password are required")
         if not isinstance(password, str) or not password:
             raise _ServiceError("invalid_argument", "email and password are required")
+        try:
+            email = validate_email(email)
+        except ValueError as exc:
+            raise _ServiceError("invalid_argument", str(exc)) from exc
         try:
             validate_password(password)
         except ValueError as exc:
@@ -583,6 +589,10 @@ class WeftCloudService:
             raise _ServiceError("invalid_argument", "email is required")
         if not isinstance(role, str):
             raise _ServiceError("invalid_argument", "role must be a string")
+        try:
+            email = validate_email(email)
+        except ValueError as exc:
+            raise _ServiceError("invalid_argument", str(exc)) from exc
         invite_id, _raw_token = self.invites.create(ctx, email, role)
         # ``invites.create`` has durably handed the message to the configured
         # outbox before returning.  The raw fiv_ token remains exclusively in
@@ -610,6 +620,10 @@ class WeftCloudService:
         ):
             raise _ServiceError("invalid_argument",
                                 "invite_token, email, and password are required")
+        try:
+            email = validate_email(email)
+        except ValueError as exc:
+            raise _ServiceError("invalid_argument", str(exc)) from exc
         try:
             validate_password(password)
         except ValueError as exc:

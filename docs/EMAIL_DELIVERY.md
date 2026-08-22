@@ -11,9 +11,11 @@ disabled — it exits cleanly instead, and every row remains `queued`. That is
 the deliberate default so local development and the test suite never need a
 mail server. The moment real SMTP values are set in the environment, delivery
 works with no code change.
-Organization-invite messages contain a clickable `/invite/fiv_...` URL. The
-origin comes from `WEFT_WEB_PUBLIC_ORIGIN` when set, then
-`WEFT_PUBLIC_ORIGIN`; the authenticated invite API never returns the raw token.
+Signup verification messages contain a clickable `/verify?token=fvt_...` URL,
+and organization-invite messages contain a clickable `/invite/fiv_...` URL.
+Both origins come from `WEFT_WEB_PUBLIC_ORIGIN` when set, then
+`WEFT_PUBLIC_ORIGIN`; authenticated APIs never return raw verification or
+invite tokens.
 
 ## How it fits together
 
@@ -60,6 +62,10 @@ to the latest migration — including the `cloud_008` delivery columns
 `last_error`) that an outbox written before this feature existed is missing.
 `cloud_008` is now a set of individually-guarded `ALTER TABLE` statements, so a
 column that already exists is skipped rather than wedging the database forever.
+The later `cloud_017_identity_email_canonical` migration trims and case-folds
+historical account, invite, and outbox addresses before it adds the global
+account-email uniqueness index. If two historical accounts collide after
+canonicalization, the migration fails and rolls back without merging them.
 
 To upgrade the live database in place (no data loss — the migration is
 forward-only and additive):

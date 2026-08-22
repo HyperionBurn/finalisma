@@ -70,6 +70,7 @@ def create(ctx: SessionContext, email: str, role: str) -> tuple[str, str]:
     an owner cannot be invited, so there is no owner-invite escalation path.
     """
     ctx = _require_ctx(ctx)
+    email = accounts.canonicalize_email(email)
     ensure_schema(ctx.backend)
     if role not in _INVITE_ROLES:
         raise AuthError("invalid_role")
@@ -106,6 +107,7 @@ def accept(backend: Any, raw_token: str, email: str, password: str) -> tuple[str
     adds a membership with EXACTLY the invite's role, consumes the token
     atomically, and issues a session.
     """
+    email = accounts.canonicalize_email(email)
     accounts.validate_password(password)
     ensure_schema(backend)
     token_hash = hash_token(raw_token)

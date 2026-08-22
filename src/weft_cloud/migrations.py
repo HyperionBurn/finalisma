@@ -648,6 +648,78 @@ CREATE INDEX IF NOT EXISTS idx_cloud_identity_outbox_claim
 """
 
 
+def _canonicalize_identity_emails(execute: Callable[[str, tuple], Any]) -> None:
+    """Normalize identity addresses and install the global uniqueness guard.
+
+    The identity contract is global: one email maps to one account, even
+    though the original tenant-local index could not enforce that invariant.
+    Historical collisions fail closed and roll back the whole migration so
+    operators can resolve ownership explicitly instead of silently merging
+    accounts or credentials.
+    """
+    account_rows = execute(
+        "SELECT account_id, email FROM cloud_identity_accounts ORDER BY account_id"
+    ).fetchall()
+    seen: dict[str, str] = {}
+    account_updates: list[tuple[str, str]] = []
+    for row in account_rows:
+        email = row["email"]
+        if not isinstance(email, str):
+            raise RuntimeError(
+                f"cloud_017 cannot canonicalize non-text identity email for {row['account_id']}"
+            )
+        canonical = email.strip().casefold()
+        if not canonical:
+            raise RuntimeError(
+                f"cloud_017 cannot canonicalize blank identity email for {row['account_id']}"
+            )
+        previous = seen.get(canonical)
+        if previous is not None and previous != row["account_id"]:
+            raise RuntimeError(
+                "cloud_017 found duplicate identity email after canonicalization: "
+                f"{canonical!r} ({previous}, {row['account_id']})"
+            )
+        seen[canonical] = row["account_id"]
+        if canonical != email:
+            account_updates.append((canonical, row["account_id"]))
+
+    for canonical, account_id in account_updates:
+        execute(
+            "UPDATE cloud_identity_accounts SET email = ? WHERE account_id = ?",
+            (canonical, account_id),
+        )
+
+    for table, key in (
+        ("cloud_identity_invites", "invite_id"),
+        ("cloud_identity_outbox", "entry_id"),
+    ):
+        rows = execute(f"SELECT {key}, "
+                       f"{'email' if table.endswith('invites') else 'to_email'} "
+                       f"AS address FROM {table}").fetchall()
+        column = "email" if table.endswith("invites") else "to_email"
+        for row in rows:
+            address = row["address"]
+            if not isinstance(address, str):
+                raise RuntimeError(
+                    f"cloud_017 cannot canonicalize non-text {column} for {row[key]}"
+                )
+            canonical = address.strip().casefold()
+            if not canonical:
+                raise RuntimeError(
+                    f"cloud_017 cannot canonicalize blank {column} for {row[key]}"
+                )
+            if canonical != address:
+                execute(
+                    f"UPDATE {table} SET {column} = ? WHERE {key} = ?",
+                    (canonical, row[key]),
+                )
+
+    execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_identity_accounts_email_unique "
+        "ON cloud_identity_accounts(email)"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(
         "cloud_001_init",
@@ -739,6 +811,11 @@ MIGRATIONS: list[Migration] = [
         "durable per-member room cursor resume marker",
         _ROOM_CURSOR_RESUME_MARKER_SQL,
         already_applied=_has_room_cursor_resume_marker,
+    ),
+    Migration(
+        "cloud_017_identity_email_canonical",
+        "canonical identity email storage and global uniqueness",
+        up_fn=_canonicalize_identity_emails,
     ),
 ]
 

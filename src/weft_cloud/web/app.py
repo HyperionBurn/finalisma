@@ -44,6 +44,8 @@ from weft_cloud.identity.accounts import signup as _identity_signup
 from weft_cloud.identity.accounts import (
     PASSWORD_MAX_LENGTH as _MAX_PASSWORD_LEN,
     PASSWORD_MIN_LENGTH as _MIN_PASSWORD_LEN,
+    canonicalize_email as _canonicalize_email,
+    validate_email as _validate_email,
     validate_password as _validate_password,
 )
 from weft_cloud.identity.accounts import leave_membership as _identity_leave_membership
@@ -474,6 +476,7 @@ class WeftWebApp:
     # ------------------------------------------------------------------
 
     def _email_exists(self, email: str) -> bool:
+        email = _canonicalize_email(email)
         with self.backend.transaction() as tx:
             row = tx.execute(
                 "SELECT 1 FROM cloud_identity_accounts WHERE email = ?",
@@ -482,6 +485,7 @@ class WeftWebApp:
         return row is not None
 
     def _tenant_for_email(self, email: str) -> str | None:
+        email = _canonicalize_email(email)
         with self.backend.transaction() as tx:
             row = tx.execute(
                 "SELECT tenant_id FROM cloud_identity_accounts WHERE email = ? ORDER BY created_at DESC LIMIT 1",
@@ -957,6 +961,10 @@ class WeftWebApp:
             return
         email = (form.get("email") or "").strip()
         password = form.get("password") or ""
+        try:
+            email = _validate_email(email)
+        except ValueError:
+            email = ""
         if not _password_is_valid(password) or not email:
             self._send_html(handler, HTTPStatus.BAD_REQUEST,
                             _page("Sign up failed",
@@ -1059,8 +1067,20 @@ class WeftWebApp:
         form = self._read_form(handler)
         if not self._enforce_csrf(handler, form):
             return
-        email = (form.get("email") or "").strip()
+        raw_email = (form.get("email") or "").strip()
         password = form.get("password") or ""
+        try:
+            email = _validate_email(raw_email)
+        except ValueError:
+            try:
+                limiter_email = _canonicalize_email(raw_email)
+            except ValueError:
+                limiter_email = raw_email
+            enforce_auth_rate_limit(self.backend, handler, "signin",
+                                    email=limiter_email,
+                                    limits=self.auth_rate_limits)
+            self.handle_get_login(handler, error="Invalid email or password.")
+            return
         # Enforce the shared auth limiter BEFORE the tenant lookup, keyed on
         # the client IP and the email (counted whether or not the account
         # exists), so throttling cannot reveal whether an email is registered.
@@ -1217,7 +1237,16 @@ class WeftWebApp:
         form = self._read_form(handler)
         if not self._enforce_csrf(handler, form):
             return
-        email = (form.get("email") or "").strip()
+        raw_email = (form.get("email") or "").strip()
+        email = ""
+        if raw_email:
+            try:
+                email = _validate_email(raw_email)
+            except ValueError:
+                try:
+                    email = _canonicalize_email(raw_email)
+                except ValueError:
+                    email = raw_email
         if email:
             # Public endpoint and a mail-bomb vector now that real delivery is
             # live: the shared auth limiter runs on the email REGARDLESS of
@@ -1481,6 +1510,10 @@ class WeftWebApp:
             return
         email = (form.get("email") or "").strip()
         role = form.get("role", "member")
+        try:
+            email = _validate_email(email)
+        except ValueError:
+            email = ""
         if not email or role not in ("admin", "member"):
             self._send_html(handler, HTTPStatus.BAD_REQUEST,
                             _page("Invite failed", '<p>Invalid email or role.</p>'))
@@ -1524,6 +1557,10 @@ class WeftWebApp:
             return
         email = (form.get("email") or "").strip()
         password = form.get("password", "")
+        try:
+            email = _validate_email(email)
+        except ValueError:
+            email = ""
         if not _password_is_valid(password) or not email:
             self._send_html(handler, HTTPStatus.BAD_REQUEST,
                             _page("Invite failed",

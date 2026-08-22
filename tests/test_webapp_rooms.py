@@ -148,6 +148,7 @@ class WebAppDriver:
         )
 
     def last_outbox_body(self, to_email):
+        to_email = to_email.strip().casefold()
         with self.backend.transaction() as tx:
             row = tx.execute(
                 "SELECT body FROM cloud_identity_outbox WHERE to_email = ? "
