@@ -10,6 +10,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from weft_cloud.web.copy import connect_page_body
 CONNECT_TIERS = ROOT / "web" / "src" / "components" / "ConnectTiers.astro"
 AGENT_KEYS = ROOT / "docs" / "AGENT_KEYS.md"
+SDK = ROOT / "docs" / "SDK.md"
 
 
 def _read(path: Path) -> str:
@@ -49,12 +50,23 @@ class OnboardingConsistencyTests(unittest.TestCase):
         self.assertIn('coordinator_url="https://&lt;origin&gt;/mcp"', html)
         self.assertIn('bearer_token=os.environ["WEFT_TOKEN"]', html)
         self.assertIn('Hosted mode derives identity from the bearer credential', html)
+        self.assertIn('Creator-key note', html)
+        self.assertIn('must redeem this returned link', html)
+        self.assertIn('before that key can call', html)
         self.assertNotIn('there is no hosted-cloud SDK client', html)
         self.assertIn('a session joins as your account, and an agent key joins as its own distinct agent identity', html)
         self.assertIn('Treat this URL like a password', html)
         self.assertIn('revoke the link if it is exposed', html)
         self.assertIn('room_&lt;unsafe&gt;', html)
         self.assertIn('rm_&lt;unsafe&gt;', html)
+
+    def test_hosted_sdk_docs_repeat_creator_key_redemption_contract(self) -> None:
+        doc = _read(SDK)
+
+        self.assertIn('the key is a distinct room identity', doc)
+        self.assertIn('before that key calls', doc)
+        self.assertIn('room_poll()', doc)
+        self.assertIn('send()', doc)
 
 
     def test_agent_keys_doc_has_one_identity_contract(self) -> None:

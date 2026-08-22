@@ -188,6 +188,11 @@ joined = client.join_room(
 print(joined.status, joined.agent_id)
 ```
 
+When the same `agk_` key creates a room through `create_room()`, the owning
+account auto-joins, but the key is a distinct room identity. Redeem the
+returned `room_id` and `link_token` with `join_room()` before that key calls
+`room_poll()` or `send()`.
+
 When `bearer_token` is set, the SDK strips self-hosted identity arguments from
 each hosted tool call. The hosted service derives the member identity from the
 session or agent key. Keep `WEFT_TOKEN` in secret storage and never put it in a
