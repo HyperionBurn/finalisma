@@ -1,4 +1,4 @@
-# Release evidence — 2026-08-21
+# Release evidence — 2026-08-22
 
 This is the current local evidence ledger for the integration hardening work.
 It is not a hosted-release approval, deployment proof, or third-party client
@@ -7,11 +7,11 @@ compatibility claim.
 ## Latest regression evidence
 
 Measured locally on the current source/test stack (merged base `main` at
-`33b604a`; a feature branch may be active while a PR is in flight):
+`d202045`; a feature branch may be active while a PR is in flight):
 
 - Command: `python -B -m unittest discover -s tests`
-- Result: **1253 tests discovered; 1252 passed; 1 skipped**
-- Duration: 590.883 seconds on the local Windows runner
+- Result: **1256 tests discovered; 1255 passed; 1 skipped**
+- Duration: 622.268 seconds on the local Windows runner
 - Focused hosted-MCP/count suite: 40 tests passed locally
   (`tests.test_hosted_mcp` and `tests.test_site.TestCountSyncTests`)
 - Release-boundary subset: 18 tests passed locally, including Vercel
