@@ -24,9 +24,9 @@ def _valid_environment() -> dict[str, str]:
         "WEFT_VM": "deploy@vm.example",
         "WEFT_NGINX_CONF": "/etc/nginx/sites-enabled/weft",
         "WEFT_NGINX_SERVER_NAME": "weft.example",
-        "PUBLIC_ORIGIN": "https://weft.example",
-        "WEFT_API_ORIGIN": "https://api.weft.example",
-        "WEFT_SITE_URL": "https://weft.example",
+        "PUBLIC_ORIGIN": "HTTPS://weft.example/",
+        "WEFT_API_ORIGIN": "https://weft.example:443",
+        "WEFT_SITE_URL": "https://marketing.weft.example",
         "WEFT_SSH_PRIVATE_KEY_CONTENT": "PRIVATE-KEY-CONTENT",
         "WEFT_SSH_KNOWN_HOSTS_CONTENT": "KNOWN-HOSTS-CONTENT",
         "WEFT_MCP_PROBE_TOKEN": "MCP-PROBE-TOKEN",
@@ -62,9 +62,28 @@ class DeployPreflightTests(unittest.TestCase):
         self.assertTrue(all(report["required_variables"].values()))
         self.assertTrue(all(report["required_secrets"].values()))
         self.assertTrue(all(report["https_origins"].values()))
+        self.assertTrue(report["public_api_origin_match"])
         rendered = json.dumps(report)
         for value in environment.values():
             self.assertNotIn(value, rendered)
+
+    def test_public_api_origin_mismatch_fails_closed_without_value_leakage(self) -> None:
+        environment = _valid_environment()
+        environment["PUBLIC_ORIGIN"] = "https://weft.example"
+        environment["WEFT_API_ORIGIN"] = "https://api.weft.example"
+        report = deploy_preflight.evaluate(
+            environment,
+            actual_sha=SHA,
+            actual_ref=MAIN_REF,
+            expected_sha=SHA,
+        )
+
+        self.assertEqual(report["status"], "fail")
+        self.assertFalse(report["public_api_origin_match"])
+        self.assertIn("PUBLIC_ORIGIN must match WEFT_API_ORIGIN", report["failures"])
+        rendered = json.dumps(report)
+        self.assertNotIn("weft.example", rendered)
+        self.assertNotIn("api.weft.example", rendered)
 
     def test_http_origin_and_sha_mismatch_fail_closed(self) -> None:
         environment = _valid_environment()
@@ -78,6 +97,8 @@ class DeployPreflightTests(unittest.TestCase):
 
         self.assertEqual(report["status"], "fail")
         self.assertIn("origin must be an absolute HTTPS URL: WEFT_API_ORIGIN", report["failures"])
+        self.assertFalse(report["public_api_origin_match"])
+        self.assertNotIn("PUBLIC_ORIGIN must match WEFT_API_ORIGIN", report["failures"])
         self.assertIn("checked-out release SHA does not match expected release SHA", report["failures"])
 
     def test_non_main_release_ref_fails_closed(self) -> None:
