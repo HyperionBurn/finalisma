@@ -56,7 +56,7 @@ from weft_cloud.identity.accounts import burn_scrypt_cost as _identity_burn_scry
 from weft_cloud.identity.schema import ensure_schema as _ensure_identity_schema
 from weft_cloud.identity.sessions import DEFAULT_TTL_SECONDS
 from weft_cloud.identity.tokens import hash_token as _hash_token
-from weft_cloud.quotas import QuotaError
+from weft_cloud.quotas import DEFAULT_ROOM_CAP, QuotaError
 from weft_cloud.rate_limit import RateLimitedError, enforce_auth_rate_limit
 from weft_cloud.rooms import CloudRoomService, RoomError, _parse_json, public_origin
 from weft_cloud.storage import StorageBackend
@@ -1905,10 +1905,17 @@ class WeftWebApp:
                             _page("Forbidden", '<p>CSRF validation failed.</p>'))
             return
         name = (form.get("name") or "").strip()
-        try:
-            cap = int(form.get("cap", "8"))
-        except ValueError:
-            cap = 8
+        raw_cap = form.get("cap")
+        if raw_cap in (None, ""):
+            cap = DEFAULT_ROOM_CAP
+        else:
+            try:
+                cap = int(raw_cap)
+            except (TypeError, ValueError):
+                self._send_html(handler, HTTPStatus.BAD_REQUEST,
+                                _page("Create room failed",
+                                      '<p>Cap must be a whole number.</p>'))
+                return
         if not name:
             self._send_html(handler, HTTPStatus.BAD_REQUEST,
                             _page("Create room failed",
