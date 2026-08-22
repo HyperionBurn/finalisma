@@ -9,6 +9,8 @@ wired into each host's native config shape:
 
 - Claude Desktop -> JSON ``mcpServers`` (``claude_desktop_config.json``)
 - Cursor        -> JSON ``mcpServers`` (``.cursor/mcp.json``)
+- OpenCode v2   -> JSON ``mcp.servers`` (``opencode.json``)
+- OpenCode 1.x  -> JSON ``mcp`` (``opencode.json``)
 - Codex         -> TOML ``[mcp_servers.weft]`` (``~/.codex/config.toml``)
 
 Invariants (see docs/STDIO_BRIDGE.md):
@@ -21,9 +23,9 @@ Invariants (see docs/STDIO_BRIDGE.md):
   invalidates the config. Callers must say so.
 - Stdlib only — the config text is built here, never by a template engine.
 
-The generated Claude Desktop / Cursor config is verified end to end by
-``tests/test_webapp_dashboard.py``: the bridge launched with that exact config
-returns the hosted room tools from ``tools/list``.
+The generated config shapes are covered by the web integration suite. The
+local bridge contract is verified separately; an emitted config shape is not
+evidence that a third-party host has been launched against a live deployment.
 """
 
 from __future__ import annotations
@@ -41,6 +43,18 @@ CLIENTS: dict[str, dict[str, str]] = {
         "label": "Cursor",
         "file": ".cursor/mcp.json",
         "language": "json",
+    },
+    "opencode-v2": {
+        "label": "OpenCode v2",
+        "file": "opencode.json",
+        "language": "json",
+        "format": "opencode-v2",
+    },
+    "opencode-legacy": {
+        "label": "OpenCode 1.x (legacy)",
+        "file": "opencode.json",
+        "language": "json",
+        "format": "opencode-v1",
     },
     "codex": {
         "label": "Codex",
@@ -75,7 +89,23 @@ def build_config(client_id: str, agent_key: str, origin: str) -> dict:
         raise ValueError(f"unknown client: {client_id}")
     meta = CLIENTS[client_id]
     args = ["-B", "-m", "weft_mcp", "--remote", origin, "--token-env", TOKEN_ENV_VAR]
-    if meta["language"] == "toml":
+    if meta.get("format") in {"opencode-v1", "opencode-v2"}:
+        server = {
+            "type": "local",
+            "command": ["python", *args],
+            "environment": {TOKEN_ENV_VAR: agent_key, "PYTHONUTF8": "1"},
+        }
+        if meta["format"] == "opencode-v1":
+            server["enabled"] = True
+            payload = {"$schema": "https://opencode.ai/config.json", "mcp": {"weft": server}}
+        else:
+            server["disabled"] = False
+            payload = {
+                "$schema": "https://opencode.ai/config.json",
+                "mcp": {"servers": {"weft": server}},
+            }
+        config_text = json.dumps(payload, indent=2, ensure_ascii=True) + "\n"
+    elif meta["language"] == "toml":
         config_text = (
             "[mcp_servers.weft]\n"
             "command = \"python\"\n"

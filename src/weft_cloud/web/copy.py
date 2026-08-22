@@ -11,7 +11,7 @@ hosted cloud room's link directly, so the page says so instead of printing
 commands that fail.
 
 Tier 1 (MCP stdio) is the exception that makes the product usable: real MCP
-hosts (Claude Desktop, Codex, Cursor) launch servers as ``command`` + ``args``
+hosts (Claude Desktop, Codex, Cursor, OpenCode) launch servers as ``command`` + ``args``
 subprocesses and have no ``url`` form, so they cannot dial the hosted
 ``POST /mcp`` endpoint. The installed bridge module (``python -B -m weft_mcp
 --remote <origin> --token-env WEFT_TOKEN``) is the shim that lets those hosts
@@ -114,7 +114,8 @@ def connect_page_body(room_id: str, link_token: str) -> str:
         '<p><strong>This is not a hosted stdio server.</strong> stdio remains '
         'a local process boundary; configure the bridge in remote mode so the '
         'local process forwards MCP traffic to the hosted endpoint.</p>'
-        '<p>Real MCP hosts — Claude Desktop, Cursor, Claude Code, Codex — '
+        '<p>Real MCP hosts — Claude Desktop, Cursor, Claude Code, Codex and '
+        'OpenCode — '
         'launch servers as <code>command</code> + <code>args</code> '
         'subprocesses and have no <code>url</code> form, so they cannot dial '
         '<code>POST /mcp</code> directly. The stdio bridge is the shim: it '
@@ -122,10 +123,17 @@ def connect_page_body(room_id: str, link_token: str) -> str:
         'to the hosted endpoint with <code>Authorization: Bearer '
         '&lt;token&gt;</code>. Your client sees the hosted tool set as if it '
         'were a local process.</p>'
-        '<p><strong>The token goes in an environment block, never in '
-        '<code>args</code>.</strong> argv is visible to every process on the '
-        'machine; the environment is not. The bridge reads it from the '
-        'variable named by <code>--token-env</code>. Windows hosts must also '
+        '<p>OpenCode has two native config contracts. Select OpenCode v2 or '
+        'OpenCode 1.x (legacy) in the connector generator. It writes an '
+        '<code>opencode.json</code> with the bridge under the matching '
+        '<code>mcp.servers.weft</code> or <code>mcp.weft</code> path. Do not '
+        'paste the <code>mcpServers</code> example below into OpenCode.</p>'
+        '<p><strong>The token goes in the client environment field, never in '
+        '<code>args</code>.</strong> Command-line arguments are commonly '
+        'visible to other processes. The generated config still contains the '
+        'live credential, so protect the file and revoke the key when you '
+        'retire it. The bridge reads the token from the variable named by '
+        '<code>--token-env</code>. Windows hosts must also '
         'set <code>PYTHONUTF8=1</code>: without it the client\'s UTF-8 JSON-RPC '
         'is decoded as cp1252 and every non-ASCII character is destroyed.</p>'
         '<p>Install the <code>weft-mcp</code> package in the Python environment '
