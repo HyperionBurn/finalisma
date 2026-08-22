@@ -364,6 +364,62 @@ class _JsonRpcTransport:
     def close(self) -> None:
         pass  # connections are per-call; nothing pooled
 
+    def initialize(self, protocol_version: str = "2025-11-25") -> dict[str, Any]:
+        """Run the MCP initialize handshake and return its result object."""
+        request_body = {
+            "jsonrpc": "2.0",
+            "id": self._next_id(),
+            "method": "initialize",
+            "params": {
+                "protocolVersion": protocol_version,
+                "capabilities": {},
+                "clientInfo": {"name": "weft-sdk", "version": "0.1.0"},
+            },
+        }
+        payload = json.dumps(request_body, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        last_exc: Exception | None = None
+        for attempt in range(_MAX_RETRIES):
+            try:
+                conn = self._connection()
+                headers = {"Content-Type": "application/json", "Content-Length": str(len(payload))}
+                if self._bearer:
+                    headers["Authorization"] = f"Bearer {self._bearer}"
+                conn.request("POST", self._path, body=payload, headers=headers)
+                resp = conn.getresponse()
+                status = resp.status
+                body = resp.read()
+                retry_after = resp.getheader("Retry-After")
+                conn.close()
+
+                if status in _TRANSIENT_STATUSES and attempt < _MAX_RETRIES - 1:
+                    time.sleep(_BASE_BACKOFF * (2 ** attempt) + secrets.randbelow(10) / 100.0)
+                    continue
+                if status != 200:
+                    raise self._http_error(status, body, retry_after)
+
+                envelope = json.loads(body.decode("utf-8"))
+                if not isinstance(envelope, dict):
+                    raise WeftError("remote_error", "Remote JSON-RPC response is invalid")
+                if envelope.get("error"):
+                    error = envelope["error"]
+                    if not isinstance(error, dict):
+                        raise WeftError("remote_error", "Remote JSON-RPC error")
+                    code = error.get("code")
+                    if not isinstance(code, str) or not _SAFE_HTTP_ERROR_CODE.fullmatch(code):
+                        code = "remote_error"
+                    _raise_structured(code, "Remote JSON-RPC error", _safe_retry_details(error))
+                result = envelope.get("result")
+                if not isinstance(result, dict):
+                    raise WeftError("remote_error", "Remote JSON-RPC result is invalid")
+                return result
+            except (http.client.HTTPException, ConnectionError, TimeoutError, OSError) as exc:
+                last_exc = exc
+                if attempt < _MAX_RETRIES - 1:
+                    time.sleep(_BASE_BACKOFF * (2 ** attempt) + secrets.randbelow(10) / 100.0)
+                    continue
+                raise TimeoutError("transport_error", f"Transport failure: {exc}") from exc
+        raise TimeoutError("transport_error", f"Transport failure after retries: {last_exc}")
+
     @staticmethod
     def _http_error(status: int, body: bytes, retry_after_header: str | None) -> WeftError:
         """Raise a structured WeftError from a non-200 response.
@@ -568,6 +624,8 @@ class WeftClient:
 
     def connect(self) -> dict[str, Any]:
         """Verify the coordinator is reachable; returns protocol info."""
+        if self._bearer_token:
+            return self._transport.initialize()
         return self._transport.call("protocol", {})
 
     # -- identity ------------------------------------------------------------

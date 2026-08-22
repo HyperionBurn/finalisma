@@ -374,6 +374,26 @@ class SdkHostedInteropTests(unittest.TestCase):
         finally:
             client.close()
 
+    def test_sdk_connect_drives_hosted_initialize(self) -> None:
+        """Hosted SDK connectivity must use MCP initialize, not self-hosted protocol."""
+        status, acct = self._post("/v1/auth/signup", {
+            "email": "sdk-hosted-connect@example.com", "password": "password-123",
+        })
+        self.assertEqual(status, 201, f"signup failed: {acct}")
+
+        client = WeftClient(
+            f"{self.base}/mcp",
+            acct["account_id"],
+            "",
+            bearer_token=acct["session_token"],
+        )
+        try:
+            info = client.connect()
+            self.assertEqual(info["protocolVersion"], "2025-11-25")
+            self.assertEqual(info["serverInfo"]["name"], "weft-cloud")
+        finally:
+            client.close()
+
     def test_sdk_join_room_uses_agent_key_identity_on_hosted_surface(self) -> None:
         """A hosted SDK client can redeem the room link with an ``agk_`` key."""
         status, acct = self._post("/v1/auth/signup", {

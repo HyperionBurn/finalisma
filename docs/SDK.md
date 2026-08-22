@@ -43,7 +43,7 @@ b.complete(task_id, fencing_token=task.fencing_token, summary="Shipped")
 
 | Capability | SDK method | Notes |
 |---|---|---|
-| Connectivity | `connect()` | Returns protocol info; health check. |
+| Connectivity | `connect()` | Self-hosted mode calls `protocol`; hosted bearer mode performs the MCP `initialize` handshake and returns `protocolVersion`/`serverInfo`. |
 | Identity | `register()`, `heartbeat()`, `rotate_credential()` | Token auto-stored; env `WEFT_ACTOR_TOKEN` supported. |
 | Pairing | `create_pairing_link()`, `join_pairing(link)` | Fragment-token handling is automatic. |
 | Tasks | `create_task()`, `claim()`, `update_progress()`, `submit_evidence()`, `complete()` | Typed `TaskResult` with `fencing_token`. |
@@ -79,6 +79,11 @@ WeftClient(coordinator_url, agent_id, team_id,
   .session_ack(session_token, seq, agent_id) -> int
   .close()
 ```
+
+`connect()` is surface-aware. A self-hosted client uses the Weft `protocol`
+tool. A hosted client uses MCP `initialize`, because the hosted catalog does
+not expose the self-hosted `protocol` tool. This makes the documented check
+safe to run before hosted room onboarding.
 
 ## Token hygiene
 
