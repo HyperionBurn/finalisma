@@ -34,6 +34,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from weft_cloud.storage import SqliteWalBackend
 from weft_cloud.identity.schema import ensure_schema
+from weft_cloud.quotas import DEFAULT_ROOM_CAP
 from weft_cloud.web.app import WeftWebApp  # RED: package absent
 
 SITE_DIR = str(ROOT / "site")
@@ -230,6 +231,30 @@ class TestCreateRoom(unittest.TestCase):
             re.fullmatch(r"room_[0-9a-f]+", room_id),
             f"room_id must match room_<hex>, got {room_id!r}",
         )
+
+    def test_omitted_cap_uses_shared_default_room_cap(self):
+        html = self.driver.get("/rooms")[1]
+        csrf = self.driver.extract_csrf(html)
+        status, _, headers = self.driver.post(
+            "/rooms", {"name": "Default cap", "_csrf": csrf}
+        )
+        self.assertEqual(status, 303)
+        room_id = headers["Location"].split("/room/", 1)[1]
+        with self.driver.backend.transaction() as tx:
+            row = tx.execute(
+                "SELECT cap FROM cloud_rooms WHERE room_id = ?", (room_id,)
+            ).fetchone()
+        self.assertEqual(row["cap"], DEFAULT_ROOM_CAP)
+
+    def test_malformed_cap_is_rejected_instead_of_using_a_legacy_default(self):
+        html = self.driver.get("/rooms")[1]
+        csrf = self.driver.extract_csrf(html)
+        status, body, _ = self.driver.post(
+            "/rooms", {"name": "Malformed cap", "cap": "not-a-number", "_csrf": csrf}
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("Cap must be a whole number", body)
+        self.assertNotIn("Internal server error", body)
 
     def test_create_room_validation_error_returns_400_html(self):
         html = self.driver.get("/rooms")[1]
