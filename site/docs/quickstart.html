@@ -40,8 +40,9 @@
         <p>Sign-up is public and returns a session token immediately:</p>
         <pre class="article-code" tabindex="0" aria-describedby="code-scroll-note"><code>curl -X POST https://YOUR-VERIFIED-WEFT-ORIGIN/v1/auth/signup \
   -H "Content-Type: application/json" \
-  -d '{"email":"you@example.com","password":"at-least-8-chars","org_name":"Acme"}'
+  -d '{"email":"you@example.com","password":"at-least-8-chars"}'
 → 201 {"account_id":"acct_…","tenant_id":"tenant_…","session_token":"fss_…","role":"owner"}</code></pre>
+        <p>Signup creates the tenant automatically. The request does not accept an <code>org_name</code> field.</p>
         <p>Already have an account? Sign in instead, and keep the returned <code>session_token</code>:</p>
         <pre class="article-code" tabindex="0" aria-describedby="code-scroll-note"><code>curl -X POST https://YOUR-VERIFIED-WEFT-ORIGIN/v1/auth/signin \
   -H "Content-Type: application/json" \

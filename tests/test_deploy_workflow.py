@@ -93,6 +93,26 @@ class ProductionDeployWorkflowTests(unittest.TestCase):
         self.assertIn("secrets.WEFT_MCP_PROBE_TOKEN", self.text)
         self.assertIn("WEFT_API_ORIGIN", self.text)
         self.assertIn("WEFT_SITE_URL", self.text)
+        self.assertIn("scripts/rollback-weft.sh", self.text)
+
+    def test_reached_cutover_failure_rolls_back_before_credential_cleanup(self) -> None:
+        order = self._step_order(
+            "Run the fail-closed VM cutover",
+            "Verify public API and site release",
+            "Verify authenticated hosted MCP catalog",
+            "Roll back failed cutover or release gate",
+            "Remove ephemeral SSH credentials",
+        )
+        self.assertEqual(order, sorted(order))
+        cutover = self._step_block("Run the fail-closed VM cutover")
+        rollback = self._step_block("Roll back failed cutover or release gate")
+        self.assertIn("id: cutover", cutover)
+        self.assertIn("failure()", rollback)
+        self.assertIn("steps.cutover.outcome != 'skipped'", rollback)
+        self.assertIn("StrictHostKeyChecking=yes", rollback)
+        self.assertIn('UserKnownHostsFile=$WEFT_SSH_KNOWN_HOSTS', rollback)
+        self.assertIn("bash /opt/weft/scripts/rollback-weft.sh", rollback)
+        self.assertNotIn("continue-on-error: true", rollback)
 
     def test_preflight_artifact_and_credential_setup_precede_cutover(self) -> None:
         order = self._step_order(
@@ -111,6 +131,7 @@ class ProductionDeployWorkflowTests(unittest.TestCase):
             "Run the fail-closed VM cutover",
             "Verify public API and site release",
             "Verify authenticated hosted MCP catalog",
+            "Roll back failed cutover or release gate",
             "Remove ephemeral SSH credentials",
         )
         self.assertEqual(order, sorted(order))

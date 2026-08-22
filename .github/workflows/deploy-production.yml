@@ -90,6 +90,7 @@ jobs:
           echo "Ephemeral SSH key and verified known_hosts files are ready."
 
       - name: Run the fail-closed VM cutover
+        id: cutover
         shell: bash
         env:
           WEFT_SSH_KEY: ${{ runner.temp }}/weft-deploy-key
@@ -111,6 +112,22 @@ jobs:
             exit 2
           }
           python -B scripts/probe_hosted_mcp_surface.py --mcp-origin "$WEFT_API_ORIGIN" --pretty
+
+      - name: Roll back failed cutover or release gate
+        if: ${{ failure() && steps.cutover.outcome != 'skipped' }}
+        shell: bash
+        env:
+          WEFT_SSH_KEY: ${{ runner.temp }}/weft-deploy-key
+          WEFT_SSH_KNOWN_HOSTS: ${{ runner.temp }}/weft-known-hosts
+        run: |
+          set -euo pipefail
+          ssh \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o "UserKnownHostsFile=$WEFT_SSH_KNOWN_HOSTS" \
+            -i "$WEFT_SSH_KEY" \
+            "$WEFT_VM" \
+            'bash /opt/weft/scripts/rollback-weft.sh'
 
       - name: Remove ephemeral SSH credentials
         if: always()
