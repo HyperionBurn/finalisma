@@ -420,6 +420,13 @@ class RedeployBackupSafetyTests(unittest.TestCase):
                       "nginx must continue forwarding hosted MCP to weft-cloud")
 
     def test_healthcheck_template_probes_edge_separately(self):
+        dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+        self.assertIn("/readyz", dockerfile)
+        self.assertNotIn("/healthz', timeout=3", dockerfile)
+        compose = (REPO_ROOT / "compose.yaml").read_text(encoding="utf-8")
+        self.assertIn("baked-in HEALTHCHECK probes WEFT_PORT/readyz", compose)
+        self.assertNotIn("baked-in HEALTHCHECK probes WEFT_PORT/healthz", compose)
+
         unit = (SCRIPTS_DIR / "systemd" / "weft-healthcheck.service").read_text(encoding="utf-8")
         self.assertIn("EnvironmentFile=/etc/weft/healthcheck.env", unit)
         self.assertIn("ExecStartPre=/usr/bin/install -d -o azureuser -g azureuser -m 0750 /var/log/weft", unit)

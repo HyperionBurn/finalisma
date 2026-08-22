@@ -44,8 +44,8 @@ VOLUME ["/data"]
 
 EXPOSE 18788
 
-# Stdlib-only health probe hitting /healthz (no curl/wget in the slim image).
+# Stdlib-only storage-readiness probe hitting /readyz (no curl/wget in the slim image).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD python -c "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('WEFT_PORT','18788')+'/healthz', timeout=3)"
+  CMD python -c "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('WEFT_PORT','18788')+'/readyz', timeout=3)"
 
 CMD ["python", "-B", "-m", "weft_cloud.service"]
