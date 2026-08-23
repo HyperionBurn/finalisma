@@ -103,7 +103,7 @@ if [ -d "$APP" ] && [ -n "$(ls -A "$APP" 2>/dev/null)" ]; then
   PREV_RELEASE="$RELEASES/pre-deploy-$(date -u +%Y%m%dT%H%M%SZ)"
   sudo cp -a "$APP" "$PREV_RELEASE"
   sudo mkdir -p "$PREV_RELEASE.systemd"
-  for u in weft-cloud.service weft-web.service weft-outbox.service weft-backup.service weft-backup.timer weft-healthcheck.service weft-healthcheck.timer weft-restore-drill.service weft-restore-drill.timer; do
+  for u in weft-cloud.service weft-web.service weft-outbox.service weft-backup.service weft-backup.timer weft-health.service weft-health.timer weft-healthcheck.service weft-healthcheck.timer weft-restore-drill.service weft-restore-drill.timer; do
     [ -f "/etc/systemd/system/$u" ] && sudo cp -a "/etc/systemd/system/$u" "$PREV_RELEASE.systemd/$u"
   done
   [ -f "/etc/weft/healthcheck.env" ] && sudo cp -a "/etc/weft/healthcheck.env" "$PREV_RELEASE.systemd/healthcheck.env"
@@ -115,6 +115,14 @@ if [ -d "$APP" ] && [ -n "$(ls -A "$APP" 2>/dev/null)" ]; then
 else
   echo "  no existing $APP to preserve (first deploy) — rollback will have nothing to target until the NEXT deploy"
 fi
+
+echo "== install and enforce operational timers =="
+# Install before promotion. A missing unit, invalid edge origin, or failed
+# systemd activation must stop the cutover while the old release still runs.
+# The unit source comes from the staged release, while installed ExecStart
+# paths remain the canonical /opt/weft paths used by the VM service units.
+sudo env PUBLIC_ORIGIN="$PUBLIC_ORIGIN" bash "$SCRIPT_DIR/install-weft-ops.sh" \
+  --unit-source "$INCOMING/scripts/systemd"
 
 echo "== promote staged code =="
 sudo rm -rf "${APP}.previous-failed-promote" 2>/dev/null || true
@@ -166,15 +174,6 @@ RestartSec=3
 [Install]
 WantedBy=multi-user.target
 UNIT
-
-echo "== install and enforce operational timers =="
-# Backup, restore-drill, and healthcheck units used to be review-only
-# templates. Install them before promotion so a failed operational setup
-# aborts the cutover before the new code becomes live. The unit source comes
-# from the staged release, while the installed ExecStart paths remain the
-# canonical /opt/weft paths used by the VM service units.
-sudo env PUBLIC_ORIGIN="$PUBLIC_ORIGIN" bash "$SCRIPT_DIR/install-weft-ops.sh" \
-  --unit-source "$INCOMING/scripts/systemd"
 
 echo "== nginx: route public join links and MCP to the cloud service =="
 # WITHOUT THIS, POST /mcp falls through to `location /` (the web app) and

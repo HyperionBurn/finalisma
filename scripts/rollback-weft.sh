@@ -46,7 +46,7 @@ echo "  $APP now holds the code from $PREV_RELEASE"
 
 echo "== restore the unit files that were actually running that release =="
 if [ -d "$PREV_RELEASE.systemd" ]; then
-  for u in weft-cloud.service weft-web.service weft-outbox.service weft-backup.service weft-backup.timer weft-healthcheck.service weft-healthcheck.timer weft-restore-drill.service weft-restore-drill.timer; do
+  for u in weft-cloud.service weft-web.service weft-outbox.service weft-backup.service weft-backup.timer weft-health.service weft-health.timer weft-healthcheck.service weft-healthcheck.timer weft-restore-drill.service weft-restore-drill.timer; do
     if [ -f "$PREV_RELEASE.systemd/$u" ]; then
       sudo cp -a "$PREV_RELEASE.systemd/$u" "/etc/systemd/system/$u"
       echo "  restored /etc/systemd/system/$u"
@@ -68,10 +68,18 @@ sudo systemctl daemon-reload
 OPS_TIMERS="weft-backup.timer weft-healthcheck.timer weft-restore-drill.timer"
 for timer in $OPS_TIMERS; do
   if systemctl list-unit-files "$timer" --no-legend 2>/dev/null | grep -q "$timer"; then
-    sudo systemctl enable "$timer"
-    sudo systemctl restart "$timer"
+    if [ -d "$PREV_RELEASE.systemd" ] && [ ! -f "$PREV_RELEASE.systemd/$timer" ]; then
+      sudo systemctl disable --now "$timer" || true
+    else
+      sudo systemctl enable "$timer"
+      sudo systemctl restart "$timer"
+    fi
   fi
 done
+if [ -f "$PREV_RELEASE.systemd/weft-health.timer" ]; then
+  sudo systemctl enable weft-health.timer
+  sudo systemctl restart weft-health.timer
+fi
 
 echo "== restart + prove (same MainPID before/after check as a forward deploy) =="
 UNITS="weft-cloud.service weft-web.service"
@@ -107,7 +115,7 @@ rm -f "$BEFORE_ENV" "$AFTER_ENV"
 echo
 echo "== verify =="
 systemctl is-active $UNITS | sed 's/^/  /'
-for timer in $OPS_TIMERS; do
+for timer in $OPS_TIMERS weft-health.timer; do
   if systemctl list-unit-files "$timer" --no-legend 2>/dev/null | grep -q "$timer"; then
     systemctl is-active "$timer" | sed "s/^/  /"
   fi

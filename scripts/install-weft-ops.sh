@@ -23,6 +23,9 @@ TIMERS=(
   weft-healthcheck.timer
   weft-restore-drill.timer
 )
+LEGACY_TIMERS=(
+  weft-health.timer
+)
 UNITS=(
   weft-backup.service
   weft-backup.timer
@@ -133,6 +136,16 @@ done
 for timer in "${TIMERS[@]}"; do
   /usr/bin/systemctl is-enabled --quiet "$timer" || fatal "$timer is not enabled"
   /usr/bin/systemctl is-active --quiet "$timer" || fatal "$timer is not active"
+done
+
+# The original VM used a five-minute weft-health.timer watchdog. Disable it
+# after the replacement timers are proven active so production does not run
+# duplicate probes or keep an obsolete health implementation alive.
+for legacy in "${LEGACY_TIMERS[@]}"; do
+  if /usr/bin/systemctl list-unit-files "$legacy" --no-legend 2>/dev/null | /usr/bin/grep -q "$legacy"; then
+    /usr/bin/systemctl disable --now "$legacy" || fatal "could not disable legacy timer: $legacy"
+    echo "Disabled legacy operational timer: $legacy"
+  fi
 done
 
 echo "Operational timers installed and active: ${TIMERS[*]}"
