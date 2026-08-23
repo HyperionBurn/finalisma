@@ -201,6 +201,8 @@ safe cutover.
 restore-drill timer, and the one-minute healthcheck timer during the cutover.
 The installer uses `systemctl enable` and then `systemctl restart`, so a changed
 timer schedule is applied even when the timer was already active.
+It also disables the retired five-minute `weft-health.timer` watchdog when that
+legacy unit exists, so the VM does not run duplicate health probes.
 
 Real end-to-end output (against a throwaway copy, not any production data —
 see the session report for the full transcript) confirmed: a good backup

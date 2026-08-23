@@ -372,16 +372,22 @@ class ShippedScriptSanityTests(unittest.TestCase):
             "weft-restore-drill.service", "weft-restore-drill.timer",
         ):
             self.assertIn(unit, installer)
+        self.assertIn("weft-health.timer", installer)
         self.assertIn('[[ "$(id -u)" == "0" ]]', installer)
         self.assertIn("systemctl daemon-reload", installer)
         self.assertIn('systemctl enable "${TIMERS[@]}"', installer)
         self.assertIn('systemctl restart "${TIMERS[@]}"', installer)
         self.assertIn('systemctl is-enabled --quiet "$timer"', installer)
         self.assertIn('systemctl is-active --quiet "$timer"', installer)
+        self.assertIn('systemctl disable --now "$legacy"', installer)
         self.assertIn("install-weft-ops.sh", push)
         self.assertIn("install-weft-ops.sh", redeploy)
         self.assertIn('sudo env PUBLIC_ORIGIN="$PUBLIC_ORIGIN" bash', redeploy)
         self.assertIn('--unit-source "$INCOMING/scripts/systemd"', redeploy)
+        self.assertLess(
+            redeploy.index('echo "== install and enforce operational timers =="'),
+            redeploy.index('echo "== promote staged code =="'),
+        )
 
     def test_operational_timer_installer_requires_a_valid_https_edge(self):
         installer = (SCRIPTS_DIR / "install-weft-ops.sh").read_text(encoding="utf-8")
@@ -399,6 +405,7 @@ class ShippedScriptSanityTests(unittest.TestCase):
         rollback = (SCRIPTS_DIR / "rollback-weft.sh").read_text(encoding="utf-8")
         for unit in (
             "weft-backup.service", "weft-backup.timer",
+            "weft-health.service", "weft-health.timer",
             "weft-healthcheck.service", "weft-healthcheck.timer",
             "weft-restore-drill.service", "weft-restore-drill.timer",
         ):
