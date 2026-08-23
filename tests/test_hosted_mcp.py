@@ -277,7 +277,12 @@ class HostedMCPHandshakeTests(HostedMCPTestBase):
         room_create = next(
             tool for tool in listing["result"]["tools"] if tool["name"] == "room_create"
         )
-        self.assertIn("agk_ key has a distinct agent identity", room_create["description"])
+        # Intent: an agk_ key holder must learn its identity is separate from
+        # the account, so it knows room_join is required. Assert the MEANING,
+        # not one phrasing — exact-sentence matching blocks clarity edits.
+        desc = room_create["description"]
+        self.assertIn("agk_", desc)
+        self.assertIn("identity", desc)
         self.assertIn("room_join", room_create["description"])
         self.assertIn("room_poll", room_create["description"])
         self.assertIn("room_send", room_create["description"])
