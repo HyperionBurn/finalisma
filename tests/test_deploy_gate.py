@@ -434,7 +434,11 @@ class ShippedScriptSanityTests(unittest.TestCase):
         self.assertIn("WEFT_NGINX_SERVER_NAME", redeploy)
         self.assertNotIn("ls /etc/nginx/sites-enabled/", redeploy)
         self.assertIn("NGINX_BACKUP=", redeploy)
+        self.assertIn("NGINX_BACKUP_DIR", redeploy)
+        self.assertIn("cp -L", redeploy)
+        self.assertNotIn('NGINX_BACKUP="${CONF}.pre-weft-', redeploy)
         self.assertIn("location = /mcp", helper)
+        self.assertIn("(?:\\^~\\s+)?/j/", helper)
         self.assertIn("ensure_nginx_routes.py", redeploy)
         self.assertIn("restored $CONF from $NGINX_BACKUP", redeploy)
 
