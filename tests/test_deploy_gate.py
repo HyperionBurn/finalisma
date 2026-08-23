@@ -358,10 +358,55 @@ class ShippedScriptSanityTests(unittest.TestCase):
             self.assertNotIn(b"\r\n", script.read_bytes(), f"{script.name} has CRLF on disk")
 
     def test_deploy_scripts_present_and_executable_bit_not_required_on_windows(self):
-        # The four scripts named explicitly in the ops brief must exist
-        # under version control (that is the whole point of this task).
-        for name in ("push-code-to-vm.sh", "redeploy-weft.sh", "final-verify.sh", "suite-check.sh"):
+        # The deploy and rollback scripts must exist under version control.
+        for name in ("push-code-to-vm.sh", "redeploy-weft.sh", "rollback-weft.sh", "install-weft-ops.sh", "final-verify.sh", "suite-check.sh"):
             self.assertTrue((SCRIPTS_DIR / name).is_file(), f"missing scripts/{name}")
+
+    def test_operational_timer_installer_is_shipped_and_fail_closed(self):
+        installer = (SCRIPTS_DIR / "install-weft-ops.sh").read_text(encoding="utf-8")
+        push = (SCRIPTS_DIR / "push-code-to-vm.sh").read_text(encoding="utf-8")
+        redeploy = (SCRIPTS_DIR / "redeploy-weft.sh").read_text(encoding="utf-8")
+        for unit in (
+            "weft-backup.service", "weft-backup.timer",
+            "weft-healthcheck.service", "weft-healthcheck.timer",
+            "weft-restore-drill.service", "weft-restore-drill.timer",
+        ):
+            self.assertIn(unit, installer)
+        self.assertIn('[[ "$(id -u)" == "0" ]]', installer)
+        self.assertIn("systemctl daemon-reload", installer)
+        self.assertIn('systemctl enable "${TIMERS[@]}"', installer)
+        self.assertIn('systemctl restart "${TIMERS[@]}"', installer)
+        self.assertIn('systemctl is-enabled --quiet "$timer"', installer)
+        self.assertIn('systemctl is-active --quiet "$timer"', installer)
+        self.assertIn("install-weft-ops.sh", push)
+        self.assertIn("install-weft-ops.sh", redeploy)
+        self.assertIn('sudo env PUBLIC_ORIGIN="$PUBLIC_ORIGIN" bash', redeploy)
+        self.assertIn('--unit-source "$INCOMING/scripts/systemd"', redeploy)
+
+    def test_operational_timer_installer_requires_a_valid_https_edge(self):
+        installer = (SCRIPTS_DIR / "install-weft-ops.sh").read_text(encoding="utf-8")
+        self.assertIn("WEFT_EDGE_URL", installer)
+        self.assertIn("PUBLIC_ORIGIN", installer)
+        self.assertIn("parsed.scheme.lower() != \"https\"", installer)
+        self.assertIn("parsed.username is not None", installer)
+        self.assertIn("parsed.query", installer)
+        self.assertIn("parsed.fragment", installer)
+        self.assertIn("healthcheck.env", installer)
+        self.assertIn("0640", installer)
+
+    def test_redeploy_and_rollback_preserve_operational_unit_snapshots(self):
+        redeploy = (SCRIPTS_DIR / "redeploy-weft.sh").read_text(encoding="utf-8")
+        rollback = (SCRIPTS_DIR / "rollback-weft.sh").read_text(encoding="utf-8")
+        for unit in (
+            "weft-backup.service", "weft-backup.timer",
+            "weft-healthcheck.service", "weft-healthcheck.timer",
+            "weft-restore-drill.service", "weft-restore-drill.timer",
+        ):
+            self.assertIn(unit, redeploy)
+            self.assertIn(unit, rollback)
+        self.assertIn('healthcheck.env', redeploy)
+        self.assertIn('healthcheck.env', rollback)
+        self.assertIn('systemctl restart "$timer"', rollback)
 
     def test_push_script_requires_pinned_ssh_identity(self):
         script = (SCRIPTS_DIR / "push-code-to-vm.sh").read_text(encoding="utf-8")

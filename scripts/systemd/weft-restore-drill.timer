@@ -1,4 +1,4 @@
-# Template for review/installation by the VM owner. See weft-restore-drill.service.
+# Installed and enforced by scripts/install-weft-ops.sh. See weft-restore-drill.service.
 
 [Unit]
 Description=Run weft-restore-drill.service daily, during quiet hours

@@ -1,4 +1,4 @@
-# Template for review/installation by the VM owner. See weft-backup.service.
+# Installed and enforced by scripts/install-weft-ops.sh. See weft-backup.service.
 
 [Unit]
 Description=Run weft-backup.service every 30 minutes

@@ -63,7 +63,7 @@ echo "== 2. ship the ops scripts separately, normalize, syntax-check — before 
 # all before a single line of the cutover executes.
 OPS_REMOTE="/tmp/weft-ops-$(date +%s)"
 ssh "${SSH_OPTS[@]}" "$VM" "mkdir -p '$OPS_REMOTE'"
-for f in redeploy-weft.sh rollback-weft.sh restart_proof.py backup_cloud_db.py restore_drill.py normalize_line_endings.py classify_suite_log.py ensure_nginx_routes.py; do
+for f in redeploy-weft.sh rollback-weft.sh install-weft-ops.sh restart_proof.py backup_cloud_db.py restore_drill.py normalize_line_endings.py classify_suite_log.py ensure_nginx_routes.py; do
   scp "${SSH_OPTS[@]}" "$SRC/scripts/$f" "$VM:$OPS_REMOTE/$f"
 done
 ssh "${SSH_OPTS[@]}" "$VM" bash -s "$OPS_REMOTE" <<'REMOTE_NORMALIZE'

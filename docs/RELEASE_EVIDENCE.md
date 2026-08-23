@@ -7,11 +7,11 @@ compatibility claim.
 ## Latest regression evidence
 
 Measured locally on the current source/test stack (merged base `main` at
-`015908d`; PR113 candidate branch `codex/api-readiness-routing-2026-08-23`):
+`873796f`; PR114 candidate branch `codex/ops-timer-enforcement-2026-08-23`):
 
 - Command: `python -B -m unittest discover -s tests`
-- Result: **1298 tests discovered; 1297 passed; 1 skipped**
-- Duration: 619.874 seconds on the local Windows runner
+- Result: **1301 tests discovered; 1300 passed; 1 skipped**
+- Duration: 621.487 seconds on the local Windows runner
 - Focused API-readiness routing/identity suite: 69 tests passed locally
   (`tests.test_probe_live_release`, `tests.test_probe_live_release_contract`,
   `tests.test_deploy_gate`, and `tests.test_deploy_ops`)

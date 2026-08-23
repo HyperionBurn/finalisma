@@ -1,15 +1,11 @@
-# Template for review/installation by the VM owner — nothing in this repo
-# installs or enables this unit automatically.
+# Installed and enforced by scripts/install-weft-ops.sh during the VM cutover.
 #
 # WAL-safe backup of the live cloud.db via scripts/backup_cloud_db.py
 # (sqlite3.Connection.backup(), never a raw `cp` of a live WAL database).
 # Triggered by weft-backup.timer, not run directly.
 #
-# Install:
-#   sudo install -d -o root -g azureuser -m 0750 /var/backups/weft
-#   sudo cp scripts/systemd/weft-backup.service scripts/systemd/weft-backup.timer /etc/systemd/system/
-#   sudo systemctl daemon-reload
-#   sudo systemctl enable --now weft-backup.timer
+# Manual repair or first-time installation:
+#   sudo bash /opt/weft/scripts/install-weft-ops.sh --unit-source /opt/weft/scripts/systemd
 #
 # A failed run is visible via `systemctl --failed` and `journalctl -u weft-backup.service`.
 

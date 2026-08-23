@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # One documented, tested command to return to the previous good build. Run
 # ON THE VM. Restores the code tree and unit files that redeploy-weft.sh
-# preserved before its most recent promotion, restarts the same three
-# services, and proves the restart exactly like a forward deploy does — a
+# preserved before its most recent promotion, restores the operational timer
+# units, restarts the same three services, and proves the restart exactly like a forward deploy does — a
 # rollback that silently didn't restart the old code is just FAILURE 1 again.
 #
 # Usage:
@@ -46,17 +46,32 @@ echo "  $APP now holds the code from $PREV_RELEASE"
 
 echo "== restore the unit files that were actually running that release =="
 if [ -d "$PREV_RELEASE.systemd" ]; then
-  for u in weft-cloud.service weft-web.service weft-outbox.service; do
+  for u in weft-cloud.service weft-web.service weft-outbox.service weft-backup.service weft-backup.timer weft-healthcheck.service weft-healthcheck.timer weft-restore-drill.service weft-restore-drill.timer; do
     if [ -f "$PREV_RELEASE.systemd/$u" ]; then
       sudo cp -a "$PREV_RELEASE.systemd/$u" "/etc/systemd/system/$u"
       echo "  restored /etc/systemd/system/$u"
     fi
   done
+  if [ -f "$PREV_RELEASE.systemd/healthcheck.env" ]; then
+    sudo install -d -o root -g azureuser -m 0750 /etc/weft
+    sudo cp -a "$PREV_RELEASE.systemd/healthcheck.env" /etc/weft/healthcheck.env
+    sudo chown root:azureuser /etc/weft/healthcheck.env
+    sudo chmod 0640 /etc/weft/healthcheck.env
+    echo "  restored /etc/weft/healthcheck.env"
+  fi
 else
   echo "  no paired .systemd snapshot for this release — reusing whatever unit files are"
   echo "  currently on disk (only safe if env vars have not changed since that release)"
 fi
 sudo systemctl daemon-reload
+
+OPS_TIMERS="weft-backup.timer weft-healthcheck.timer weft-restore-drill.timer"
+for timer in $OPS_TIMERS; do
+  if systemctl list-unit-files "$timer" --no-legend 2>/dev/null | grep -q "$timer"; then
+    sudo systemctl enable "$timer"
+    sudo systemctl restart "$timer"
+  fi
+done
 
 echo "== restart + prove (same MainPID before/after check as a forward deploy) =="
 UNITS="weft-cloud.service weft-web.service"
@@ -92,6 +107,11 @@ rm -f "$BEFORE_ENV" "$AFTER_ENV"
 echo
 echo "== verify =="
 systemctl is-active $UNITS | sed 's/^/  /'
+for timer in $OPS_TIMERS; do
+  if systemctl list-unit-files "$timer" --no-legend 2>/dev/null | grep -q "$timer"; then
+    systemctl is-active "$timer" | sed "s/^/  /"
+  fi
+done
 curl -fsS -o /dev/null -w '  healthz  -> %{http_code}\n' http://127.0.0.1:18788/healthz
 if ! readyz=$(curl -fsS http://127.0.0.1:18788/readyz); then
   echo '  readyz   -> failed (expected HTTP 200 with status=ready and service=weft-cloud)' >&2
