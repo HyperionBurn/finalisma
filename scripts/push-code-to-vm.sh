@@ -98,11 +98,15 @@ ssh "${SSH_OPTS[@]}" "$VM" "$CUTOVER_CMD"
 echo
 echo "== 5. verify from the PUBLIC internet, not from inside the box =="
 curl -fsS -o /dev/null -w '   healthz      -> %{http_code}\n' "$PUBLIC_ORIGIN/healthz"
-if ! curl -fsS "$PUBLIC_ORIGIN/readyz" | grep -Fq '"status":"ready"'; then
-  echo '   readyz       -> failed (expected HTTP 200 with status=ready)' >&2
+if ! readiness=$(curl -fsS "$PUBLIC_ORIGIN/v1/readyz"); then
+  echo '   v1/readyz    -> failed (expected API HTTP 200 with status=ready and service=weft-cloud)' >&2
   exit 1
 fi
-printf '   readyz       -> 200 (status=ready)\n'
+if [[ "$readiness" != *'"status":"ready"'* || "$readiness" != *'"service":"weft-cloud"'* ]]; then
+  echo '   v1/readyz    -> failed (expected API HTTP 200 with status=ready and service=weft-cloud)' >&2
+  exit 1
+fi
+printf '   v1/readyz    -> 200 (status=ready, service=weft-cloud)\n'
 curl -fsS -o /dev/null -w '   signup       -> %{http_code}\n' "$PUBLIC_ORIGIN/signup"
 curl -fsS -o /dev/null -w '   agent card   -> %{http_code}\n' "$PUBLIC_ORIGIN/.well-known/agent-card.json"
 code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$PUBLIC_ORIGIN/v1/rooms/create" -d '{}')

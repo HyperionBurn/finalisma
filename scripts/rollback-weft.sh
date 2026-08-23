@@ -94,14 +94,14 @@ echo "== verify =="
 systemctl is-active $UNITS | sed 's/^/  /'
 curl -fsS -o /dev/null -w '  healthz  -> %{http_code}\n' http://127.0.0.1:18788/healthz
 if ! readyz=$(curl -fsS http://127.0.0.1:18788/readyz); then
-  echo '  readyz   -> failed (expected HTTP 200 with status=ready)' >&2
+  echo '  readyz   -> failed (expected HTTP 200 with status=ready and service=weft-cloud)' >&2
   exit 1
 fi
-if [[ "$readyz" != *'"status":"ready"'* ]]; then
-  echo '  readyz   -> failed (expected HTTP 200 with status=ready)' >&2
+if [[ "$readyz" != *'"status":"ready"'* || "$readyz" != *'"service":"weft-cloud"'* ]]; then
+  echo '  readyz   -> failed (expected HTTP 200 with status=ready and service=weft-cloud)' >&2
   exit 1
 fi
-printf '  readyz   -> 200 (status=ready)\n'
+printf '  readyz   -> 200 (status=ready, service=weft-cloud)\n'
 curl -fsS -o /dev/null -w '  signup   -> %{http_code}\n' http://127.0.0.1:18789/signup
 
 sudo rm -rf "${APP}.rolled-back-from" 2>/dev/null || true

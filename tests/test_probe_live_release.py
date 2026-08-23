@@ -21,6 +21,7 @@ class _ProbeHandler(BaseHTTPRequestHandler):
     surface = "api"
     drift = False
     storage_ready = True
+    readiness_service = "weft-cloud"
     api_origin = ""
 
     def _headers(self, *, site: bool = False) -> None:
@@ -54,11 +55,13 @@ class _ProbeHandler(BaseHTTPRequestHandler):
         if self.surface == "api":
             if self.path == "/healthz":
                 self._reply(200, b'{"status":"ok"}')
-            elif self.path == "/readyz":
+            elif self.path in {"/readyz", "/v1/readyz"}:
                 if self.storage_ready:
-                    self._reply(200, b'{"status":"ready"}')
+                    body = json.dumps({"status": "ready", "service": self.readiness_service}).encode()
+                    self._reply(200, body, content_type="application/json")
                 else:
-                    self._reply(503, b'{"status":"unavailable"}')
+                    body = json.dumps({"status": "unavailable", "service": self.readiness_service}).encode()
+                    self._reply(503, body, content_type="application/json")
             elif self.path == "/":
                 self._reply(303, location="/login")
             elif self.path in {"/login", "/signup"}:
@@ -197,6 +200,7 @@ def _serve(
     *,
     api_origin: str = "",
     storage_ready: bool = True,
+    readiness_service: str = "weft-cloud",
 ) -> tuple[ThreadingHTTPServer, str]:
     handler = type(
         f"{surface.title()}ProbeHandler",
@@ -205,6 +209,7 @@ def _serve(
             "surface": surface,
             "drift": drift,
             "storage_ready": storage_ready,
+            "readiness_service": readiness_service,
             "api_origin": api_origin,
         },
     )
@@ -297,6 +302,20 @@ class LiveReleaseProbeTests(unittest.TestCase):
     def test_readiness_requires_ready_marker_not_only_http_200(self) -> None:
         response = {"status": 200, "body": '{"status":"unavailable"}'}
         self.assertFalse(probe_live_release._json_status(response, "ready"))
+
+    def test_readiness_requires_cloud_service_marker(self) -> None:
+        api_server, api_origin = _serve("api", readiness_service="weft-web")
+        site_server, site_origin = _serve("site", api_origin=api_origin)
+        try:
+            result = probe_live_release.probe(api_origin, site_origin, timeout=2)
+            self.assertEqual(result["status"], "UNREACHABLE")
+            self.assertFalse(result["checks"]["api_readiness"])
+            self.assertFalse(result["checks"]["reachability"])
+        finally:
+            api_server.shutdown()
+            site_server.shutdown()
+            api_server.server_close()
+            site_server.server_close()
 
 
 if __name__ == "__main__":

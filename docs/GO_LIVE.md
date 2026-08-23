@@ -129,8 +129,8 @@ $env:WEFT_SITE_URL = "https://YOUR-VERIFIED-SITE-ORIGIN"
 python -B .\scripts\probe_live_release.py --pretty
 ```
 
-The probe requires both process liveness (`/healthz`) and storage readiness
-(`GET /readyz` must return HTTP 200 with `{"status":"ready"}`). It has no
+The probe requires both process liveness (`/healthz`) and API storage readiness
+(`GET /v1/readyz` must return HTTP 200 with `{"status":"ready","service":"weft-cloud"}`). It has no
 deployment-origin defaults. Exit `0` is required before you
 share the hosted URL. Exit `2` means the reachable release has drift, exit `3`
 means a surface is unreachable, and exit `4` means the operator did not supply
@@ -180,7 +180,7 @@ boundary; do not present its absolute timings as a hosted-service SLA.
 **Historical gate snapshot (2026-08-15, `feature/product-perfect`):** that
 branch recorded 960 tests and a merge-gate pass, but this is not current
 integration or deployment evidence. The latest local regression is recorded
-in [`RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1296 discovered, 1295 passed,
+in [`RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1298 discovered, 1297 passed,
 and 1 skipped. The performance gate is **red under host-load noise**: recent captures ran with multiple
 agent sessions active on the host, so the standing rule applies — rerun on a
 controlled idle host; never rebaseline to hide it. `docs/PERFORMANCE.md`

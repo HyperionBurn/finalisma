@@ -54,8 +54,12 @@ class _ContractHandler(BaseHTTPRequestHandler):
         if self.surface == "api":
             if self.path == "/healthz":
                 self._reply(200, b'{"status":"ok"}', content_type="application/json")
-            elif self.path == "/readyz":
-                self._reply(200, b'{"status":"ready"}', content_type="application/json")
+            elif self.path in {"/readyz", "/v1/readyz"}:
+                self._reply(
+                    200,
+                    b'{"status":"ready","service":"weft-cloud"}',
+                    content_type="application/json",
+                )
             elif self.path == "/":
                 self._reply(303, location="/login")
             elif self.path == "/login":

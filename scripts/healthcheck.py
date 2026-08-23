@@ -95,7 +95,7 @@ def probe_healthz(base_url: str, *, timeout: float = 5.0) -> ProbeResult:
 
 
 def probe_readyz(base_url: str, *, timeout: float = 5.0) -> ProbeResult:
-    """Probe the storage-backed readiness endpoint. Must return 200."""
+    """Probe API storage readiness and identity. Must return cloud-ready JSON."""
     url = base_url.rstrip("/") + "/readyz"
     started = time.monotonic()
     last_error: Exception | None = None
@@ -103,6 +103,7 @@ def probe_readyz(base_url: str, *, timeout: float = 5.0) -> ProbeResult:
         try:
             with urllib.request.urlopen(url, timeout=timeout) as resp:
                 status = resp.status
+                body = resp.read(64 * 1024)
             break
         except urllib.error.HTTPError as exc:
             status = exc.code
@@ -121,7 +122,17 @@ def probe_readyz(base_url: str, *, timeout: float = 5.0) -> ProbeResult:
 
     latency_ms = (time.monotonic() - started) * 1000
     if status == 200:
-        return ProbeResult(True, status, round(latency_ms, 1), "ok")
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            payload = None
+        if (
+            isinstance(payload, dict)
+            and payload.get("status") == "ready"
+            and payload.get("service") == "weft-cloud"
+        ):
+            return ProbeResult(True, status, round(latency_ms, 1), "ok")
+        return ProbeResult(False, status, round(latency_ms, 1), "expected status=ready and service=weft-cloud")
     return ProbeResult(False, status, round(latency_ms, 1), f"expected 200, got {status}")
 
 

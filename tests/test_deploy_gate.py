@@ -422,14 +422,18 @@ class RedeployBackupSafetyTests(unittest.TestCase):
     def test_release_and_rollback_verification_require_storage_readiness(self):
         push = (SCRIPTS_DIR / "push-code-to-vm.sh").read_text(encoding="utf-8")
         rollback = (SCRIPTS_DIR / "rollback-weft.sh").read_text(encoding="utf-8")
-        for script in (push, rollback):
-            self.assertIn("/healthz", script)
-            self.assertIn("/readyz", script)
-            self.assertIn('"status":"ready"', script)
-        self.assertLess(push.index("$PUBLIC_ORIGIN/healthz"), push.index("$PUBLIC_ORIGIN/readyz"))
+        self.assertIn("/healthz", push)
+        self.assertIn("/v1/readyz", push)
+        self.assertIn('"status":"ready"', push)
+        self.assertIn('"service":"weft-cloud"', push)
+        self.assertIn("/healthz", rollback)
+        self.assertIn("/readyz", rollback)
+        self.assertIn('"status":"ready"', rollback)
+        self.assertIn('"service":"weft-cloud"', rollback)
+        self.assertLess(push.index("$PUBLIC_ORIGIN/healthz"), push.index("$PUBLIC_ORIGIN/v1/readyz"))
         self.assertLess(rollback.index(":18788/healthz"), rollback.index(":18788/readyz"))
-        self.assertIn("expected HTTP 200 with status=ready", push)
-        self.assertIn("expected HTTP 200 with status=ready", rollback)
+        self.assertIn("service=weft-cloud", push)
+        self.assertIn("service=weft-cloud", rollback)
 
     def test_healthcheck_template_probes_edge_separately(self):
         dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
