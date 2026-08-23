@@ -117,7 +117,11 @@ echo "== verify =="
 systemctl is-active $UNITS | sed 's/^/  /'
 for timer in $OPS_TIMERS weft-health.timer; do
   if systemctl list-unit-files "$timer" --no-legend 2>/dev/null | grep -q "$timer"; then
-    systemctl is-active "$timer" | sed "s/^/  /"
+    if systemctl is-active --quiet "$timer"; then
+      echo "  active ($timer)"
+    else
+      echo "  inactive ($timer; not part of the target release)"
+    fi
   fi
 done
 curl -fsS -o /dev/null -w '  healthz  -> %{http_code}\n' http://127.0.0.1:18788/healthz

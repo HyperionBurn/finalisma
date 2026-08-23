@@ -14,7 +14,10 @@ import sys
 from pathlib import Path
 
 
-JOIN_PATTERN = re.compile(r"location\s+\^~\s+/j/\s*\{")
+# Accept an existing prefix route with or without the optional `^~` modifier.
+# The nginx site may already have a valid `location /j/` block; adding a second
+# block with `^~` is invalid and can make nginx reject the whole config.
+JOIN_PATTERN = re.compile(r"location\s+(?:\^~\s+)?/j/\s*\{")
 MCP_EXACT_PATTERN = re.compile(r"location\s*=\s*/mcp\s*\{")
 MCP_PREFIX_PATTERN = re.compile(r"location\s+/mcp\s*\{")
 SERVER_NAME_PATTERN = re.compile(r"\bserver_name\s+([^;]+);", re.MULTILINE)

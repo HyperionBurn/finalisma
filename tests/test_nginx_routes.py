@@ -41,6 +41,19 @@ class NginxRouteEditorTests(unittest.TestCase):
             self.assertLess(updated.index("location = /mcp {"), updated.index("location / {"))
             self.assertFalse(ensure_routes(path, "weft.example.com"))
 
+            legacy = self._write(
+                tmp,
+                BASE_CONFIG.replace(
+                    "    location / {\n",
+                    "    location /j/ {\n        proxy_pass http://127.0.0.1:18788;\n    }\n"
+                    "    location / {\n",
+                ),
+            )
+            self.assertTrue(ensure_routes(legacy, "weft.example.com"))
+            legacy_updated = legacy.read_text(encoding="utf-8")
+            self.assertEqual(legacy_updated.count("location /j/ {"), 1)
+            self.assertNotIn("location ^~ /j/ {", legacy_updated)
+
     def test_upgrades_legacy_mcp_prefix_and_adds_missing_join_route(self):
         content = BASE_CONFIG.replace(
             "    location / {\n",
