@@ -65,6 +65,23 @@ CLIENTS: dict[str, dict[str, str]] = {
 
 TOKEN_ENV_VAR = "WEFT_TOKEN"
 
+#: Stable, unauthenticated path WeftWebApp serves the standalone bridge
+#: script from (see ``_PUBLIC_GET_PATHS`` / ``_STATIC_CONTENT_TYPE`` in
+#: app.py). Single source of truth so the route and this generator can never
+#: name two different paths for the same file.
+BRIDGE_DOWNLOAD_PATH = "/downloads/weft-mcp-bridge.py"
+
+#: Bracketed fill-in for wherever the customer saves the downloaded script.
+#: A real path cannot be emitted here — the server does not know the
+#: customer's filesystem — so this follows the same placeholder convention
+#: already used elsewhere in this generator's output (the agent key).
+SCRIPT_PATH_PLACEHOLDER = "<path-to-downloaded-weft-mcp-bridge.py>"
+
+
+def download_url(origin: str) -> str:
+    """The full, stable URL a customer downloads the bridge script from."""
+    return origin.rstrip("/") + BRIDGE_DOWNLOAD_PATH
+
 
 def _toml_str(value: str) -> str:
     """Quote a string for TOML (basic strings), escaping the Windows path."""
@@ -88,7 +105,12 @@ def build_config(client_id: str, agent_key: str, origin: str) -> dict:
     if client_id not in CLIENTS:
         raise ValueError(f"unknown client: {client_id}")
     meta = CLIENTS[client_id]
-    args = ["-B", "-m", "weft_mcp", "--remote", origin, "--token-env", TOKEN_ENV_VAR]
+    # The customer downloads ONE self-contained file (BRIDGE_DOWNLOAD_PATH)
+    # and points their MCP host at it. `-m weft_mcp` cannot be used here: the
+    # package is not published to PyPI and the source repo is private, so
+    # `pip install` has nothing to reach and the config would never launch.
+    args = ["-B", SCRIPT_PATH_PLACEHOLDER, "--remote", origin,
+            "--token-env", TOKEN_ENV_VAR]
     if meta.get("format") in {"opencode-v1", "opencode-v2"}:
         server = {
             "type": "local",

@@ -62,7 +62,7 @@ from weft_cloud.quotas import DEFAULT_ROOM_CAP, QuotaError
 from weft_cloud.rate_limit import RateLimitedError, enforce_auth_rate_limit
 from weft_cloud.rooms import CloudRoomService, RoomError, _parse_json, public_origin
 from weft_cloud.storage import StorageBackend
-from weft_cloud.web.config_gen import CLIENTS, build_config
+from weft_cloud.web.config_gen import BRIDGE_DOWNLOAD_PATH, CLIENTS, build_config
 from weft_cloud.web.copy import connect_page_body
 from weft_cloud.web.security_headers import security_headers
 
@@ -88,6 +88,14 @@ _PUBLIC_GET_PATHS = frozenset({
     "/robots.txt",
     "/sitemap.xml",
     "/favicon.ico",
+    # The standalone stdio<->HTTP bridge script (see config_gen.py). This
+    # download IS the fix for "no customer can obtain the MCP bridge": the
+    # connector-config generator's args reference a path on the customer's
+    # own machine, so the customer must be able to fetch this file WITHOUT
+    # first having a session — the config page that mints their agent key is
+    # authenticated, but the generic bridge script it references carries no
+    # credential and must not require one either.
+    BRIDGE_DOWNLOAD_PATH,
 })
 
 # Exact static files whose Content-Type must not be left to platform
@@ -95,6 +103,10 @@ _PUBLIC_GET_PATHS = frozenset({
 _STATIC_CONTENT_TYPE = {
     "/robots.txt": "text/plain; charset=utf-8",
     "/sitemap.xml": "application/xml; charset=utf-8",
+    # Never let the platform guess this one: some hosts map .py to
+    # application/x-python or octet-stream, and a customer piping the
+    # download to a file should see plain Python source either way.
+    BRIDGE_DOWNLOAD_PATH: "text/x-python; charset=utf-8",
 }
 
 
