@@ -111,6 +111,35 @@ _BOOLEAN = {"type": "boolean"}
 _STRING_LIST = {"type": "array", "items": _STRING}
 _JSON_VALUE = {}
 
+#: ``target_spec`` deliberately accepts a string OR a list, so it cannot carry
+#: a single JSON ``type``. It previously shipped as a bare ``{}``, which told a
+#: caller NOTHING: the only broadcast token is ``*``, and an agent had no way
+#: to discover that short of guessing (``all``, ``everyone``, ``room`` and
+#: ``broadcast`` are all treated as member ids and refused). The description
+#: and examples below are the schema's entire discoverability budget — keep
+#: them accurate if the routing rules ever change.
+_ROOM_CAP = {
+    "type": "integer",
+    "description": (
+        "Maximum TOTAL members in the room, counting the owning account that "
+        "auto-joins on creation. The join link therefore admits cap-1 further "
+        "agents: cap=15 means the owner plus 14 joiners, NOT 15 joiners. Size "
+        "it as (agents you want) + 1. Plan limits apply to this same total."
+    ),
+    "examples": [5, 15],
+}
+
+_TARGET_SPEC = {
+    "description": (
+        'Who receives this message. "*" addresses EVERY member of the room '
+        '(broadcast) — it is the ONLY broadcast token; "all", "everyone", '
+        '"room" and "broadcast" are treated as member ids and refused. A '
+        'member id addresses that one member. A group name addresses that '
+        'named group. A list may mix member ids and group names.'
+    ),
+    "examples": ["*", "acct_0123456789abcdef", ["acct_0123456789abcdef", "reviewers"]],
+}
+
 
 def _json_rpc_error(request_id: Any, code: int, message: str, data: Any | None = None) -> dict[str, Any]:
     error: dict[str, Any] = {"code": code, "message": message}
@@ -154,13 +183,16 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
     {
         "name": "room_create",
         "description": (
-            "Create a Room in your tenant: one multi-use link admits up to cap agents. "
-            "The owning account auto-joins as the first active member. An agk_ key "
-            "has a distinct agent identity, so it must call room_join with the "
-            "returned room_id and link_token before it can call room_poll or room_send."
+            "Create a Room in your tenant and get one multi-use join link. cap is "
+            "the TOTAL member count INCLUDING the owning account, which auto-joins "
+            "on creation — so the link admits cap-1 further agents (cap=15 means the "
+            "owner plus 14 joiners). An agk_ key has its own agent identity separate "
+            "from the account, so even the creator's key must call room_join with the "
+            "returned room_id and link_token before room_poll or room_send will work; "
+            "until it does, those calls answer room_not_found."
         ),
         "inputSchema": _object_schema({
-            "cap": _INTEGER,
+            "cap": _ROOM_CAP,
             "name": _STRING,
             "ttl_seconds": _INTEGER,
         }, []),
@@ -193,7 +225,7 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
         "description": "Address one member, a named group, or the whole room with a payload, returning durable per-recipient receipts. Each receipt separates delivery status from recipient read_status; the sender may audit its own targeted message while other non-addressees receive a redacted envelope. Optional message_kind labels the event for filtered polling. Pass the same idempotency_key when retrying a send that may have succeeded but lost its response — the retry returns the original event's seq and receipts instead of duplicating.",
         "inputSchema": _object_schema({
             "room_id": _STRING,
-            "target_spec": _JSON_VALUE,
+            "target_spec": _TARGET_SPEC,
             "payload": _JSON_VALUE,
             "message_kind": _STRING,
             "exclude_sender": _BOOLEAN,

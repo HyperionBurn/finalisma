@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import http.client
 import json
+from weft_cloud.web.config_gen import SCRIPT_PATH_PLACEHOLDER
 import os
 import re
 import sys
@@ -670,8 +671,16 @@ class TestConnectPage(unittest.TestCase):
             match = re.search(r"<pre><code>(.*?)</code></pre>", body, re.S)
             self.assertIsNotNone(match, client)
             config_text = unescape(match.group(1))
-            self.assertIn("-m", config_text)
-            self.assertIn("weft_mcp", config_text)
+            # The entrypoint must be a file the CUSTOMER has. `-m weft_mcp`
+            # was the previous answer and is not reachable: the package is
+            # unpublished on PyPI and the source repo is private, so that
+            # config could never launch on a customer machine. It is now the
+            # downloaded standalone bridge instead.
+            self.assertIn(SCRIPT_PATH_PLACEHOLDER, config_text)
+            # `weft_mcp` (underscore) is the MODULE name, so its absence is
+            # what proves the `-m weft_mcp` form is gone. Do not substring-
+            # test for "-m": it also matches "weft-mcp-bridge.py".
+            self.assertNotIn("weft_mcp", config_text)
             self.assertNotIn("scripts/weft-mcp.py", config_text)
             self.assertNotIn("/app/", config_text)
             self.assertNotIn("\\scripts\\", config_text)
@@ -687,7 +696,8 @@ class TestConnectPage(unittest.TestCase):
                     self.assertTrue(server["enabled"])
                     self.assertNotIn("disabled", server)
                 self.assertEqual(server["type"], "local")
-                self.assertEqual(server["command"][:4], ["python", "-B", "-m", "weft_mcp"])
+                self.assertEqual(server["command"][:3],
+                                 ["python", "-B", SCRIPT_PATH_PLACEHOLDER])
                 token = server["environment"].get("WEFT_TOKEN")
                 self.assertTrue(token.startswith("agk_"))
                 self.assertFalse(any(token in arg for arg in server["command"]))
@@ -696,12 +706,12 @@ class TestConnectPage(unittest.TestCase):
             elif client != "codex":
                 payload = json.loads(config_text)
                 args = payload["mcpServers"]["weft"]["args"]
-                self.assertEqual(args[:3], ["-B", "-m", "weft_mcp"])
+                self.assertEqual(args[:2], ["-B", SCRIPT_PATH_PLACEHOLDER])
                 self.assertFalse(any(arg.startswith("agk_") for arg in args))
                 self.assertIn("WEFT_TOKEN", payload["mcpServers"]["weft"]["env"])
                 self.assertEqual(payload["mcpServers"]["weft"]["env"].get("PYTHONUTF8"), "1")
             else:
-                self.assertIn('args = ["-B", "-m", "weft_mcp"', config_text)
+                self.assertIn(f'args = ["-B", "{SCRIPT_PATH_PLACEHOLDER}"', config_text)
                 self.assertIn("WEFT_TOKEN", config_text)
                 self.assertIn('PYTHONUTF8 = "1"', config_text)
 
