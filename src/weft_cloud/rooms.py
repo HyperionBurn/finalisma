@@ -944,7 +944,8 @@ class CloudRoomService:
         if unrouted:
             raise RoomError(
                 "recipient_not_found",
-                f"Recipient(s) are not members of this room: {', '.join(unrouted)}",
+                f"Recipient(s) are not members of this room: "
+                f"{', '.join(unrouted)}. Use \"*\" to address every member.",
                 422,
             )
 
