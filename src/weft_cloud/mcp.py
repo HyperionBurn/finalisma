@@ -118,6 +118,17 @@ _JSON_VALUE = {}
 #: ``broadcast`` are all treated as member ids and refused). The description
 #: and examples below are the schema's entire discoverability budget — keep
 #: them accurate if the routing rules ever change.
+_ROOM_CAP = {
+    "type": "integer",
+    "description": (
+        "Maximum TOTAL members in the room, counting the owning account that "
+        "auto-joins on creation. The join link therefore admits cap-1 further "
+        "agents: cap=15 means the owner plus 14 joiners, NOT 15 joiners. Size "
+        "it as (agents you want) + 1. Plan limits apply to this same total."
+    ),
+    "examples": [5, 15],
+}
+
 _TARGET_SPEC = {
     "description": (
         'Who receives this message. "*" addresses EVERY member of the room '
@@ -172,13 +183,16 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
     {
         "name": "room_create",
         "description": (
-            "Create a Room in your tenant: one multi-use link admits up to cap agents. "
-            "The owning account auto-joins as the first active member. An agk_ key "
-            "has a distinct agent identity, so it must call room_join with the "
-            "returned room_id and link_token before it can call room_poll or room_send."
+            "Create a Room in your tenant and get one multi-use join link. cap is "
+            "the TOTAL member count INCLUDING the owning account, which auto-joins "
+            "on creation — so the link admits cap-1 further agents (cap=15 means the "
+            "owner plus 14 joiners). An agk_ key has its own agent identity separate "
+            "from the account, so even the creator's key must call room_join with the "
+            "returned room_id and link_token before room_poll or room_send will work; "
+            "until it does, those calls answer room_not_found."
         ),
         "inputSchema": _object_schema({
-            "cap": _INTEGER,
+            "cap": _ROOM_CAP,
             "name": _STRING,
             "ttl_seconds": _INTEGER,
         }, []),
