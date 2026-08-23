@@ -1,5 +1,4 @@
-# Template for review/installation by the VM owner — nothing in this repo
-# installs or enables this unit automatically.
+# Installed and enforced by scripts/install-weft-ops.sh during the VM cutover.
 #
 # Know about an outage before the owner does: probes storage-backed GET
 # /readyz, process liveness GET /healthz, and an unauthenticated POST /mcp
@@ -19,14 +18,8 @@
 # at. This repo does not sign up for any such notification service — that
 # integration, if wanted, is the VM owner's call.
 #
-# Install:
-#   sudo install -d -o root -g azureuser -m 0750 /etc/weft /var/log/weft
-#   printf '%s\n' 'WEFT_EDGE_URL=https://your-public-origin.example' | sudo tee /etc/weft/healthcheck.env >/dev/null
-#   sudo chown root:azureuser /etc/weft/healthcheck.env
-#   sudo chmod 0640 /etc/weft/healthcheck.env
-#   sudo cp scripts/systemd/weft-healthcheck.service scripts/systemd/weft-healthcheck.timer /etc/systemd/system/
-#   sudo systemctl daemon-reload
-#   sudo systemctl enable --now weft-healthcheck.timer
+# Manual repair or first-time installation:
+#   sudo bash /opt/weft/scripts/install-weft-ops.sh --unit-source /opt/weft/scripts/systemd
 
 [Unit]
 Description=Weft outage probe: /healthz + /readyz + unauthenticated POST /mcp

@@ -26,9 +26,10 @@ not been pointed at the live VM as part of writing it.
 | `scripts/backup_cloud_db.py` | VM | WAL-safe online backup (`sqlite3.Connection.backup()`) with rotation. |
 | `scripts/restore_drill.py` | VM | Restores a backup to a temp copy and proves it is actually usable. |
 | `scripts/healthcheck.py` | VM | Backend `/healthz` plus unauthenticated edge `POST /mcp` probe, dependency-free. |
+| `scripts/install-weft-ops.sh` | VM | Installs, enables, restarts, and verifies the backup, restore-drill, and healthcheck timers. |
 | `scripts/ensure_nginx_routes.py` | VM | Edits only the explicitly selected, server-name-validated nginx site file. |
 | `scripts/mail_error_detail.py` | (library) | Structured SMTP failure detail — see "Known gaps" below. |
-| `scripts/systemd/*` | VM (templates) | Timer/service units for backup, restore-drill, healthcheck. Not installed by anything in this repo — review and `cp` them in yourself. |
+| `scripts/systemd/*` | VM (source units) | Timer/service units consumed by `install-weft-ops.sh`. The SMTP outbox unit remains a deliberate manual install because it needs operator-managed secrets. |
 
 ## Deployment trust preflight
 
@@ -196,7 +197,10 @@ just took, on every deploy, as a hard pre-promotion gate. A missing backup,
 missing restore drill, or failed restore drill exits non-zero before release
 retention or code promotion; deploying without a recoverable database is not a
 safe cutover.
-`scripts/systemd/weft-restore-drill.timer` runs it daily regardless.
+`scripts/install-weft-ops.sh` installs and verifies the backup timer, the daily
+restore-drill timer, and the one-minute healthcheck timer during the cutover.
+The installer uses `systemctl enable` and then `systemctl restart`, so a changed
+timer schedule is applied even when the timer was already active.
 
 Real end-to-end output (against a throwaway copy, not any production data —
 see the session report for the full transcript) confirmed: a good backup
@@ -218,16 +222,18 @@ pass. Stdlib `urllib` only, no third-party monitoring service. Appends one
 JSON line per run (timestamp, backend/edge URLs, status, latency, short error
 detail — never a response body or credentials) and exits non-zero on any
 failure so `systemctl --failed` surfaces the outage.
-`scripts/systemd/weft-healthcheck.timer` runs it every minute.
+`scripts/install-weft-ops.sh` installs and verifies the timer that runs it every
+minute.
 
-The healthcheck template requires `/etc/weft/healthcheck.env` with an explicit
-public HTTPS origin. It does not default to loopback HTTP:
+The installer requires an explicit public HTTPS origin. It writes or updates
+`/etc/weft/healthcheck.env` with mode `0640`, preserves unrelated operator
+settings, and never defaults to loopback HTTP. A manual repair or first-time
+installation can run:
 
 ```bash
-sudo install -d -o root -g azureuser -m 0750 /etc/weft /var/log/weft
-printf '%s\n' 'WEFT_EDGE_URL=https://your-public-origin.example' | sudo tee /etc/weft/healthcheck.env >/dev/null
-sudo chown root:azureuser /etc/weft/healthcheck.env
-sudo chmod 0640 /etc/weft/healthcheck.env
+sudo WEFT_EDGE_URL=https://your-public-origin.example \
+  bash /opt/weft/scripts/install-weft-ops.sh \
+  --unit-source /opt/weft/scripts/systemd
 ```
 
 The service creates `/var/log/weft` and `/var/backups/weft` with the service
@@ -259,7 +265,7 @@ cannot write its own log or backup because `/var` remains root-owned.
   — everything that *can* be tested without a VM — is.
 - **`weft-outbox.service` is now authored as a secret-free template** in
   `scripts/systemd/weft-outbox.service`. It is not installed or enabled by
-  this repository; the VM owner must create `/etc/weft/weft-email.env` with
-  mode 600, install the unit, and perform a controlled mailbox smoke test.
+  `install-weft-ops.sh`; the VM owner must create `/etc/weft/weft-email.env`
+  with mode 600, install the unit, and perform a controlled mailbox smoke test.
   Live SMTP delivery, worker health, and queued/failed counts remain
   deployment evidence rather than local claims.

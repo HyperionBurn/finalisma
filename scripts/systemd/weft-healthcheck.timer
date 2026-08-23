@@ -1,4 +1,4 @@
-# Template for review/installation by the VM owner. See weft-healthcheck.service.
+# Installed and enforced by scripts/install-weft-ops.sh. See weft-healthcheck.service.
 
 [Timer]
 # A health probe's whole point is "is it up RIGHT NOW" — catching up on a

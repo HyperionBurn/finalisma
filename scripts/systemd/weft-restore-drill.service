@@ -1,5 +1,4 @@
-# Template for review/installation by the VM owner — nothing in this repo
-# installs or enables this unit automatically.
+# Installed and enforced by scripts/install-weft-ops.sh during the VM cutover.
 #
 # "An untested backup is not a backup." Restores the newest backup to a
 # private temp path, opens the COPY read-only, and asserts the accounts and
@@ -11,10 +10,8 @@
 # --min-accounts 1: production should always have at least one account: a
 # drill that "succeeds" against a zero-row restore is not proving anything.
 #
-# Install:
-#   sudo cp scripts/systemd/weft-restore-drill.service scripts/systemd/weft-restore-drill.timer /etc/systemd/system/
-#   sudo systemctl daemon-reload
-#   sudo systemctl enable --now weft-restore-drill.timer
+# Manual repair or first-time installation:
+#   sudo bash /opt/weft/scripts/install-weft-ops.sh --unit-source /opt/weft/scripts/systemd
 
 [Unit]
 Description=Restore-drill the newest Weft backup
