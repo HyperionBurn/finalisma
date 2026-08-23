@@ -35,6 +35,7 @@ class _FakeApp(BaseHTTPRequestHandler):
 
     healthz_status = 200
     readyz_status = 200
+    readyz_service = "weft-cloud"
     mcp_status = 401
 
     def do_GET(self):
@@ -45,7 +46,10 @@ class _FakeApp(BaseHTTPRequestHandler):
         elif self.path == "/readyz":
             self.send_response(self.readyz_status)
             self.end_headers()
-            self.wfile.write(b"{}")
+            self.wfile.write(json.dumps({
+                "status": "ready" if self.readyz_status == 200 else "unavailable",
+                "service": self.readyz_service,
+            }).encode())
         else:
             self.send_response(404)
             self.end_headers()
@@ -66,12 +70,14 @@ class _FakeApp(BaseHTTPRequestHandler):
 class _ServerCase(unittest.TestCase):
     healthz_status = 200
     readyz_status = 200
+    readyz_service = "weft-cloud"
     mcp_status = 401
 
     def setUp(self):
         handler = type("Handler", (_FakeApp,), {
             "healthz_status": self.healthz_status,
             "readyz_status": self.readyz_status,
+            "readyz_service": self.readyz_service,
             "mcp_status": self.mcp_status,
         })
         self.server = HTTPServer(("127.0.0.1", 0), handler)
@@ -114,6 +120,16 @@ class HealthcheckReadyzDownTests(_ServerCase):
         self.assertFalse(record["readyz"]["ok"])
         self.assertEqual(record["readyz"]["status"], 503)
         self.assertTrue(record["mcp_unauth"]["ok"])
+
+
+class HealthcheckReadyzIdentityTests(_ServerCase):
+    readyz_service = "weft-web"
+
+    def test_wrong_process_identity_is_not_green(self):
+        ok, record = run(self.base_url)
+        self.assertFalse(ok)
+        self.assertFalse(record["readyz"]["ok"])
+        self.assertEqual(record["readyz"]["detail"], "expected status=ready and service=weft-cloud")
 
 
 class HealthcheckEdgeBoundaryTests(_ServerCase):

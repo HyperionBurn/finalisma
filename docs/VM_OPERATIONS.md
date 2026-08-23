@@ -100,7 +100,8 @@ checked-out SHA, presence-only configuration checks, HTTPS-origin checks, and
 failure names without writing secret or host values. A successful workflow run
 is the first point at which the repository can claim that this deployment path
 completed. The public release probe requires process liveness (`/healthz`) and
-storage readiness (`GET /readyz` with HTTP 200 and `{"status":"ready"}`), so
+API storage readiness (`GET /v1/readyz` with HTTP 200 and
+`{"status":"ready","service":"weft-cloud"}`), so
 a process that is alive but cannot read its database cannot pass the deployment
 or rollback gate.
 If the cutover is reached and either public release probe fails, the workflow

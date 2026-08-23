@@ -162,15 +162,19 @@ def _has(response: dict, marker: str) -> bool:
     return marker in response.get("body", "")
 
 
-def _json_status(response: dict, expected: str) -> bool:
-    """Require an HTTP 200 JSON response with the expected status marker."""
+def _json_status(response: dict, expected: str, expected_service: str | None = None) -> bool:
+    """Require an HTTP 200 JSON response with the expected status markers."""
     if response.get("status") != 200:
         return False
     try:
         payload = json.loads(response.get("body", ""))
     except (TypeError, ValueError):
         return False
-    return isinstance(payload, dict) and payload.get("status") == expected
+    return (
+        isinstance(payload, dict)
+        and payload.get("status") == expected
+        and (expected_service is None or payload.get("service") == expected_service)
+    )
 
 
 class _PageFacts(HTMLParser):
@@ -408,7 +412,11 @@ def _diagnostics(checks: dict[str, bool], endpoints: dict[str, dict]) -> list[di
             ("api_health", "api_readiness", "site_home"),
         ),
         ("api_health", "API health must return HTTP 200 with a status/ok marker", ("api_health",)),
-        ("api_readiness", "API readiness must return HTTP 200 with a status/ready marker", ("api_readiness",)),
+        (
+            "api_readiness",
+            "API readiness must return HTTP 200 with status/ready and service/weft-cloud markers",
+            ("api_readiness",),
+        ),
         ("api_root_redirects_to_login", "API root must redirect to /login", ("api_root",)),
         (
             "api_security_headers",
@@ -451,7 +459,7 @@ def probe(api_origin: str, site_origin: str, timeout: float = 20.0) -> dict:
 
     endpoints = {
         "api_health": _fetch(f"{api_origin}/healthz", timeout),
-        "api_readiness": _fetch(f"{api_origin}/readyz", timeout),
+        "api_readiness": _fetch(f"{api_origin}/v1/readyz", timeout),
         "api_root": _fetch(f"{api_origin}/", timeout),
         "api_login": _fetch(f"{api_origin}/login", timeout),
         "api_signup": _fetch(f"{api_origin}/signup", timeout),
@@ -476,7 +484,7 @@ def probe(api_origin: str, site_origin: str, timeout: float = 20.0) -> dict:
         and _has(endpoints["api_health"], '"status"')
         and _has(endpoints["api_health"], '"ok"')
     )
-    api_readiness_ok = _json_status(endpoints["api_readiness"], "ready")
+    api_readiness_ok = _json_status(endpoints["api_readiness"], "ready", "weft-cloud")
     api_login_redirect_ok = (
         endpoints["api_root"]["status"] in {301, 302, 303, 307, 308}
         and endpoints["api_root"]["headers"].get("location", "").rstrip("/")

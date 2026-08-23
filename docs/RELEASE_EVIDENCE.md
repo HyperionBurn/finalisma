@@ -1,4 +1,4 @@
-# Release evidence — 2026-08-22
+# Release evidence — 2026-08-23
 
 This is the current local evidence ledger for the integration hardening work.
 It is not a hosted-release approval, deployment proof, or third-party client
@@ -7,11 +7,14 @@ compatibility claim.
 ## Latest regression evidence
 
 Measured locally on the current source/test stack (merged base `main` at
-`9dd484c`; PR112 candidate branch `codex/hosted-sdk-connect-2026-08-22`):
+`015908d`; PR113 candidate branch `codex/api-readiness-routing-2026-08-23`):
 
 - Command: `python -B -m unittest discover -s tests`
-- Result: **1296 tests discovered; 1295 passed; 1 skipped**
-- Duration: 613.429 seconds on the local Windows runner
+- Result: **1298 tests discovered; 1297 passed; 1 skipped**
+- Duration: 619.874 seconds on the local Windows runner
+- Focused API-readiness routing/identity suite: 69 tests passed locally
+  (`tests.test_probe_live_release`, `tests.test_probe_live_release_contract`,
+  `tests.test_deploy_gate`, and `tests.test_deploy_ops`)
 - Focused hosted SDK connect suite: 33 tests passed locally
   (`tests.test_interop_sdk` and `tests.test_sdk`)
 - Focused storage-readiness/deploy-gate suite: 47 tests passed locally
