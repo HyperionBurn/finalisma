@@ -6,11 +6,11 @@ compatibility claim.
 
 ## Latest regression evidence
 
-Measured locally on the current source/test stack at deployed HEAD `e7d78cd`:
+Measured on the current source/test stack at release candidate `6cfa079`:
 
-- Command: `python -B -m unittest discover -s tests`
-- Result: **1315 tests discovered; 1314 passed; 1 skipped**
-- Duration: 518.202 seconds on the local Windows runner
+- The strict clean-archive deployment gate ran
+  `PYTHONPATH=src python -B -m unittest discover -s tests -q`.
+- Result: **1315 tests; 0 failures** (the suite's known one skip remains).
 - Focused API-readiness routing/identity suite: 69 tests passed locally
   (`tests.test_probe_live_release`, `tests.test_probe_live_release_contract`,
   `tests.test_deploy_gate`, and `tests.test_deploy_ops`)
@@ -52,7 +52,7 @@ Measured locally on the current source/test stack at deployed HEAD `e7d78cd`:
 
 ## Hosted customer journey evidence
 
-The backend release at commit `e7d78cd` was deployed through the strict
+The backend release at commit `6cfa079` was deployed through the strict
 archive gate. The gate ran **1315 tests with 0 failures**, then passed the
 WAL-safe backup and restore drill, service restart proof, public readiness,
 and unauthenticated MCP routing checks.
@@ -71,8 +71,10 @@ and unauthenticated MCP routing checks.
   link → human and JSON join-descriptor pages → connect page → OpenCode
   connector-config generation → wrong-confirmation refusal → exact-confirmation
   organization deletion flow. Each run reported no document-level horizontal
-  overflow, 0 console errors, 0 failed requests, 0 unexpected responses, and
-  completed disposable-state cleanup.
+  overflow, zero axe violations across the seven authenticated pages,
+  0 console errors, 0 failed requests, 0 unexpected responses, and completed
+  disposable-state cleanup. The axe run covers WCAG 2A/2AA and 2.1 A/AA
+  rules using the pinned local `scripts/axe.min.js` copy.
 - `scripts/probe_live_opencode.cjs` launched the installed OpenCode **1.18.22**
   process with the generated OpenCode 1.x config and the exact requested model
   `opencode-go/deepseek-v4-pro`. The provider rejected the run before any MCP
