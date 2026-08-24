@@ -1,4 +1,4 @@
-# Release evidence — 2026-08-23
+# Release evidence — 2026-08-24
 
 This is the current local evidence ledger for the integration hardening work.
 It is not a hosted-release approval, deployment proof, or third-party client
@@ -7,11 +7,11 @@ compatibility claim.
 ## Latest regression evidence
 
 Measured locally on the current source/test stack (merged base `main` at
-`873796f`; PR114 candidate branch `codex/ops-timer-enforcement-2026-08-23`):
+`ab809cf`; hosted-MCP schema clarity changes in the working tree):
 
 - Command: `python -B -m unittest discover -s tests`
-- Result: **1307 tests discovered; 1306 passed; 1 skipped**
-- Duration: 621.487 seconds on the local Windows runner
+- Result: **1310 tests discovered; 1309 passed; 1 skipped**
+- Duration: 619.429 seconds on the local Windows runner
 - Focused API-readiness routing/identity suite: 69 tests passed locally
   (`tests.test_probe_live_release`, `tests.test_probe_live_release_contract`,
   `tests.test_deploy_gate`, and `tests.test_deploy_ops`)
@@ -23,7 +23,7 @@ Measured locally on the current source/test stack (merged base `main` at
 - Focused web/deploy readiness suite: 69 tests passed locally
 - Focused hosted-MCP probe/preflight/workflow suite: 37 tests passed locally
 - Focused rollback/deploy/preflight suite: 61 tests passed locally
-- Focused hosted-MCP/count suite: 40 tests passed locally
+- Focused hosted-MCP/count suite: 48 tests passed locally
   (`tests.test_hosted_mcp` and `tests.test_site.TestCountSyncTests`)
 - Focused hosted SDK/onboarding suite: 97 tests passed locally
   (`tests.test_interop_sdk`, `tests.test_onboarding_consistency`, and

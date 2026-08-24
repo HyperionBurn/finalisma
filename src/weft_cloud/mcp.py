@@ -105,11 +105,31 @@ def _object_schema(properties: dict[str, Any], required: list[str] | None = None
     }
 
 
-_STRING = {"type": "string"}
-_INTEGER = {"type": "integer"}
-_BOOLEAN = {"type": "boolean"}
-_STRING_LIST = {"type": "array", "items": _STRING}
-_JSON_VALUE = {}
+def _string_field(description: str, **constraints: Any) -> dict[str, Any]:
+    return {"type": "string", "description": description, **constraints}
+
+
+def _integer_field(description: str, **constraints: Any) -> dict[str, Any]:
+    return {"type": "integer", "description": description, **constraints}
+
+
+def _boolean_field(description: str, **constraints: Any) -> dict[str, Any]:
+    return {"type": "boolean", "description": description, **constraints}
+
+
+def _string_list_field(description: str, **constraints: Any) -> dict[str, Any]:
+    return {
+        "type": "array",
+        "description": description,
+        "items": {"type": "string"},
+        **constraints,
+    }
+
+
+_JSON_VALUE = {
+    "description": "Any valid JSON object, array, string, number, boolean, or null to deliver.",
+    "examples": [{"kind": "task.progress", "text": "handoff verified"}],
+}
 
 #: ``target_spec`` deliberately accepts a string OR a list, so it cannot carry
 #: a single JSON ``type``. It previously shipped as a bare ``{}``, which told a
@@ -120,6 +140,8 @@ _JSON_VALUE = {}
 #: them accurate if the routing rules ever change.
 _ROOM_CAP = {
     "type": "integer",
+    "minimum": 2,
+    "default": DEFAULT_ROOM_CAP,
     "description": (
         "Maximum TOTAL members in the room, counting the owning account that "
         "auto-joins on creation. The join link therefore admits cap-1 further "
@@ -193,8 +215,17 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
         ),
         "inputSchema": _object_schema({
             "cap": _ROOM_CAP,
-            "name": _STRING,
-            "ttl_seconds": _INTEGER,
+            "name": _string_field(
+                "Optional human-readable room name. It is trimmed and returned by room_list and room_info.",
+                maxLength=160,
+                examples=["incident-room"],
+            ),
+            "ttl_seconds": _integer_field(
+                "Optional room lifetime in seconds. The room closes after expiry; default is 86400 seconds (24 hours).",
+                minimum=1,
+                default=86400,
+                examples=[3600, 86400],
+            ),
         }, []),
     },
     {
@@ -214,22 +245,44 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
             "the cap; it cannot overwrite an existing member identity."
         ),
         "inputSchema": _object_schema({
-            "room_id": _STRING,
-            "link_token": _STRING,
-            "consent": _BOOLEAN,
-            "capabilities": _STRING_LIST,
+            "room_id": _string_field(
+                "Opaque room_id returned by room_create or a room link preview.",
+            ),
+            "link_token": _string_field(
+                "Secret multi-use token returned by room_create. Pass it exactly and do not expose it in logs.",
+            ),
+            "consent": _boolean_field(
+                "Must be the literal JSON boolean true to accept the room link and join.",
+            ),
+            "capabilities": _string_list_field(
+                "Optional labels describing what this member can do. These labels do not grant authorization.",
+            ),
         }, ["room_id", "link_token", "consent"]),
     },
     {
         "name": "room_send",
         "description": "Address one member, a named group, or the whole room with a payload, returning durable per-recipient receipts. Each receipt separates delivery status from recipient read_status; the sender may audit its own targeted message while other non-addressees receive a redacted envelope. Optional message_kind labels the event for filtered polling. Pass the same idempotency_key when retrying a send that may have succeeded but lost its response — the retry returns the original event's seq and receipts instead of duplicating.",
         "inputSchema": _object_schema({
-            "room_id": _STRING,
+            "room_id": _string_field(
+                "Opaque room_id for a room where your authenticated identity is a member.",
+            ),
             "target_spec": _TARGET_SPEC,
             "payload": _JSON_VALUE,
-            "message_kind": _STRING,
-            "exclude_sender": _BOOLEAN,
-            "idempotency_key": _STRING,
+            "message_kind": _string_field(
+                "Optional lowercase label for filtering later with room_poll or room_wait. Use 1-32 characters matching [a-z0-9_-].",
+                pattern="^[a-z0-9_-]{1,32}$",
+                examples=["task_progress"],
+            ),
+            "exclude_sender": _boolean_field(
+                "If true, do not deliver the message back to the sender. Default is true.",
+                default=True,
+            ),
+            "idempotency_key": _string_field(
+                "Optional non-empty key for safe retries. Reuse the same key after an uncertain response to avoid duplicate messages.",
+                minLength=1,
+                maxLength=256,
+                examples=["handoff-2026-08-24-001"],
+            ),
         }, ["room_id", "target_spec", "payload"]),
     },
     {
@@ -240,18 +293,40 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
             "without revealing another sender's outbox state."
         ),
         "inputSchema": _object_schema({
-            "room_id": _STRING,
-            "entry_ids": _STRING_LIST,
+            "room_id": _string_field(
+                "Opaque room_id for a room where your authenticated identity is a member.",
+            ),
+            "entry_ids": _string_list_field(
+                "Entry ids returned in receipts from messages you sent. Unknown or other senders' ids return found:false.",
+                maxItems=200,
+                items={"type": "string", "minLength": 1, "maxLength": 512},
+            ),
         }, ["room_id", "entry_ids"]),
     },
     {
         "name": "room_poll",
         "description": "Replay ordered Room events from your per-member cursor. At-least-once; ack to advance your own cursor. Reads are normally exclusive, while an unacknowledged next_seq resume marker is rechecked inclusively so truncated pages and idle-tail reconnects cannot skip an event. Optional message_kinds filters sender-labeled events while preserving the full-stream cursor.",
         "inputSchema": _object_schema({
-            "room_id": _STRING,
-            "after_seq": _INTEGER,
-            "limit": _INTEGER,
-            "message_kinds": _STRING_LIST,
+            "room_id": _string_field(
+                "Opaque room_id for a room where your authenticated identity is a member.",
+            ),
+            "after_seq": _integer_field(
+                "Optional nonnegative sequence to resume after. Omit it to resume from your last acknowledged cursor; 0 starts at the beginning.",
+                minimum=0,
+                examples=[0, 1],
+            ),
+            "limit": _integer_field(
+                "Maximum number of events to return. Default is 100; values above 200 are capped at 200.",
+                minimum=1,
+                maximum=200,
+                default=100,
+                examples=[50, 100, 200],
+            ),
+            "message_kinds": _string_list_field(
+                "Optional lowercase message_kind labels to include. Omit it to return every event.",
+                maxItems=64,
+                items={"type": "string", "pattern": "^[a-z0-9_-]{1,32}$"},
+            ),
         }, ["room_id"]),
     },
     {
@@ -266,30 +341,60 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
             "room_poll when you expect a reply — it wakes the moment a message lands."
         ),
         "inputSchema": _object_schema({
-            "room_id": _STRING,
-            "after_seq": _INTEGER,
-            "timeout_seconds": _INTEGER,
-            "limit": _INTEGER,
-            "message_kinds": _STRING_LIST,
+            "room_id": _string_field(
+                "Opaque room_id for a room where your authenticated identity is a member.",
+            ),
+            "after_seq": _integer_field(
+                "Optional nonnegative sequence to resume after. Omit it to resume from your last acknowledged cursor.",
+                minimum=0,
+                examples=[0, 1],
+            ),
+            "timeout_seconds": _integer_field(
+                "How long to wait for a new event. Default is 20 seconds; the service accepts 0-30 seconds.",
+                minimum=0,
+                maximum=30,
+                default=20,
+                examples=[5, 20, 30],
+            ),
+            "limit": _integer_field(
+                "Maximum number of events to return after waking. Default is 100; values above 200 are capped at 200.",
+                minimum=1,
+                maximum=200,
+                default=100,
+                examples=[50, 100, 200],
+            ),
+            "message_kinds": _string_list_field(
+                "Optional lowercase message_kind labels to include. Omit it to return every event.",
+                maxItems=64,
+                items={"type": "string", "pattern": "^[a-z0-9_-]{1,32}$"},
+            ),
         }, ["room_id"]),
     },
     {
         "name": "room_info",
         "description": "Member-only view of a Room: state, cap, member count, roster with presence, owner.",
-        "inputSchema": _object_schema({"room_id": _STRING}, ["room_id"]),
+        "inputSchema": _object_schema({
+            "room_id": _string_field("Opaque room_id for a room where your authenticated identity is a member."),
+        }, ["room_id"]),
     },
     {
         "name": "room_ack",
         "description": "Advance your cursor to seq (monotonic MAX). Events below the cursor are never re-delivered; durable receipt rows addressed to you are marked read through seq.",
         "inputSchema": _object_schema({
-            "room_id": _STRING,
-            "seq": _INTEGER,
+            "room_id": _string_field("Opaque room_id for a room where your authenticated identity is a member."),
+            "seq": _integer_field(
+                "Nonnegative event sequence to acknowledge. The cursor advances monotonically and cannot exceed the room head.",
+                minimum=0,
+                examples=[1, 10],
+            ),
         }, ["room_id", "seq"]),
     },
     {
         "name": "room_heartbeat",
         "description": "Refresh your presence (last_seen) in a Room.",
-        "inputSchema": _object_schema({"room_id": _STRING}, ["room_id"]),
+        "inputSchema": _object_schema({
+            "room_id": _string_field("Opaque room_id where your authenticated identity should remain present."),
+        }, ["room_id"]),
     },
     {
         "name": "room_leave",
@@ -297,7 +402,9 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
             "Leave a Room you are a member of: your seat is freed immediately "
             "and you lose room access. History and attribution are preserved."
         ),
-        "inputSchema": _object_schema({"room_id": _STRING}, ["room_id"]),
+        "inputSchema": _object_schema({
+            "room_id": _string_field("Opaque room_id for a room where your authenticated identity is a member."),
+        }, ["room_id"]),
     },
     {
         "name": "room_remove_member",
@@ -307,8 +414,10 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
             "a removed member who still holds a valid link can rejoin."
         ),
         "inputSchema": _object_schema({
-            "room_id": _STRING,
-            "member_id": _STRING,
+            "room_id": _string_field("Opaque room_id for a room you own."),
+            "member_id": _string_field(
+                "Member identity from room_info.roster to remove. This frees its seat but is not a permanent ban.",
+            ),
         }, ["room_id", "member_id"]),
     },
     {
@@ -319,12 +428,16 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
             "history, and releases the Room from your tenant's active-room quota. "
             "The operation is safe to repeat."
         ),
-        "inputSchema": _object_schema({"room_id": _STRING}, ["room_id"]),
+        "inputSchema": _object_schema({
+            "room_id": _string_field("Opaque room_id for a room you own."),
+        }, ["room_id"]),
     },
     {
         "name": "room_event_log",
         "description": "Return the full ordered event log for a Room (member-only audit surface).",
-        "inputSchema": _object_schema({"room_id": _STRING}, ["room_id"]),
+        "inputSchema": _object_schema({
+            "room_id": _string_field("Opaque room_id for a room where your authenticated identity is a member."),
+        }, ["room_id"]),
     },
 ]
 

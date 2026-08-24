@@ -64,3 +64,41 @@ class RoomCapSchemaClarityTests(unittest.TestCase):
             "an agk_ key that skips room_join gets room_not_found for a room it "
             "just created; that surprise must be documented where it is read",
         )
+
+
+class HostedToolSchemaClarityTests(unittest.TestCase):
+    """Every hosted input must teach a caller how to use it."""
+
+    def test_every_input_field_has_a_description(self):
+        for tool in HOSTED_TOOLS:
+            for name, schema in tool["inputSchema"].get("properties", {}).items():
+                with self.subTest(tool=tool["name"], field=name):
+                    self.assertTrue(
+                        schema.get("description"),
+                        f"{tool['name']}.{name} is a bare schema field; "
+                        "describe its purpose and caller-visible semantics",
+                    )
+
+    def test_integer_fields_publish_effective_bounds_or_defaults(self):
+        for tool in HOSTED_TOOLS:
+            for name, schema in tool["inputSchema"].get("properties", {}).items():
+                if schema.get("type") != "integer":
+                    continue
+                with self.subTest(tool=tool["name"], field=name):
+                    self.assertTrue(
+                        any(key in schema for key in ("minimum", "maximum", "default", "examples")),
+                        f"{tool['name']}.{name} must publish a bound, default, or example",
+                    )
+
+    def test_published_bounds_match_the_room_service_contract(self):
+        def field(tool_name, field_name):
+            tool = next(t for t in HOSTED_TOOLS if t["name"] == tool_name)
+            return tool["inputSchema"]["properties"][field_name]
+
+        self.assertEqual(field("room_create", "cap")["minimum"], 2)
+        self.assertEqual(field("room_create", "cap")["default"], 15)
+        self.assertEqual(field("room_create", "ttl_seconds")["minimum"], 1)
+        self.assertEqual(field("room_create", "ttl_seconds")["default"], 86400)
+        self.assertEqual(field("room_poll", "limit")["maximum"], 200)
+        self.assertEqual(field("room_wait", "timeout_seconds")["maximum"], 30)
+        self.assertEqual(field("room_wait", "timeout_seconds")["default"], 20)
