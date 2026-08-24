@@ -227,6 +227,14 @@ class TestOrgCreationAndMembership(unittest.TestCase):
         acct = self.driver.account_id_for_email(tenant_id, email)
         self.assertEqual(self.driver.membership_count(acct), 1)
 
+    def test_org_page_wraps_member_table_on_narrow_viewports(self):
+        email = f"owner{time.time_ns()}@example.com"
+        self.driver.login(email, "owner-password-ok")
+        status, body, _ = self.driver.get("/org")
+        self.assertEqual(status, 200)
+        self.assertIn("width:100%", body)
+        self.assertIn("overflow-wrap:anywhere", body)
+
     def test_unauthenticated_get_org_redirects_to_login(self):
         status, _, headers = self.driver.get("/org")
         self.assertEqual(status, 303)

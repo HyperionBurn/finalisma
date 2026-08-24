@@ -1522,7 +1522,12 @@ class WeftWebApp:
             )
             + '<p><a href="/">Back to dashboard</a></p>'
         )
-        body = _page("Organization", body_html, csrf_token=csrf)
+        body = _page(
+            "Organization",
+            body_html,
+            csrf_token=csrf,
+            extra_head=_DASH_CSS,
+        )
         handler.send_response(HTTPStatus.OK)
         self._set_csrf_cookie(handler, csrf)
         handler.send_header("Content-Type", "text/html; charset=utf-8")
