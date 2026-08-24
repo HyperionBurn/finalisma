@@ -18,6 +18,8 @@ Values come from the Vercel project's build environment, not from the repo:
   form or ``mailto:`` address. The build FAILS LOUDLY if it is unset: a deploy
   that omits it would ship the raw homepage contact marker instead of a real
   CTA, so we refuse to ship that instead of faking an address.
+- ``PUBLIC_APP_ORIGIN`` — the verified hosted web-app origin used to point the
+  materialized homepage signup and login CTAs at the live application.
 
 Python 3.10+ is required on the Vercel build image (the materializer uses
 ``str | None`` annotations and ``Path.is_relative_to``).
@@ -47,7 +49,11 @@ def _load_release_module():
     return module
 
 
-def build_release_for_deploy(origin: str | None = None, contact_url: str | None = None) -> dict[str, object]:
+def build_release_for_deploy(
+    origin: str | None = None,
+    contact_url: str | None = None,
+    app_origin: str | None = None,
+) -> dict[str, object]:
     """Run the release materializer with deployment-owned values.
 
     Raises ``ValueError`` with an actionable message when ``contact_url`` is
@@ -56,6 +62,7 @@ def build_release_for_deploy(origin: str | None = None, contact_url: str | None 
     """
     resolved_origin = origin or os.environ.get("WEFT_SITE_ORIGIN") or DEFAULT_ORIGIN
     resolved_contact = contact_url if contact_url is not None else os.environ.get("WEFT_CONTACT_URL", "")
+    resolved_app_origin = app_origin if app_origin is not None else os.environ.get("PUBLIC_APP_ORIGIN", "")
     if not resolved_contact:
         raise ValueError(
             "WEFT_CONTACT_URL is unset. Set it in the Vercel project build "
@@ -67,6 +74,7 @@ def build_release_for_deploy(origin: str | None = None, contact_url: str | None 
     return module.build_release(
         origin=resolved_origin,
         contact_url=resolved_contact,
+        app_origin=resolved_app_origin or None,
         output=OUTPUT,
         force=True,
     )
