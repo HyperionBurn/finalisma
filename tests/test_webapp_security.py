@@ -6,6 +6,7 @@ fail at import with ModuleNotFoundError.
 """
 
 from __future__ import annotations
+from tests._server_readiness import await_serving as _await_serving
 
 import http.client
 import re
@@ -39,6 +40,7 @@ class WebAppDriver:
         self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), self.app.handler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
+        _await_serving(self.server)
         self.host, self.port = self.server.server_address
         self.cookies: dict[str, str] = {}
 

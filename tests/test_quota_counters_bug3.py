@@ -18,6 +18,7 @@ Drives the REAL /v1 HTTP entry points; counter reads are assertion only.
 """
 
 from __future__ import annotations
+from tests._server_readiness import await_serving as _await_serving
 
 import json
 import sys
@@ -67,6 +68,7 @@ class TestMonthlyEventLimitEnforced(unittest.TestCase):
         _CloudHTTPHandler.service = self.service
         self.server = threading.Thread(target=self._httpd.serve_forever, daemon=True)
         self.server.start()
+        _await_serving(self._httpd)
         # Pin the FREE plan's monthly event budget to 1 for this test. The
         # other limits (5 rooms, 15 members, 60 msgs/min) stay at their
         # published values.

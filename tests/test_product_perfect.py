@@ -21,6 +21,7 @@ Tests drive the real hosted HTTP surface; no mocks for the SQLite layer.
 """
 
 from __future__ import annotations
+from tests._server_readiness import await_serving as _await_serving
 
 import json
 import shutil
@@ -116,6 +117,7 @@ class ProductPerfectTestBase(unittest.TestCase):
             target=cls._httpd.serve_forever, daemon=True,
         )
         cls.server_thread.start()
+        _await_serving(cls._httpd)
 
     @classmethod
     def tearDownClass(cls) -> None:

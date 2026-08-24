@@ -6,6 +6,7 @@ the SDK speaks the protocol correctly against the production server code.
 """
 
 from __future__ import annotations
+from tests._server_readiness import await_serving as _await_serving
 
 import json
 import sys
@@ -52,6 +53,7 @@ class _ServerHarness:
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
+        _await_serving(self.server)
         self.host, self.port = self.server.server_address
 
     @property
@@ -367,6 +369,7 @@ class SDKFullFlowTests(unittest.TestCase):
         srv = ThreadingHTTPServer(("127.0.0.1", port), LeakyHandler)
         t = threading.Thread(target=srv.serve_forever, daemon=True)
         t.start()
+        _await_serving(srv)
         try:
             client = WeftClient(f"http://127.0.0.1:{port}/mcp", "agent-a", "demo")
             with self.assertRaises(WeftError) as ctx:
@@ -420,6 +423,7 @@ class SDKRetryTests(unittest.TestCase):
         server = ThreadingHTTPServer(("127.0.0.1", 0), FlakyHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
+        _await_serving(server)
         host, port = server.server_address
         try:
             client = WeftClient(f"http://{host}:{port}/mcp", "agent-a", "demo")
@@ -463,6 +467,7 @@ class SDKRetryTests(unittest.TestCase):
         server = ThreadingHTTPServer(("127.0.0.1", 0), FlakyMutationHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
+        _await_serving(server)
         host, port = server.server_address
         client = WeftClient(f"http://{host}:{port}/mcp", "agent-a", "demo")
         try:
@@ -498,6 +503,7 @@ class SDKRetryTests(unittest.TestCase):
         server = ThreadingHTTPServer(("127.0.0.1", 0), RotationHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
+        _await_serving(server)
         host, port = server.server_address
         client = WeftClient(f"http://{host}:{port}/mcp", "agent-a", "demo", actor_token="old-token")
         try:
@@ -546,6 +552,7 @@ class SdkHostedSurfaceAuditTests(unittest.TestCase):
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
+        _await_serving(server)
         host, port = server.server_address
         return server, thread, f"http://{host}:{port}/mcp"
 

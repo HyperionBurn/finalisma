@@ -15,6 +15,7 @@ WEBAPP_DESIGN.md §3.3, §6, §7, §9.3, §9.6, §10:
 """
 
 from __future__ import annotations
+from tests._server_readiness import await_serving as _await_serving
 
 import http.client
 import json
@@ -64,6 +65,7 @@ class WebAppDriver:
         self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), self.app.handler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
+        _await_serving(self.server)
         self.host, self.port = self.server.server_address
         self.cookies: dict[str, str] = {}
 
@@ -205,6 +207,7 @@ class WebAppDriver:
         self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), self.app.handler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
+        _await_serving(self.server)
         self.host, self.port = self.server.server_address
 
 
@@ -835,6 +838,7 @@ class TestConnectPageRequestShapeDrivesRealJoin(unittest.TestCase):
             target=self._httpd.serve_forever, daemon=True,
         )
         self._cloud_thread.start()
+        _await_serving(self._httpd)
 
     def _cloud_post(self, path: str, body: dict, token: str | None = None):
         conn = http.client.HTTPConnection("127.0.0.1", self.cloud_port, timeout=10)
@@ -1030,6 +1034,7 @@ class TestMemberCanView(unittest.TestCase):
             target=self._cloud_httpd.serve_forever, daemon=True,
         )
         self._cloud_thread.start()
+        _await_serving(self._cloud_httpd)
 
     def _cloud_post(self, path: str, body: dict, token: str | None = None):
         conn = http.client.HTTPConnection("127.0.0.1", self._cloud_port, timeout=10)

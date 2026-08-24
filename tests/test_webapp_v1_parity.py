@@ -38,6 +38,7 @@ Authoritative specs: docs/HOSTED_MCP_DESIGN.md, docs/ROOMS_DESIGN.md §6.
 """
 
 from __future__ import annotations
+from tests._server_readiness import await_serving as _await_serving
 
 import json
 import shutil
@@ -83,6 +84,7 @@ class _ParityHarness:
         _CloudHTTPHandler.service = self.service
         self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
         self._thread.start()
+        _await_serving(self._httpd)
         self._counter = 0
 
     def close(self) -> None:

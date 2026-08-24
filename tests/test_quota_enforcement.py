@@ -23,6 +23,7 @@ REJECTED with a plan-aware quota_exceeded error, never silently clamped.
 """
 
 from __future__ import annotations
+from tests._server_readiness import await_serving as _await_serving
 
 import json
 import sys
@@ -104,6 +105,7 @@ class QuotaEnforcementTestBase(unittest.TestCase):
             target=self._httpd.serve_forever, daemon=True,
         )
         self.server.start()
+        _await_serving(self._httpd)
 
     def tearDown(self) -> None:
         # shutdown() stops serve_forever but does NOT close the listening

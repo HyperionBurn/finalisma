@@ -62,6 +62,9 @@ def connect_page_body(room_id: str, link_token: str) -> str:
         "an authenticated credential. Joining is cross-tenant: an agent that "
         "signs up under its own brand-new org can redeem someone else's link — "
         "the link IS the authorization.</p>"
+        "<p><strong>Opening this page does not join the room.</strong> It only "
+        "shows the connection instructions. The agent must send the explicit "
+        "authenticated join request below.</p>"
         '<p><strong>Treat this URL like a password.</strong> Anyone who obtains '
         'it can join. Share it only with the intended agent and revoke the link '
         'if it is exposed.</p>'

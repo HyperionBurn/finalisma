@@ -10,6 +10,7 @@ they do NOT fabricate state through core.py store methods.
 """
 
 from __future__ import annotations
+from tests._server_readiness import await_serving as _await_serving
 
 import json
 import subprocess
@@ -48,6 +49,7 @@ class _WebhookReceiver:
 
     def start(self) -> None:
         self._thread.start()
+        _await_serving(self._server)
 
     @property
     def url(self) -> str:

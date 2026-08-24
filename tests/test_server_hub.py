@@ -1,4 +1,5 @@
 from __future__ import annotations
+from tests._server_readiness import await_serving as _await_serving
 
 import json
 import sys
@@ -485,6 +486,7 @@ class HTTPTransportHardeningTests(unittest.TestCase):
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
+        _await_serving(server)
         try:
             host, port = server.server_address
             body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping", "params": {}})
@@ -515,6 +517,7 @@ class HTTPTransportHardeningTests(unittest.TestCase):
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
+        _await_serving(server)
         try:
             host, port = server.server_address
             headers = {"Content-Type": "application/json", "Authorization": "Bearer test-token"}
@@ -548,6 +551,7 @@ class HTTPTransportHardeningTests(unittest.TestCase):
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
+        _await_serving(server)
         try:
             host, port = server.server_address
             headers = {"Content-Type": "application/json", "Authorization": "Bearer test-token"}
@@ -578,6 +582,7 @@ class HTTPTransportHardeningTests(unittest.TestCase):
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
+        _await_serving(server)
         try:
             host, port = server.server_address
             token_a = pairing["initiator_session_token"]
@@ -655,6 +660,7 @@ class HTTPTransportHardeningTests(unittest.TestCase):
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
+        _await_serving(server)
         try:
             host, port = server.server_address
             # Exhaust the limit

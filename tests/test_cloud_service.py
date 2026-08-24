@@ -10,6 +10,7 @@ docs/PRODUCT_ROADMAP.md §2 (one link, many agents).
 """
 
 from __future__ import annotations
+from tests._server_readiness import await_serving as _await_serving
 
 import json
 import sys
@@ -130,6 +131,7 @@ class CloudServiceTestBase(unittest.TestCase):
             target=self._httpd.serve_forever, daemon=True,
         )
         self.server.start()
+        _await_serving(self._httpd)
 
     def tearDown(self) -> None:
         # shutdown() stops serve_forever but does NOT close the listening
@@ -901,6 +903,7 @@ class TestJoinDescriptorAndAgentCard(CloudServiceTestBase):
         self.assertEqual(status, 200)
         page = raw.decode("utf-8", errors="replace")
         self.assertIn("Connect an agent", page)
+        self.assertIn("Opening this page does not join the room", page)
         self.assertIn("Tier 1", page)
         self.assertIn(self.link_token, page)
         self.assertIn(self.room_id, page)

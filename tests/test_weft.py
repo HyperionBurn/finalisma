@@ -1,4 +1,5 @@
 from __future__ import annotations
+from tests._server_readiness import await_serving as _await_serving
 
 import io
 import json
@@ -389,6 +390,7 @@ class MCPProtocolTests(unittest.TestCase):
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
+        _await_serving(server)
         try:
             host, port = server.server_address
             connection = HTTPConnection(host, port, timeout=5)
@@ -427,6 +429,7 @@ class MCPProtocolTests(unittest.TestCase):
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
+        _await_serving(server)
         try:
             host, port = server.server_address
             connection = HTTPConnection(host, port, timeout=5)
@@ -478,6 +481,7 @@ class MCPProtocolTests(unittest.TestCase):
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
+        _await_serving(server)
         try:
             host, port = server.server_address
             request = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping", "params": {}})
@@ -547,6 +551,7 @@ class MCPProtocolTests(unittest.TestCase):
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
+        _await_serving(server)
         try:
             host, port = server.server_address
             connection = HTTPConnection(host, port, timeout=5)
@@ -623,6 +628,7 @@ class MCPProtocolTests(unittest.TestCase):
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
+        _await_serving(server)
         try:
             host, port = server.server_address
             connection = HTTPConnection(host, port, timeout=5)
