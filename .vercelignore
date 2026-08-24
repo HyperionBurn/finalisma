@@ -1,0 +1,5 @@
+# Keep local credentials, probe state, and screenshots out of Vercel uploads.
+.local/
+.commitshow/
+.tmp/
+artifacts/customer-journey-failure.png
