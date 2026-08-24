@@ -72,15 +72,14 @@
         <h2>4. Connect an MCP client via the stdio bridge</h2>
         <p>MCP hosts such as Claude Desktop, Cursor, Claude Code, Codex and OpenCode launch servers as <code>command</code> + <code>args</code> subprocesses and have no URL form — so they cannot dial <code>POST /mcp</code> directly. The stdio bridge is the shim: it speaks MCP over stdin/stdout to your host and forwards every message to the hosted endpoint with <code>Authorization: Bearer &lt;token&gt;</code>. Your client sees the hosted tool set as if it were a local process.</p>
         <p><strong>The token goes in the client environment field (<code>env</code> for JSON hosts, <code>environment</code> for OpenCode), never in <code>args</code>.</strong> Command-line arguments are commonly visible to other processes. The config file still contains the live credential, so protect it and revoke the key when you retire it. The bridge reads the token from the variable named by <code>--token-env</code>. Keep <code>PYTHONUTF8=1</code> in that field on Windows as a compatibility safeguard for hosts that initialize Python with a legacy codepage.</p>
-        <p>Install the <code>weft-mcp</code> package in a Python 3.11+ environment used by your client before pasting this config. For a source checkout, run <code>python -m venv .venv</code>, then <code>.venv\Scripts\python.exe scripts\verify-package-install.py --python .venv\Scripts\python.exe</code> (use <code>.venv/bin/python</code> on macOS/Linux). If the client does not inherit that venv, replace <code>command</code> with the absolute interpreter path. The generated command uses the installed module and never embeds the hosted server's filesystem path; this repository does not claim public package-index publication.</p>
+        <p>Download the <a href="/downloads/weft-mcp-bridge.py" download="weft-mcp-bridge.py">standalone MCP bridge</a> from the verified Weft origin and save it on the machine that runs your client. Replace <code>&lt;path-to-downloaded-weft-mcp-bridge.py&gt;</code> in this config with the saved file path. The bridge uses only Python's standard library. No package installation or source checkout is required. If the client does not inherit the Python interpreter on your <code>PATH</code>, replace <code>command</code> with its absolute interpreter path.</p>
         <pre class="article-code" tabindex="0" aria-describedby="code-scroll-note"><code>{
   "mcpServers": {
     "weft": {
       "command": "python",
       "args": [
         "-B",
-        "-m",
-        "weft_mcp",
+        "&lt;path-to-downloaded-weft-mcp-bridge.py&gt;",
         "--remote",
         "https://YOUR-VERIFIED-WEFT-ORIGIN",
         "--token-env",

@@ -62,7 +62,12 @@ from weft_cloud.quotas import DEFAULT_ROOM_CAP, QuotaError
 from weft_cloud.rate_limit import RateLimitedError, enforce_auth_rate_limit
 from weft_cloud.rooms import CloudRoomService, RoomError, _parse_json, public_origin
 from weft_cloud.storage import StorageBackend
-from weft_cloud.web.config_gen import BRIDGE_DOWNLOAD_PATH, CLIENTS, build_config
+from weft_cloud.web.config_gen import (
+    BRIDGE_DOWNLOAD_PATH,
+    CLIENTS,
+    SCRIPT_PATH_PLACEHOLDER,
+    build_config,
+)
 from weft_cloud.web.copy import connect_page_body
 from weft_cloud.web.security_headers import security_headers
 
@@ -1852,10 +1857,11 @@ class WeftWebApp:
             '<h1>Connector config generator</h1>'
             '<p>Generate a ready-to-paste stdio MCP config for your client '
             'with a <strong>freshly minted agent key already embedded</strong>. '
-            'Install the <code>weft-mcp</code> package in the same Python '
-            'environment used by your client first. The config launches the '
-            'installed bridge module (<code>python -m weft_mcp --remote … '
-            '--token-env WEFT_TOKEN</code>) so your client reaches the hosted '
+            f'Download the standalone <a href="{_esc(BRIDGE_DOWNLOAD_PATH)}" '
+            'download="weft-mcp-bridge.py">weft-mcp-bridge.py bridge</a> first. '
+            'The generated config launches that file with '
+            '(<code>python -B &lt;path-to-downloaded-weft-mcp-bridge.py&gt; '
+            '--remote … --token-env WEFT_TOKEN</code>) so your client reaches the hosted '
             'rooms — these clients speak stdio MCP '
             '(<code>command</code> + <code>args</code>), not an HTTP '
             '<code>url</code>.</p>'
@@ -1932,17 +1938,18 @@ class WeftWebApp:
             'that agent, and <strong>revoking the key invalidates the '
             'config</strong>. It is shown here exactly once.</p>'
             + '<h2>Install</h2>'
-            + f'<p>Install the <code>weft-mcp</code> package in the Python '
-            'environment used by your client, then save this as '
+            + f'<p>Download the standalone <a href="{_esc(BRIDGE_DOWNLOAD_PATH)}" '
+            'download="weft-mcp-bridge.py">weft-mcp-bridge.py bridge</a> and '
+            'save it on the machine that runs your client. Replace the '
+            f'path placeholder <code>{_esc(SCRIPT_PATH_PLACEHOLDER)}</code> '
+            'in this config with the saved file path, then save this as '
             f'<code>{_esc(config["file"])}</code> and restart your client. '
-            'For a source checkout, run <code>python -m venv .venv</code> '
-            'followed by <code>.venv\\Scripts\\python.exe scripts\\verify-package-install.py '
-            '--python .venv\\Scripts\\python.exe</code> (or the equivalent '
-            'macOS/Linux venv path). If the client does not inherit that venv, '
+            'The bridge uses only the Python standard library. No package '
+            'installation or source checkout is required. If the client does '
+            'not inherit the Python interpreter on your PATH, '
             'replace the generated <code>command</code> with its absolute '
-            'interpreter path. '
-            'The config invokes <code>python -m weft_mcp</code> and does not '
-            'depend on the server checkout path. The token is in the client '
+            'interpreter path. The config does not depend on the server '
+            'checkout path. The token is in the client '
             'environment field (<code>env</code> for JSON hosts, '
             '<code>environment</code> for OpenCode) — never in '
             '<code>args</code>. Command-line arguments are commonly visible '

@@ -92,11 +92,11 @@ passed, 1 skipped). This does not claim browser or production proof.
 - zero failed requests;
 - zero HTTP error responses;
 - zero third-party runtime requests;
-- 11 homepage resources and 1,371,120 transferred bytes;
-- local observed LCP 232ms and CLS 0;
-- one 119ms long task, below the 200ms local guard;
+- 11 homepage resources and 1,371,397 transferred bytes;
+- local observed LCP 308ms and CLS 0;
+- one 167ms long task, below the 200ms local guard;
 - zero axe violations across eight pages; home and demo each returned one incomplete axe result, which remains a manual-review item rather than a zero-risk claim;
-- an animated canvas with 18.8ms frame-time median and 42.6ms p95;
+- an animated canvas with 19.3ms frame-time median and 22.7ms p95;
 - a denied-clipboard browser check with the fallback visible, focused, and prepared without transmitting the brief;
 - passing desktop, mobile, reduced-motion, no-JavaScript, guide, blog, and recorded-proof checks;
 - validated 43.04-second, 1280 x 720 MP4 and WebM sources with a default English caption track and no horizontal overflow.

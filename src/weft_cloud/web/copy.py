@@ -14,10 +14,11 @@ that the SDK cannot use a hosted room.
 Tier 1 (MCP stdio) is the exception that makes the product usable: real MCP
 hosts (Claude Desktop, Codex, Cursor, OpenCode) launch servers as ``command`` + ``args``
 subprocesses and have no ``url`` form, so they cannot dial the hosted
-``POST /mcp`` endpoint. The installed bridge module (``python -B -m weft_mcp
---remote <origin> --token-env WEFT_TOKEN``) is the shim that lets those hosts
-reach a hosted room. The config block below is the one verified end to end by
-the dashboard's connector-config generator and by ``tests/test_stdio_bridge.py``.
+``POST /mcp`` endpoint. The standalone downloaded bridge (``python -B
+<path-to-downloaded-weft-mcp-bridge.py> --remote <origin> --token-env
+WEFT_TOKEN``) is the shim that lets those hosts reach a hosted room. The
+config block below is the one verified end to end by the dashboard's
+connector-config generator and by ``tests/test_stdio_bridge.py``.
 
 Windows note: the ``env`` block MUST include ``PYTHONUTF8=1``. Without it the
 host's UTF-8 JSON-RPC bytes are decoded as cp1252 and every non-ASCII
@@ -41,6 +42,8 @@ from __future__ import annotations
 
 import html
 from typing import Any
+
+from .config_gen import BRIDGE_DOWNLOAD_PATH, SCRIPT_PATH_PLACEHOLDER
 
 
 def _esc(value: Any) -> str:
@@ -150,18 +153,20 @@ def connect_page_body(room_id: str, link_token: str) -> str:
         '<code>--token-env</code>. Windows hosts must also '
         'set <code>PYTHONUTF8=1</code>: without it the client\'s UTF-8 JSON-RPC '
         'is decoded as cp1252 and every non-ASCII character is destroyed.</p>'
-        '<p>Install the <code>weft-mcp</code> package in the Python environment '
-        'used by the client before pasting this config. The generated command '
-        'uses the installed module and never depends on the hosted server\'s '
-        'filesystem path.</p>'
+        f'<p>Download the standalone <a href="{_esc(BRIDGE_DOWNLOAD_PATH)}" '
+        'download="weft-mcp-bridge.py">weft-mcp-bridge.py bridge</a> and save '
+        'it on the machine that runs your MCP client. Replace the path '
+        f'placeholder <code>{_esc(SCRIPT_PATH_PLACEHOLDER)}</code> in the '
+        'config with the saved file path. The bridge uses only the Python '
+        'standard library; no package installation or source checkout is '
+        'required.</p>'
         '<pre tabindex="0" role="region" aria-label="Code example">{\n'
         '  "mcpServers": {\n'
         '    "weft": {\n'
         '      "command": "python",\n'
         '      "args": [\n'
         '        "-B",\n'
-        '        "-m",\n'
-        '        "weft_mcp",\n'
+        f'        "{_esc(SCRIPT_PATH_PLACEHOLDER)}",\n'
         '        "--remote",\n'
         '        "https://&lt;origin&gt;",\n'
         '        "--token-env",\n'

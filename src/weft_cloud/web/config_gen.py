@@ -3,9 +3,9 @@
 The hosted Weft service is only reachable as a Streamable-HTTP ``POST /mcp``
 endpoint with a Bearer token. Real MCP hosts — Claude Desktop, Cursor, Claude
 Code, Codex — launch servers as ``command`` + ``args`` stdio subprocesses and
-have NO ``url`` form, so this generator emits the installed-module bridge
-invocation (``python -B -m weft_mcp --remote <origin> --token-env WEFT_TOKEN``)
-wired into each host's native config shape:
+have NO ``url`` form, so this generator emits the standalone downloaded bridge
+invocation (``python -B <path-to-downloaded-weft-mcp-bridge.py> --remote
+<origin> --token-env WEFT_TOKEN``) wired into each host's native config shape:
 
 - Claude Desktop -> JSON ``mcpServers`` (``claude_desktop_config.json``)
 - Cursor        -> JSON ``mcpServers`` (``.cursor/mcp.json``)
@@ -98,9 +98,11 @@ def build_config(client_id: str, agent_key: str, origin: str) -> dict:
     """Return the full generated config for ``client_id``.
 
     ``agent_key`` is the freshly minted ``agk_`` credential. ``origin`` is the
-    hosted service base URL (``--remote``). The customer must install the
-    ``weft_mcp`` package in the Python environment used by the MCP host.
-    Returns metadata plus the ready-to-paste config text.
+    hosted service base URL (``--remote``). The customer downloads the one-file
+    bridge from ``BRIDGE_DOWNLOAD_PATH`` and replaces the path placeholder in
+    the generated config with the saved file path. No package installation or
+    source checkout is required. Returns metadata plus the ready-to-paste
+    config text.
     """
     if client_id not in CLIENTS:
         raise ValueError(f"unknown client: {client_id}")

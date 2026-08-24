@@ -374,9 +374,11 @@ class LaunchSurfaceTests(unittest.TestCase):
             html,
         )
         self.assertIn(
-            '&#34;args&#34;: [&#34;-B&#34;, &#34;-m&#34;, &#34;weft_mcp&#34;',
+            'weft-mcp-bridge.py',
             html,
         )
+        self.assertIn('/downloads/weft-mcp-bridge.py', html)
+        self.assertNotIn('&#34;weft_mcp&#34;', html)
         # If a dependency-free claim appears, it must be scoped to the coordinator.
         if "dependency-free" in lowered:
             self.assertIn("coordinator", lowered)
@@ -1368,6 +1370,9 @@ class TestCountSyncTests(unittest.TestCase):
         llms = (SITE / "llms.txt").read_text(encoding="utf-8")
         self.assertIn("Deployment gate", quickstart)
         self.assertIn("YOUR-VERIFIED-WEFT-ORIGIN", quickstart)
+        self.assertIn("/downloads/weft-mcp-bridge.py", quickstart)
+        self.assertIn("path-to-downloaded-weft-mcp-bridge.py", quickstart)
+        self.assertNotIn("weft_mcp", quickstart)
         self.assertIn('id="self-hosted"', quickstart)
         self.assertNotIn("weft.switzerlandnorth.cloudapp.azure.com", quickstart)
         self.assertIn("documented-unverified", llms)

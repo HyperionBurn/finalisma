@@ -17,6 +17,8 @@ import {
 } from '../lib/app';
 
 const HOSTED_ORIGIN = APP_ORIGIN_EXAMPLE;
+const BRIDGE_DOWNLOAD_PATH = '/downloads/weft-mcp-bridge.py';
+const BRIDGE_PATH_PLACEHOLDER = '<path-to-downloaded-weft-mcp-bridge.py>';
 
 const HOSTED_SDK_CODE = `import os
 from weft_sdk import WeftClient
@@ -46,7 +48,7 @@ const tiers = [
   "mcpServers": {
     "weft": {
       "command": "python",
-      "args": ["-B", "-m", "weft_mcp", "--remote",
+      "args": ["-B", "${BRIDGE_PATH_PLACEHOLDER}", "--remote",
         "${HOSTED_ORIGIN}",
         "--token-env", "WEFT_TOKEN"],
       "env": {"WEFT_TOKEN": "<agk_ agent key>", "PYTHONUTF8": "1"}
@@ -104,6 +106,11 @@ snippet = clipboard.generate_bootstrap(
         <code>POST /mcp</code> exposes 14 room tools; the self-hosted coordinator
         exposes 59.
         {!APP_ORIGIN_CONFIGURED && ' This build has no verified hosted origin, so use the self-hosted proof path below.'}
+      </p>
+      <p class="connect-download scroll-in" style="--delay:200ms">
+        Download the <a href={BRIDGE_DOWNLOAD_PATH} download="weft-mcp-bridge.py">standalone MCP bridge</a>,
+        save it on the machine that runs your client, and replace the path placeholder in the config.
+        It needs only Python's standard library.
       </p>
     </div>
 
@@ -187,6 +194,18 @@ snippet = clipboard.generate_bootstrap(
     align-items: center;
     gap: 1.25rem;
     text-align: center;
+  }
+  .connect-download {
+    margin: 0;
+    max-width: 58ch;
+    color: var(--color-text-muted);
+    text-align: center;
+  }
+  .connect-download a {
+    color: var(--color-text);
+    font-weight: 700;
+    text-decoration: underline;
+    text-underline-offset: 3px;
   }
   .connect-cta__lede {
     margin: 0;
