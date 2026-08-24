@@ -6,12 +6,11 @@ compatibility claim.
 
 ## Latest regression evidence
 
-Measured locally on the current source/test stack (merged base `main` at
-`ab809cf`; hosted-MCP schema clarity changes in the working tree):
+Measured locally on the current source/test stack at deployed HEAD `e7d78cd`:
 
 - Command: `python -B -m unittest discover -s tests`
 - Result: **1315 tests discovered; 1314 passed; 1 skipped**
-- Duration: 619.429 seconds on the local Windows runner
+- Duration: 518.202 seconds on the local Windows runner
 - Focused API-readiness routing/identity suite: 69 tests passed locally
   (`tests.test_probe_live_release`, `tests.test_probe_live_release_contract`,
   `tests.test_deploy_gate`, and `tests.test_deploy_ops`)
@@ -53,8 +52,8 @@ Measured locally on the current source/test stack (merged base `main` at
 
 ## Hosted customer journey evidence
 
-The backend release at commit `f941d89` was deployed through the strict
-archive gate. The gate ran **1312 tests with 0 failures**, then passed the
+The backend release at commit `e7d78cd` was deployed through the strict
+archive gate. The gate ran **1315 tests with 0 failures**, then passed the
 WAL-safe backup and restore drill, service restart proof, public readiness,
 and unauthenticated MCP routing checks.
 
@@ -66,13 +65,14 @@ and unauthenticated MCP routing checks.
   --require-https-edge`: **healthcheck ok**. The cloud base and public edge
   are deliberately probed separately because `/readyz` at the public root
   belongs to the web process, while `/v1/readyz` belongs to `weft-cloud`.
-- `scripts/probe_live_customer_journey.cjs` passed at **1440x900** and
-  **390x844** and **320x568**. Each fresh browser context completed the real
+- `scripts/probe_live_customer_journey.cjs` passed at **1440x900**, **390x844**,
+  and **320x568**. Each fresh browser context completed the real
   site CTA → signup → login → dashboard → room creation → room-detail connect
   link → human and JSON join-descriptor pages → connect page → OpenCode
   connector-config generation → wrong-confirmation refusal → exact-confirmation
-  organization deletion flow. Each run reported 0 console errors, 0 failed
-  requests, 0 unexpected responses, and completed disposable-state cleanup.
+  organization deletion flow. Each run reported no document-level horizontal
+  overflow, 0 console errors, 0 failed requests, 0 unexpected responses, and
+  completed disposable-state cleanup.
 - `scripts/probe_live_opencode.cjs` launched the installed OpenCode **1.18.22**
   process with the generated OpenCode 1.x config and the exact requested model
   `opencode-go/deepseek-v4-pro`. The provider rejected the run before any MCP
