@@ -78,10 +78,15 @@ and unauthenticated MCP routing checks.
   tool call with `Insufficient balance`. The probe deleted the disposable
   organization afterward. This is an external provider-billing blocker, not a
   Weft protocol result.
+- `scripts/probe_live_claude.cjs` launched the installed Claude Code process,
+  generated the Claude MCP config, downloaded the standalone bridge, and
+  completed browser cleanup with 0 console errors and 0 failed requests. Claude
+  stopped before any MCP tool call with `Not logged in · Please run /login`.
+  This is a local Claude-authentication blocker, not a Weft protocol result.
 
 This is hosted Weft browser evidence. It does not claim SMTP mailbox delivery,
-Claude/Cursor/Codex host execution, or a successful OpenCode model call while
-the provider balance is insufficient.
+successful Claude/Cursor/Codex host execution, or successful third-party model
+calls while Claude is unauthenticated or OpenCode has insufficient balance.
 
 Hosted CI, review, merge, and deployment status must be read from the linked
 pull requests rather than inferred from this local ledger. The focused result
@@ -92,8 +97,10 @@ is local evidence.
 - Docker image build and Compose lifecycle
 - VM systemd installation, SMTP credentials, mailbox delivery, and worker health
 - Public-edge invite opening and acceptance
-- Live Claude, Cursor, or Codex host-product launch; OpenCode was launched but
-  its provider stopped before MCP calls because of insufficient balance
+- Successful live Claude, Cursor, or Codex host-product execution; Claude was
+  launched but stopped before MCP calls because it was not logged in
+- Successful OpenCode model execution; OpenCode was launched but stopped before
+  MCP calls because of insufficient balance
 - Production uptime, external latency, customer adoption, or paid retention
 
 The repository intentionally keeps these boundaries visible. A local protocol
