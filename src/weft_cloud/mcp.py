@@ -111,6 +111,154 @@ _BOOLEAN = {"type": "boolean"}
 _STRING_LIST = {"type": "array", "items": _STRING}
 _JSON_VALUE = {}
 
+# Per-field schemas. An MCP host feeds these straight to the model, so a field
+# with no description is a field the caller has to GUESS. Two shipped bare and
+# cost real time: `target_spec` (only "*" broadcasts) and `cap` (counts the
+# owner). Every bound below is copied from the validator that enforces it —
+# keep them in step or the schema becomes a confident lie.
+_ROOM_ID = {
+    "type": "string",
+    "description": (
+        "The room's id, prefix `room_`, as returned by room_create or "
+        "room_list. Not the join link. If you are not an active member this "
+        "answers room_not_found — the same answer a room that never existed "
+        "gives, so it is not an existence oracle."
+    ),
+    "examples": ["room_0123456789abcdef0123456789abcdef"],
+}
+_LINK_TOKEN = {
+    "type": "string",
+    "description": (
+        "The shareable join link token, prefix `rm_`, returned by room_create. "
+        "This is a CREDENTIAL: anyone holding it can join the room, from any "
+        "tenant. One token admits up to cap-1 agents."
+    ),
+    "examples": ["rm_0123456789abcdefghijklmnopqrstuvwxyz012345"],
+}
+_CONSENT = {
+    "type": "boolean",
+    "description": (
+        "Must be the literal JSON boolean true to attest the operator consented "
+        "to this agent joining. Strings such as \"true\" are refused."
+    ),
+    "examples": [True],
+}
+_CAPABILITIES = {
+    "type": "array",
+    "items": {"type": "string"},
+    "description": (
+        "Free-form capability labels this member advertises to the room, "
+        "surfaced to others via room_info. Declarative only — they do not "
+        "grant or restrict permissions."
+    ),
+    "examples": [["read", "write"], ["planning", "research"]],
+}
+_PAYLOAD = {
+    "description": (
+        "The message body: any JSON value (object, array, string, number, "
+        "boolean or null). Delivered verbatim to every addressee; "
+        "non-addressees receive a redacted envelope instead."
+    ),
+    "examples": [{"text": "handoff verified"}, {"kind": "task.progress", "pct": 40}],
+}
+_MESSAGE_KIND = {
+    "type": "string",
+    "description": (
+        "Optional sender-set label for routing and filtering, matched by the "
+        "message_kinds poll filter. 1-32 characters, lowercase [a-z0-9_-]."
+    ),
+    "examples": ["task_progress", "handoff"],
+}
+_MESSAGE_KINDS = {
+    "type": "array",
+    "items": {"type": "string"},
+    "description": (
+        "Optional filter: return only events whose message_kind is in this "
+        "list. Omit to receive every kind."
+    ),
+    "examples": [["handoff", "task_progress"]],
+}
+_EXCLUDE_SENDER = {
+    "type": "boolean",
+    "description": (
+        "When true, do not deliver this message back to the sender. Defaults "
+        "to false, so a broadcaster normally sees its own message in the log."
+    ),
+    "examples": [True],
+}
+_IDEMPOTENCY_KEY = {
+    "type": "string",
+    "description": (
+        "Optional caller-supplied de-duplication key so a retried send is not "
+        "delivered twice. Non-empty string, at most 256 characters — room for "
+        "a namespaced key plus a UUID."
+    ),
+    "examples": ["dispatch:task-42"],
+}
+_AFTER_SEQ = {
+    "type": "integer",
+    "description": (
+        "Return only events with seq strictly greater than this (exclusive). "
+        "Omit to resume from your own last acknowledged position, which is "
+        "the normal way to page — the server tracks your cursor for you."
+    ),
+    "examples": [0, 128],
+}
+_LIMIT = {
+    "type": "integer",
+    "description": "Maximum events to return. Defaults to 100 and is capped at 200.",
+    "examples": [100],
+}
+_SEQ = {
+    "type": "integer",
+    "description": (
+        "Acknowledge every event up to and including this seq, advancing your "
+        "cursor. Monotonic: acking an earlier seq does not rewind it."
+    ),
+    "examples": [128],
+}
+_ENTRY_IDS = {
+    "type": "array",
+    "items": {"type": "string"},
+    "description": (
+        "The entry ids whose delivery receipts you want, as returned by "
+        "room_send. Omit to get receipts for your recent sends."
+    ),
+}
+_MEMBER_ID = {
+    "type": "string",
+    "description": (
+        "The member to remove, as shown by room_info. An agent key has its own "
+        "member identity distinct from the owning account."
+    ),
+}
+_ROOM_NAME = {
+    "type": "string",
+    "description": (
+        "Optional human-readable label shown in room_list and room_info. Has "
+        "no effect on routing or addressing."
+    ),
+    "examples": ["design-review"],
+}
+_TTL_SECONDS = {
+    "type": "integer",
+    "description": (
+        "How long the room stays open, in seconds. Defaults to 86400 (24 "
+        "hours). A room-lifetime promise, not merely a link expiry: when it "
+        "elapses the room closes for everyone."
+    ),
+    "examples": [3600, 86400],
+}
+_TIMEOUT_SECONDS = {
+    "type": "integer",
+    "description": (
+        "How long room_wait blocks for a new event before returning empty. "
+        "Defaults to 20 and is silently capped at 30 — asking for more will "
+        "not hold the connection longer."
+    ),
+    "examples": [20, 30],
+}
+
 #: ``target_spec`` deliberately accepts a string OR a list, so it cannot carry
 #: a single JSON ``type``. It previously shipped as a bare ``{}``, which told a
 #: caller NOTHING: the only broadcast token is ``*``, and an agent had no way
@@ -193,8 +341,8 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
         ),
         "inputSchema": _object_schema({
             "cap": _ROOM_CAP,
-            "name": _STRING,
-            "ttl_seconds": _INTEGER,
+            "name": _ROOM_NAME,
+            "ttl_seconds": _TTL_SECONDS,
         }, []),
     },
     {
@@ -214,22 +362,22 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
             "the cap; it cannot overwrite an existing member identity."
         ),
         "inputSchema": _object_schema({
-            "room_id": _STRING,
-            "link_token": _STRING,
-            "consent": _BOOLEAN,
-            "capabilities": _STRING_LIST,
+            "room_id": _ROOM_ID,
+            "link_token": _LINK_TOKEN,
+            "consent": _CONSENT,
+            "capabilities": _CAPABILITIES,
         }, ["room_id", "link_token", "consent"]),
     },
     {
         "name": "room_send",
         "description": "Address one member, a named group, or the whole room with a payload, returning durable per-recipient receipts. Each receipt separates delivery status from recipient read_status; the sender may audit its own targeted message while other non-addressees receive a redacted envelope. Optional message_kind labels the event for filtered polling. Pass the same idempotency_key when retrying a send that may have succeeded but lost its response — the retry returns the original event's seq and receipts instead of duplicating.",
         "inputSchema": _object_schema({
-            "room_id": _STRING,
+            "room_id": _ROOM_ID,
             "target_spec": _TARGET_SPEC,
-            "payload": _JSON_VALUE,
-            "message_kind": _STRING,
-            "exclude_sender": _BOOLEAN,
-            "idempotency_key": _STRING,
+            "payload": _PAYLOAD,
+            "message_kind": _MESSAGE_KIND,
+            "exclude_sender": _EXCLUDE_SENDER,
+            "idempotency_key": _IDEMPOTENCY_KEY,
         }, ["room_id", "target_spec", "payload"]),
     },
     {
@@ -240,18 +388,18 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
             "without revealing another sender's outbox state."
         ),
         "inputSchema": _object_schema({
-            "room_id": _STRING,
-            "entry_ids": _STRING_LIST,
+            "room_id": _ROOM_ID,
+            "entry_ids": _ENTRY_IDS,
         }, ["room_id", "entry_ids"]),
     },
     {
         "name": "room_poll",
         "description": "Replay ordered Room events from your per-member cursor. At-least-once; ack to advance your own cursor. Reads are normally exclusive, while an unacknowledged next_seq resume marker is rechecked inclusively so truncated pages and idle-tail reconnects cannot skip an event. Optional message_kinds filters sender-labeled events while preserving the full-stream cursor.",
         "inputSchema": _object_schema({
-            "room_id": _STRING,
-            "after_seq": _INTEGER,
-            "limit": _INTEGER,
-            "message_kinds": _STRING_LIST,
+            "room_id": _ROOM_ID,
+            "after_seq": _AFTER_SEQ,
+            "limit": _LIMIT,
+            "message_kinds": _MESSAGE_KINDS,
         }, ["room_id"]),
     },
     {
@@ -266,30 +414,30 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
             "room_poll when you expect a reply — it wakes the moment a message lands."
         ),
         "inputSchema": _object_schema({
-            "room_id": _STRING,
-            "after_seq": _INTEGER,
-            "timeout_seconds": _INTEGER,
-            "limit": _INTEGER,
-            "message_kinds": _STRING_LIST,
+            "room_id": _ROOM_ID,
+            "after_seq": _AFTER_SEQ,
+            "timeout_seconds": _TIMEOUT_SECONDS,
+            "limit": _LIMIT,
+            "message_kinds": _MESSAGE_KINDS,
         }, ["room_id"]),
     },
     {
         "name": "room_info",
         "description": "Member-only view of a Room: state, cap, member count, roster with presence, owner.",
-        "inputSchema": _object_schema({"room_id": _STRING}, ["room_id"]),
+        "inputSchema": _object_schema({"room_id": _ROOM_ID}, ["room_id"]),
     },
     {
         "name": "room_ack",
         "description": "Advance your cursor to seq (monotonic MAX). Events below the cursor are never re-delivered; durable receipt rows addressed to you are marked read through seq.",
         "inputSchema": _object_schema({
-            "room_id": _STRING,
-            "seq": _INTEGER,
+            "room_id": _ROOM_ID,
+            "seq": _SEQ,
         }, ["room_id", "seq"]),
     },
     {
         "name": "room_heartbeat",
         "description": "Refresh your presence (last_seen) in a Room.",
-        "inputSchema": _object_schema({"room_id": _STRING}, ["room_id"]),
+        "inputSchema": _object_schema({"room_id": _ROOM_ID}, ["room_id"]),
     },
     {
         "name": "room_leave",
@@ -297,7 +445,7 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
             "Leave a Room you are a member of: your seat is freed immediately "
             "and you lose room access. History and attribution are preserved."
         ),
-        "inputSchema": _object_schema({"room_id": _STRING}, ["room_id"]),
+        "inputSchema": _object_schema({"room_id": _ROOM_ID}, ["room_id"]),
     },
     {
         "name": "room_remove_member",
@@ -307,8 +455,8 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
             "a removed member who still holds a valid link can rejoin."
         ),
         "inputSchema": _object_schema({
-            "room_id": _STRING,
-            "member_id": _STRING,
+            "room_id": _ROOM_ID,
+            "member_id": _MEMBER_ID,
         }, ["room_id", "member_id"]),
     },
     {
@@ -319,12 +467,12 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
             "history, and releases the Room from your tenant's active-room quota. "
             "The operation is safe to repeat."
         ),
-        "inputSchema": _object_schema({"room_id": _STRING}, ["room_id"]),
+        "inputSchema": _object_schema({"room_id": _ROOM_ID}, ["room_id"]),
     },
     {
         "name": "room_event_log",
         "description": "Return the full ordered event log for a Room (member-only audit surface).",
-        "inputSchema": _object_schema({"room_id": _STRING}, ["room_id"]),
+        "inputSchema": _object_schema({"room_id": _ROOM_ID}, ["room_id"]),
     },
 ]
 
