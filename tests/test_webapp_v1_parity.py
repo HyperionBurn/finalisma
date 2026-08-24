@@ -490,10 +490,11 @@ class TestRestCreateAndBodyValidation(unittest.TestCase):
         owner = self.h.signup()
         big = json.dumps({"room_id": "room_deadbeef",
                           "payload": "x" * (2 * 1024 * 1024)}).encode("utf-8")
-        status, resp = self.h.post_raw("/v1/rooms/send", big,
-                                       token=owner["session_token"])
+        status, resp, headers = self.h._request(
+            "POST", "/v1/rooms/send", raw=big, token=owner["session_token"])
         self.assertEqual(status, HTTPStatus.BAD_REQUEST, resp)
         self.assertEqual(self.h.error_code(resp), "invalid_body")
+        self.assertEqual(headers.get("Connection"), "close")
 
     def test_malformed_json_and_non_object_bodies_refused_cleanly(self) -> None:
         owner = self.h.signup()
