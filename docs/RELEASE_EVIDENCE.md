@@ -82,6 +82,14 @@ and unauthenticated MCP routing checks.
   remained active, and a non-member's send and poll were refused without an
   event-log entry. The probe then deleted all three organizations through the
   real web UI. It reported 0 browser console errors and 0 failed requests.
+- `scripts/probe_live_public_bridge.cjs` passed against the production
+  `/downloads/weft-mcp-bridge.py` file and `/mcp` endpoint. The downloaded
+  subprocess initialized, listed the room tools, created a forming room,
+  joined its own agent-key identity, sent and received a room message, proved
+  that the server-derived key identity differs from the owning account,
+  acknowledged the event without replay, exited cleanly, and deleted the
+  disposable organization through the web UI. It reported 0 browser console
+  errors and 0 failed requests.
 - `scripts/probe_live_opencode.cjs` launched the installed OpenCode **1.18.22**
   process with the generated OpenCode 1.x config and the exact requested model
   `opencode-go/deepseek-v4-pro`. The provider rejected the run before any MCP
