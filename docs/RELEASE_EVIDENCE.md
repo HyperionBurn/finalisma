@@ -75,6 +75,13 @@ and unauthenticated MCP routing checks.
   0 console errors, 0 failed requests, 0 unexpected responses, and completed
   disposable-state cleanup. The axe run covers WCAG 2A/2AA and 2.1 A/AA
   rules using the pinned local `scripts/axe.min.js` copy.
+- `scripts/probe_live_multiagent_roundtrip.cjs` passed against the hosted
+  `/v1` API with three disposable customer identities. One identity created a
+  room, a second identity redeemed the same link from another organization,
+  targeted and broadcast messages completed round trips, idempotent re-join
+  remained active, and a non-member's send and poll were refused without an
+  event-log entry. The probe then deleted all three organizations through the
+  real web UI. It reported 0 browser console errors and 0 failed requests.
 - `scripts/probe_live_opencode.cjs` launched the installed OpenCode **1.18.22**
   process with the generated OpenCode 1.x config and the exact requested model
   `opencode-go/deepseek-v4-pro`. The provider rejected the run before any MCP
