@@ -19,7 +19,7 @@ import sys
 import tempfile
 import threading
 import unittest
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -81,7 +81,7 @@ class _ServerCase(unittest.TestCase):
             "readyz_service": self.readyz_service,
             "mcp_status": self.mcp_status,
         })
-        self.server = HTTPServer(("127.0.0.1", 0), handler)
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         self.port = self.server.server_address[1]
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -146,7 +146,7 @@ class HealthcheckEdgeBoundaryTests(_ServerCase):
             "healthz_status": 200,
             "mcp_status": 303,
         })
-        self.edge_server = HTTPServer(("127.0.0.1", 0), handler)
+        self.edge_server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         self.edge_port = self.edge_server.server_address[1]
         self.edge_thread = threading.Thread(
             target=self.edge_server.serve_forever, daemon=True,
