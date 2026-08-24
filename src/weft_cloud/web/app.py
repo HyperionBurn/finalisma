@@ -2143,7 +2143,12 @@ class WeftWebApp:
             '</form>'
             '<p><a href="/">Back to dashboard</a></p>'
         )
-        body = _page("Rooms", body_html, csrf_token=csrf)
+        body = _page(
+            "Rooms",
+            body_html,
+            csrf_token=csrf,
+            extra_head=_DASH_CSS,
+        )
         handler.send_response(HTTPStatus.OK)
         self._set_csrf_cookie(handler, csrf)
         handler.send_header("Content-Type", "text/html; charset=utf-8")
@@ -2419,7 +2424,7 @@ class WeftWebApp:
             f'<ol>{items_html}</ol>'
             f'<p><a href="/room/{_esc(room_id)}">Back to room</a></p>'
         )
-        body = _page("Audit log", body_html)
+        body = _page("Audit log", body_html, extra_head=_DASH_CSS)
         self._send_html(handler, HTTPStatus.OK, body)
 
     def handle_get_room_connect(self, handler: BaseHTTPRequestHandler, room_id: str) -> None:

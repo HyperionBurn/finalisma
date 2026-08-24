@@ -405,6 +405,7 @@ class TestListRooms(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("War Room", body)
         self.assertIn(f"/room/{self.room_id}", body)
+        self.assertIn("overflow-wrap:anywhere", body)
 
 
 class TestRoomDetail(unittest.TestCase):
@@ -550,6 +551,7 @@ class TestAuditLog(unittest.TestCase):
         status, body, _ = self.driver.get(f"/room/{self.room_id}/audit")
         self.assertEqual(status, 200)
         self.assertIn("room.created", body)
+        self.assertIn("overflow-wrap:anywhere", body)
 
 
 class TestConnectPage(unittest.TestCase):
