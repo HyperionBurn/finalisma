@@ -16,9 +16,12 @@
  *     --site-origin https://site.example
  */
 
+const fs = require("node:fs");
+const path = require("node:path");
 const playwrightPath = process.env.WEFT_PLAYWRIGHT
   || "C:/Users/Wasif/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright";
 const { chromium } = require(playwrightPath);
+const axeSource = fs.readFileSync(path.join(__dirname, "axe.min.js"), "utf8");
 
 function argValue(name) {
   const index = process.argv.indexOf(name);
@@ -158,6 +161,28 @@ async function main() {
       }
     };
 
+    const checkAccessibility = async (label) => {
+      await page.evaluate((source) => {
+        if (window.axe) return;
+        const script = document.createElement("script");
+        script.textContent = source;
+        document.head.appendChild(script);
+      }, axeSource);
+      await page.waitForFunction(() => window.axe && typeof window.axe.run === "function", null, { timeout: 20000 });
+      const results = await page.evaluate(() => new Promise((resolve, reject) => {
+        window.axe.run({ runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] }, (error, result) => {
+          if (error) reject(error);
+          else resolve(result);
+        });
+      }));
+      const violationIds = results.violations.map((violation) => violation.id);
+      const checkName = `accessibility_${label}`;
+      checks[checkName] = violationIds.length === 0;
+      if (!checks[checkName]) {
+        fail(`${label} page has accessibility violations: ${violationIds.join(",")}`);
+      }
+    };
+
     await page.goto(siteOrigin, { waitUntil: "networkidle", timeout: 30000 });
     const cta = page.locator(`a[href^="${apiOrigin}/signup"]`).first();
     checks.site_funnel_reaches_signup = await cta.count() === 1;
@@ -185,6 +210,7 @@ async function main() {
       && await page.locator('input[name="_csrf"]').count() === 1;
     if (!checks.signup_form_usable) fail("signup form is missing a required control");
     await checkNoHorizontalOverflow("signup");
+    await checkAccessibility("signup");
     await page.locator('input[name="email"]').fill(email);
     await page.locator('input[name="password"]').fill(password);
     accountCreated = true;
@@ -207,6 +233,7 @@ async function main() {
       && (await page.locator("body").innerText()).includes("plus one");
     if (!checks.login_reaches_dashboard) fail("login did not reach the dashboard");
     await checkNoHorizontalOverflow("dashboard");
+    await checkAccessibility("dashboard");
 
     await page.locator('input[name="name"]').fill("Hosted customer dogfood");
     await page.locator('input[name="cap"]').fill("2");
@@ -219,6 +246,7 @@ async function main() {
     checks.room_detail_shows_join_credential = (await page.locator("body").innerText()).includes("Shareable join link")
       && (await page.locator("body").innerText()).includes("credential");
     await checkNoHorizontalOverflow("room_detail");
+    await checkAccessibility("room_detail");
 
     const roomId = new URL(page.url()).pathname.split("/")[2] || "";
     const detailText = await page.locator("body").innerText();
@@ -235,6 +263,7 @@ async function main() {
       && descriptorHtml.includes("room_join")
       && descriptorHtml.includes("consent: true");
     await checkNoHorizontalOverflow("join_descriptor");
+    await checkAccessibility("join_descriptor");
     const descriptorResponse = await page.request.get(shareableUrl, {
       headers: { Accept: "application/json" },
     });
@@ -255,6 +284,7 @@ async function main() {
     checks.connect_page_has_standalone_bridge = connectText.includes("weft-mcp-bridge.py");
     checks.connect_page_has_room_tools = ["room_join", "room_send", "room_poll"].every((tool) => connectText.includes(tool));
     await checkNoHorizontalOverflow("connect");
+    await checkAccessibility("connect");
 
     await page.goto(`${apiOrigin}/config`, { waitUntil: "networkidle", timeout: 30000 });
     const clientOptions = await page.locator('select[name="client"] option').evaluateAll((nodes) => nodes.map((node) => ({
@@ -276,12 +306,14 @@ async function main() {
     checks.generated_credential_is_warned = configText.includes("live credential")
       && configText.includes("revoking the key invalidates");
     await checkNoHorizontalOverflow("config");
+    await checkAccessibility("config");
 
     await page.goto(`${apiOrigin}/org`, { waitUntil: "networkidle", timeout: 30000 });
     checks.owner_can_find_delete_control = (await page.locator('form[action="/org/delete"]').count()) === 1
       && (await page.locator('input[name="confirmation"]').count()) === 1;
     if (!checks.owner_can_find_delete_control) fail("owner cannot find the organization deletion control");
     await checkNoHorizontalOverflow("organization");
+    await checkAccessibility("organization");
     await page.locator('input[name="confirmation"]').fill("delete");
     expectedNegativeResponse = true;
     try {

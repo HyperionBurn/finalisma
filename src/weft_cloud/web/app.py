@@ -2033,7 +2033,9 @@ class WeftWebApp:
             'Windows: without it the client&#39;s UTF-8 JSON-RPC is decoded as '
             'cp1252 and every non-ASCII character is destroyed.</p>'
             + '<h2>Config</h2>'
-            + f'<pre><code>{_esc(config["config_text"])}</code></pre>'
+            + '<pre tabindex="0" role="region" '
+            'aria-label="Generated connector configuration">'
+            + f'<code>{_esc(config["config_text"])}</code></pre>'
             + _copy_button(config["config_text"], "Copy config")
             + f'<p>Bridge: <code>{_esc(config["origin"])}/mcp</code>. The room '
             'tools (<code>room_create</code>, <code>room_join</code>, '

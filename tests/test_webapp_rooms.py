@@ -689,8 +689,20 @@ class TestConnectPage(unittest.TestCase):
             self.assertIn('download="weft-mcp-bridge.py"', body, client)
             self.assertNotIn("Install the <code>weft-mcp</code> package", body, client)
             self.assertNotIn("python -m weft_mcp", body, client)
-            match = re.search(r"<pre><code>(.*?)</code></pre>", body, re.S)
+            match = re.search(
+                r'<pre tabindex="0" role="region" '
+                r'aria-label="Generated connector configuration">'
+                r'<code>(.*?)</code></pre>',
+                body,
+                re.S,
+            )
             self.assertIsNotNone(match, client)
+            self.assertIn(
+                '<pre tabindex="0" role="region" '
+                'aria-label="Generated connector configuration">',
+                body,
+                client,
+            )
             config_text = unescape(match.group(1))
             # The entrypoint must be a file the CUSTOMER has. `-m weft_mcp`
             # was the previous answer and is not reachable: the package is
