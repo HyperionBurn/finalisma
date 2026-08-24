@@ -82,21 +82,21 @@ Desktop density is 1440 x 900 at deviceScaleFactor 1. Mobile coverage is 390 x 8
 
 `python -B -m unittest discover -s tests -p "test_*.py"` passed the current
 local regression; the current local repository evidence is recorded in
-[`docs/RELEASE_EVIDENCE.md`](docs/RELEASE_EVIDENCE.md) (1220 discovered, 1219
+[`docs/RELEASE_EVIDENCE.md`](docs/RELEASE_EVIDENCE.md) (1312 discovered, 1311
 passed, 1 skipped). This does not claim browser or production proof.
 
 `python -B scripts/run-site-qa.py` ran the rendered Playwright harness on
-2026-08-20 and exited 0 with:
+2026-08-24 and exited 0 with:
 
 - zero console errors;
 - zero failed requests;
 - zero HTTP error responses;
 - zero third-party runtime requests;
 - 11 homepage resources and 1,371,397 transferred bytes;
-- local observed LCP 308ms and CLS 0;
-- one 167ms long task, below the 200ms local guard;
+- local observed LCP 212ms and CLS 0;
+- one 155ms long task, below the 200ms local guard;
 - zero axe violations across eight pages; home and demo each returned one incomplete axe result, which remains a manual-review item rather than a zero-risk claim;
-- an animated canvas with 19.3ms frame-time median and 22.7ms p95;
+- an animated canvas with 21.4ms frame-time median and 26.8ms p95;
 - a denied-clipboard browser check with the fallback visible, focused, and prepared without transmitting the brief;
 - passing desktop, mobile, reduced-motion, no-JavaScript, guide, blog, and recorded-proof checks;
 - validated 43.04-second, 1280 x 720 MP4 and WebM sources with a default English caption track and no horizontal overflow.

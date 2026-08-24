@@ -108,6 +108,7 @@ All state-changing routes are POST; all reads are GET. Auth is enforced per-rout
 | POST | `/org/role` | `org_post_role` | admin+ (owner to set owner) | `orgs.set_role(ctx, account_id, new_role)` → 303 to `/org` |
 | POST | `/org/remove` | `org_post_remove` | admin+ | `orgs.remove_member(ctx, account_id)` → 303 to `/org` |
 | POST | `/org/leave` | `org_post_leave` | member+ | `orgs.remove_member(ctx, ctx.account_id)` → 303 to `/login` (if last member, org is left ownerless — owner cannot leave unless org empty; enforced: owner leave refused if other members exist) |
+| POST | `/org/delete` | `org_post_delete` | owner+ | Requires CSRF and the exact confirmation word `DELETE`, then calls the atomic tenant teardown in `orgs.delete_org(ctx)` and redirects to `/login?org_deleted=1`. No data is removed when confirmation or authorization fails. |
 
 ### 3.3 Room routes (member+; room-specific role noted)
 
@@ -578,7 +579,7 @@ class WebAppDriver:
 | File | Scope | Key tests |
 | --- | --- | --- |
 | `tests/test_webapp_auth.py` | Public auth routes | signup→login→logout flow, verify email, reset password, session fixation (new cookie on login), expired/revoked/tampered cookie refused, CSRF on logout |
-| `tests/test_webapp_orgs.py` | Org routes | create org, list members, invite flow, set role, remove member, leave org, one-org-per-account enforcement |
+| `tests/test_webapp_orgs.py` | Org routes | create org, list members, invite flow, set role, remove member, leave org, owner-only organization deletion, one-org-per-account enforcement |
 | `tests/test_webapp_rooms.py` | Room routes | create room, list rooms, room detail, event poll, audit log, close room, connect page renders config, live event stream |
 | `tests/test_webapp_security.py` | Negative tests (§9) | All 35 negative cases from §9.1–9.6 |
 | `tests/test_webapp_agent_keys.py` | Agent-key UI (shipped, not in the original table) | page requires session cookie, raw key shown exactly once, list shows metadata not secret, revoke, CSRF-gated mutations |

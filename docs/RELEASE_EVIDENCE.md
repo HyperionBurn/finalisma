@@ -10,7 +10,7 @@ Measured locally on the current source/test stack (merged base `main` at
 `ab809cf`; hosted-MCP schema clarity changes in the working tree):
 
 - Command: `python -B -m unittest discover -s tests`
-- Result: **1310 tests discovered; 1309 passed; 1 skipped**
+- Result: **1312 tests discovered; 1311 passed; 1 skipped**
 - Duration: 619.429 seconds on the local Windows runner
 - Focused API-readiness routing/identity suite: 69 tests passed locally
   (`tests.test_probe_live_release`, `tests.test_probe_live_release_contract`,

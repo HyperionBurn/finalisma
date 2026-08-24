@@ -469,6 +469,84 @@ class TestOwnerLeaveAlone(unittest.TestCase):
         self.assertIsNotNone(self.driver.backend.get_tenant(self.tenant_id))
 
 
+class TestOwnerDeleteOrganization(unittest.TestCase):
+    """Owner deletion is explicit, atomic, and visible in the browser flow."""
+
+    def setUp(self):
+        self.driver = WebAppDriver()
+        self.owner_email = f"delete-owner{time.time_ns()}@example.com"
+        self.owner_password = "owner-password-ok"
+        self.driver.login(self.owner_email, self.owner_password)
+        self.tenant_id = self.driver.tenant_for_email(self.owner_email)
+        self.owner_acct = self.driver.account_id_for_email(self.tenant_id, self.owner_email)
+        self.key_id, self.raw_key = create_agent_key(
+            self.driver.backend, self.tenant_id, self.owner_acct, "delete-me"
+        )
+        self.room = self.driver.app.rooms.create_room(
+            self.tenant_id,
+            self.owner_acct,
+            self.driver.cookies["fss_session"],
+            cap=2,
+            name="delete-me",
+            actor_account_id=self.owner_acct,
+        )
+
+    def tearDown(self):
+        self.driver.close()
+
+    def test_delete_requires_exact_confirmation_and_removes_all_tenant_state(self):
+        status, body, _ = self.driver.get("/org")
+        self.assertEqual(status, 200)
+        self.assertIn('action="/org/delete"', body)
+        self.assertIn("Type DELETE to confirm", body)
+        self.assertIn("This is permanent", body)
+
+        csrf = self.driver.csrf("/org")
+        status, body, _ = self.driver.post(
+            "/org/delete", {"_csrf": csrf, "confirmation": "delete"}
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("Type DELETE exactly to confirm", body)
+        self.assertIsNotNone(self.driver.backend.get_tenant(self.tenant_id))
+
+        # A forged request without the session's CSRF token must not delete.
+        status, _, _ = self.driver.post(
+            "/org/delete", {"confirmation": "DELETE"}, auto_csrf=False
+        )
+        self.assertEqual(status, 403)
+        self.assertIsNotNone(self.driver.backend.get_tenant(self.tenant_id))
+
+        csrf = self.driver.csrf("/org")
+        status, _, headers = self.driver.post(
+            "/org/delete", {"_csrf": csrf, "confirmation": "DELETE"}
+        )
+        self.assertEqual(status, 303)
+        self.assertEqual(headers["Location"], "/login?org_deleted=1")
+        self.assertNotIn("fss_session", self.driver.cookies)
+        self.assertIsNone(self.driver.backend.get_tenant(self.tenant_id))
+
+        with self.driver.backend.transaction() as tx:
+            for table in (
+                "cloud_identity_accounts",
+                "cloud_identity_members",
+                "cloud_identity_agent_keys",
+                "cloud_rooms",
+                "cloud_room_members",
+                "cloud_room_links",
+                "cloud_room_event_log",
+                "cloud_room_counters",
+            ):
+                remaining = tx.execute(
+                    f"SELECT COUNT(*) AS n FROM {table} WHERE tenant_id = ?",
+                    (self.tenant_id,),
+                ).fetchone()["n"]
+                self.assertEqual(remaining, 0, table)
+
+        status, body, _ = self.driver.get("/login?org_deleted=1")
+        self.assertEqual(status, 200)
+        self.assertIn("organization and its data were permanently deleted", body)
+
+
 class TestMemberLeave(unittest.TestCase):
     """A non-owner leave removes membership and tenant-scoped credentials."""
 
@@ -553,6 +631,21 @@ class TestMemberLeave(unittest.TestCase):
                 (self.tenant_id, self.member_acct),
             ).fetchone()
         self.assertIsNotNone(membership)
+
+    def test_member_cannot_see_or_post_organization_delete(self):
+        self.driver.cookies.clear()
+        self.driver.cookies.update(self.member_cookies)
+        status, body, _ = self.driver.get("/org")
+        self.assertEqual(status, 200)
+        self.assertNotIn('action="/org/delete"', body)
+
+        csrf = self.driver.csrf("/org")
+        status, body, _ = self.driver.post(
+            "/org/delete", {"_csrf": csrf, "confirmation": "DELETE"}
+        )
+        self.assertEqual(status, 403)
+        self.assertIn("Only the organization owner can delete it", body)
+        self.assertIsNotNone(self.driver.backend.get_tenant(self.tenant_id))
 
 
 class TestMemberCannotAdmin(unittest.TestCase):

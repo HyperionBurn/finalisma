@@ -73,6 +73,7 @@ from weft_cloud.web.security_headers import security_headers
 
 SESSION_COOKIE = "fss_session"
 CSRF_COOKIE = "fss_csrf"
+ORG_DELETE_CONFIRMATION = "DELETE"
 _INVITE_PATH_RE = re.compile(r"^/invite/([A-Za-z0-9_-]+)$")
 _ROOM_PATH_RE = re.compile(r"^/room/([A-Za-z0-9_-]+)$")
 _ROOM_EVENTS_RE = re.compile(r"^/room/([A-Za-z0-9_-]+)/events$")
@@ -1099,6 +1100,8 @@ class WeftWebApp:
             return '<div class="flash">Your account is verified — you can log in now.</div>'
         if "reset_done" in params:
             return '<div class="flash">Your password was reset — you can log in now.</div>'
+        if "org_deleted" in params:
+            return '<div class="flash">Your organization and its data were permanently deleted.</div>'
         return ""
 
     def handle_post_login(self, handler: BaseHTTPRequestHandler) -> None:
@@ -1503,7 +1506,19 @@ class WeftWebApp:
             f'{_csrf_input(csrf)}'
             '<button type="submit">Leave organization</button>'
             '</form>'
-            '<p><a href="/">Back to dashboard</a></p>'
+            + (
+                '<h2>Delete organization</h2>'
+                '<p class="warn"><strong>This is permanent.</strong> Delete the '
+                'organization to remove its members, rooms, events, agent keys, '
+                'invites, and sessions. This cannot be undone.</p>'
+                '<form method="post" action="/org/delete">'
+                f'{_csrf_input(csrf)}'
+                f'{_label("Type DELETE to confirm", _input("confirmation", "text", required="required", autocomplete="off"))}'
+                '<button type="submit">Delete organization permanently</button>'
+                '</form>'
+                if ctx.role == "owner" else ""
+            )
+            + '<p><a href="/">Back to dashboard</a></p>'
         )
         body = _page("Organization", body_html, csrf_token=csrf)
         handler.send_response(HTTPStatus.OK)
@@ -1712,6 +1727,58 @@ class WeftWebApp:
         # other session/key for this tenant, so redirect with a cleared cookie.
         handler.send_response(HTTPStatus.SEE_OTHER)
         handler.send_header("Location", "/login")
+        self._clear_session_cookie(handler)
+        handler.send_header("Content-Length", "0")
+        handler.send_header("Cache-Control", "no-store")
+        self._send_security_headers(handler)
+        handler.end_headers()
+
+    def handle_post_org_delete(self, handler: BaseHTTPRequestHandler) -> None:
+        """Permanently delete the authenticated owner's organization.
+
+        The core ``OrgStore.delete_org`` operation already performs the
+        tenant-scoped teardown atomically and re-checks the database role.
+        The web boundary adds CSRF protection and an explicit confirmation so
+        a customer cannot lose an organization through a stray click or a
+        forged request.
+        """
+        ctx = self._require_auth(handler)
+        if ctx is None:
+            return
+        form = self._read_form(handler)
+        try:
+            self._validate_csrf(handler, form)
+        except _WebError:
+            self._send_html(
+                handler, HTTPStatus.FORBIDDEN,
+                _page("Forbidden", '<p>CSRF validation failed.</p>'),
+            )
+            return
+        if ctx.role != "owner":
+            self._send_html(
+                handler, HTTPStatus.FORBIDDEN,
+                _page("Delete organization failed",
+                      '<p>Only the organization owner can delete it. Nothing changed.</p>'),
+            )
+            return
+        if (form.get("confirmation") or "").strip() != ORG_DELETE_CONFIRMATION:
+            self._send_html(
+                handler, HTTPStatus.BAD_REQUEST,
+                _page("Delete organization failed",
+                      '<p>Type DELETE exactly to confirm. Nothing changed.</p>'),
+            )
+            return
+        try:
+            self.orgs.delete_org(ctx)
+        except RoleError:
+            self._send_html(
+                handler, HTTPStatus.FORBIDDEN,
+                _page("Delete organization failed",
+                      '<p>Only the organization owner can delete it. Nothing changed.</p>'),
+            )
+            return
+        handler.send_response(HTTPStatus.SEE_OTHER)
+        handler.send_header("Location", "/login?org_deleted=1")
         self._clear_session_cookie(handler)
         handler.send_header("Content-Length", "0")
         handler.send_header("Cache-Control", "no-store")
@@ -2625,6 +2692,9 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
                 return
             if method == "POST" and path == "/org/remove":
                 app.handle_post_org_remove(self)
+                return
+            if method == "POST" and path == "/org/delete":
+                app.handle_post_org_delete(self)
                 return
             if method == "POST" and path == "/org/leave":
                 app.handle_post_org_leave(self)
