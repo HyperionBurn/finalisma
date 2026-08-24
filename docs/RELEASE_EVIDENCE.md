@@ -67,8 +67,9 @@ and unauthenticated MCP routing checks.
   are deliberately probed separately because `/readyz` at the public root
   belongs to the web process, while `/v1/readyz` belongs to `weft-cloud`.
 - `scripts/probe_live_customer_journey.cjs` passed at **1440x900** and
-  **390x844**. Each fresh browser context completed the real site CTA →
-  signup → login → dashboard → room creation → connect page → OpenCode
+  **390x844** and **320x568**. Each fresh browser context completed the real
+  site CTA → signup → login → dashboard → room creation → room-detail connect
+  link → human and JSON join-descriptor pages → connect page → OpenCode
   connector-config generation → wrong-confirmation refusal → exact-confirmation
   organization deletion flow. Each run reported 0 console errors, 0 failed
   requests, 0 unexpected responses, and completed disposable-state cleanup.

@@ -211,6 +211,12 @@ def _html_page(title: str, body_html: str) -> bytes:
         '<!DOCTYPE html>\n'
         '<html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        '<style>'
+        'body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;'
+        'max-width:56rem;margin:0 auto;padding:1rem;line-height:1.45;}'
+        'pre{overflow-x:auto;max-width:100%;}'
+        'code{overflow-wrap:anywhere;word-break:break-word;}'
+        '</style>'
         f'<title>{_html_esc(title)}</title></head>\n'
         f'<body>{body_html}</body></html>'
     )

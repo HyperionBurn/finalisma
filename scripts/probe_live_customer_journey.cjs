@@ -128,6 +128,36 @@ async function main() {
       unexpectedResponses.push(`${status}:${path}`);
     });
 
+    const checkNoHorizontalOverflow = async (label) => {
+      const metrics = await page.evaluate(() => {
+        const viewportWidth = document.documentElement.clientWidth;
+        const offenders = [...document.querySelectorAll("body *")]
+          .map((element) => ({
+            element,
+            rect: element.getBoundingClientRect(),
+          }))
+          .filter(({ rect }) => rect.right > viewportWidth + 1 || rect.left < -1)
+          .slice(0, 5)
+          .map(({ element, rect }) => ({
+            tag: element.tagName.toLowerCase(),
+            id: element.id,
+            className: typeof element.className === "string" ? element.className : "",
+            left: Math.round(rect.left),
+            right: Math.round(rect.right),
+          }));
+        return {
+          documentWidth: document.documentElement.scrollWidth,
+          viewportWidth,
+          offenders,
+        };
+      });
+      const checkName = `no_horizontal_overflow_${label}`;
+      checks[checkName] = metrics.documentWidth <= metrics.viewportWidth + 1;
+      if (!checks[checkName]) {
+        fail(`${label} page overflows horizontally (${metrics.documentWidth}px > ${metrics.viewportWidth}px): ${JSON.stringify(metrics.offenders)}`);
+      }
+    };
+
     await page.goto(siteOrigin, { waitUntil: "networkidle", timeout: 30000 });
     const cta = page.locator(`a[href^="${apiOrigin}/signup"]`).first();
     checks.site_funnel_reaches_signup = await cta.count() === 1;
@@ -154,6 +184,7 @@ async function main() {
       && await page.locator('input[name="password"]').count() === 1
       && await page.locator('input[name="_csrf"]').count() === 1;
     if (!checks.signup_form_usable) fail("signup form is missing a required control");
+    await checkNoHorizontalOverflow("signup");
     await page.locator('input[name="email"]').fill(email);
     await page.locator('input[name="password"]').fill(password);
     accountCreated = true;
@@ -175,6 +206,7 @@ async function main() {
     checks.dashboard_explains_cap = (await page.locator("body").innerText()).includes("including your own account")
       && (await page.locator("body").innerText()).includes("plus one");
     if (!checks.login_reaches_dashboard) fail("login did not reach the dashboard");
+    await checkNoHorizontalOverflow("dashboard");
 
     await page.locator('input[name="name"]').fill("Hosted customer dogfood");
     await page.locator('input[name="cap"]').fill("2");
@@ -186,12 +218,43 @@ async function main() {
     checks.room_detail_shows_owner_seat = (await page.locator("body").innerText()).includes("Members 1/2");
     checks.room_detail_shows_join_credential = (await page.locator("body").innerText()).includes("Shareable join link")
       && (await page.locator("body").innerText()).includes("credential");
+    await checkNoHorizontalOverflow("room_detail");
 
-    await page.getByRole("link", { name: /connect an agent/i }).click();
-    await page.waitForLoadState("networkidle");
+    const roomId = new URL(page.url()).pathname.split("/")[2] || "";
+    const detailText = await page.locator("body").innerText();
+    const connectLink = page.getByRole("link", { name: /connect an agent/i });
+    checks.room_detail_links_to_connect = await connectLink.count() === 1
+      && (await connectLink.getAttribute("href")) === `/room/${roomId}/connect`;
+    const shareableMatch = detailText.match(/\/j\/(rm_[A-Za-z0-9_-]+)/);
+    checks.shareable_link_is_self_describing = Boolean(shareableMatch);
+    if (!shareableMatch) fail("room detail did not expose a self-describing join link");
+    const shareableUrl = `${apiOrigin}/j/${shareableMatch[1]}`;
+    await page.goto(shareableUrl, { waitUntil: "networkidle", timeout: 30000 });
+    const descriptorHtml = await page.locator("body").innerText();
+    checks.join_descriptor_human_page_is_actionable = descriptorHtml.includes("Connect an agent")
+      && descriptorHtml.includes("room_join")
+      && descriptorHtml.includes("consent: true");
+    await checkNoHorizontalOverflow("join_descriptor");
+    const descriptorResponse = await page.request.get(shareableUrl, {
+      headers: { Accept: "application/json" },
+    });
+    let descriptorJson = null;
+    try {
+      descriptorJson = await descriptorResponse.json();
+    } catch {
+      descriptorJson = null;
+    }
+    checks.join_descriptor_machine_contract_is_actionable = descriptorResponse.ok()
+      && descriptorJson?.room_id === roomId
+      && descriptorJson?.join?.method === "POST"
+      && descriptorJson?.join?.request?.consent === true
+      && descriptorJson?.join?.request?.link_token === shareableMatch[1];
+
+    await page.goto(`${apiOrigin}/room/${roomId}/connect`, { waitUntil: "networkidle", timeout: 30000 });
     const connectText = await page.locator("body").innerText();
     checks.connect_page_has_standalone_bridge = connectText.includes("weft-mcp-bridge.py");
     checks.connect_page_has_room_tools = ["room_join", "room_send", "room_poll"].every((tool) => connectText.includes(tool));
+    await checkNoHorizontalOverflow("connect");
 
     await page.goto(`${apiOrigin}/config`, { waitUntil: "networkidle", timeout: 30000 });
     const clientOptions = await page.locator('select[name="client"] option').evaluateAll((nodes) => nodes.map((node) => ({
@@ -212,11 +275,13 @@ async function main() {
       && !configText.includes("python -m weft_mcp");
     checks.generated_credential_is_warned = configText.includes("live credential")
       && configText.includes("revoking the key invalidates");
+    await checkNoHorizontalOverflow("config");
 
     await page.goto(`${apiOrigin}/org`, { waitUntil: "networkidle", timeout: 30000 });
     checks.owner_can_find_delete_control = (await page.locator('form[action="/org/delete"]').count()) === 1
       && (await page.locator('input[name="confirmation"]').count()) === 1;
     if (!checks.owner_can_find_delete_control) fail("owner cannot find the organization deletion control");
+    await checkNoHorizontalOverflow("organization");
     await page.locator('input[name="confirmation"]').fill("delete");
     expectedNegativeResponse = true;
     try {

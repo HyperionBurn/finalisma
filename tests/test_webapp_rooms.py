@@ -444,6 +444,16 @@ class TestRoomDetail(unittest.TestCase):
         )
         self.assertIn("credential", body, "the page must warn the link is a credential")
 
+    def test_room_detail_wraps_long_join_link_on_narrow_viewports(self):
+        status, body, _ = self.driver.get(f"/room/{self.room_id}")
+        self.assertEqual(status, 200)
+        self.assertIn(
+            "overflow-wrap:anywhere",
+            body,
+            "the long shareable URL must wrap instead of widening the document",
+        )
+        self.assertIn("word-break:break-word", body)
+
     def test_room_detail_uses_configured_public_origin_for_join_link(self):
         previous = os.environ.get("WEFT_PUBLIC_ORIGIN")
         os.environ["WEFT_PUBLIC_ORIGIN"] = "https://rooms.example.test"

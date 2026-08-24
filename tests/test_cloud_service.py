@@ -908,6 +908,14 @@ class TestJoinDescriptorAndAgentCard(CloudServiceTestBase):
         self.assertIn(self.link_token, page)
         self.assertIn(self.room_id, page)
 
+    def test_join_descriptor_html_wraps_long_link_on_narrow_viewports(self) -> None:
+        status, raw, _ = _get_url(f"{self.base}/j/{self.link_token}", accept="text/html")
+        self.assertEqual(status, 200)
+        page = raw.decode("utf-8", errors="replace")
+        self.assertIn("max-width:56rem", page)
+        self.assertIn("overflow-wrap:anywhere", page)
+        self.assertIn("word-break:break-word", page)
+
     def test_join_descriptor_html_page_teaches_agent_key_flow(self) -> None:
         # The /j/ page is where a human hands a credential to an agent. It must
         # teach the long-lived revocable agent-key flow and explain that the
