@@ -625,6 +625,8 @@ class TestConnectPage(unittest.TestCase):
         self.assertIn("Streamable HTTP", body)   # Tier 2 — MCP Streamable HTTP
         self.assertIn("bridge", body)            # Tier 3 — bridge/webhook
         self.assertIn("WeftClient", body)   # Tier 4 — SDK
+        self.assertIn("overflow-x:auto", body)
+        self.assertIn("overflow-wrap:anywhere", body)
         self._assert_connector_configs_use_portable_entrypoint()
         self._assert_authenticated_pages_have_accessible_landmarks()
 

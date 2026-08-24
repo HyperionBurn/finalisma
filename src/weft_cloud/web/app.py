@@ -2470,7 +2470,12 @@ class WeftWebApp:
                     '</form>'
                 )
         body_html = body_html + f'<p><a href="/room/{_esc(room_id)}">Back to room</a></p>'
-        body = _page("Connect an agent", body_html, csrf_token=csrf_token)
+        body = _page(
+            "Connect an agent",
+            body_html,
+            csrf_token=csrf_token,
+            extra_head=_DASH_CSS + _COPY_JS,
+        )
         self._send_html(handler, HTTPStatus.OK, body)
 
     def handle_post_room_regenerate_link(self, handler: BaseHTTPRequestHandler,
