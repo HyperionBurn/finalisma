@@ -176,7 +176,8 @@ def _new_csrf() -> str:
 _DASH_CSS = (
     '<style>'
     'body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;'
-    'max-width:56rem;margin:0 auto;padding:1.5rem;line-height:1.45;color:#1a1a1a;}'
+    'max-width:56rem;margin:0 auto;padding:1.5rem;line-height:1.45;color:#1a1a1a;'
+    'overflow-wrap:anywhere;}'
     'h1{font-size:1.5rem;margin:0 0 .25rem;}h2{font-size:1.15rem;margin-top:1.5rem;}'
     'table{border-collapse:collapse;width:100%;margin:.5rem 0 1rem;}'
     'th,td{text-align:left;padding:.4rem .55rem;border-bottom:1px solid #e5e5e5;vertical-align:top;}'
