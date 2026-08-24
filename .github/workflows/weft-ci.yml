@@ -9,8 +9,7 @@ permissions:
 
 jobs:
   ci:
-    # Pin the supported image so CI does not depend on the moving latest alias.
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
