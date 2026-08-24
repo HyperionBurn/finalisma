@@ -43,6 +43,13 @@ function pathOf(value) {
   }
 }
 
+function redactDiagnostic(value) {
+  return String(value)
+    .replace(/(?:agk_|fss_|rm_|fiv_|fvt_|frt_)[A-Za-z0-9_-]+/g, "<credential-redacted>")
+    .replace(/weft-dogfood-[^\s@]+@example\.com/g, "<email-redacted>")
+    .slice(0, 240);
+}
+
 function viewportValue(value) {
   const match = String(value || "1440x900").match(/^(\d+)x(\d+)$/);
   if (!match) throw new Error("--viewport must use WIDTHxHEIGHT, for example 390x844");
@@ -95,6 +102,7 @@ async function main() {
   let accountCreated = false;
   let cleanupAttempted = false;
   let cleanupCompleted = false;
+  let expectedNegativeResponse = false;
 
   try {
     browser = await chromium.launch({ headless: true });
@@ -104,9 +112,12 @@ async function main() {
     });
     page = await context.newPage();
     page.on("console", (message) => {
-      if (message.type() === "error") consoleErrors.push("console-error");
+      if (message.type() === "error") {
+        if (expectedNegativeResponse && /status of 400 \(Bad Request\)/i.test(message.text())) return;
+        consoleErrors.push(redactDiagnostic(message.text()));
+      }
     });
-    page.on("pageerror", () => consoleErrors.push("page-error"));
+    page.on("pageerror", (error) => consoleErrors.push(redactDiagnostic(error.message)));
     page.on("requestfailed", () => failedRequests.push("request-failed"));
     page.on("response", (response) => {
       const status = response.status();
@@ -207,8 +218,13 @@ async function main() {
       && (await page.locator('input[name="confirmation"]').count()) === 1;
     if (!checks.owner_can_find_delete_control) fail("owner cannot find the organization deletion control");
     await page.locator('input[name="confirmation"]').fill("delete");
-    await page.locator('form[action="/org/delete"] button').click();
-    await page.waitForLoadState("networkidle");
+    expectedNegativeResponse = true;
+    try {
+      await page.locator('form[action="/org/delete"] button').click();
+      await page.waitForLoadState("networkidle");
+    } finally {
+      expectedNegativeResponse = false;
+    }
     checks.delete_confirmation_rejects_wrong_case = (await page.locator("body").innerText()).includes("Type DELETE exactly");
 
     await page.goto(`${apiOrigin}/org`, { waitUntil: "networkidle", timeout: 30000 });
@@ -256,6 +272,7 @@ async function main() {
     cleanup_completed: cleanupCompleted,
     viewport,
     browser_console_errors: consoleErrors.length,
+    browser_console_error_samples: consoleErrors.slice(0, 5),
     failed_requests: failedRequests.length,
     unexpected_responses: unexpectedResponses.length,
   };

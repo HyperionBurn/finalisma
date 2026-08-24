@@ -51,6 +51,31 @@ Measured locally on the current source/test stack (merged base `main` at
   violations across eight scanned pages
 - `git diff --check`: passed
 
+## Hosted customer journey evidence
+
+The backend release at commit `f941d89` was deployed through the strict
+archive gate. The gate ran **1312 tests with 0 failures**, then passed the
+WAL-safe backup and restore drill, service restart proof, public readiness,
+and unauthenticated MCP routing checks.
+
+- `scripts/probe_live_release.py` against the public API and Vercel site:
+  **PASS**, with no diagnostics and all release-alignment checks true.
+- `scripts/healthcheck.py --base-url
+  https://weft.switzerlandnorth.cloudapp.azure.com/v1
+  --edge-url https://weft.switzerlandnorth.cloudapp.azure.com
+  --require-https-edge`: **healthcheck ok**. The cloud base and public edge
+  are deliberately probed separately because `/readyz` at the public root
+  belongs to the web process, while `/v1/readyz` belongs to `weft-cloud`.
+- `scripts/probe_live_customer_journey.cjs` passed at **1440x900** and
+  **390x844**. Each fresh browser context completed the real site CTA →
+  signup → login → dashboard → room creation → connect page → OpenCode
+  connector-config generation → wrong-confirmation refusal → exact-confirmation
+  organization deletion flow. Each run reported 0 console errors, 0 failed
+  requests, 0 unexpected responses, and completed disposable-state cleanup.
+
+This is hosted Weft browser evidence. It does not claim SMTP mailbox delivery
+or a current third-party Claude/OpenCode host launch.
+
 Hosted CI, review, merge, and deployment status must be read from the linked
 pull requests rather than inferred from this local ledger. The focused result
 is local evidence.
