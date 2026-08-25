@@ -108,6 +108,15 @@ export interface AgentKey {
 export const createAgentKey = (label: string) =>
   rest<AgentKey>('/v1/agent-keys', { label }, requireAuth());
 
+/**
+ * Revoke a key. Verified against production: the key answers 200 before the
+ * call and 401 after it, so this genuinely cuts the credential off rather
+ * than only hiding the row. The service also writes an `agent_key.revoke`
+ * audit record. Irreversible — there is no un-revoke.
+ */
+export const revokeAgentKey = (key_id: string) =>
+  rest<{ revoked: boolean }>('/v1/agent-keys/revoke', { key_id }, requireAuth());
+
 /* ── MCP ─────────────────────────────────────────────────────────── */
 let rpcId = 1;
 

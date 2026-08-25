@@ -7,13 +7,15 @@
  * new key in memory for exactly as long as the person needs to copy it, and
  * never pretends it can be retrieved later.
  *
- * There is NO revoke button. Revocation is not implemented server-side yet
- * (`DELETE /v1/agent-keys/{id}` answers 501, `POST …/revoke` answers 404), and
- * a button that silently fails is worse than an honest absence. The screen
- * says so plainly instead of hiding it.
+ * Revocation IS implemented and IS enforced. An earlier version of this file
+ * claimed otherwise and hid the button; that was wrong. `POST /v1/agent-keys/revoke`
+ * is a real session-authed handler, and it was verified end-to-end against
+ * production: the same key answers 200 before the call and 401 after it.
+ * Revoking is irreversible, so it takes two clicks rather than one — the row
+ * arms first, and only the second click sends.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { ApiError, createAgentKey, tool, type AgentKey } from '../../lib/api';
+import { ApiError, createAgentKey, revokeAgentKey, type AgentKey } from '../../lib/api';
 
 async function listKeys(): Promise<{ keys: AgentKey[] }> {
   const token = localStorage.getItem('weft.session');
@@ -31,6 +33,8 @@ export default function KeysManager() {
   const [creating, setCreating] = useState(false);
   const [fresh, setFresh] = useState<AgentKey | null>(null);
   const [copied, setCopied] = useState(false);
+  const [arming, setArming] = useState<string | null>(null);
+  const [revoking, setRevoking] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -60,6 +64,26 @@ export default function KeysManager() {
       setError((err as ApiError).message);
     } finally {
       setCreating(false);
+    }
+  }
+
+  async function revoke(keyId: string) {
+    if (arming !== keyId) {           // first click only arms it
+      setArming(keyId);
+      window.setTimeout(() => setArming((a) => (a === keyId ? null : a)), 5000);
+      return;
+    }
+    setArming(null);
+    setRevoking(keyId);
+    setError(null);
+    try {
+      await revokeAgentKey(keyId);
+      if (fresh?.key_id === keyId) setFresh(null);   // don't keep showing a dead key
+      await load();
+    } catch (err) {
+      setError((err as ApiError).message);
+    } finally {
+      setRevoking(null);
     }
   }
 
@@ -133,7 +157,7 @@ export default function KeysManager() {
             <span className="metric__l">Name</span>
             <span className="metric__l">Key id</span>
             <span className="metric__l">Created</span>
-            <span />
+            <span className="metric__l" style={{ textAlign: 'right' }}>Revoke</span>
           </div>
           {keys.map((k) => (
             <div className="row row--key" key={k.key_id}>
@@ -143,17 +167,33 @@ export default function KeysManager() {
               </span>
               <span className="row__m">{k.key_id.replace('key_', '').slice(0, 12)}…</span>
               <span className="row__t">{ago(k.created_at)}</span>
-              <span />
+              <span style={{ textAlign: 'right' }}>
+                <button
+                  className={arming === k.key_id ? 'btn btn--danger' : 'btn btn--bare'}
+                  onClick={() => revoke(k.key_id)}
+                  disabled={revoking === k.key_id}
+                  aria-label={
+                    arming === k.key_id
+                      ? `Confirm revoking ${k.label || 'this key'} — this cannot be undone`
+                      : `Revoke ${k.label || 'this key'}`
+                  }
+                >
+                  {revoking === k.key_id
+                    ? 'Revoking…'
+                    : arming === k.key_id
+                      ? 'Sure? This is permanent'
+                      : 'Revoke'}
+                </button>
+              </span>
             </div>
           ))}
         </div>
       )}
 
       <p className="row__sub" style={{ marginTop: 18, maxWidth: '62ch', lineHeight: 1.6 }}>
-        Revoking a key is not available yet — the service has no endpoint for it, so rather
-        than show a button that quietly does nothing, there is none. If you need a key
-        disabled, <a href="mailto:wasif@wasifwaseem.tech" style={{ color: 'var(--muted)' }}>tell us</a> and
-        we will do it directly.
+        Revoking takes effect immediately: the key stops authenticating on its very next
+        request, and any agent still using it will start getting refused. It cannot be
+        undone — issue a new key instead. Revoking one key never affects the others.
       </p>
     </>
   );

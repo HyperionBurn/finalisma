@@ -135,6 +135,11 @@ h1,h2,h3,p{margin:0}
 .btn--quiet:hover{color:var(--ink);box-shadow:0 0 0 1px var(--line-3) inset}
 .btn--bare{color:var(--dim);padding:0 8px}
 .btn--bare:hover{color:var(--ink)}
+/* Armed destructive action. Red appears here and nowhere else in the app —
+   it marks one true state (this click is irreversible), not decoration. */
+.btn--danger{background:#3a1216;color:#ff9d9d;box-shadow:0 0 0 1px #6b1f26 inset}
+.btn--danger:hover{background:#4a171c;color:#ffbcbc}
+.btn:disabled{opacity:.55;pointer-events:none}
 
 .scroll{flex:1;overflow-y:auto;overscroll-behavior:contain;min-height:0}
 .pad{padding:26px 22px 40px;max-width:1140px}
@@ -170,6 +175,9 @@ h1,h2,h3,p{margin:0}
   .row--room{grid-template-columns:8px 1fr auto}
   .row--room > .row__hide{display:none}
   .row--key{grid-template-columns:1fr auto}
+  /* by position, so the header, the skeletons and the data rows all
+     collapse to [name | revoke] identically instead of wrapping */
+  .row--key > *:nth-child(2),.row--key > *:nth-child(3){display:none}
 }
 .row__n{font-size:14px;font-weight:500;letter-spacing:-.008em;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
