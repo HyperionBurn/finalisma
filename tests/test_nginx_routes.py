@@ -23,6 +23,26 @@ server {
 }
 """
 
+STATIC_SITE_CONFIG = """\
+server {
+    listen 443 ssl;
+    server_name weft.example.com;
+    location / {
+        root /opt/weft/site;
+        index index.html;
+        try_files $uri $uri/ $uri/index.html =404;
+    }
+}
+server {
+    listen 80;
+    server_name weft.example.com;
+    location / {
+        root /opt/weft/site;
+        try_files $uri $uri/ $uri/index.html =404;
+    }
+}
+"""
+
 
 class NginxRouteEditorTests(unittest.TestCase):
     def _write(self, directory: str, content: str = BASE_CONFIG) -> Path:
@@ -67,6 +87,29 @@ class NginxRouteEditorTests(unittest.TestCase):
             self.assertIn("location = /mcp {", updated)
             self.assertNotIn("location /mcp {", updated)
             self.assertIn("location ^~ /j/ {", updated)
+
+    def test_replaces_static_site_catch_all_with_web_app_proxy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, STATIC_SITE_CONFIG)
+            self.assertTrue(ensure_routes(path, "weft.example.com"))
+            updated = path.read_text(encoding="utf-8")
+            self.assertEqual(updated.count("proxy_pass http://127.0.0.1:18789;"), 2)
+            self.assertNotIn("root /opt/weft/site", updated)
+            self.assertIn("location ^~ /j/ {", updated)
+            self.assertIn("location = /mcp {", updated)
+            self.assertFalse(ensure_routes(path, "weft.example.com"))
+
+    def test_rejects_an_unknown_catch_all_without_editing(self):
+        content = BASE_CONFIG.replace(
+            "proxy_pass http://127.0.0.1:18789;",
+            "return 404;",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, content)
+            original = path.read_text(encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "does not proxy"):
+                ensure_routes(path, "weft.example.com")
+            self.assertEqual(path.read_text(encoding="utf-8"), original)
 
     def test_rejects_a_site_with_the_wrong_server_name_without_editing(self):
         with tempfile.TemporaryDirectory() as tmp:

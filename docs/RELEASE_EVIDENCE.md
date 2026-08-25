@@ -9,7 +9,7 @@ compatibility claim.
 Measured on the current source/test stack after deployed fix commit `46e21f4`:
 
 - Command: `python -B -m unittest discover -s tests`
-- Result: **1333 tests discovered; 1332 passed; 1 skipped**
+- Result: **1335 tests discovered; 1334 passed; 1 skipped**
 - Duration: 653.296 seconds on the local Windows runner
 - Focused API-readiness routing/identity suite: 69 tests passed locally
   (`tests.test_probe_live_release`, `tests.test_probe_live_release_contract`,
@@ -55,6 +55,8 @@ the three-identity cross-tenant roundtrip, and the downloaded public-bridge
 workflow, plus the public-edge organization-invite workflow. Each disposable
 organization was deleted through the product UI.
 The browser probes reported zero console errors and zero failed requests.
+The journey also forced a denied clipboard permission and correctly surfaced
+`Copy failed` instead of claiming that the credential was copied.
 The real OpenCode probe selected `opencode-go/deepseek-v4-pro` but the
 provider returned `Insufficient balance` before any MCP call. The real Claude
 probe launched with the generated config but stopped before any MCP call with
@@ -76,6 +78,14 @@ and unauthenticated MCP routing checks.
   returned 200 for `/signup`, `/healthz`, and `/v1/readyz`, and every subsequent
   browser and release probe passed. This transient observation is retained
   rather than presented as a clean single-command deploy verdict.
+- A parallel static-site cutover then replaced nginx's customer-app catch-all
+  with `/opt/weft/site`, making public `/signup` return the static 404 page
+  while local `weft-web` on 18789 still returned 200. A pinned, read-only
+  diagnosis confirmed the collision. The durable nginx route editor now always
+  enforces the 18789 customer-app catch-all, preserves `/v1`, `/j/`, `/mcp`,
+  and health on 18788, and has fixture coverage for both static replacement and
+  unknown-route refusal. The production config was backed up, syntax-checked,
+  reloaded, and public `/signup` returned 200 before the browser probe ran.
 
 - `scripts/probe_live_release.py` against the public API and Vercel site:
   **PASS**, with no diagnostics and all release-alignment checks true.

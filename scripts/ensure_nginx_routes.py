@@ -21,6 +21,10 @@ JOIN_PATTERN = re.compile(r"location\s+(?:\^~\s+)?/j/\s*\{")
 MCP_EXACT_PATTERN = re.compile(r"location\s*=\s*/mcp\s*\{")
 MCP_PREFIX_PATTERN = re.compile(r"location\s+/mcp\s*\{")
 SERVER_NAME_PATTERN = re.compile(r"\bserver_name\s+([^;]+);", re.MULTILINE)
+ROOT_LOCATION_PATTERN = re.compile(
+    r"(?ms)^(?P<indent>[ \t]*)location[ \t]+/[ \t]*\{\n"
+    r"(?P<body>[^{}]*?)^(?P=indent)\}"
+)
 
 JOIN_BLOCK = (
     "    location ^~ /j/ {\n"
@@ -40,6 +44,46 @@ MCP_BLOCK = (
     "        proxy_buffering off;\n"
     "    }\n"
 )
+
+
+def _web_proxy_block(indent: str) -> str:
+    return (
+        f"{indent}location / {{\n"
+        f"{indent}    proxy_pass http://127.0.0.1:18789;\n"
+        f"{indent}    proxy_set_header Host $host;\n"
+        f"{indent}    proxy_set_header X-Forwarded-Proto $scheme;\n"
+        f"{indent}    proxy_read_timeout 60s;\n"
+        f"{indent}}}"
+    )
+
+
+def _ensure_web_catch_all(text: str) -> tuple[str, bool]:
+    """Ensure every selected server's catch-all serves the customer web app.
+
+    A static-site catch-all can make ``/signup`` return a polished 404 while
+    health and MCP remain green. Only replace the known static-site shape. A
+    different catch-all fails closed instead of overwriting an operator's
+    unrelated routing.
+    """
+    matches = list(ROOT_LOCATION_PATTERN.finditer(text))
+    if not matches:
+        raise ValueError("could not find a safe location / insertion point for web app routing")
+    changed = False
+
+    def replace(match: re.Match[str]) -> str:
+        nonlocal changed
+        body = match.group("body")
+        if re.search(r"\bproxy_pass\s+http://127\.0\.0\.1:18789\s*;", body):
+            return match.group(0)
+        if "root /opt/weft/site" in body or re.search(r"\btry_files\b", body):
+            changed = True
+            return _web_proxy_block(match.group("indent"))
+        raise ValueError(
+            "catch-all location / does not proxy to the Weft web app on port 18789"
+        )
+
+    updated = ROOT_LOCATION_PATTERN.sub(replace, text)
+    return updated, changed
 
 
 def _has_server_name(text: str, expected: str) -> bool:
@@ -63,7 +107,7 @@ def ensure_routes(path: Path, server_name: str) -> bool:
     if not _has_server_name(text, server_name):
         raise ValueError(f"{server_name!r} is not declared by {path}")
 
-    updated = text
+    updated, root_changed = _ensure_web_catch_all(text)
     if not JOIN_PATTERN.search(updated):
         updated = _insert_before_catch_all(updated, JOIN_BLOCK, "/j/")
 
@@ -74,7 +118,7 @@ def ensure_routes(path: Path, server_name: str) -> bool:
         else:
             updated = _insert_before_catch_all(updated, MCP_BLOCK, "= /mcp")
 
-    if updated != text:
+    if updated != text or root_changed:
         path.write_text(updated, encoding="utf-8")
         return True
     return False
