@@ -253,7 +253,9 @@ export interface RoomEvent {
 }
 export interface Member {
   agent_id: string; status: string; joined_at?: string;
-  last_seen?: string; cursor?: number; capabilities?: string[];
+  /** Epoch SECONDS as a float, not an ISO string. */
+  last_seen?: number | string;
+  cursor?: number; capabilities?: string[];
 }
 
 export const listRooms = () => tool<{ rooms: Room[] }>('room_list');
@@ -282,8 +284,30 @@ export const createRoom = (name: string, cap: number, ttl_seconds?: number) =>
   tool<CreatedRoom>('room_create', { name, cap, ...(ttl_seconds ? { ttl_seconds } : {}) });
 export const joinRoom = (room_id: string, link_token: string) =>
   tool('room_join', { room_id, link_token, consent: true, capabilities: ['read', 'write'] });
+export interface RoomInfo {
+  room_id: string;
+  name?: string;
+  state?: string;
+  cap?: number;
+  member_count?: number;
+  members?: Member[];
+  owner_agent_id?: string;
+  /** The link's identifier - NOT the token. The token is unrecoverable. */
+  link_id?: string;
+  link_revoked?: boolean;
+}
+
+/**
+ * Room detail. Measured shape: every field is TOP LEVEL - there is no nested
+ * `room` object, and there is no `link_token`. An earlier type declared both,
+ * so `info.room.link_token` was read on every load and was always undefined.
+ *
+ * room_info reports link_id and link_revoked, which identify the link and say
+ * whether it still works, but never the secret itself. Only room_create
+ * returns that, once.
+ */
 export const roomInfo = (room_id: string) =>
-  tool<{ members?: Member[]; room?: Room; cap?: number }>('room_info', { room_id });
+  tool<RoomInfo>('room_info', { room_id });
 export const pollRoom = (room_id: string, after_seq?: number, limit = 100) =>
   tool<{ events: RoomEvent[]; next_seq?: number }>('room_poll',
     { room_id, ...(after_seq !== undefined ? { after_seq } : {}), limit });

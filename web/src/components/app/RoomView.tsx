@@ -55,7 +55,10 @@ export default function RoomView({ roomId }: Props) {
         pollRoom(roomId, 0, 200),
       ]);
       setMembers(info?.members ?? []);
-      if (info?.room?.link_token) setLink(info.room.link_token);
+      // NOT: info.room.link_token. room_info has no nested `room` object and
+      // never returns the token - only link_id and link_revoked. That read
+      // was always undefined, so `link` stays null and the panel below
+      // correctly says the link cannot be looked up again.
       const evs = page.events ?? [];
       setEvents(evs);
       cursor.current = evs.length ? evs[evs.length - 1].seq : 0;
