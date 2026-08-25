@@ -6,11 +6,11 @@ compatibility claim.
 
 ## Latest regression evidence
 
-Measured on the current source/test stack at probe/evidence head `901b43c`:
+Measured on the current source/test stack at probe/evidence head `cb330d4`:
 
 - Command: `PYTHONPATH=src python -B -m unittest discover -s tests -q`
-- Result: **1319 tests discovered; 1318 passed; 1 skipped**
-- Duration: 522.395 seconds on the local Windows runner
+- Result: **1321 tests discovered; 1320 passed; 1 skipped**
+- Duration: 533.336 seconds on the local Windows runner
 - Focused API-readiness routing/identity suite: 69 tests passed locally
   (`tests.test_probe_live_release`, `tests.test_probe_live_release_contract`,
   `tests.test_deploy_gate`, and `tests.test_deploy_ops`)
@@ -95,6 +95,13 @@ and unauthenticated MCP routing checks.
   external listener message, exited cleanly, and deleted all disposable
   organizations through the web UI. It reported 0 browser console errors and
   0 failed requests.
+- `scripts/probe_live_rate_limit.cjs` passed a bounded production burst of 80
+  authenticated room messages with concurrency 8. The service admitted 60
+  requests with HTTP 200 and refused 20 with structured HTTP 429 responses,
+  `rate_limited` error codes, and positive numeric `Retry-After` values. The
+  burst produced 0 transport resets, 0 unexpected statuses, 0 browser console
+  errors, and 0 failed browser requests. The disposable organization was
+  deleted through the guarded owner web flow.
 - `scripts/probe_live_opencode.cjs` launched the installed OpenCode **1.18.22**
   process with the generated OpenCode 1.x config and the exact requested model
   `opencode-go/deepseek-v4-pro`. The provider rejected the run before any MCP
