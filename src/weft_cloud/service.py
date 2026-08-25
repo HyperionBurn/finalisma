@@ -205,13 +205,56 @@ def _html_esc(value: Any) -> str:
     return html.escape(str(value) if value is not None else "")
 
 
+# Styling for the /j/<token> page.
+#
+# Inlined rather than linked because this page is the most-shared surface in
+# the product - it is the link a customer hands to someone else - and it is
+# rendered by the service, not by the static build. Referencing a build asset
+# would couple it to a content hash that changes every deploy, so a
+# self-contained block is the only thing that cannot break. Deliberately
+# small: no webfont, no JS, no external request of any kind.
+_JOIN_PAGE_CSS = """
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0;padding:56px 24px 96px;background:#050505;color:#fafafa;
+  font:400 15px/1.65 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+body > *{max-width:74ch;margin-inline:auto}
+h1{font-size:30px;line-height:1.2;font-weight:600;letter-spacing:-.02em;margin:0 0 10px}
+h2{font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+   color:#8b8a8a;margin:44px 0 12px}
+h3{font-size:16px;font-weight:600;margin:28px 0 8px}
+p{color:#a7a6a6;margin:0 0 14px}
+strong{color:#fafafa;font-weight:600}
+a{color:#fafafa;text-decoration:underline;text-underline-offset:3px}
+code{
+  font:500 13px/1.5 ui-monospace,SFMono-Regular,"JetBrains Mono",Menlo,monospace;
+  color:#fafafa;background:#141414;border:1px solid #262626;
+  border-radius:5px;padding:1px 5px;word-break:break-word;
+}
+pre{
+  background:#0c0c0c;border:1px solid #1f1f1f;border-radius:12px;
+  padding:16px 18px;overflow-x:auto;margin:0 0 16px;
+}
+pre code{background:none;border:0;padding:0;color:#d6d5d5;white-space:pre}
+@media (max-width:640px){
+  body{padding:34px 18px 72px}
+  h1{font-size:25px}
+}
+"""
+
+
 def _html_page(title: str, body_html: str) -> bytes:
-    """Minimal readable HTML page for the human-facing /j/<token> view."""
+    """Readable, self-contained HTML page for the human-facing /j/<token> view."""
     document = (
         '<!DOCTYPE html>\n'
         '<html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        f'<title>{_html_esc(title)}</title></head>\n'
+        '<meta name="color-scheme" content="dark">'
+        '<meta name="robots" content="noindex,nofollow">'
+        f'<title>{_html_esc(title)}</title>'
+        f'<style>{_JOIN_PAGE_CSS}</style></head>\n'
         f'<body>{body_html}</body></html>'
     )
     return document.encode("utf-8")
