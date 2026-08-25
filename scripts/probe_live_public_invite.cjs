@@ -265,7 +265,18 @@ async function main() {
         'form[action="/org/invite"], form[action="/org/role"], form[action="/org/remove"]',
       ).count() === 0
       && orgText.includes("Only organization admins can invite or manage members");
-    checks.member_can_leave = await memberPage.locator('form[action="/org/leave"]').count() === 1;
+    const leaveForm = memberPage.locator('form[action="/org/leave"]');
+    checks.member_can_leave = await leaveForm.count() === 1;
+    if (checks.member_can_leave) {
+      await Promise.all([
+        memberPage.waitForURL((url) => url.pathname === "/login", { timeout: 30000 }),
+        leaveForm.getByRole("button", { name: "Leave organization", exact: true }).click(),
+      ]);
+      checks.member_leave_revokes_session = new URL(memberPage.url()).pathname === "/login";
+      await ownerPage.goto(edgeOrigin + "/org", { waitUntil: "networkidle", timeout: 30000 });
+      const ownerAfterLeaveText = await ownerPage.locator("body").innerText();
+      checks.owner_roster_removes_leaving_member = !ownerAfterLeaveText.includes(memberEmail);
+    }
   } catch (error) {
     checks.failure = redact(error.message);
   } finally {
