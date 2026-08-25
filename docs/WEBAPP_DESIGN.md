@@ -105,9 +105,10 @@ All state-changing routes are POST; all reads are GET. Auth is enforced per-rout
 | GET | `/config` | `handle_get_config` | member+ | Connector-config generator form (client picker). **Delta:** shipped; not in the original table (see §7). |
 | POST | `/config` | `handle_post_config` | member+ | Mint a fresh agent key and render a complete stdio MCP config for Claude Desktop / Cursor / Codex with the key embedded in an `env` block. **Delta:** shipped; not in the original table (see §7). |
 | POST | `/org/invite` | `org_post_invite` | admin+ | `invites.create(ctx, email, role)` → 303 to `/org` |
-| POST | `/org/role` | `org_post_role` | admin+ (owner to set owner) | `orgs.set_role(ctx, account_id, new_role)` → 303 to `/org` |
+| POST | `/org/role` | `org_post_role` | admin+ | `orgs.set_role(ctx, account_id, new_role)` for `member`/`admin` → 303 to `/org` |
+| POST | `/org/transfer` | `org_post_transfer` | owner+ | Atomically makes an existing non-owner member the owner, demotes the caller to admin, revokes both accounts' sessions, clears the caller's cookie, and redirects to `/login?ownership_transferred=1` |
 | POST | `/org/remove` | `org_post_remove` | admin+ | `orgs.remove_member(ctx, account_id)` → 303 to `/org` |
-| POST | `/org/leave` | `org_post_leave` | member+ | `orgs.remove_member(ctx, ctx.account_id)` → 303 to `/login` (if last member, org is left ownerless — owner cannot leave unless org empty; enforced: owner leave refused if other members exist) |
+| POST | `/org/leave` | `org_post_leave` | admin/member+ | Removes the caller and redirects to `/login`; owners must transfer ownership or delete the organization first. Admin/member leave is refused while the caller owns an active room. |
 | POST | `/org/delete` | `org_post_delete` | owner+ | Requires CSRF and the exact confirmation word `DELETE`, then calls the atomic tenant teardown in `orgs.delete_org(ctx)` and redirects to `/login?org_deleted=1`. No data is removed when confirmation or authorization fails. |
 
 ### 3.3 Room routes (member+; room-specific role noted)
@@ -579,7 +580,7 @@ class WebAppDriver:
 | File | Scope | Key tests |
 | --- | --- | --- |
 | `tests/test_webapp_auth.py` | Public auth routes | signup→login→logout flow, verify email, reset password, session fixation (new cookie on login), expired/revoked/tampered cookie refused, CSRF on logout |
-| `tests/test_webapp_orgs.py` | Org routes | create org, list members, invite flow, set role, remove member, leave org, owner-only organization deletion, one-org-per-account enforcement |
+| `tests/test_webapp_orgs.py` | Org routes | create org, list members, invite flow, set role, ownership transfer, remove member, leave org, owner-only organization deletion, one-org-per-account enforcement |
 | `tests/test_webapp_rooms.py` | Room routes | create room, list rooms, room detail, event poll, audit log, close room, connect page renders config, live event stream |
 | `tests/test_webapp_security.py` | Negative tests (§9) | All 35 negative cases from §9.1–9.6 |
 | `tests/test_webapp_agent_keys.py` | Agent-key UI (shipped, not in the original table) | page requires session cookie, raw key shown exactly once, list shows metadata not secret, revoke, CSRF-gated mutations |

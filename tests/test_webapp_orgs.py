@@ -397,6 +397,54 @@ class TestRoleManagement(unittest.TestCase):
         if remove_match:
             self.assertNotIn(f'value="{owner_acct}"', remove_match.group(1))
 
+    def test_owner_can_transfer_ownership_and_then_leave(self):
+        status, body, _ = self.driver.get("/org")
+        self.assertEqual(status, 200)
+        self.assertIn('action="/org/transfer"', body)
+        self.assertIn(f"New owner", body)
+        self.assertIn(self.member_email, body)
+        role_form = re.search(
+            r'<form method="post" action="/org/role">(.*?)</form>', body, re.DOTALL
+        ).group(1)
+        self.assertNotIn('<option value="owner">owner</option>', role_form)
+
+        csrf = self.driver.csrf("/org")
+        status, _, headers = self.driver.post(
+            "/org/transfer",
+            {"account_id": self.member_acct, "_csrf": csrf},
+        )
+        self.assertEqual(status, 303)
+        self.assertEqual(headers["Location"], "/login?ownership_transferred=1")
+        self.assertNotIn("fss_session", self.driver.cookies)
+
+        status, body, _ = self.driver.get("/login?ownership_transferred=1")
+        self.assertEqual(status, 200)
+        self.assertIn("Ownership was transferred", body)
+        status, _, headers = self.driver.post(
+            "/login", {"email": self.owner_email, "password": self.owner_password}
+        )
+        self.assertEqual(status, 303)
+        status, body, _ = self.driver.get("/org")
+        self.assertEqual(status, 200)
+        self.assertIn(f"{self.owner_email}", body)
+        self.assertIn(f"{self.member_email}", body)
+        member_row = re.search(
+            rf"<tr><td>{re.escape(self.member_email)}</td><td>([^<]+)</td>", body
+        )
+        owner_row = re.search(
+            rf"<tr><td>{re.escape(self.owner_email)}</td><td>([^<]+)</td>", body
+        )
+        self.assertIsNotNone(member_row)
+        self.assertIsNotNone(owner_row)
+        self.assertEqual(member_row.group(1), "owner")
+        self.assertEqual(owner_row.group(1), "admin")
+
+        csrf = self.driver.csrf("/org")
+        status, _, headers = self.driver.post("/org/leave", {"_csrf": csrf})
+        self.assertEqual(status, 303)
+        self.assertEqual(headers["Location"], "/login")
+        self.assertNotIn("fss_session", self.driver.cookies)
+
 
 class TestRemoveMember(unittest.TestCase):
     """§3.2: owner can remove a member; removed member's session is gone."""

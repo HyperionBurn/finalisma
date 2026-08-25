@@ -33,6 +33,7 @@ from weft_cloud.identity import (
     context,
 )
 from weft_cloud.identity.context import RoleError, SessionContext
+from weft_cloud.identity.sessions import AuthError
 
 
 def make_backend() -> StorageBackend:
@@ -346,6 +347,38 @@ class OrgsRolesStructuralEnforcementTests(unittest.TestCase):
         with self.assertRaises(AuthError) as ctx_exc:
             sessions.validate(self.backend, old_token)
         self.assertEqual(ctx_exc.exception.code, "invalid_session")
+
+    def test_owner_can_transfer_ownership_atomically(self) -> None:
+        target_id, _ = _accept_member_invite(
+            self.backend,
+            self.owner_ctx,
+            "transfer-target@example.com",
+            "Transfer-Target-Strong-Password!42",
+        )
+        _, owner_token = sessions.create(
+            self.backend, self.tenant_a, self.owner_id, role="owner"
+        )
+        owner_ctx = sessions.validate(self.backend, owner_token)
+        _, target_token = sessions.create(
+            self.backend, self.tenant_a, target_id, role="member"
+        )
+        orgs.transfer_ownership(owner_ctx, target_id)
+
+        with self.backend.transaction() as tx:
+            rows = tx.execute(
+                "SELECT account_id, role FROM cloud_identity_members "
+                "WHERE tenant_id = ? ORDER BY account_id",
+                (self.tenant_a,),
+            ).fetchall()
+        roles = {row["account_id"]: row["role"] for row in rows}
+        self.assertEqual(roles[self.owner_id], "admin")
+        self.assertEqual(roles[target_id], "owner")
+        with self.assertRaises(AuthError) as owner_exc:
+            sessions.validate(self.backend, owner_token)
+        self.assertEqual(owner_exc.exception.code, "invalid_session")
+        with self.assertRaises(AuthError) as target_exc:
+            sessions.validate(self.backend, target_token)
+        self.assertEqual(target_exc.exception.code, "invalid_session")
 
     def test_last_owner_cannot_demote_self(self) -> None:
         """A tenant must not be left without an owner by a role change."""

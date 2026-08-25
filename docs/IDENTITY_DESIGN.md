@@ -438,7 +438,7 @@ CREATE INDEX IF NOT EXISTS idx_identity_members_account
 | Delete org | ✅ | ❌ | ❌ |
 | View audit log | ✅ | ✅ | ✅ |
 | Send messages in rooms | ✅ | ✅ | ✅ |
-| Leave org | ✅ | ✅ | ✅ |
+| Leave org | ❌ (transfer ownership or delete) | ✅ | ✅ |
 | Transfer ownership | ✅ | ❌ | ❌ |
 
 ### 6.4 Role hierarchy
@@ -452,6 +452,11 @@ def require_role(self, required: str) -> None:
     if ROLE_RANK[self.role] < ROLE_RANK[required]:
         raise RoleError("forbidden")
 ```
+
+Ownership transfer is explicit and atomic. An owner selects an existing
+non-owner member, that member becomes the owner, the current owner becomes an
+admin, and sessions for both accounts are revoked. The former owner signs in
+again as an admin and can then leave after closing any rooms it owns.
 
 ### 6.5 Server-side enforcement
 

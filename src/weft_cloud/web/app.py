@@ -1104,6 +1104,8 @@ class WeftWebApp:
             return '<div class="flash">Your password was reset — you can log in now.</div>'
         if "org_deleted" in params:
             return '<div class="flash">Your organization and its data were permanently deleted.</div>'
+        if "ownership_transferred" in params:
+            return '<div class="flash">Ownership was transferred. Sign in again as an admin.</div>'
         return ""
 
     def handle_post_login(self, handler: BaseHTTPRequestHandler) -> None:
@@ -1499,10 +1501,6 @@ class WeftWebApp:
             if manageable_members
             else '<button type="submit" disabled>Set role</button>'
         )
-        owner_role_option = (
-            '<option value="owner">owner</option>'
-            if ctx.role == "owner" else ""
-        )
         removable_members = [
             member for member in manageable_members if member["role"] != "owner"
         ]
@@ -1525,6 +1523,36 @@ class WeftWebApp:
                 '<h2>Remove a member</h2>'
                 '<p class="muted">There are no other removable members.</p>'
             )
+        if ctx.role == "owner":
+            transferable_members = [
+                member for member in members
+                if member["account_id"] != ctx.account_id
+                and member["role"] != "owner"
+            ]
+            transfer_options = member_options(transferable_members)
+            if transfer_options:
+                transfer_select = (
+                    '<select name="account_id" required="required">'
+                    f'{transfer_options}</select>'
+                )
+                transfer_html = (
+                    '<h2>Transfer ownership</h2>'
+                    '<p class="warn">You will become an admin and be signed out. '
+                    'Sign in again after the new owner takes over.</p>'
+                    '<form method="post" action="/org/transfer">'
+                    f'{_csrf_input(csrf)}'
+                    f'{_label("New owner", transfer_select)}'
+                    '<button type="submit">Transfer ownership</button>'
+                    '</form>'
+                )
+            else:
+                transfer_html = (
+                    '<h2>Transfer ownership</h2>'
+                    '<p class="muted">Invite another member before transferring '
+                    'ownership.</p>'
+                )
+        else:
+            transfer_html = ""
         if ctx.role in ("owner", "admin"):
             admin_html = (
                 '<h2>Invite a member</h2>'
@@ -1544,7 +1572,6 @@ class WeftWebApp:
                 '<label>New role <select name="role">'
                 '<option value="member">member</option>'
                 '<option value="admin">admin</option>'
-                f'{owner_role_option}'
                 '</select></label>'
                 f'{role_button}'
                 '</form>'
@@ -1558,7 +1585,7 @@ class WeftWebApp:
             leave_html = (
                 '<h2>Organization membership</h2>'
                 '<p class="muted">Owners cannot leave an organization. Transfer '
-                'ownership or delete the organization instead.</p>'
+                'ownership above, or delete the organization instead.</p>'
             )
         else:
             leave_html = (
@@ -1573,6 +1600,7 @@ class WeftWebApp:
             '<table><thead><tr><th>Email</th><th>Role</th><th>ID</th></tr></thead>'
             f'<tbody>{rows_html}</tbody></table>'
             f'{admin_html}'
+            f'{transfer_html}'
             f'{leave_html}'
             + (
                 '<h2>Delete organization</h2>'
@@ -1739,6 +1767,55 @@ class WeftWebApp:
                                   '<p>Invalid request.</p>'))
             return
         self._redirect(handler, "/org")
+
+    def handle_post_org_transfer(self, handler: BaseHTTPRequestHandler) -> None:
+        ctx = self._require_auth(handler)
+        if ctx is None:
+            return
+        form = self._read_form(handler)
+        try:
+            self._validate_csrf(handler, form)
+        except _WebError:
+            self._send_html(handler, HTTPStatus.FORBIDDEN,
+                            _page("Forbidden", '<p>CSRF validation failed.</p>'))
+            return
+        account_id = form.get("account_id", "")
+        if not account_id:
+            self._send_html(
+                handler,
+                HTTPStatus.BAD_REQUEST,
+                _page("Ownership transfer failed", "<p>Select a new owner.</p>"),
+            )
+            return
+        try:
+            self.orgs.transfer_ownership(ctx, account_id)
+        except RoleError:
+            self._send_html(
+                handler,
+                HTTPStatus.FORBIDDEN,
+                _page(
+                    "Forbidden",
+                    "<p>Only the organization owner can transfer ownership.</p>",
+                ),
+            )
+            return
+        except (AuthError, ValueError):
+            self._send_html(
+                handler,
+                HTTPStatus.BAD_REQUEST,
+                _page(
+                    "Ownership transfer failed",
+                    "<p>Select an existing non-owner member.</p>",
+                ),
+            )
+            return
+        handler.send_response(HTTPStatus.SEE_OTHER)
+        handler.send_header("Location", "/login?ownership_transferred=1")
+        self._clear_session_cookie(handler)
+        handler.send_header("Content-Length", "0")
+        handler.send_header("Cache-Control", "no-store")
+        self._send_security_headers(handler)
+        handler.end_headers()
 
     def handle_post_org_remove(self, handler: BaseHTTPRequestHandler) -> None:
         ctx = self._require_auth(handler)
@@ -2779,6 +2856,9 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
                 return
             if method == "POST" and path == "/org/role":
                 app.handle_post_org_role(self)
+                return
+            if method == "POST" and path == "/org/transfer":
+                app.handle_post_org_transfer(self)
                 return
             if method == "POST" and path == "/org/remove":
                 app.handle_post_org_remove(self)

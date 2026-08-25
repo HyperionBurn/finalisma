@@ -341,6 +341,8 @@ class TestRoleEnforcement(unittest.TestCase):
         acct = self.d.account_id(self.member_email)
         status, _, _ = self.d.post("/org/role", {"account_id": acct, "role": "owner"}, extra_cookie=f"fss_session={self.admin_cookie}")
         self.assertEqual(status, 403)
+        status, _, _ = self.d.post("/org/transfer", {"account_id": acct}, extra_cookie=f"fss_session={self.admin_cookie}")
+        self.assertEqual(status, 403)
 
 
 class TestTenantIsolation(unittest.TestCase):

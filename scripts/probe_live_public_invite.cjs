@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * Exercise organization invitation as two real browser customers.
+ * Exercise organization invitation and ownership transfer as real browser customers.
  *
  * The owner creates an invite through the public web UI. The token is read
  * only from the scoped disposable outbox row over a pinned SSH connection,
@@ -118,6 +118,8 @@ async function main() {
   let ownerPage;
   let memberContext;
   let memberPage;
+  let transferContext;
+  let transferPage;
   let ownerCreated = false;
   let cleanupCompleted = false;
   let expectedNegative = false;
@@ -125,9 +127,14 @@ async function main() {
   const nonce = String(Date.now()) + "-" + Math.random().toString(16).slice(2);
   const ownerEmail = "weft-public-invite-owner-" + nonce + "@example.com";
   const memberEmail = "weft-public-invite-member-" + nonce + "@example.com";
+  const transferEmail = "weft-public-invite-transfer-" + nonce + "@example.com";
   const wrongEmail = "wrong-" + nonce + "@example.com";
   const ownerPassword = "Weft-Public-Invite-" + nonce + "-owner!";
   const memberPassword = "Weft-Public-Invite-" + nonce + "-member!";
+  const transferPassword = "Weft-Public-Invite-" + nonce + "-transfer!";
+  let cleanupPage = null;
+  let cleanupEmail = ownerEmail;
+  let cleanupPassword = ownerPassword;
 
   const attachBrowserSignals = (page) => {
     page.on("console", (message) => {
@@ -168,18 +175,18 @@ async function main() {
   const cleanup = async () => {
     if (!ownerCreated || cleanupCompleted || !browser) return;
     try {
-      if (!ownerPage) {
-        ownerPage = await ownerContext.newPage();
-        attachBrowserSignals(ownerPage);
+      if (!cleanupPage) {
+        cleanupPage = ownerPage || await ownerContext.newPage();
+        attachBrowserSignals(cleanupPage);
       }
-      await loginExisting(ownerPage, ownerEmail, ownerPassword);
-      await ownerPage.goto(edgeOrigin + "/org", { waitUntil: "networkidle", timeout: 30000 });
-      const confirmation = ownerPage.locator("input[name=confirmation]");
+      await loginExisting(cleanupPage, cleanupEmail, cleanupPassword);
+      await cleanupPage.goto(edgeOrigin + "/org", { waitUntil: "networkidle", timeout: 30000 });
+      const confirmation = cleanupPage.locator("input[name=confirmation]");
       if (await confirmation.count() !== 1) throw new Error("owner delete control unavailable");
       await confirmation.fill("DELETE");
       await Promise.all([
-        ownerPage.waitForURL((url) => url.pathname === "/login" && url.searchParams.has("org_deleted"), { timeout: 30000 }),
-        ownerPage.locator('form[action="/org/delete"] button').click(),
+        cleanupPage.waitForURL((url) => url.pathname === "/login" && url.searchParams.has("org_deleted"), { timeout: 30000 }),
+        cleanupPage.locator('form[action="/org/delete"] button').click(),
       ]);
       cleanupCompleted = true;
       checks.owner_deleted_organization = true;
@@ -246,6 +253,29 @@ async function main() {
     ]);
     checks.correct_email_accepts_invite = await memberPage
       .getByRole("heading", { name: "Dashboard", exact: true }).isVisible();
+
+    await ownerPage.goto(edgeOrigin + "/org", { waitUntil: "networkidle", timeout: 30000 });
+    const transferInviteForm = ownerPage.locator('form[action="/org/invite"]');
+    await transferInviteForm.getByLabel("Email", { exact: true }).fill(transferEmail);
+    await transferInviteForm.getByRole("combobox").selectOption("member");
+    await Promise.all([
+      ownerPage.waitForURL((url) => url.pathname === "/org", { timeout: 30000 }),
+      transferInviteForm.getByRole("button", { name: "Invite", exact: true }).click(),
+    ]);
+    const transferToken = lookupInviteToken(transferEmail, sshTarget, sshKey, knownHosts);
+    transferContext = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: "en-US" });
+    transferPage = await transferContext.newPage();
+    attachBrowserSignals(transferPage);
+    await transferPage.goto(edgeOrigin + "/invite/" + transferToken, { waitUntil: "networkidle", timeout: 30000 });
+    await transferPage.getByLabel("Email", { exact: true }).fill(transferEmail);
+    await transferPage.getByLabel("Password", { exact: true }).fill(transferPassword);
+    await Promise.all([
+      transferPage.waitForURL((url) => url.pathname === "/", { timeout: 30000 }),
+      transferPage.getByRole("button", { name: "Accept invite", exact: true }).click(),
+    ]);
+    checks.transfer_target_accepts_invite = await transferPage
+      .getByRole("heading", { name: "Dashboard", exact: true }).isVisible();
+
     await ownerPage.goto(edgeOrigin + "/org", { waitUntil: "networkidle", timeout: 30000 });
     const roleTargetLabels = await ownerPage
       .locator('form[action="/org/role"] select[name="account_id"] option')
@@ -269,6 +299,12 @@ async function main() {
     checks.member_can_leave = await memberLeaveForm.count() === 1;
 
     await ownerPage.goto(edgeOrigin + "/org", { waitUntil: "networkidle", timeout: 30000 });
+    const transferForm = ownerPage.locator('form[action="/org/transfer"]');
+    const transferTargetLabels = await transferForm
+      .locator('select[name="account_id"] option').allTextContents();
+    checks.owner_transfer_form_is_user_addressable = await transferForm.count() === 1;
+    checks.owner_can_choose_transfer_target_by_email = transferTargetLabels
+      .some((label) => label.includes(transferEmail));
     const ownerRoleForm = ownerPage.locator('form[action="/org/role"]');
     const memberOption = ownerRoleForm.locator('select[name="account_id"] option')
       .filter({ hasText: memberEmail }).first();
@@ -304,11 +340,51 @@ async function main() {
       const ownerAfterLeaveText = await ownerPage.locator("body").innerText();
       checks.owner_roster_removes_leaving_member = !ownerAfterLeaveText.includes(memberEmail);
     }
+
+    await ownerPage.goto(edgeOrigin + "/org", { waitUntil: "networkidle", timeout: 30000 });
+    const ownerTransferForm = ownerPage.locator('form[action="/org/transfer"]');
+    const transferTargetOption = ownerTransferForm.locator('select[name="account_id"] option')
+      .filter({ hasText: transferEmail }).first();
+    const transferAccountId = await transferTargetOption.getAttribute("value");
+    if (!transferAccountId) throw new Error("ownership transfer form did not expose the transfer target");
+    await ownerTransferForm.locator('select[name="account_id"]').selectOption(transferAccountId);
+    await Promise.all([
+      ownerPage.waitForURL((url) => url.pathname === "/login" && url.searchParams.has("ownership_transferred"), { timeout: 30000 }),
+      ownerTransferForm.getByRole("button", { name: "Transfer ownership", exact: true }).click(),
+    ]);
+    checks.owner_transferred_ownership = await ownerPage
+      .getByText(/Ownership was transferred/i).isVisible();
+    cleanupPage = transferPage;
+    cleanupEmail = transferEmail;
+    cleanupPassword = transferPassword;
+
+    await loginExisting(ownerPage, ownerEmail, ownerPassword);
+    await ownerPage.goto(edgeOrigin + "/org", { waitUntil: "networkidle", timeout: 30000 });
+    const formerOwnerText = await ownerPage.locator("body").innerText();
+    checks.former_owner_is_admin = new RegExp(`${ownerEmail}\\s+admin`, "i").test(formerOwnerText);
+    const formerOwnerLeaveForm = ownerPage.locator('form[action="/org/leave"]');
+    if (await formerOwnerLeaveForm.count() === 1) {
+      await Promise.all([
+        ownerPage.waitForURL((url) => url.pathname === "/login", { timeout: 30000 }),
+        formerOwnerLeaveForm.getByRole("button", { name: "Leave organization", exact: true }).click(),
+      ]);
+      checks.former_owner_can_leave_after_transfer = new URL(ownerPage.url()).pathname === "/login";
+    } else {
+      checks.former_owner_can_leave_after_transfer = false;
+    }
+
+    await loginExisting(transferPage, transferEmail, transferPassword);
+    await transferPage.goto(edgeOrigin + "/org", { waitUntil: "networkidle", timeout: 30000 });
+    const newOwnerText = await transferPage.locator("body").innerText();
+    checks.new_owner_is_owner = new RegExp(`${transferEmail}\\s+owner`, "i").test(newOwnerText);
+    checks.new_owner_can_delete_organization = await transferPage
+      .locator('form[action="/org/delete"]').count() === 1;
   } catch (error) {
     checks.failure = redact(error.message);
   } finally {
     await cleanup();
     if (memberContext) await memberContext.close();
+    if (transferContext) await transferContext.close();
     if (ownerContext) await ownerContext.close();
     if (browser) await browser.close();
   }

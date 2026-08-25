@@ -192,6 +192,45 @@ def set_role(ctx: SessionContext, account_id: str, new_role: str) -> None:
         tx.commit()
 
 
+def transfer_ownership(ctx: SessionContext, account_id: str) -> None:
+    """Transfer the sole owner role to an existing organization member.
+
+    Ownership transfer is one atomic operation. The target becomes the owner,
+    the current owner becomes an admin, and every session for both accounts is
+    revoked so neither browser can continue with a stale privilege snapshot.
+    The caller must sign in again as an admin after the transfer.
+    """
+    ctx = _require_ctx(ctx)
+    ensure_schema(ctx.backend)
+    ctx.require_role("owner")
+    require_db_role(ctx.backend, ctx.tenant_id, ctx.account_id, "owner")
+    if account_id == ctx.account_id:
+        raise ValueError("ownership transfer requires another member")
+    with ctx.backend.transaction() as tx:
+        target = tx.execute(
+            "SELECT role FROM cloud_identity_members "
+            "WHERE tenant_id = ? AND account_id = ?",
+            (ctx.tenant_id, account_id),
+        ).fetchone()
+        if target is None:
+            raise ValueError("ownership transfer target is not an organization member")
+        if target["role"] == "owner":
+            raise ValueError("ownership transfer target is already an owner")
+        tx.execute(
+            "UPDATE cloud_identity_members SET role = 'owner' "
+            "WHERE tenant_id = ? AND account_id = ?",
+            (ctx.tenant_id, account_id),
+        )
+        tx.execute(
+            "UPDATE cloud_identity_members SET role = 'admin' "
+            "WHERE tenant_id = ? AND account_id = ?",
+            (ctx.tenant_id, ctx.account_id),
+        )
+        revoke_all_sessions_for_tenant_account_in_tx(tx, ctx.tenant_id, account_id)
+        revoke_all_sessions_for_tenant_account_in_tx(tx, ctx.tenant_id, ctx.account_id)
+        tx.commit()
+
+
 def delete_org(ctx: SessionContext) -> None:
     """Delete the org (owner only) and all tenant-scoped state atomically.
 
@@ -263,6 +302,9 @@ class OrgStore:
 
     def set_role(self, ctx, account_id, new_role):
         return set_role(ctx, account_id, new_role)
+
+    def transfer_ownership(self, ctx, account_id):
+        return transfer_ownership(ctx, account_id)
 
     def delete_org(self, ctx):
         return delete_org(ctx)
