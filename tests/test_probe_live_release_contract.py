@@ -1,4 +1,5 @@
 from __future__ import annotations
+from tests._server_readiness import await_serving as _await_serving
 
 import hashlib
 import io
@@ -221,6 +222,7 @@ def _serve(mode: str = "pass", *, surface: str = "site") -> tuple[ThreadingHTTPS
     handler.origin = origin
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
+    _await_serving(server)
     return server, origin
 
 

@@ -62,12 +62,18 @@ from weft_cloud.quotas import DEFAULT_ROOM_CAP, QuotaError
 from weft_cloud.rate_limit import RateLimitedError, enforce_auth_rate_limit
 from weft_cloud.rooms import CloudRoomService, RoomError, _parse_json, public_origin
 from weft_cloud.storage import StorageBackend
-from weft_cloud.web.config_gen import BRIDGE_DOWNLOAD_PATH, CLIENTS, build_config
+from weft_cloud.web.config_gen import (
+    BRIDGE_DOWNLOAD_PATH,
+    CLIENTS,
+    SCRIPT_PATH_PLACEHOLDER,
+    build_config,
+)
 from weft_cloud.web.copy import connect_page_body
 from weft_cloud.web.security_headers import security_headers
 
 SESSION_COOKIE = "fss_session"
 CSRF_COOKIE = "fss_csrf"
+ORG_DELETE_CONFIRMATION = "DELETE"
 _INVITE_PATH_RE = re.compile(r"^/invite/([A-Za-z0-9_-]+)$")
 _ROOM_PATH_RE = re.compile(r"^/room/([A-Za-z0-9_-]+)$")
 _ROOM_EVENTS_RE = re.compile(r"^/room/([A-Za-z0-9_-]+)/events$")
@@ -160,6 +166,39 @@ def _format_iso(ts: Any) -> str:
             return text
 
 
+_EVENT_PAYLOAD_PREVIEW_MAX = 2048
+
+
+def _event_payload_preview(payload: Any) -> str:
+    """Return a bounded, deterministic preview for the browser event views.
+
+    The API already applies viewer-specific redaction before this helper sees
+    a payload. The web surface must still bound the rendered value because a
+    valid message may be much larger than a useful browser row.
+    """
+    try:
+        text = json.dumps(payload, ensure_ascii=False, sort_keys=True,
+                          separators=(",", ":"))
+    except (TypeError, ValueError):
+        text = str(payload)
+    if len(text) <= _EVENT_PAYLOAD_PREVIEW_MAX:
+        return text
+    return text[:_EVENT_PAYLOAD_PREVIEW_MAX] + "… [truncated]"
+
+
+def _event_item_html(event: dict[str, Any]) -> str:
+    """Render one escaped event row, including the already-redacted payload."""
+    payload = _event_payload_preview(event.get("payload"))
+    return (
+        f'<li data-event-seq="{_esc(event.get("seq"))}">'
+        f'<span class="seq">#{_esc(event.get("seq"))}</span> '
+        f'{_esc(event.get("kind"))} <span class="muted">from '
+        f'{_esc(event.get("origin_agent"))} at '
+        f'{_esc(_format_iso(event.get("created_at")))}</span>'
+        f'<code class="event-payload">{_esc(payload)}</code></li>'
+    )
+
+
 def _new_csrf() -> str:
     return secrets.token_urlsafe(32)
 
@@ -170,21 +209,30 @@ def _new_csrf() -> str:
 _DASH_CSS = (
     '<style>'
     'body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;'
-    'max-width:56rem;margin:0 auto;padding:1.5rem;line-height:1.45;color:#1a1a1a;}'
+    'max-width:56rem;margin:0 auto;padding:1.5rem;line-height:1.45;color:#1a1a1a;'
+    'overflow-wrap:anywhere;}'
     'h1{font-size:1.5rem;margin:0 0 .25rem;}h2{font-size:1.15rem;margin-top:1.5rem;}'
     'table{border-collapse:collapse;width:100%;margin:.5rem 0 1rem;}'
     'th,td{text-align:left;padding:.4rem .55rem;border-bottom:1px solid #e5e5e5;vertical-align:top;}'
     'th{font-size:.78rem;text-transform:uppercase;letter-spacing:.05em;color:#666;}'
     'pre{background:#f6f6f4;border:1px solid #e0e0dd;padding:.75rem;overflow-x:auto;font-size:.8rem;}'
-    'code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;}'
+    'code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;'
+    'overflow-wrap:anywhere;word-break:break-word;}'
     'label{display:block;margin:.4rem 0;}'
     'input[type=text],input[type=number],input[type=password],input[type=email],select{'
     'padding:.35rem;margin-left:.25rem;border:1px solid #767676;border-radius:3px;}'
     'button{padding:.35rem .75rem;margin:.15rem;border:1px solid #707070;border-radius:3px;'
     'background:#fff;cursor:pointer;}'
     'button[type=submit]{background:#111;color:#fff;border-color:#111;}'
-    '.muted{color:#707070;}.flash{border:1px solid #d0d0cc;background:#fafaf8;'
+    'li{overflow-wrap:anywhere;word-break:break-word;}'
+    '.muted{color:#707070;overflow-wrap:anywhere;word-break:break-word;}'
+    '.event-payload{display:block;max-width:100%;box-sizing:border-box;'
+    'margin:.25rem 0 .5rem;padding:.35rem .5rem;background:#f6f6f4;'
+    'border-left:3px solid #d0d0cc;white-space:pre-wrap;overflow-wrap:anywhere;'
+    'word-break:break-word;}'
+    '.flash{border:1px solid #d0d0cc;background:#fafaf8;'
     'padding:.5rem .75rem;margin:.5rem 0;}'
+    '.flash code{display:inline-block;max-width:100%;box-sizing:border-box;white-space:normal;}'
     '.flash-error{border-color:#c44;background:#fdf0f0;color:#8b1a1a;}'
     '.warn{border:1px solid #e0b400;background:#fff7d6;padding:.5rem .75rem;margin:.5rem 0;}'
     '.revoked{color:#8b1a1a;font-weight:600;}.active-ok{color:#1a7f37;}'
@@ -202,17 +250,111 @@ _COPY_JS = (
     'function wfCopy(el){'
     'var t=el.getAttribute("data-copy")||"";'
     'function done(){el.textContent="Copied";}'
-    'if(navigator.clipboard&&navigator.clipboard.writeText){'
-    'navigator.clipboard.writeText(t).then(done,function(){done();});'
-    '}else{'
+    'function fail(){el.textContent="Copy failed";}'
+    'function fallback(){'
     'var ta=document.createElement("textarea");ta.value=t;'
-    'document.body.appendChild(ta);ta.select();'
-    'try{document.execCommand("copy");}catch(e){}'
-    'document.body.removeChild(ta);done();'
+    'document.body.appendChild(ta);ta.focus();ta.select();'
+    'var ok=false;'
+    'try{ok=document.execCommand("copy");}catch(e){}'
+    'document.body.removeChild(ta);'
+    'if(ok){done();}else{fail();}'
+    '}'
+    'if(navigator.clipboard&&navigator.clipboard.writeText){'
+    'navigator.clipboard.writeText(t).then(done,fallback);'
+    '}else{'
+    'fallback();'
     '}'
     '}'
     '</script>'
 )
+
+# The room detail page is useful without JavaScript, then progressively polls
+# the same authenticated JSON route to surface another agent's message while
+# the operator is looking at the room. DOM nodes are built with textContent so
+# a message payload can never become executable HTML.
+_ROOM_EVENTS_JS = r'''
+<script>
+(function () {
+  function startRoomEventPolling() {
+    var list = document.querySelector("[data-room-event-log]");
+    if (!list) return;
+    var roomId = list.getAttribute("data-room-id");
+    var status = document.querySelector("[data-room-events-status]");
+    var afterSeq = Number(list.getAttribute("data-after-seq") || "0");
+    var stopped = false;
+    var timer = null;
+
+    function formatPayload(value) {
+      try {
+        var text = JSON.stringify(value);
+        if (text.length > 2048) return text.slice(0, 2048) + "… [truncated]";
+        return text;
+      } catch (error) {
+        return String(value);
+      }
+    }
+
+    function appendEvent(event) {
+      var seq = Number(event.seq);
+      if (!Number.isFinite(seq) || seq <= afterSeq) return;
+      var empty = list.querySelector("[data-empty-events]");
+      if (empty) empty.remove();
+      var item = document.createElement("li");
+      item.setAttribute("data-event-seq", String(seq));
+      var seqLabel = document.createElement("span");
+      seqLabel.className = "seq";
+      seqLabel.textContent = "#" + String(seq);
+      item.appendChild(seqLabel);
+      item.appendChild(document.createTextNode(" " + String(event.kind || "event") + " "));
+      var source = document.createElement("span");
+      source.className = "muted";
+      source.textContent = "from " + String(event.origin || "") + " at " + String(event.created_at || "");
+      item.appendChild(source);
+      var payload = document.createElement("code");
+      payload.className = "event-payload";
+      payload.textContent = formatPayload(event.payload);
+      item.appendChild(payload);
+      list.appendChild(item);
+      while (list.children.length > 50) list.removeChild(list.firstElementChild);
+      afterSeq = Math.max(afterSeq, seq);
+    }
+
+    function poll() {
+      if (stopped) return;
+      fetch("/room/" + encodeURIComponent(roomId) + "/events?after_seq=" + encodeURIComponent(String(afterSeq)), {
+        credentials: "same-origin",
+        headers: { Accept: "application/json" },
+        cache: "no-store"
+      }).then(function (response) {
+        if (!response.ok) throw new Error("events " + response.status);
+        return response.json();
+      }).then(function (data) {
+        var events = Array.isArray(data.events) ? data.events : [];
+        events.forEach(appendEvent);
+        if (status) status.textContent = events.length
+          ? "Live update received. Waiting for another agent…"
+          : "Live updates on. Waiting for another agent…";
+      }).catch(function () {
+        if (status) status.textContent = "Live updates unavailable. Refresh to check for new events.";
+      }).finally(function () {
+        if (!stopped) timer = window.setTimeout(poll, 5000);
+      });
+    }
+
+    window.addEventListener("pagehide", function () {
+      stopped = true;
+      if (timer) window.clearTimeout(timer);
+    }, { once: true });
+    poll();
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", startRoomEventPolling, { once: true });
+  } else {
+    startRoomEventPolling();
+  }
+}());
+</script>
+'''
 
 
 def _copy_button(data_copy: str, label: str = "Copy") -> str:
@@ -1094,6 +1236,10 @@ class WeftWebApp:
             return '<div class="flash">Your account is verified — you can log in now.</div>'
         if "reset_done" in params:
             return '<div class="flash">Your password was reset — you can log in now.</div>'
+        if "org_deleted" in params:
+            return '<div class="flash">Your organization and its data were permanently deleted.</div>'
+        if "ownership_transferred" in params:
+            return '<div class="flash">Ownership was transferred. Sign in again as an admin.</div>'
         return ""
 
     def handle_post_login(self, handler: BaseHTTPRequestHandler) -> None:
@@ -1462,45 +1608,154 @@ class WeftWebApp:
                 f'<tr><td>{_esc(m["email"])}</td><td>{_esc(m["role"])}</td>'
                 f'<td>{_esc(m.get("account_id", ""))}</td></tr>'
             )
+        def member_options(candidates: list[dict]) -> str:
+            return "".join(
+                f'<option value="{_esc(str(member["account_id"]))}">'
+                f'{_esc(member["email"])} ({_esc(member["role"])})</option>'
+                for member in candidates
+            )
+
+        manageable_members = [
+            member for member in members
+            if member["account_id"] != ctx.account_id
+            and (ctx.role == "owner" or member["role"] != "owner")
+        ]
+        role_options = member_options(manageable_members)
+        if not role_options:
+            role_options = (
+                '<option value="" disabled selected>'
+                'No other members yet</option>'
+            )
+        role_select = (
+            '<select name="account_id" required="required">'
+            f'{role_options}</select>'
+        )
+        role_button = (
+            '<button type="submit">Set role</button>'
+            if manageable_members
+            else '<button type="submit" disabled>Set role</button>'
+        )
+        removable_members = [
+            member for member in manageable_members if member["role"] != "owner"
+        ]
+        removable_options = member_options(removable_members)
+        if removable_options:
+            remove_select = (
+                '<select name="account_id" required="required">'
+                f'{removable_options}</select>'
+            )
+            remove_html = (
+                '<h2>Remove a member</h2>'
+                '<form method="post" action="/org/remove">'
+                f'{_csrf_input(csrf)}'
+                f'{_label("Member", remove_select)}'
+                '<button type="submit">Remove member</button>'
+                '</form>'
+            )
+        else:
+            remove_html = (
+                '<h2>Remove a member</h2>'
+                '<p class="muted">There are no other removable members.</p>'
+            )
+        if ctx.role == "owner":
+            transferable_members = [
+                member for member in members
+                if member["account_id"] != ctx.account_id
+                and member["role"] != "owner"
+            ]
+            transfer_options = member_options(transferable_members)
+            if transfer_options:
+                transfer_select = (
+                    '<select name="account_id" required="required">'
+                    f'{transfer_options}</select>'
+                )
+                transfer_html = (
+                    '<h2>Transfer ownership</h2>'
+                    '<p class="warn">You will become an admin and be signed out. '
+                    'Sign in again after the new owner takes over.</p>'
+                    '<form method="post" action="/org/transfer">'
+                    f'{_csrf_input(csrf)}'
+                    f'{_label("New owner", transfer_select)}'
+                    '<button type="submit">Transfer ownership</button>'
+                    '</form>'
+                )
+            else:
+                transfer_html = (
+                    '<h2>Transfer ownership</h2>'
+                    '<p class="muted">Invite another member before transferring '
+                    'ownership.</p>'
+                )
+        else:
+            transfer_html = ""
+        if ctx.role in ("owner", "admin"):
+            admin_html = (
+                '<h2>Invite a member</h2>'
+                '<form method="post" action="/org/invite">'
+                f'{_csrf_input(csrf)}'
+                f'{_label("Email", _input("email", "email", required="required"))}'
+                '<label>Role <select name="role">'
+                '<option value="member">member</option>'
+                '<option value="admin">admin</option>'
+                '</select></label>'
+                '<button type="submit">Invite</button>'
+                '</form>'
+                '<h2>Change a member role</h2>'
+                '<form method="post" action="/org/role">'
+                f'{_csrf_input(csrf)}'
+                f'{_label("Member", role_select)}'
+                '<label>New role <select name="role">'
+                '<option value="member">member</option>'
+                '<option value="admin">admin</option>'
+                '</select></label>'
+                f'{role_button}'
+                '</form>'
+                + remove_html
+            )
+        else:
+            admin_html = (
+                '<p class="muted">Only organization admins can invite or manage members.</p>'
+            )
+        if ctx.role == "owner":
+            leave_html = (
+                '<h2>Organization membership</h2>'
+                '<p class="muted">Owners cannot leave an organization. Transfer '
+                'ownership above, or delete the organization instead.</p>'
+            )
+        else:
+            leave_html = (
+                '<h2>Leave organization</h2>'
+                '<form method="post" action="/org/leave">'
+                f'{_csrf_input(csrf)}'
+                '<button type="submit">Leave organization</button>'
+                '</form>'
+            )
         body_html = (
             '<h1>Organization</h1>'
             '<table><thead><tr><th>Email</th><th>Role</th><th>ID</th></tr></thead>'
             f'<tbody>{rows_html}</tbody></table>'
-            '<h2>Invite</h2>'
-            '<form method="post" action="/org/invite">'
-            f'{_csrf_input(csrf)}'
-            f'{_label("Email", _input("email", "email", required="required"))}'
-            '<label>Role <select name="role">'
-            '<option value="member">member</option>'
-            '<option value="admin">admin</option>'
-            '</select></label>'
-            '<button type="submit">Invite</button>'
-            '</form>'
-            '<h2>Role</h2>'
-            '<form method="post" action="/org/role">'
-            f'{_csrf_input(csrf)}'
-            f'{_label("Account ID", _input("account_id", "text", required="required"))}'
-            '<label>Role <select name="role">'
-            '<option value="member">member</option>'
-            '<option value="admin">admin</option>'
-            '<option value="owner">owner</option>'
-            '</select></label>'
-            '<button type="submit">Set role</button>'
-            '</form>'
-            '<h2>Remove</h2>'
-            '<form method="post" action="/org/remove">'
-            f'{_csrf_input(csrf)}'
-            f'{_label("Account ID", _input("account_id", "text", required="required"))}'
-            '<button type="submit">Remove</button>'
-            '</form>'
-            '<h2>Leave</h2>'
-            '<form method="post" action="/org/leave">'
-            f'{_csrf_input(csrf)}'
-            '<button type="submit">Leave organization</button>'
-            '</form>'
-            '<p><a href="/">Back to dashboard</a></p>'
+            f'{admin_html}'
+            f'{transfer_html}'
+            f'{leave_html}'
+            + (
+                '<h2>Delete organization</h2>'
+                '<p class="warn"><strong>This is permanent.</strong> Delete the '
+                'organization to remove its members, rooms, events, agent keys, '
+                'invites, and sessions. This cannot be undone.</p>'
+                '<form method="post" action="/org/delete">'
+                f'{_csrf_input(csrf)}'
+                f'{_label("Type DELETE to confirm", _input("confirmation", "text", required="required", autocomplete="off"))}'
+                '<button type="submit">Delete organization permanently</button>'
+                '</form>'
+                if ctx.role == "owner" else ""
+            )
+            + '<p><a href="/">Back to dashboard</a></p>'
         )
-        body = _page("Organization", body_html, csrf_token=csrf)
+        body = _page(
+            "Organization",
+            body_html,
+            csrf_token=csrf,
+            extra_head=_DASH_CSS,
+        )
         handler.send_response(HTTPStatus.OK)
         self._set_csrf_cookie(handler, csrf)
         handler.send_header("Content-Type", "text/html; charset=utf-8")
@@ -1647,6 +1902,55 @@ class WeftWebApp:
             return
         self._redirect(handler, "/org")
 
+    def handle_post_org_transfer(self, handler: BaseHTTPRequestHandler) -> None:
+        ctx = self._require_auth(handler)
+        if ctx is None:
+            return
+        form = self._read_form(handler)
+        try:
+            self._validate_csrf(handler, form)
+        except _WebError:
+            self._send_html(handler, HTTPStatus.FORBIDDEN,
+                            _page("Forbidden", '<p>CSRF validation failed.</p>'))
+            return
+        account_id = form.get("account_id", "")
+        if not account_id:
+            self._send_html(
+                handler,
+                HTTPStatus.BAD_REQUEST,
+                _page("Ownership transfer failed", "<p>Select a new owner.</p>"),
+            )
+            return
+        try:
+            self.orgs.transfer_ownership(ctx, account_id)
+        except RoleError:
+            self._send_html(
+                handler,
+                HTTPStatus.FORBIDDEN,
+                _page(
+                    "Forbidden",
+                    "<p>Only the organization owner can transfer ownership.</p>",
+                ),
+            )
+            return
+        except (AuthError, ValueError):
+            self._send_html(
+                handler,
+                HTTPStatus.BAD_REQUEST,
+                _page(
+                    "Ownership transfer failed",
+                    "<p>Select an existing non-owner member.</p>",
+                ),
+            )
+            return
+        handler.send_response(HTTPStatus.SEE_OTHER)
+        handler.send_header("Location", "/login?ownership_transferred=1")
+        self._clear_session_cookie(handler)
+        handler.send_header("Content-Length", "0")
+        handler.send_header("Cache-Control", "no-store")
+        self._send_security_headers(handler)
+        handler.end_headers()
+
     def handle_post_org_remove(self, handler: BaseHTTPRequestHandler) -> None:
         ctx = self._require_auth(handler)
         if ctx is None:
@@ -1707,6 +2011,58 @@ class WeftWebApp:
         # other session/key for this tenant, so redirect with a cleared cookie.
         handler.send_response(HTTPStatus.SEE_OTHER)
         handler.send_header("Location", "/login")
+        self._clear_session_cookie(handler)
+        handler.send_header("Content-Length", "0")
+        handler.send_header("Cache-Control", "no-store")
+        self._send_security_headers(handler)
+        handler.end_headers()
+
+    def handle_post_org_delete(self, handler: BaseHTTPRequestHandler) -> None:
+        """Permanently delete the authenticated owner's organization.
+
+        The core ``OrgStore.delete_org`` operation already performs the
+        tenant-scoped teardown atomically and re-checks the database role.
+        The web boundary adds CSRF protection and an explicit confirmation so
+        a customer cannot lose an organization through a stray click or a
+        forged request.
+        """
+        ctx = self._require_auth(handler)
+        if ctx is None:
+            return
+        form = self._read_form(handler)
+        try:
+            self._validate_csrf(handler, form)
+        except _WebError:
+            self._send_html(
+                handler, HTTPStatus.FORBIDDEN,
+                _page("Forbidden", '<p>CSRF validation failed.</p>'),
+            )
+            return
+        if ctx.role != "owner":
+            self._send_html(
+                handler, HTTPStatus.FORBIDDEN,
+                _page("Delete organization failed",
+                      '<p>Only the organization owner can delete it. Nothing changed.</p>'),
+            )
+            return
+        if (form.get("confirmation") or "").strip() != ORG_DELETE_CONFIRMATION:
+            self._send_html(
+                handler, HTTPStatus.BAD_REQUEST,
+                _page("Delete organization failed",
+                      '<p>Type DELETE exactly to confirm. Nothing changed.</p>'),
+            )
+            return
+        try:
+            self.orgs.delete_org(ctx)
+        except RoleError:
+            self._send_html(
+                handler, HTTPStatus.FORBIDDEN,
+                _page("Delete organization failed",
+                      '<p>Only the organization owner can delete it. Nothing changed.</p>'),
+            )
+            return
+        handler.send_response(HTTPStatus.SEE_OTHER)
+        handler.send_header("Location", "/login?org_deleted=1")
         self._clear_session_cookie(handler)
         handler.send_header("Content-Length", "0")
         handler.send_header("Cache-Control", "no-store")
@@ -1852,10 +2208,11 @@ class WeftWebApp:
             '<h1>Connector config generator</h1>'
             '<p>Generate a ready-to-paste stdio MCP config for your client '
             'with a <strong>freshly minted agent key already embedded</strong>. '
-            'Install the <code>weft-mcp</code> package in the same Python '
-            'environment used by your client first. The config launches the '
-            'installed bridge module (<code>python -m weft_mcp --remote … '
-            '--token-env WEFT_TOKEN</code>) so your client reaches the hosted '
+            f'Download the standalone <a href="{_esc(BRIDGE_DOWNLOAD_PATH)}" '
+            'download="weft-mcp-bridge.py">weft-mcp-bridge.py bridge</a> first. '
+            'The generated config launches that file with '
+            '(<code>python -B &lt;path-to-downloaded-weft-mcp-bridge.py&gt; '
+            '--remote … --token-env WEFT_TOKEN</code>) so your client reaches the hosted '
             'rooms — these clients speak stdio MCP '
             '(<code>command</code> + <code>args</code>), not an HTTP '
             '<code>url</code>.</p>'
@@ -1932,17 +2289,18 @@ class WeftWebApp:
             'that agent, and <strong>revoking the key invalidates the '
             'config</strong>. It is shown here exactly once.</p>'
             + '<h2>Install</h2>'
-            + f'<p>Install the <code>weft-mcp</code> package in the Python '
-            'environment used by your client, then save this as '
+            + f'<p>Download the standalone <a href="{_esc(BRIDGE_DOWNLOAD_PATH)}" '
+            'download="weft-mcp-bridge.py">weft-mcp-bridge.py bridge</a> and '
+            'save it on the machine that runs your client. Replace the '
+            f'path placeholder <code>{_esc(SCRIPT_PATH_PLACEHOLDER)}</code> '
+            'in this config with the saved file path, then save this as '
             f'<code>{_esc(config["file"])}</code> and restart your client. '
-            'For a source checkout, run <code>python -m venv .venv</code> '
-            'followed by <code>.venv\\Scripts\\python.exe scripts\\verify-package-install.py '
-            '--python .venv\\Scripts\\python.exe</code> (or the equivalent '
-            'macOS/Linux venv path). If the client does not inherit that venv, '
+            'The bridge uses only the Python standard library. No package '
+            'installation or source checkout is required. If the client does '
+            'not inherit the Python interpreter on your PATH, '
             'replace the generated <code>command</code> with its absolute '
-            'interpreter path. '
-            'The config invokes <code>python -m weft_mcp</code> and does not '
-            'depend on the server checkout path. The token is in the client '
+            'interpreter path. The config does not depend on the server '
+            'checkout path. The token is in the client '
             'environment field (<code>env</code> for JSON hosts, '
             '<code>environment</code> for OpenCode) — never in '
             '<code>args</code>. Command-line arguments are commonly visible '
@@ -1952,7 +2310,9 @@ class WeftWebApp:
             'Windows: without it the client&#39;s UTF-8 JSON-RPC is decoded as '
             'cp1252 and every non-ASCII character is destroyed.</p>'
             + '<h2>Config</h2>'
-            + f'<pre><code>{_esc(config["config_text"])}</code></pre>'
+            + '<pre tabindex="0" role="region" '
+            'aria-label="Generated connector configuration">'
+            + f'<code>{_esc(config["config_text"])}</code></pre>'
             + _copy_button(config["config_text"], "Copy config")
             + f'<p>Bridge: <code>{_esc(config["origin"])}/mcp</code>. The room '
             'tools (<code>room_create</code>, <code>room_join</code>, '
@@ -2062,7 +2422,12 @@ class WeftWebApp:
             '</form>'
             '<p><a href="/">Back to dashboard</a></p>'
         )
-        body = _page("Rooms", body_html, csrf_token=csrf)
+        body = _page(
+            "Rooms",
+            body_html,
+            csrf_token=csrf,
+            extra_head=_DASH_CSS,
+        )
         handler.send_response(HTTPStatus.OK)
         self._set_csrf_cookie(handler, csrf)
         handler.send_header("Content-Type", "text/html; charset=utf-8")
@@ -2115,16 +2480,11 @@ class WeftWebApp:
         if not roster_html:
             roster_html = '<li class="muted">No members yet.</li>'
 
-        events_html = ""
-        for e in events[-50:]:
-            events_html += (
-                f'<li><span class="seq">#{_esc(e["seq"])}</span> '
-                f'{_esc(e["kind"])} <span class="muted">from '
-                f'{_esc(e["origin_agent"])} at '
-                f'{_esc(_format_iso(e.get("created_at")))}</span></li>'
-            )
+        recent_events = events[-50:]
+        events_html = "".join(_event_item_html(e) for e in recent_events)
         if not events_html:
-            events_html = '<li class="muted">No events yet.</li>'
+            events_html = '<li class="muted" data-empty-events>No events yet.</li>'
+        last_event_seq = recent_events[-1]["seq"] if recent_events else 0
 
         # Link control surface — owner and active members only.
         link_section = ""
@@ -2175,7 +2535,12 @@ class WeftWebApp:
                             '<button type="submit">Generate replacement join link</button>'
                             '</form>'
                         )
-            if is_owner and info.get("link_id"):
+            if (
+                is_owner
+                and info.get("link_id")
+                and not info.get("link_revoked")
+                and info.get("state") != "closed"
+            ):
                 revoke_form = (
                     '<form method="post" '
                     f'action="/room/{_esc(room_id)}/revoke-link">'
@@ -2187,7 +2552,7 @@ class WeftWebApp:
                 link_section += revoke_form
 
         close_form = ""
-        if is_owner:
+        if is_owner and info.get("state") != "closed":
             close_form = (
                 f'<form method="post" action="/room/{_esc(room_id)}/close">'
                 f'{_csrf_input(csrf)}'
@@ -2204,14 +2569,19 @@ class WeftWebApp:
             '<h2>Members</h2>'
             f'<ul>{roster_html}</ul>'
             '<h2>Recent events</h2>'
-            f'<ol>{events_html}</ol>'
+            '<p class="muted" data-room-events-status role="status">'
+            'Live updates on. Waiting for another agent…</p>'
+            f'<ol id="room-event-log" data-room-event-log '
+            f'data-room-id="{_esc(room_id)}" data-after-seq="{_esc(last_event_seq)}" '
+            f'aria-live="polite" aria-label="Recent room events">{events_html}</ol>'
             f'<p><a href="/room/{_esc(room_id)}/connect">Connect an agent</a></p>'
             f'{close_form}'
             f'<p><a href="/">Back to dashboard</a> · '
             f'<a href="/room/{_esc(room_id)}/audit">Audit log</a></p>'
         )
         body = _page(_esc(info.get("name") or room_id), body_html,
-                     csrf_token=csrf, extra_head=_DASH_CSS + _COPY_JS)
+                     csrf_token=csrf,
+                     extra_head=_DASH_CSS + _COPY_JS + _ROOM_EVENTS_JS)
         handler.send_response(HTTPStatus.OK)
         self._set_csrf_cookie(handler, csrf)
         handler.send_header("Content-Type", "text/html; charset=utf-8")
@@ -2326,19 +2696,17 @@ class WeftWebApp:
                 self._send_html(handler, HTTPStatus.FORBIDDEN,
                                 _page("Forbidden", '<p>Not a member.</p>'))
             return
-        items_html = ""
-        for e in events:
-            items_html += (
-                f'<li><span class="seq">#{_esc(e["seq"])}</span> '
-                f'{_esc(e["kind"])} <span class="muted">from '
-                f'{_esc(e["origin_agent"])}</span></li>'
-            )
+        items_html = "".join(_event_item_html(e) for e in events)
+        if not items_html:
+            items_html = '<li class="muted">No events yet.</li>'
         body_html = (
             '<h1>Audit log</h1>'
-            f'<ol>{items_html}</ol>'
+            '<p class="muted">Payloads are shown after viewer-specific '
+            'redaction and truncated for readability.</p>'
+            f'<ol aria-label="Room audit events">{items_html}</ol>'
             f'<p><a href="/room/{_esc(room_id)}">Back to room</a></p>'
         )
-        body = _page("Audit log", body_html)
+        body = _page("Audit log", body_html, extra_head=_DASH_CSS)
         self._send_html(handler, HTTPStatus.OK, body)
 
     def handle_get_room_connect(self, handler: BaseHTTPRequestHandler, room_id: str) -> None:
@@ -2394,7 +2762,12 @@ class WeftWebApp:
                     '</form>'
                 )
         body_html = body_html + f'<p><a href="/room/{_esc(room_id)}">Back to room</a></p>'
-        body = _page("Connect an agent", body_html, csrf_token=csrf_token)
+        body = _page(
+            "Connect an agent",
+            body_html,
+            csrf_token=csrf_token,
+            extra_head=_DASH_CSS + _COPY_JS,
+        )
         self._send_html(handler, HTTPStatus.OK, body)
 
     def handle_post_room_regenerate_link(self, handler: BaseHTTPRequestHandler,
@@ -2616,8 +2989,14 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
             if method == "POST" and path == "/org/role":
                 app.handle_post_org_role(self)
                 return
+            if method == "POST" and path == "/org/transfer":
+                app.handle_post_org_transfer(self)
+                return
             if method == "POST" and path == "/org/remove":
                 app.handle_post_org_remove(self)
+                return
+            if method == "POST" and path == "/org/delete":
+                app.handle_post_org_delete(self)
                 return
             if method == "POST" and path == "/org/leave":
                 app.handle_post_org_leave(self)

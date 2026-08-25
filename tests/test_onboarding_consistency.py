@@ -57,6 +57,10 @@ class OnboardingConsistencyTests(unittest.TestCase):
         self.assertIn('a session joins as your account, and an agent key joins as its own distinct agent identity', html)
         self.assertIn('Treat this URL like a password', html)
         self.assertIn('revoke the link if it is exposed', html)
+        self.assertIn('/downloads/weft-mcp-bridge.py', html)
+        self.assertIn('path-to-downloaded-weft-mcp-bridge.py', html)
+        self.assertNotIn('Install the <code>weft-mcp</code> package', html)
+        self.assertNotIn('python -m weft_mcp', html)
         self.assertIn('room_&lt;unsafe&gt;', html)
         self.assertIn('rm_&lt;unsafe&gt;', html)
 

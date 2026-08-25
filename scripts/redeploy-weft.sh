@@ -204,35 +204,30 @@ PYEOF
   then
     exit 1
   fi
-  HAS_JOIN=0
-  HAS_MCP=0
-  sudo grep -qE 'location[[:space:]]+(\^~[[:space:]]+)?/j/[[:space:]]*\{' "$CONF" && HAS_JOIN=1 || true
-  sudo grep -qE 'location[[:space:]]*=[[:space:]]*/mcp[[:space:]]*\{' "$CONF" && HAS_MCP=1 || true
-  if [ "$HAS_JOIN" != "1" ] || [ "$HAS_MCP" != "1" ]; then
-    NGINX_BACKUP_DIR="${WEFT_NGINX_BACKUP_DIR:-$RELEASES/nginx}"
-    sudo install -d -o root -g root -m 0750 "$NGINX_BACKUP_DIR"
-    NGINX_BACKUP="$NGINX_BACKUP_DIR/$(basename "$CONF").pre-weft-$(date -u +%Y%m%dT%H%M%SZ)"
-    # CONF may be a symlink in sites-enabled. Copy its target contents to a
-    # regular file outside sites-enabled, or nginx will load the backup as an
-    # additional site and report duplicate servers/locations.
-    sudo cp -L "$CONF" "$NGINX_BACKUP"
-    sudo python3 "$SCRIPT_DIR/ensure_nginx_routes.py" \
-      --config "$CONF" --server-name "$WEFT_NGINX_SERVER_NAME"
-    if ! sudo nginx -t; then
-      sudo cp "$NGINX_BACKUP" "$CONF"
-      echo "FATAL: nginx rejected the edited configuration; restored $CONF from $NGINX_BACKUP" >&2
-      exit 1
-    fi
-    if ! sudo systemctl reload nginx; then
-      sudo cp "$NGINX_BACKUP" "$CONF"
-      sudo nginx -t >/dev/null 2>&1 || true
-      echo "FATAL: nginx reload failed; restored $CONF from $NGINX_BACKUP" >&2
-      exit 1
-    fi
-    echo "  nginx reloaded; pre-change backup kept at $NGINX_BACKUP"
-  else
-    echo "  explicit /j/ and /mcp routes already present"
+  # Always run the deterministic editor. A parallel static-site deployment can
+  # leave /j/ and /mcp correct while replacing the web-app catch-all with a
+  # static 404, which makes /signup fail while health checks stay green.
+  NGINX_BACKUP_DIR="${WEFT_NGINX_BACKUP_DIR:-$RELEASES/nginx}"
+  sudo install -d -o root -g root -m 0750 "$NGINX_BACKUP_DIR"
+  NGINX_BACKUP="$NGINX_BACKUP_DIR/$(basename "$CONF").pre-weft-$(date -u +%Y%m%dT%H%M%SZ)"
+  # CONF may be a symlink in sites-enabled. Copy its target contents to a
+  # regular file outside sites-enabled, or nginx will load the backup as an
+  # additional site and report duplicate servers/locations.
+  sudo cp -L "$CONF" "$NGINX_BACKUP"
+  sudo python3 "$SCRIPT_DIR/ensure_nginx_routes.py" \
+    --config "$CONF" --server-name "$WEFT_NGINX_SERVER_NAME"
+  if ! sudo nginx -t; then
+    sudo cp "$NGINX_BACKUP" "$CONF"
+    echo "FATAL: nginx rejected the edited configuration; restored $CONF from $NGINX_BACKUP" >&2
+    exit 1
   fi
+  if ! sudo systemctl reload nginx; then
+    sudo cp "$NGINX_BACKUP" "$CONF"
+    sudo nginx -t >/dev/null 2>&1 || true
+    echo "FATAL: nginx reload failed; restored $CONF from $NGINX_BACKUP" >&2
+    exit 1
+  fi
+  echo "  nginx routing enforced and reloaded; pre-change backup kept at $NGINX_BACKUP"
 else
   echo "  hosted MCP not in this build — skipping /mcp route"
 fi

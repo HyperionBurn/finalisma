@@ -1,6 +1,7 @@
 """Security contract for the authenticated ``POST /v1/org/invite`` API."""
 
 from __future__ import annotations
+from tests._server_readiness import await_serving as _await_serving
 
 import contextlib
 import io
@@ -74,6 +75,7 @@ class InviteApiSecurityTests(unittest.TestCase):
             daemon=True,
         )
         self.server_thread.start()
+        _await_serving(self.httpd)
 
     def tearDown(self) -> None:
         self.httpd.shutdown()

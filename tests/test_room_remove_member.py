@@ -6,6 +6,7 @@ The suite also locks down authorization and no-enumeration behavior.
 """
 
 from __future__ import annotations
+from tests._server_readiness import await_serving as _await_serving
 
 import json
 import shutil
@@ -79,6 +80,7 @@ class OwnerRemoveMemberTests(unittest.TestCase):
         _CloudHTTPHandler.service = cls.service
         cls.server_thread = threading.Thread(target=cls.httpd.serve_forever, daemon=True)
         cls.server_thread.start()
+        _await_serving(cls.httpd)
 
     @classmethod
     def tearDownClass(cls) -> None:

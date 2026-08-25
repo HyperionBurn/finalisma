@@ -1,4 +1,5 @@
 from __future__ import annotations
+from tests._server_readiness import await_serving as _await_serving
 
 import json
 import sys
@@ -41,6 +42,7 @@ class PublicJoinScopeTests(unittest.TestCase):
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
+        _await_serving(server)
         try:
             host, port = server.server_address
             body = json.dumps({"token": pairing["join_token"], "agent_id": "joining-agent", "consent": True})

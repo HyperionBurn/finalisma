@@ -1,4 +1,4 @@
-# Release evidence — 2026-08-23
+# Release evidence — 2026-08-25
 
 This is the current local evidence ledger for the integration hardening work.
 It is not a hosted-release approval, deployment proof, or third-party client
@@ -6,12 +6,15 @@ compatibility claim.
 
 ## Latest regression evidence
 
-Measured locally on the current source/test stack (merged base `main` at
-`873796f`; PR114 candidate branch `codex/ops-timer-enforcement-2026-08-23`):
+Measured on the current source/test stack. The deployed runtime baseline is
+`7cc2da5`; the room live-event UI change is now deployed and rechecked below.
 
 - Command: `python -B -m unittest discover -s tests`
-- Result: **1313 tests discovered; 1312 passed; 1 skipped**
-- Duration: 621.487 seconds on the local Windows runner
+- Result: **1336 tests discovered; 1335 passed; 1 skipped**
+- Current full-suite result: `Ran 1336 tests, exit code 0`
+- Full current-source run: `Ran 1336 tests in 540.918s`, `OK (skipped=1)`
+- Focused live room-detail regression: 6 tests passed, including escaped
+  payload rendering, audit visibility, and the live-poll contract
 - Focused API-readiness routing/identity suite: 69 tests passed locally
   (`tests.test_probe_live_release`, `tests.test_probe_live_release_contract`,
   `tests.test_deploy_gate`, and `tests.test_deploy_ops`)
@@ -23,7 +26,7 @@ Measured locally on the current source/test stack (merged base `main` at
 - Focused web/deploy readiness suite: 69 tests passed locally
 - Focused hosted-MCP probe/preflight/workflow suite: 37 tests passed locally
 - Focused rollback/deploy/preflight suite: 61 tests passed locally
-- Focused hosted-MCP/count suite: 40 tests passed locally
+- Focused hosted-MCP/count suite: 48 tests passed locally
   (`tests.test_hosted_mcp` and `tests.test_site.TestCountSyncTests`)
 - Focused hosted SDK/onboarding suite: 97 tests passed locally
   (`tests.test_interop_sdk`, `tests.test_onboarding_consistency`, and
@@ -51,6 +54,265 @@ Measured locally on the current source/test stack (merged base `main` at
   violations across eight scanned pages
 - `git diff --check`: passed
 
+GitHub Actions CI for PR #118 was retried after commit `02998e0` and was
+blocked before checkout with the account-level annotation “recent account
+payments have failed or your spending limit needs to be increased.” The job
+reported runner ID 0, zero billable milliseconds, and no executed steps. The
+workflow therefore has no remote test result yet. The same commit's local
+CI-equivalent commands passed, including compileall, the 3 count-guard tests,
+the 37 release-boundary tests, all 14 Node UX tests, the preservation guard,
+and the full 1336-test Python suite.
+
+Fresh verification in this session also passed the 320x568 customer journey,
+the three-identity cross-tenant roundtrip, and the downloaded public-bridge
+workflow, plus the public-edge organization-invite workflow. Each disposable
+organization was deleted through the product UI.
+The browser probes reported zero console errors and zero failed requests.
+The journey also forced a denied clipboard permission and correctly surfaced
+`Copy failed` instead of claiming that the credential was copied.
+The real OpenCode probe selected `opencode-go/deepseek-v4-pro` but the
+provider returned `Insufficient balance` before any MCP call. The real Claude
+probe launched with the generated config but stopped before any MCP call with
+`Not logged in`. Both host-state failures completed disposable cleanup.
+
+The latest deployed 320x568 dogfood pass also covered the real agent-key
+lifecycle: session-only key creation, one-time raw-key display, key-backed room
+creation, account-owner room close, secret-free key listing, browser revocation,
+and immediate HTTP 401 refusal on the revoked key. The same pass found and then
+fixed a real mobile room-detail overflow caused by long join-link and roster
+metadata strings. The wrapping fix shipped in `77f2ea9`; the post-deploy pass
+reported all mobile overflow and axe checks true, 0 console errors, 0 failed
+requests, 0 unexpected responses, and cleanup complete.
+
+After `1b4e7dd`, the same outside-in journey also passed at the desktop
+`1440x900` viewport with the same zero-error diagnostics and cleanup result.
+
+The current hosted MCP schema fix shipped in `1b4e7dd` after a native-client
+reproduction showed that a 30-second `room_wait` hit the desktop RPC deadline
+while 25 seconds returned the normal empty timeout envelope. The published
+hosted schema now caps `timeout_seconds` at 25 and explains that the lower-level
+service remains compatible with 30 seconds. The post-deploy native check saw
+`maximum: 25`, and `room_wait(25)` returned `timed_out: true` without a
+transport error.
+
+The same current-release recheck also passed the real password-recovery
+workflow: truthful reset-request notice, public reset form, old-password
+refusal, new-password login, prior-session revocation, deletion, and cleanup.
+A bounded production burst of 80 room messages admitted 60 requests with HTTP
+200 and returned 20 structured HTTP 429 responses with numeric `Retry-After`
+values, with 0 transport resets and clean browser cleanup.
+
+The new local scale-proof harness also passed after integration: the 10-agent
+run completed one paced cycle with 100 expected deliveries, 0 losses, 0 read
+failures, 0 unicast leaks, 0 ordering violations, and measured `room_wait`
+p50 158.7 ms / p95 244.2 ms. The 50-agent run completed one paced cycle with
+2,500 expected deliveries, 0 losses, 0 read failures, 0 unicast leaks, 0
+ordering violations, and measured `room_wait` p50 130.7 ms / p95 241.0 ms.
+The deliberate-drop selftest went red as required. These are local
+loopback-service results, not production scale or uptime claims; the full
+method and plan boundaries are in [`docs/SCALE_PROOF.md`](SCALE_PROOF.md).
+
+A direct public-edge POST with an unauthenticated 600 KiB body returned HTTP
+413 in about 1.4 seconds. The response was JSON-RPC shaped with
+`error.data.code=request_too_large` and `max_bytes=524288`, and the probe did
+not join a room or create an event. The earlier bridge-side hang was not
+reproduced at the HTTP boundary, so it remains a bridge/probe investigation,
+not a confirmed hosted-service defect.
+
+The latest guarded deployment of `7cc2da5` passed the extracted-HEAD gate with
+1336 tests, then passed the WAL-safe backup and restore drill, nginx validation,
+restart proof, and public health/readiness checks. The current backup is
+`/var/backups/weft/cloud-20260825T184820Z.db` (10,055,680 bytes); its restore
+drill reported 353 identity accounts and 147 rooms. The previous release was
+retained at `/opt/weft-releases/pre-deploy-20260825T184821Z`, and cloud, web,
+and outbox restarted with new main PIDs 395489, 395491, and 395490.
+
+Post-deploy real-user verification passed at 320x568 and 1440x900. Both runs
+covered live room-event arrival while the detail page stayed open, escaped
+payload display, audit payload display, bridge/config onboarding, key revoke,
+organization deletion, zero axe violations, zero console errors, zero failed
+requests, and complete disposable cleanup. The downloaded public bridge and
+full invite/role/ownership workflow also passed with zero browser errors.
+The correctly invoked root-origin release probe returned `PASS` with no
+diagnostics, and `healthcheck.py` returned `healthcheck ok`.
+
+## Hosted customer journey evidence
+
+An earlier backend release at commit `1b4e7dd` was deployed through the strict
+archive gate. The gate ran **1335 tests with 0 failures**, then passed the
+WAL-safe backup and restore drill, service restart proof, public readiness,
+and unauthenticated MCP routing checks.
+
+- The current deployment backup is
+  `/var/backups/weft/cloud-20260825T172033Z.db` (6,344,704 bytes). Its restore
+  drill reported 353 identity accounts and 147 rooms. The previous release was
+  retained at `/opt/weft-releases/pre-deploy-20260825T172033Z`. Cloud, web, and
+  outbox all restarted with new main PIDs. Nginx syntax validation and reload
+  passed, and the public checks returned 200 for health, readiness, signup, and
+  the agent card, 401 for unauthenticated room creation and `/mcp`.
+
+- The deployment backup at `/var/backups/weft/cloud-20260825T160844Z.db`
+  passed its restore drill with 350 identity accounts and 143 rooms. The
+  previous release was retained at
+  `/opt/weft-releases/pre-deploy-20260825T160844Z`, and all three services
+  restarted with new main PIDs. The cutover script observed a transient public
+  `/signup` 404 while a parallel static-site config owned the catch-all. A
+  pinned diagnosis confirmed local `weft-web` on 18789 still returned 200. The
+  route backup was preserved at
+  `/opt/weft-releases/nginx/finalisma.pre-weft-20260825T160846Z`, the durable
+  helper restored the customer-app catch-all, `nginx -t` and reload passed, and
+  the final public verification returned 200 for `/signup`, `/healthz`, and
+  `/v1/readyz`.
+- A parallel static-site cutover then replaced nginx's customer-app catch-all
+  with `/opt/weft/site`, making public `/signup` return the static 404 page
+  while local `weft-web` on 18789 still returned 200. A pinned, read-only
+  diagnosis confirmed the collision. The durable nginx route editor now always
+  enforces the 18789 customer-app catch-all, preserves `/v1`, `/j/`, `/mcp`,
+  and health on 18788, and has fixture coverage for both static replacement and
+  unknown-route refusal. The production config was backed up, syntax-checked,
+  reloaded, and public `/signup` returned 200 before the browser probe ran.
+
+- `scripts/probe_live_release.py` against the public API and Vercel site:
+  **PASS**, with no diagnostics and all release-alignment checks true.
+- `scripts/healthcheck.py --base-url
+  https://weft.switzerlandnorth.cloudapp.azure.com/v1
+  --edge-url https://weft.switzerlandnorth.cloudapp.azure.com
+  --require-https-edge`: **healthcheck ok**. The cloud base and public edge
+  are deliberately probed separately because `/readyz` at the public root
+  belongs to the web process, while `/v1/readyz` belongs to `weft-cloud`.
+- Fresh read-only recheck on **2026-08-25**: `scripts/probe_live_release.py`
+  with the verified root API origin returned **PASS** with an empty diagnostic
+  list, and `scripts/healthcheck.py` returned **healthcheck ok** with `/healthz`
+  200, `/v1/readyz` 200, and unauthenticated `/mcp` 401.
+- `scripts/probe_live_customer_journey.cjs` passed at **1440x900**, **390x844**,
+  and **320x568**. Each fresh browser context completed the real
+  site CTA → signup → login → dashboard → room creation → room-detail connect
+  link → human and JSON join-descriptor pages → connect page → OpenCode
+  connector-config generation → wrong-confirmation refusal → exact-confirmation
+  organization deletion flow. Each run reported no document-level horizontal
+  overflow, zero axe violations across the seven authenticated pages,
+  0 console errors, 0 failed requests, 0 unexpected responses, and completed
+  disposable-state cleanup. The axe run covers WCAG 2A/2AA and 2.1 A/AA
+  rules using the pinned local `scripts/axe.min.js` copy.
+- `scripts/probe_live_multiagent_roundtrip.cjs` passed against the hosted
+  `/v1` API with three disposable customer identities. One identity created a
+  room, a second identity redeemed the same link from another organization,
+  targeted and broadcast messages completed round trips, idempotent re-join
+  remained active, and a non-member's send and poll were refused without an
+  event-log entry. The probe then deleted all three organizations through the
+  real web UI. It reported 0 browser console errors and 0 failed requests.
+- `scripts/probe_live_public_bridge.cjs` passed against the production
+  `/downloads/weft-mcp-bridge.py` file and `/mcp` endpoint. The downloaded
+  subprocess initialized, listed the room tools, created a forming room,
+  joined its own agent-key identity, sent and received a room message, proved
+  that the server-derived key identity differs from the owning account,
+  acknowledged the event without replay, then woke `room_wait` from a second
+  external listener message, exited cleanly, and deleted all disposable
+  organizations through the web UI. It reported 0 browser console errors and
+  0 failed requests.
+- `scripts/probe_live_public_invite.cjs` passed against the public edge with
+  separate owner, member, and transfer-target browser contexts. The owner
+  created two member invites, the public `/invite/{token}` page exposed
+  labelled controls, a wrong email was refused without consuming the invite,
+  both addressed emails joined with the exact `member` role, and the owner
+  promoted one member to admin. The admin could not target the owner or grant
+  owner, then left and lost its session. The owner transferred ownership to
+  the remaining member through the explicit transfer form, the former owner
+  was demoted to admin and could leave, and the new owner retained deletion
+  authority. The disposable organization was deleted by the new owner. It
+  reported 0 browser console errors and 0 failed requests.
+- `scripts/probe_live_password_reset.cjs` passed against the public edge with
+  separate owner and recovery browser contexts. The reset-request form showed
+  truthful delivery-state copy, the public reset form accepted the new
+  password, the old password and prior browser session were refused, the new
+  password logged in, and the owner deleted the organization. The reset token
+  came only from the scoped disposable outbox row; SMTP mailbox receipt remains
+  unverified. The probe reported 0 browser console errors and 0 failed requests.
+- `scripts/probe_live_rate_limit.cjs` passed a bounded production burst of 80
+  authenticated room messages with concurrency 8. The service admitted 60
+  requests with HTTP 200 and refused 20 with structured HTTP 429 responses,
+  `rate_limited` error codes, and positive numeric `Retry-After` values. The
+  burst produced 0 transport resets, 0 unexpected statuses, 0 browser console
+  errors, and 0 failed browser requests. The disposable organization was
+  deleted through the guarded owner web flow.
+- The latest `scripts/probe_live_opencode.cjs` run launched the installed
+  OpenCode **1.18.22**
+  process with the generated OpenCode 1.x config and the exact requested model
+  `opencode-go/deepseek-v4-pro`. The provider rejected the run before any MCP
+  tool call with `Insufficient balance`. The probe deleted the disposable
+  organization afterward. This is an external provider-billing blocker, not a
+  Weft protocol result.
+- `scripts/probe_live_claude.cjs` launched the installed Claude Code process,
+  generated the Claude MCP config, downloaded the standalone bridge, and
+  completed browser cleanup with 0 console errors and 0 failed requests. Claude
+  stopped before any MCP tool call with `Not logged in · Please run /login`.
+  This is a local Claude-authentication blocker, not a Weft protocol result.
+- A fresh host retry on **2026-08-25** reproduced the same two external
+  blockers with the exact config paths and completed cleanup for both
+  disposable organizations. During the retry, the live web artifact was found
+  to lack the repository's guarded `/org/delete` route. Commit `901b43c` was
+  redeployed through the full gate, and a subsequent retry found the route in
+  the running `/opt/weft` tree and returned `cleanup_completed: true` for both
+  probes. Seven older zero-room disposable organizations from the stale run
+  were removed through the product's `OrgStore.delete_org` teardown, and a
+  read-only DB check confirmed zero remaining `weft-dogfood-*` accounts.
+- Post-cutover recheck on **2026-08-25** passed the full 320x568 browser
+  journey and the downloaded public-bridge `room_wait` round trip again. Both
+  probes reported zero console errors, zero failed requests, and completed
+  disposable cleanup.
+- Fresh hosted workflow recheck on **2026-08-25** passed the 320x568 and
+  1440x900 customer journeys, the three-identity cross-tenant round trip, and
+  the downloaded bridge workflow. The round trip proved idempotent join,
+  targeted and broadcast delivery, monotonic ordering, outsider send/poll
+  refusal, and no refused event-log entry. The bridge proved initialize,
+  tools/list, key-derived identity, send/poll/ack, external room_wait wake-up,
+  clean exit, and disposable cleanup. All browser probes reported zero console
+  errors and zero failed requests.
+- A fresh hosted organization-invite workflow also passed on **2026-08-25**.
+  The owner created a member invite, the public `/invite/{token}` form accepted
+  the member, the member role appeared in the organization view, replay of the
+  consumed invite returned the intended `Invalid or expired invite` HTTP 400,
+  owner deletion removed the organization, and the member session was
+  invalidated. The invite token came from the one scoped production outbox row
+  because SMTP mailbox delivery remains an explicit unverified boundary. The
+  only browser-console entry was Chromium's expected diagnostic for that
+  intentional HTTP 400 refusal; there were no failed network requests. The
+  owner page explained that owners cannot leave and offered email-based member
+  selectors after acceptance, while the member page hid admin controls and
+  retained the leave action. The owner then promoted the member through the
+  browser, and the resulting admin page hid owner-only role targets and the
+  owner-grant option. The admin left successfully, lost the session, and
+  disappeared from the owner's roster. The expanded workflow completed with
+  zero browser errors and zero failed requests.
+- Read-only VM operations check on **2026-08-25** found `weft-outbox` active and
+  running with exit status 0 since the current deployment. Its SMTP environment
+  file contains the expected host, port, username, password, and sender keys;
+  values were not read or emitted. This proves process/config presence only,
+  not mailbox receipt.
+- A fresh hosted agent-key lifecycle workflow passed on **2026-08-25**. A
+  disposable customer created a long-lived key, used it successfully before
+  revocation, revoked it through the session-only browser management page with
+  the explicit confirmation accepted, saw the revoked state, and then received
+  HTTP 401 on the same key. The API recorded `revoked_at`, the browser emitted
+  zero console errors, and the disposable organization was deleted.
+- A fresh hosted room-link revocation workflow passed on **2026-08-25**. The
+  owner created a room, a legitimate member joined through the shared link,
+  and the owner revoked that link through the browser confirmation flow. A new
+  outsider then received the expected refusal while the existing member still
+  polled successfully. The owner UI showed `Join link revoked`, all three
+  disposable organizations were deleted, and the browser emitted zero console
+  errors.
+- Post-deploy room-lifecycle verification for **9cecb14** passed at the live
+  origin. The browser created a forming room, closed it, saw the closed state,
+  saw the closed room in the room list, confirmed both destructive controls were
+  hidden, created a second room using the released slot, and deleted the
+  disposable organization. The 320x568 customer journey, release probe, and
+  downloaded bridge `room_wait` workflow also passed after cutover.
+
+This is hosted Weft browser evidence. It does not claim SMTP mailbox delivery,
+successful Claude/Cursor/Codex host execution, or successful third-party model
+calls while Claude is unauthenticated or OpenCode has insufficient balance.
+
 Hosted CI, review, merge, and deployment status must be read from the linked
 pull requests rather than inferred from this local ledger. The focused result
 is local evidence.
@@ -58,9 +320,11 @@ is local evidence.
 ## Explicitly unverified here
 
 - Docker image build and Compose lifecycle
-- VM systemd installation, SMTP credentials, mailbox delivery, and worker health
-- Public-edge invite opening and acceptance
-- Live Claude, Cursor, Codex, or OpenCode host-product launch
+- SMTP mailbox delivery and recipient receipt
+- Successful live Claude, Cursor, or Codex host-product execution; Claude was
+  launched but stopped before MCP calls because it was not logged in
+- Successful OpenCode model execution; OpenCode was launched but stopped before
+  MCP calls because of insufficient balance
 - Production uptime, external latency, customer adoption, or paid retention
 
 The repository intentionally keeps these boundaries visible. A local protocol

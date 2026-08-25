@@ -185,13 +185,13 @@ def _rewrite_page(document: str, *, page_url: str, origin: str, contact_url: str
         document,
         attribute="name",
         name="twitter:title",
-        content=_meta_content(document, "name", "twitter:title") or og_title,
+        content=og_title,
     )
     document = _ensure_meta(
         document,
         attribute="name",
         name="twitter:description",
-        content=_meta_content(document, "name", "twitter:description") or og_description,
+        content=og_description,
     )
     document = _ensure_meta(
         document,
@@ -237,6 +237,24 @@ def _rewrite_page(document: str, *, page_url: str, origin: str, contact_url: str
     return document
 
 
+def _rewrite_home_app_ctas(document: str, *, app_origin: str) -> str:
+    """Point the configured homepage funnel at the verified web app."""
+
+    login_url = f"{app_origin}/login"
+    signup_url = f"{app_origin}/signup"
+    document = re.sub(
+        r'href="/docs/quickstart\.html"([^>]*)>Read deployment gates',
+        rf'href="{login_url}"\1>Log in',
+        document,
+    )
+    document = re.sub(
+        r'href="/docs/quickstart\.html#self-hosted"([^>]*)>\s*Read the proof path',
+        rf'href="{signup_url}"\1>Open a room',
+        document,
+    )
+    return document
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -245,9 +263,17 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def build_release(*, origin: str, contact_url: str, output: Path, force: bool = False) -> dict[str, object]:
+def build_release(
+    *,
+    origin: str,
+    contact_url: str,
+    output: Path,
+    app_origin: str | None = None,
+    force: bool = False,
+) -> dict[str, object]:
     normalized_origin = normalize_origin(origin)
     normalized_contact = normalize_contact_url(contact_url)
+    normalized_app_origin = normalize_origin(app_origin) if app_origin else None
     resolved_output = output.resolve()
     resolved_root = ROOT.resolve()
     resolved_source = SOURCE.resolve()
@@ -277,6 +303,8 @@ def build_release(*, origin: str, contact_url: str, output: Path, force: bool = 
             origin=normalized_origin,
             contact_url=normalized_contact if relative == Path("index.html") else None,
         )
+        if relative == Path("index.html") and normalized_app_origin:
+            document = _rewrite_home_app_ctas(document, app_origin=normalized_app_origin)
         page.write_text(document, encoding="utf-8", newline="\n")
         indexed_urls.append(public_url)
         page_count += 1

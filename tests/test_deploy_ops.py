@@ -18,11 +18,8 @@ import subprocess
 import sys
 import tempfile
 import threading
-import time
 import unittest
-import urllib.error
-import urllib.request
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -31,6 +28,7 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 
 from healthcheck import append_log, run  # noqa: E402
 from mail_error_detail import classify_mail_error  # noqa: E402
+from tests._server_readiness import await_serving as _await_serving  # noqa: E402
 
 
 class _FakeApp(BaseHTTPRequestHandler):
@@ -70,41 +68,6 @@ class _FakeApp(BaseHTTPRequestHandler):
         pass
 
 
-def _await_serving(port: int, *, deadline: float = 10.0) -> None:
-    """Block until the server on ``port`` actually ANSWERS a request.
-
-    ``HTTPServer.__init__`` binds AND listens, so the kernel accepts
-    connections into the backlog the instant the socket exists. A
-    ``socket.create_connection`` probe therefore succeeds even when
-    ``serve_forever`` has not been scheduled yet -- which is why a
-    connect-based readiness check is a no-op here (it was tried, and it was).
-
-    Under CPU contention the request then sits unanswered until the client's
-    5s timeout fires; ``healthcheck.py`` records ``status=None`` and an
-    unrelated assertion fails with "None != 303". That flake was reproduced
-    on run 4 of 6 full-suite runs and cost two false deploy refusals.
-
-    "Can I connect" is not "is anyone answering", so this waits for a real
-    RESPONSE. Any HTTP status counts -- a 4xx/5xx still proves the handler
-    thread is live.
-    """
-    end = time.monotonic() + deadline
-    last = "no attempt made"
-    while time.monotonic() < end:
-        try:
-            with urllib.request.urlopen(
-                    f"http://127.0.0.1:{port}/healthz", timeout=1.0) as resp:
-                resp.read()
-            return
-        except urllib.error.HTTPError:
-            return
-        except Exception as exc:  # not listening yet, or not yet answering
-            last = repr(exc)
-            time.sleep(0.02)
-    raise AssertionError(
-        f"server on port {port} never answered within {deadline}s: {last}")
-
-
 class _ServerCase(unittest.TestCase):
     healthz_status = 200
     readyz_status = 200
@@ -118,7 +81,7 @@ class _ServerCase(unittest.TestCase):
             "readyz_service": self.readyz_service,
             "mcp_status": self.mcp_status,
         })
-        self.server = HTTPServer(("127.0.0.1", 0), handler)
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         self.port = self.server.server_address[1]
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -183,7 +146,7 @@ class HealthcheckEdgeBoundaryTests(_ServerCase):
             "healthz_status": 200,
             "mcp_status": 303,
         })
-        self.edge_server = HTTPServer(("127.0.0.1", 0), handler)
+        self.edge_server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         self.edge_port = self.edge_server.server_address[1]
         self.edge_thread = threading.Thread(
             target=self.edge_server.serve_forever, daemon=True,

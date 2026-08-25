@@ -15,6 +15,7 @@ WEBAPP_DESIGN.md §3.3, §6, §7, §9.3, §9.6, §10:
 """
 
 from __future__ import annotations
+from tests._server_readiness import await_serving as _await_serving
 
 import http.client
 import json
@@ -64,6 +65,7 @@ class WebAppDriver:
         self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), self.app.handler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
+        _await_serving(self.server)
         self.host, self.port = self.server.server_address
         self.cookies: dict[str, str] = {}
 
@@ -205,6 +207,7 @@ class WebAppDriver:
         self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), self.app.handler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
+        _await_serving(self.server)
         self.host, self.port = self.server.server_address
 
 
@@ -402,6 +405,7 @@ class TestListRooms(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("War Room", body)
         self.assertIn(f"/room/{self.room_id}", body)
+        self.assertIn("overflow-wrap:anywhere", body)
 
 
 class TestRoomDetail(unittest.TestCase):
@@ -427,6 +431,33 @@ class TestRoomDetail(unittest.TestCase):
         self.assertIn("room.created", body)
         self.assertIn("room.joined", body)
 
+    def test_room_detail_renders_message_payload_and_live_poll_contract(self):
+        with self.driver.backend.transaction() as tx:
+            account = tx.execute(
+                "SELECT account_id, tenant_id FROM cloud_identity_accounts "
+                "WHERE email = ?",
+                (self.email,),
+            ).fetchone()
+        marker = f"operator-message-{time.time_ns()}"
+        self.driver.app.rooms.room_send(
+            account["tenant_id"], self.room_id, account["account_id"], "*",
+            {"text": marker, "html": "<script>alert(1)</script>"},
+            exclude_sender=False,
+        )
+        status, body, _ = self.driver.get(f"/room/{self.room_id}")
+        self.assertEqual(status, 200)
+        self.assertIn(marker, body)
+        self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", body)
+        self.assertNotIn("<script>alert(1)</script>", body)
+        self.assertIn('data-room-event-log', body)
+        self.assertIn('data-room-events-status', body)
+        self.assertIn('fetch(\"/room/\"', body)
+
+        status, audit, _ = self.driver.get(f"/room/{self.room_id}/audit")
+        self.assertEqual(status, 200)
+        self.assertIn(marker, audit)
+        self.assertIn("Payloads are shown after viewer-specific redaction", audit)
+
     def test_room_detail_shows_shareable_link_to_owner_only(self):
         """The raw rm_ join link appears on the detail page ONLY for callers
         entitled to it (owner or active member of THIS room) — never for a
@@ -440,6 +471,18 @@ class TestRoomDetail(unittest.TestCase):
             "owner must see the shareable join link on the detail page",
         )
         self.assertIn("credential", body, "the page must warn the link is a credential")
+
+    def test_room_detail_wraps_long_join_link_on_narrow_viewports(self):
+        status, body, _ = self.driver.get(f"/room/{self.room_id}")
+        self.assertEqual(status, 200)
+        self.assertIn(
+            "overflow-wrap:anywhere",
+            body,
+            "the long shareable URL must wrap instead of widening the document",
+        )
+        self.assertIn("word-break:break-word", body)
+        self.assertIn(".flash code{display:inline-block", body)
+        self.assertIn("li{overflow-wrap:anywhere", body)
 
     def test_room_detail_uses_configured_public_origin_for_join_link(self):
         previous = os.environ.get("WEFT_PUBLIC_ORIGIN")
@@ -537,6 +580,7 @@ class TestAuditLog(unittest.TestCase):
         status, body, _ = self.driver.get(f"/room/{self.room_id}/audit")
         self.assertEqual(status, 200)
         self.assertIn("room.created", body)
+        self.assertIn("overflow-wrap:anywhere", body)
 
 
 class TestConnectPage(unittest.TestCase):
@@ -612,6 +656,11 @@ class TestConnectPage(unittest.TestCase):
         self.assertIn("Streamable HTTP", body)   # Tier 2 — MCP Streamable HTTP
         self.assertIn("bridge", body)            # Tier 3 — bridge/webhook
         self.assertIn("WeftClient", body)   # Tier 4 — SDK
+        self.assertIn("overflow-x:auto", body)
+        self.assertIn("overflow-wrap:anywhere", body)
+        self.assertIn("function fallback()", body)
+        self.assertIn(".then(done,fallback)", body)
+        self.assertIn('function fail(){el.textContent="Copy failed";}', body)
         self._assert_connector_configs_use_portable_entrypoint()
         self._assert_authenticated_pages_have_accessible_landmarks()
 
@@ -668,8 +717,24 @@ class TestConnectPage(unittest.TestCase):
             )
             self.assertEqual(status, 200, client)
             self.assertEqual(headers.get("Cache-Control"), "no-store")
-            match = re.search(r"<pre><code>(.*?)</code></pre>", body, re.S)
+            self.assertIn('href="/downloads/weft-mcp-bridge.py"', body, client)
+            self.assertIn('download="weft-mcp-bridge.py"', body, client)
+            self.assertNotIn("Install the <code>weft-mcp</code> package", body, client)
+            self.assertNotIn("python -m weft_mcp", body, client)
+            match = re.search(
+                r'<pre tabindex="0" role="region" '
+                r'aria-label="Generated connector configuration">'
+                r'<code>(.*?)</code></pre>',
+                body,
+                re.S,
+            )
             self.assertIsNotNone(match, client)
+            self.assertIn(
+                '<pre tabindex="0" role="region" '
+                'aria-label="Generated connector configuration">',
+                body,
+                client,
+            )
             config_text = unescape(match.group(1))
             # The entrypoint must be a file the CUSTOMER has. `-m weft_mcp`
             # was the previous answer and is not reachable: the package is
@@ -739,7 +804,7 @@ class TestConnectPage(unittest.TestCase):
     def test_authenticated_metadata_text_meets_wcag_aa_contrast(self):
         status, body, _ = self.driver.get("/")
         self.assertEqual(status, 200)
-        self.assertIn(".muted{color:#707070;}", body)
+        self.assertIn(".muted{color:#707070;", body)
         self.assertNotIn(".muted{color:#777;}", body)
         self.assertIn("border:1px solid #767676;", body)
         self.assertIn("border:1px solid #707070;", body)
@@ -835,6 +900,7 @@ class TestConnectPageRequestShapeDrivesRealJoin(unittest.TestCase):
             target=self._httpd.serve_forever, daemon=True,
         )
         self._cloud_thread.start()
+        _await_serving(self._httpd)
 
     def _cloud_post(self, path: str, body: dict, token: str | None = None):
         conn = http.client.HTTPConnection("127.0.0.1", self.cloud_port, timeout=10)
@@ -938,6 +1004,16 @@ class TestCloseRoom(unittest.TestCase):
         status, body, _ = self.driver.get(f"/room/{self.room_id}")
         self.assertEqual(status, 200)
         self.assertIn("closed", body)
+        self.assertNotIn(
+            f'action="/room/{self.room_id}/close"',
+            body,
+            "a closed room must not render a stale Close room control",
+        )
+        self.assertNotIn(
+            "Revoke join link",
+            body,
+            "a closed room must not render a stale link-revocation control",
+        )
 
 
 class TestMemberCannotClose(unittest.TestCase):
@@ -1030,6 +1106,7 @@ class TestMemberCanView(unittest.TestCase):
             target=self._cloud_httpd.serve_forever, daemon=True,
         )
         self._cloud_thread.start()
+        _await_serving(self._cloud_httpd)
 
     def _cloud_post(self, path: str, body: dict, token: str | None = None):
         conn = http.client.HTTPConnection("127.0.0.1", self._cloud_port, timeout=10)

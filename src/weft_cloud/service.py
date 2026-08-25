@@ -171,7 +171,25 @@ def _read_body(handler: BaseHTTPRequestHandler, max_bytes: int = 1_048_576) -> d
         length = int(handler.headers.get("Content-Length", "0"))
     except ValueError:
         length = 0
-    if length <= 0 or length > max_bytes:
+    if length <= 0:
+        raise _ServiceError("invalid_body", "Invalid request size", HTTPStatus.BAD_REQUEST)
+    if length > max_bytes:
+        # Do not leave an oversized request body on a keep-alive connection.
+        # The client may still be writing when the 400 is produced, and an
+        # unread body can turn the intended JSON refusal into a Windows
+        # ConnectionAbortedError. Drain a moderate oversize request completely
+        # and only drain a bounded prefix for pathological declarations, then
+        # close the connection so an attacker cannot force an unbounded read.
+        handler.close_connection = True
+        remaining = min(length, max_bytes * 8)
+        try:
+            while remaining:
+                chunk = handler.rfile.read(min(64 * 1024, remaining))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+        except (OSError, TimeoutError):
+            pass
         raise _ServiceError("invalid_body", "Invalid request size", HTTPStatus.BAD_REQUEST)
     raw = handler.rfile.read(length)
     try:
@@ -211,6 +229,13 @@ def _html_page(title: str, body_html: str) -> bytes:
         '<!DOCTYPE html>\n'
         '<html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        '<style>'
+        'body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;'
+        'max-width:56rem;margin:0 auto;padding:1rem;line-height:1.45;'
+        'overflow-wrap:anywhere;}'
+        'pre{overflow-x:auto;max-width:100%;}'
+        'code{overflow-wrap:anywhere;word-break:break-word;}'
+        '</style>'
         f'<title>{_html_esc(title)}</title></head>\n'
         f'<body>{body_html}</body></html>'
     )
@@ -1298,6 +1323,8 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        if self.close_connection:
+            self.send_header("Connection", "close")
         self._send_security_headers()
         for key, value in (extra_headers or {}).items():
             self.send_header(key, value)

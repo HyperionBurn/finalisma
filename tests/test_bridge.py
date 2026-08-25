@@ -5,6 +5,7 @@ actor-auth binding, signature verification, one-use enforcement.
 """
 
 from __future__ import annotations
+from tests._server_readiness import await_serving as _await_serving
 
 import hashlib
 import hmac
@@ -149,6 +150,7 @@ class WebhookBridgeTests(unittest.TestCase):
         port = server.server_address[1]
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
+        _await_serving(server)
         connect_calls = []
 
         def connect_to_receiver(address, timeout=None, source_address=None):
@@ -219,7 +221,9 @@ class WebhookBridgeTests(unittest.TestCase):
         redirect_thread = threading.Thread(target=redirect_server.serve_forever, daemon=True)
         target_thread = threading.Thread(target=target_server.serve_forever, daemon=True)
         redirect_thread.start()
+        _await_serving(redirect_server)
         target_thread.start()
+        _await_serving(target_server)
         try:
             port = redirect_server.server_address[1]
             reg = self.bridge.register_webhook(
@@ -268,6 +272,7 @@ class WebhookBridgeTests(unittest.TestCase):
         host, port = server.server_address
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
+        _await_serving(server)
 
         try:
             reg = self.bridge.register_webhook(
@@ -748,6 +753,7 @@ class HttpBridgeClientTests(unittest.TestCase):
         self.base_url = f"http://{self.host}:{self.port}"
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
+        _await_serving(self.server)
         self.client = HttpBridgeClient(base_url=self.base_url, timeout=5)
 
     def tearDown(self):

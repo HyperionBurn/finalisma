@@ -19,6 +19,7 @@ Authoritative spec: docs/AGENT_KEYS.md.
 """
 
 from __future__ import annotations
+from tests._server_readiness import await_serving as _await_serving
 
 import hashlib
 import json
@@ -334,6 +335,7 @@ class _SignoutHTTPHarness:
         _CloudHTTPHandler.service = self.service
         self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
         self._thread.start()
+        _await_serving(self._httpd)
 
     def request(self, method: str, path: str, body=None, token: str | None = None):
         data = json.dumps(body).encode("utf-8") if body is not None else None

@@ -38,6 +38,7 @@ Authoritative specs: docs/HOSTED_MCP_DESIGN.md, docs/ROOMS_DESIGN.md §6.
 """
 
 from __future__ import annotations
+from tests._server_readiness import await_serving as _await_serving
 
 import json
 import shutil
@@ -83,6 +84,7 @@ class _ParityHarness:
         _CloudHTTPHandler.service = self.service
         self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
         self._thread.start()
+        _await_serving(self._httpd)
         self._counter = 0
 
     def close(self) -> None:
@@ -488,10 +490,11 @@ class TestRestCreateAndBodyValidation(unittest.TestCase):
         owner = self.h.signup()
         big = json.dumps({"room_id": "room_deadbeef",
                           "payload": "x" * (2 * 1024 * 1024)}).encode("utf-8")
-        status, resp = self.h.post_raw("/v1/rooms/send", big,
-                                       token=owner["session_token"])
+        status, resp, headers = self.h._request(
+            "POST", "/v1/rooms/send", raw=big, token=owner["session_token"])
         self.assertEqual(status, HTTPStatus.BAD_REQUEST, resp)
         self.assertEqual(self.h.error_code(resp), "invalid_body")
+        self.assertEqual(headers.get("Connection"), "close")
 
     def test_malformed_json_and_non_object_bodies_refused_cleanly(self) -> None:
         owner = self.h.signup()

@@ -24,6 +24,7 @@ Authoritative spec: docs/IDENTITY_DESIGN.md sections 4, 9.3, 13.
 """
 
 from __future__ import annotations
+from tests._server_readiness import await_serving as _await_serving
 
 import json
 import sqlite3
@@ -114,6 +115,7 @@ class _RunningServer:
         _CloudHTTPHandler.service = self.service
         self.thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
         self.thread.start()
+        _await_serving(self._httpd)
 
     def stop(self) -> None:
         self._httpd.shutdown()

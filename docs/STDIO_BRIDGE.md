@@ -1,8 +1,9 @@
 # Weft stdio↔hosted MCP bridge
 
-**Status:** implemented (`src/weft_mcp/stdio_bridge.py`), wired into
-`weft-mcp --remote`, 17 integration tests (`tests/test_stdio_bridge.py`) driving
-the real code path a stdio MCP host uses. Authoritative usage lives here.
+**Status:** implemented (`src/weft_mcp/stdio_bridge.py`) and shipped as the
+standalone `site/downloads/weft-mcp-bridge.py` download. The 17 integration
+tests (`tests/test_stdio_bridge.py`) drive the real code path a stdio MCP host
+uses. Authoritative usage lives here.
 
 ## The problem it solves
 
@@ -29,7 +30,7 @@ client sees the hosted tool set as if it were a local process.
 ## Invocation
 
 ```bash
-weft-mcp --remote https://weft.switzerlandnorth.cloudapp.azure.com --token-env WEFT_TOKEN
+python weft-mcp-bridge.py --remote https://weft.switzerlandnorth.cloudapp.azure.com --token-env WEFT_TOKEN
 ```
 
 - `--remote <origin>` — base URL of the hosted service; the bridge POSTs to
@@ -48,7 +49,9 @@ session from `POST /v1/agent-keys` (`agk_` prefix). Sign up or sign in first to
 obtain the interactive session (`fss_` prefix), then use that session for key
 creation and later key management. MCP accepts either credential, but the
 session has a default 24 h TTL while the agent key has no expiry clock. Do not
-put the raw token in a config file; put it in the process environment.
+put the raw token in `args`. Host config files commonly define the client
+environment, so protect the generated config and revoke the key when you
+retire it.
 
 ## Client config block (ready to paste)
 
@@ -56,22 +59,12 @@ Claude Desktop / Cursor / Claude Code / Codex all use the same `command` +
 `args` shape. Set the token in the environment of the client process (or the
 shell that launches it) as `WEFT_TOKEN`.
 
-Install the versioned `weft-mcp` package in the Python environment used by the
-client before pasting this block. For a source checkout, create a project-local
-environment and install the tree as a normal package (not an editable checkout):
-
-```powershell
-python -m venv .venv
-.venv\Scripts\python.exe scripts\verify-package-install.py --python .venv\Scripts\python.exe
-```
-
-On macOS/Linux, use `.venv/bin/python` in both commands. The verification gate
-builds the package and proves `python -B -m weft_mcp --help` works without
-`PYTHONPATH` or `scripts/weft-mcp.py`. If the client does not inherit the venv,
-replace the generated config's `command` value with the absolute path to that
-venv interpreter. This repository does not claim that `weft-mcp==0.1.0` is
-published to a public package index; use the release artifact supplied for the
-deployment you are connecting to.
+Download `weft-mcp-bridge.py` from the verified Weft origin's
+`/downloads/weft-mcp-bridge.py` path. Save it on the machine that runs the
+client. Replace `<path-to-downloaded-weft-mcp-bridge.py>` in this block with
+the saved file path. The file uses only Python's standard library. No package
+installation or source checkout is required. If the client does not inherit
+the Python interpreter on `PATH`, replace `command` with its absolute path.
 
 ```json
 {
@@ -80,8 +73,7 @@ deployment you are connecting to.
       "command": "python",
       "args": [
         "-B",
-        "-m",
-        "weft_mcp",
+        "<path-to-downloaded-weft-mcp-bridge.py>",
         "--remote",
         "https://weft.switzerlandnorth.cloudapp.azure.com",
         "--token-env",
@@ -160,12 +152,14 @@ of the hosted service on a temp SQLite-WAL DB:
 
 ```powershell
 python -B -m unittest tests.test_stdio_bridge -v
+python -B site/downloads/weft-mcp-bridge.py --help
 ```
 
 ## Security notes
 
-- The token is read from an environment variable only; it is never placed in
-  argv, never logged, and never written to the config file.
+- The bridge reads the token from an environment variable; it is never placed
+  in argv or logged. A host config may define that environment value, so
+  protect the config and revoke the key when it is retired.
 - Token prefixes (`rm_`, `fst_actor_`, `fss_`) and the `weft.a2a` namespace are
   unchanged by this module.
 - The bridge never touches the hosted request body or response — it is a

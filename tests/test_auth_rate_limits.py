@@ -12,6 +12,7 @@ The web-app reset-request surface is covered in test_webapp_auth.py
 """
 
 from __future__ import annotations
+from tests._server_readiness import await_serving as _await_serving
 
 import json
 import shutil
@@ -70,6 +71,7 @@ class _ServiceHarness:
         _CloudHTTPHandler.service = self.service
         self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
         self._thread.start()
+        _await_serving(self._httpd)
 
     def post_full(self, path: str, body: dict) -> tuple[int, dict, dict]:
         data = json.dumps(body).encode("utf-8")

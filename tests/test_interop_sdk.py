@@ -9,6 +9,7 @@ Run: python -B -m unittest tests.test_interop_sdk -v   (<30s)
 """
 
 from __future__ import annotations
+from tests._server_readiness import await_serving as _await_serving
 
 import json
 import secrets
@@ -303,6 +304,7 @@ class SdkHostedInteropTests(unittest.TestCase):
         cls.base = f"http://127.0.0.1:{cls.port}"
         cls.thread = threading.Thread(target=cls._httpd.serve_forever, daemon=True)
         cls.thread.start()
+        _await_serving(cls._httpd)
 
     @classmethod
     def tearDownClass(cls) -> None:

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from tests._server_readiness import await_serving as _await_serving
 
 import contextlib
 import importlib.util
@@ -373,9 +374,11 @@ class LaunchSurfaceTests(unittest.TestCase):
             html,
         )
         self.assertIn(
-            '&#34;args&#34;: [&#34;-B&#34;, &#34;-m&#34;, &#34;weft_mcp&#34;',
+            'weft-mcp-bridge.py',
             html,
         )
+        self.assertIn('/downloads/weft-mcp-bridge.py', html)
+        self.assertNotIn('&#34;weft_mcp&#34;', html)
         # If a dependency-free claim appears, it must be scoped to the coordinator.
         if "dependency-free" in lowered:
             self.assertIn("coordinator", lowered)
@@ -488,6 +491,7 @@ class LaunchSurfaceTests(unittest.TestCase):
                 origin="https://weft.test",
                 contact_url="mailto:founder@example.invalid",
                 output=output,
+                app_origin="https://app.weft.test",
             )
             built_home = (output / "index.html").read_text(encoding="utf-8")
             built_demo = (output / "demo.html").read_text(encoding="utf-8")
@@ -496,6 +500,9 @@ class LaunchSurfaceTests(unittest.TestCase):
             self.assertIn('property="og:url" content="https://weft.test/"', built_home)
             self.assertIn('name="twitter:image" content="https://weft.test/assets/og-card.png"', built_home)
             self.assertIn('data-founder-contact href="mailto:founder@example.invalid"', built_home)
+            self.assertIn('href="https://app.weft.test/signup"', built_home)
+            self.assertIn('href="https://app.weft.test/login"', built_home)
+            self.assertNotIn('/docs/quickstart.html#self-hosted', built_home)
             self.assertIn('"contentUrl": "https://weft.test/assets/weft-demo.mp4"', built_demo)
             self.assertIn("https://weft.test/demo.html", (output / "sitemap.xml").read_text(encoding="utf-8"))
             self.assertIn("Sitemap: https://weft.test/sitemap.xml", (output / "robots.txt").read_text(encoding="utf-8"))
@@ -638,6 +645,7 @@ class LaunchSurfaceTests(unittest.TestCase):
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
+        _await_serving(server)
         try:
             host, port = server.server_address
 
@@ -665,6 +673,7 @@ class LaunchSurfaceTests(unittest.TestCase):
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
+        _await_serving(server)
         try:
             host, port = server.server_address
 
@@ -740,6 +749,7 @@ class LaunchSurfaceTests(unittest.TestCase):
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
+        _await_serving(server)
         try:
             host, port = server.server_address
 
@@ -806,6 +816,7 @@ class LaunchSurfaceTests(unittest.TestCase):
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
+        _await_serving(server)
         try:
             host, port = server.server_address
 
@@ -850,6 +861,7 @@ class LaunchSurfaceTests(unittest.TestCase):
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
+        _await_serving(server)
         try:
             host, port = server.server_address
 
@@ -1059,6 +1071,7 @@ class VercelDeployMaterializesReleaseTests(unittest.TestCase):
                 result = _VERCEL_BUILD_MODULE.build_release_for_deploy(
                     origin="https://weft.test",
                     contact_url="mailto:founder@example.invalid",
+                    app_origin="https://app.weft.test",
                 )
             finally:
                 _VERCEL_BUILD_MODULE.OUTPUT = original_output
@@ -1066,6 +1079,8 @@ class VercelDeployMaterializesReleaseTests(unittest.TestCase):
             self.assertEqual(result["origin"], "https://weft.test")
             self.assertIn('rel="canonical" href="https://weft.test/"', home)
             self.assertIn('data-founder-contact href="mailto:founder@example.invalid"', home)
+            self.assertIn('href="https://app.weft.test/signup"', home)
+            self.assertIn('href="https://app.weft.test/login"', home)
             self.assertTrue((output / "sitemap.xml").is_file())
             self.assertTrue((output / "release-manifest.json").is_file())
 
@@ -1209,6 +1224,15 @@ class DeployproofReleaseContentTests(unittest.TestCase):
                 '<meta property="og:title" content="Watch a real Weft coordinator run">',
                 demo,
             )
+            og_description = re.search(
+                r'<meta property="og:description" content="([^"]+)">', demo
+            )
+            twitter_description = re.search(
+                r'<meta name="twitter:description" content="([^"]+)">', demo
+            )
+            self.assertIsNotNone(og_description)
+            self.assertIsNotNone(twitter_description)
+            self.assertEqual(og_description.group(1), twitter_description.group(1))
 
             manifest = json.loads((output / "release-manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(
@@ -1362,6 +1386,9 @@ class TestCountSyncTests(unittest.TestCase):
         llms = (SITE / "llms.txt").read_text(encoding="utf-8")
         self.assertIn("Deployment gate", quickstart)
         self.assertIn("YOUR-VERIFIED-WEFT-ORIGIN", quickstart)
+        self.assertIn("/downloads/weft-mcp-bridge.py", quickstart)
+        self.assertIn("path-to-downloaded-weft-mcp-bridge.py", quickstart)
+        self.assertNotIn("weft_mcp", quickstart)
         self.assertIn('id="self-hosted"', quickstart)
         self.assertNotIn("weft.switzerlandnorth.cloudapp.azure.com", quickstart)
         self.assertIn("documented-unverified", llms)

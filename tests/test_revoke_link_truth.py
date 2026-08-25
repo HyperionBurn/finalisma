@@ -35,6 +35,7 @@ still fails this suite even if both differ from today's literal.
 """
 
 from __future__ import annotations
+from tests._server_readiness import await_serving as _await_serving
 
 import json
 import shutil
@@ -343,6 +344,7 @@ class CloudRevokeLinkTruthTests(RevokeLinkTruthMixin, unittest.TestCase):
         _CloudHTTPHandler.service = self.service
         self.server = threading.Thread(target=self._httpd.serve_forever, daemon=True)
         self.server.start()
+        _await_serving(self._httpd)
         self.owner_token = self._signup("owner@example.com")["session_token"]
         self.member_token = self._signup("member@example.com")["session_token"]
         self.joiner_token = self._signup("joiner@example.com")["session_token"]

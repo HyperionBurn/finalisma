@@ -40,6 +40,7 @@ already green because the current code simply never writes on the read paths.
 """
 
 from __future__ import annotations
+from tests._server_readiness import await_serving as _await_serving
 
 import contextlib
 import json
@@ -150,6 +151,7 @@ class RoomLivenessTestBase(unittest.TestCase):
             target=cls._httpd.serve_forever, daemon=True,
         )
         cls.server_thread.start()
+        _await_serving(cls._httpd)
 
     @classmethod
     def tearDownClass(cls) -> None:

@@ -13,6 +13,7 @@ SqliteWalBackend on a temp file, initialized with the cloud schema.
 """
 
 from __future__ import annotations
+from tests._server_readiness import await_serving as _await_serving
 
 import json
 import os
@@ -221,6 +222,7 @@ class IdentityNegatives(unittest.TestCase):
             base = f"http://127.0.0.1:{port}"
             thread = threading.Thread(target=httpd.serve_forever, daemon=True)
             thread.start()
+            _await_serving(httpd)
 
             # Create a known account through the REAL signup entry point.
             self._http_post(base, "/v1/auth/signup",

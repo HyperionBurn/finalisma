@@ -15,6 +15,7 @@ Drives the REAL /v1 HTTP entry points; counter reads are assertion only.
 """
 
 from __future__ import annotations
+from tests._server_readiness import await_serving as _await_serving
 
 import json
 import sys
@@ -65,6 +66,7 @@ class QuotaCounterBug1Base(unittest.TestCase):
         _CloudHTTPHandler.service = self.service
         self.server = threading.Thread(target=self._httpd.serve_forever, daemon=True)
         self.server.start()
+        _await_serving(self._httpd)
 
     def tearDown(self) -> None:
         if hasattr(self, "_httpd"):

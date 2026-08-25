@@ -65,6 +65,8 @@ class ToolSchemaDiscoverabilityTests(unittest.TestCase):
     def test_capped_integer_fields_publish_their_cap(self):
         """Silent clamping is a lie unless the schema admits it."""
         wait = next(t for t in HOSTED_TOOLS if t["name"] == "room_wait")
-        self.assertIn("30", wait["inputSchema"]["properties"]["timeout_seconds"]["description"])
+        description = wait["inputSchema"]["properties"]["timeout_seconds"]["description"]
+        self.assertIn("25", description)
+        self.assertIn("30", description)
         poll = next(t for t in HOSTED_TOOLS if t["name"] == "room_poll")
         self.assertIn("200", poll["inputSchema"]["properties"]["limit"]["description"])

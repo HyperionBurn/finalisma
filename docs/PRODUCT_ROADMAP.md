@@ -185,17 +185,17 @@ The goal is complete only when **every** line is true and independently verified
 > multiple agent sessions active on the host, and the standing rule is to
 > rerun on a controlled idle host rather than rebaseline to hide it
 > (`docs/PERFORMANCE.md` owns the provenance — no numbers are restated here).
-> Scale proof at 10/50 agents is in flight in a separate worktree and is not
-> claimed here until it lands with its own evidence.
+> Scale proof at 10/50 agents is landed in [`docs/SCALE_PROOF.md`](SCALE_PROOF.md).
+> Its measurements are local loopback evidence, not production scale or uptime.
 
 ### Truthfulness (non-negotiable, this product is sold on evidence)
 - [ ] Every number on the site and in docs measured against current code.
 - [ ] No claim of customers, traction, or verified hosts without a committed artifact.
 - [ ] `AGENTS.md` and `AGENT_HANDOVER.md` current with the code in the same commit.
 
-> **Current local evidence (2026-08-23):** the integration hardening stack is
-> documented in [`docs/RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1301 tests
-> discovered, 1300 passed, and 1 skipped. This is local evidence only; Docker,
+> **Current local evidence (2026-08-25):** the integration hardening stack is
+> documented in [`docs/RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1336 tests
+> discovered, 1335 passed, and 1 skipped. This is local evidence only; Docker,
 > hosted deployment, and third-party host-product proof remain open.
 
 ---
