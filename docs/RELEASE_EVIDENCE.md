@@ -154,6 +154,13 @@ and unauthenticated MCP routing checks.
   the explicit confirmation accepted, saw the revoked state, and then received
   HTTP 401 on the same key. The API recorded `revoked_at`, the browser emitted
   zero console errors, and the disposable organization was deleted.
+- A fresh hosted room-link revocation workflow passed on **2026-08-25**. The
+  owner created a room, a legitimate member joined through the shared link,
+  and the owner revoked that link through the browser confirmation flow. A new
+  outsider then received the expected refusal while the existing member still
+  polled successfully. The owner UI showed `Join link revoked`, all three
+  disposable organizations were deleted, and the browser emitted zero console
+  errors.
 
 This is hosted Weft browser evidence. It does not claim SMTP mailbox delivery,
 successful Claude/Cursor/Codex host execution, or successful third-party model
