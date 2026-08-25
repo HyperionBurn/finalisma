@@ -89,6 +89,23 @@ A bounded production burst of 80 room messages admitted 60 requests with HTTP
 200 and returned 20 structured HTTP 429 responses with numeric `Retry-After`
 values, with 0 transport resets and clean browser cleanup.
 
+The new local scale-proof harness also passed after integration: the 10-agent
+run completed one paced cycle with 100 expected deliveries, 0 losses, 0 read
+failures, 0 unicast leaks, 0 ordering violations, and measured `room_wait`
+p50 158.7 ms / p95 244.2 ms. The 50-agent run completed one paced cycle with
+2,500 expected deliveries, 0 losses, 0 read failures, 0 unicast leaks, 0
+ordering violations, and measured `room_wait` p50 130.7 ms / p95 241.0 ms.
+The deliberate-drop selftest went red as required. These are local
+loopback-service results, not production scale or uptime claims; the full
+method and plan boundaries are in [`docs/SCALE_PROOF.md`](SCALE_PROOF.md).
+
+A direct public-edge POST with an unauthenticated 600 KiB body returned HTTP
+413 in about 1.4 seconds. The response was JSON-RPC shaped with
+`error.data.code=request_too_large` and `max_bytes=524288`, and the probe did
+not join a room or create an event. The earlier bridge-side hang was not
+reproduced at the HTTP boundary, so it remains a bridge/probe investigation,
+not a confirmed hosted-service defect.
+
 ## Hosted customer journey evidence
 
 The backend release at commit `1b4e7dd` was deployed through the strict
