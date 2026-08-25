@@ -6,7 +6,7 @@ compatibility claim.
 
 ## Latest regression evidence
 
-Measured on the current source/test stack at probe/evidence head `27d332e`:
+Measured on the current source/test stack at probe/evidence head `901b43c`:
 
 - Command: `PYTHONPATH=src python -B -m unittest discover -s tests -q`
 - Result: **1319 tests discovered; 1318 passed; 1 skipped**
@@ -52,8 +52,8 @@ Measured on the current source/test stack at probe/evidence head `27d332e`:
 
 ## Hosted customer journey evidence
 
-The backend release at commit `6cfa079` was deployed through the strict
-archive gate. The gate ran **1315 tests with 0 failures**, then passed the
+The backend release at commit `901b43c` was deployed through the strict
+archive gate. The gate ran **1319 tests with 0 failures**, then passed the
 WAL-safe backup and restore drill, service restart proof, public readiness,
 and unauthenticated MCP routing checks.
 
@@ -106,6 +106,15 @@ and unauthenticated MCP routing checks.
   completed browser cleanup with 0 console errors and 0 failed requests. Claude
   stopped before any MCP tool call with `Not logged in · Please run /login`.
   This is a local Claude-authentication blocker, not a Weft protocol result.
+- A fresh host retry on **2026-08-25** reproduced the same two external
+  blockers with the exact config paths and completed cleanup for both
+  disposable organizations. During the retry, the live web artifact was found
+  to lack the repository's guarded `/org/delete` route. Commit `901b43c` was
+  redeployed through the full gate, and a subsequent retry found the route in
+  the running `/opt/weft` tree and returned `cleanup_completed: true` for both
+  probes. Seven older zero-room disposable organizations from the stale run
+  were removed through the product's `OrgStore.delete_org` teardown, and a
+  read-only DB check confirmed zero remaining `weft-dogfood-*` accounts.
 
 This is hosted Weft browser evidence. It does not claim SMTP mailbox delivery,
 successful Claude/Cursor/Codex host execution, or successful third-party model
