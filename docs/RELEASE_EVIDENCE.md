@@ -111,6 +111,13 @@ and unauthenticated MCP routing checks.
   email was refused without consuming the invite, the addressed email joined
   with the exact `member` role, and the owner deleted the organization. It
   reported 0 browser console errors and 0 failed requests.
+- `scripts/probe_live_password_reset.cjs` passed against the public edge with
+  separate owner and recovery browser contexts. The reset-request form showed
+  truthful delivery-state copy, the public reset form accepted the new
+  password, the old password and prior browser session were refused, the new
+  password logged in, and the owner deleted the organization. The reset token
+  came only from the scoped disposable outbox row; SMTP mailbox receipt remains
+  unverified. The probe reported 0 browser console errors and 0 failed requests.
 - `scripts/probe_live_rate_limit.cjs` passed a bounded production burst of 80
   authenticated room messages with concurrency 8. The service admitted 60
   requests with HTTP 200 and refused 20 with structured HTTP 429 responses,
