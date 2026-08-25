@@ -6,7 +6,7 @@ compatibility claim.
 
 ## Latest regression evidence
 
-Measured on the current source/test stack after probe commit `4b1aa2f`:
+Measured on the current source/test stack after merge commit `4232ea5`:
 
 - Command: `PYTHONPATH=src python -B -m unittest discover -s tests -q`
 - Result: **1327 tests discovered; 1326 passed; 1 skipped**
@@ -126,6 +126,14 @@ and unauthenticated MCP routing checks.
   journey and the downloaded public-bridge `room_wait` round trip again. Both
   probes reported zero console errors, zero failed requests, and completed
   disposable cleanup.
+- Fresh hosted workflow recheck on **2026-08-25** passed the 320x568 and
+  1440x900 customer journeys, the three-identity cross-tenant round trip, and
+  the downloaded bridge workflow. The round trip proved idempotent join,
+  targeted and broadcast delivery, monotonic ordering, outsider send/poll
+  refusal, and no refused event-log entry. The bridge proved initialize,
+  tools/list, key-derived identity, send/poll/ack, external room_wait wake-up,
+  clean exit, and disposable cleanup. All browser probes reported zero console
+  errors and zero failed requests.
 
 This is hosted Weft browser evidence. It does not claim SMTP mailbox delivery,
 successful Claude/Cursor/Codex host execution, or successful third-party model
