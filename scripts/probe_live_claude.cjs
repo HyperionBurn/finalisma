@@ -131,7 +131,74 @@ async function main() {
   let tempDir;
   let accountCreated = false;
   let cleanupCompleted = false;
+  let credentials = null;
   let claudeResult = null;
+
+  const cleanupDisposableOrg = async () => {
+    if (!accountCreated || cleanupCompleted || !credentials || !browser) return;
+    let cleanupContext;
+    let cleanupPage;
+    let cleanupStep = "creating cleanup context";
+    let cleanupDashboardRole = "unknown";
+    try {
+      cleanupContext = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: "en-US" });
+      cleanupPage = await cleanupContext.newPage();
+      cleanupStep = "opening login";
+      await cleanupPage.goto(`${apiOrigin}/login`, { waitUntil: "domcontentloaded", timeout: 15000 });
+      cleanupStep = "submitting login";
+      await cleanupPage.locator('input[name="email"]').fill(credentials.email);
+      await cleanupPage.locator('input[name="password"]').fill(credentials.password);
+      await Promise.all([
+        cleanupPage.waitForURL((url) => url.pathname === "/", { timeout: 15000 }),
+        cleanupPage.getByRole("button", { name: /^log in$/i }).click(),
+      ]);
+      const dashboardText = await cleanupPage.locator("body").innerText();
+      cleanupDashboardRole = dashboardText.match(/\((owner|admin|member)\)/)?.[1] || "unknown";
+      cleanupStep = "opening organization page";
+      await cleanupPage.goto(`${apiOrigin}/org`, { waitUntil: "domcontentloaded", timeout: 15000 });
+      cleanupStep = "finding organization deletion form";
+      const confirmation = cleanupPage.locator('input[name="confirmation"]');
+      if (await confirmation.count() === 1) {
+        cleanupStep = "submitting organization deletion form";
+        await confirmation.fill("DELETE");
+        await Promise.all([
+          cleanupPage.waitForURL((url) => url.pathname === "/login" && url.searchParams.has("org_deleted"), { timeout: 15000 }),
+          cleanupPage.locator('form[action="/org/delete"] button').click(),
+        ]);
+      } else {
+        // A host failure can leave the owner page without the destructive
+        // control rendered. Use the same authenticated web endpoint with its
+        // CSRF token so a failed probe cannot leak a disposable organization.
+        cleanupStep = "submitting organization deletion fallback";
+        const csrf = cleanupPage.locator('input[name="_csrf"]').first();
+        if (await csrf.count() !== 1) throw new Error("cleanup CSRF field unavailable");
+        const result = await cleanupPage.evaluate(async (csrfValue) => {
+          const response = await fetch("/org/delete", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({ _csrf: csrfValue, confirmation: "DELETE" }),
+            redirect: "manual",
+          });
+          return { status: response.status, location: response.headers.get("location") || "" };
+        }, await csrf.inputValue());
+        if (![303, 302].includes(result.status) || !result.location.includes("org_deleted=1")) {
+          throw new Error(`cleanup fallback returned HTTP ${result.status}`);
+        }
+      }
+      cleanupCompleted = true;
+      checks.browser_cleanup_deleted_org = true;
+    } catch (error) {
+      cleanupCompleted = false;
+      let body = "";
+      try { body = await cleanupPage?.locator("body").innerText() || ""; } catch { /* diagnostic only */ }
+      checks.cleanup_has_delete_heading = body.includes("Delete organization");
+      checks.cleanup_delete_form_count = cleanupPage ? await cleanupPage.locator('form[action="/org/delete"]').count() : 0;
+      checks.cleanup_dashboard_role = cleanupDashboardRole;
+      checks.cleanup_failure = redact(`${cleanupStep}: ${error.message}; url=${cleanupPage?.url() || "none"}; body=${body.slice(0, 180)}`);
+    } finally {
+      if (cleanupContext) await cleanupContext.close();
+    }
+  };
 
   try {
     browser = await chromium.launch({ headless: true });
@@ -152,6 +219,7 @@ async function main() {
     const nonce = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const email = `weft-dogfood-${nonce}@example.com`;
     const password = `Weft-Dogfood-${nonce}-ok!`;
+    credentials = { email, password };
     await page.goto(`${apiOrigin}/login?verify_sent=1`, { waitUntil: "networkidle", timeout: 30000 });
     checks.signup_email_delivery_is_testable = (await page.locator("body").innerText()).includes("Email delivery is not enabled");
     if (!checks.signup_email_delivery_is_testable) throw new Error("the no-inbox disposable signup path is unavailable");
@@ -231,20 +299,7 @@ async function main() {
   } catch (error) {
     checks.failure = redact(error.message);
   } finally {
-    if (accountCreated && !cleanupCompleted && page) {
-      try {
-        await page.goto(`${apiOrigin}/org`, { waitUntil: "domcontentloaded", timeout: 15000 });
-        const confirmation = page.locator('input[name="confirmation"]');
-        if (await confirmation.count() === 1) {
-          await confirmation.fill("DELETE");
-          await page.locator('form[action="/org/delete"] button').click();
-          await page.waitForLoadState("domcontentloaded", { timeout: 15000 });
-          cleanupCompleted = new URL(page.url()).pathname === "/login";
-        }
-      } catch {
-        cleanupCompleted = false;
-      }
-    }
+    await cleanupDisposableOrg();
     if (context) await context.close();
     if (browser) await browser.close();
     if (tempDir) await fs.promises.rm(tempDir, { recursive: true, force: true });
