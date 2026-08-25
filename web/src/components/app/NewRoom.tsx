@@ -1,24 +1,120 @@
 /**
- * NewRoom.tsx — create a room.
+ * NewRoom.tsx — create a room and hand over its link.
+ *
+ * This component previously called nothing at all. Its submit handler set
+ * window.location to /app/room?id=<the name the user typed>, so no room was
+ * ever created, the room page then reported "Room not found", and the join
+ * link was never obtained. The most important action in the product was a
+ * mock.
+ *
+ * The screen does NOT navigate on success, and that is deliberate. The
+ * service returns `shareable_link` from room_create and from nowhere else -
+ * not room_info, not room_list. Redirecting to the room view would destroy
+ * the only copy of the credential the room exists to hand out. So the link
+ * is shown here, with copy, and opening the room is offered as a next step
+ * the person chooses.
  *
  * The cap control states the rule that catches everyone out: the account
  * creating the room occupies one of the places, so a cap of 8 admits 7 more
- * agents. The live line under the slider does that arithmetic out loud, so
- * nobody has to discover it by running out of seats mid-incident.
+ * agents.
  */
 import { useState } from 'react';
+import { ApiError, createRoom, type CreatedRoom } from '../../lib/api';
 
 const PLAN_MAX = 15;
+
+const TTLS = [
+  { v: 3600, label: '1 hour' },
+  { v: 28800, label: '8 hours' },
+  { v: 86400, label: '24 hours' },
+  { v: 604800, label: '7 days' },
+];
 
 export default function NewRoom() {
   const [name, setName] = useState('');
   const [cap, setCap] = useState(8);
+  const [ttl, setTtl] = useState(86400);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [room, setRoom] = useState<CreatedRoom | null>(null);
+  const [copied, setCopied] = useState(false);
+
   const joiners = cap - 1;
 
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await createRoom(name.trim() || 'untitled room', cap, ttl);
+      setRoom(r);
+    } catch (err) {
+      setError((err as ApiError).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const copy = async () => {
+    if (!room?.shareable_link) return;
+    try { await navigator.clipboard.writeText(room.shareable_link); } catch {}
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 2000);
+  };
+
+  // ---- created: the link is the whole point of this screen ----
+  if (room) {
+    const expires = room.expires_at
+      ? new Date(room.expires_at * 1000).toLocaleString()
+      : null;
+    return (
+      <>
+        <div className="head">
+          <h2 className="head__t">Room created</h2>
+          <p className="head__d">
+            Hand this link to every agent you want in the room. They all join the same
+            ordered log.
+          </p>
+        </div>
+
+        {room.shareable_link ? (
+          <section className="reveal" role="alert">
+            <p className="reveal__l">Copy this now — it is not shown again</p>
+            <div className="token" style={{ marginTop: 10 }}>
+              <code>{room.shareable_link}</code>
+              <button onClick={copy} aria-label="Copy the join link">{copied ? '✓' : '⧉'}</button>
+            </div>
+            <p className="warnline">
+              The service returns this link only when the room is created, so it cannot be
+              looked up later. Anyone holding it can join — treat it like a password. If you
+              lose it, create another room.
+              {expires && <> This link stops working on <b>{expires}</b>.</>}
+            </p>
+          </section>
+        ) : (
+          <p className="notice notice--bad" role="alert">
+            The room was created, but the service did not return a join link. Open the room
+            and create another if you need one to share.
+          </p>
+        )}
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 22, flexWrap: 'wrap' }}>
+          <a className="btn btn--pri" href={`/app/room?id=${encodeURIComponent(room.room_id)}`}>
+            Open the room
+          </a>
+          <a className="btn btn--quiet" href="/app/connect">Connect an agent</a>
+          <button className="btn btn--bare" onClick={() => { setRoom(null); setName(''); }}>
+            Create another
+          </button>
+        </div>
+      </>
+    );
+  }
+
+  // ---- the form ----
   return (
-    <form
-      onSubmit={(e) => { e.preventDefault(); window.location.href = '/app/room?id=' + (name || 'new-room'); }}
-    >
+    <form onSubmit={submit} noValidate>
       <div className="head">
         <h2 className="head__t">Create a room</h2>
         <p className="head__d">
@@ -26,6 +122,8 @@ export default function NewRoom() {
           holding it can join, so share it the way you would share a password.
         </p>
       </div>
+
+      {error && <p className="notice notice--bad" role="alert">{error}</p>}
 
       <div className="field">
         <label className="field__l" htmlFor="rname">Room name</label>
@@ -55,16 +153,18 @@ export default function NewRoom() {
 
       <div className="field">
         <label className="field__l" htmlFor="ttl">How long it stays open</label>
-        <select className="field__i" id="ttl" defaultValue="86400" style={{ cursor: 'pointer' }}>
-          <option value="3600">1 hour</option>
-          <option value="28800">8 hours</option>
-          <option value="86400">24 hours</option>
-          <option value="604800">7 days</option>
+        <select
+          className="field__i" id="ttl" value={ttl} style={{ cursor: 'pointer' }}
+          onChange={(e) => setTtl(Number(e.target.value))}
+        >
+          {TTLS.map((t) => <option key={t.v} value={t.v}>{t.label}</option>)}
         </select>
         <p className="field__h">When this elapses the room closes for everyone in it.</p>
       </div>
 
-      <button className="auth__btn" type="submit" style={{ maxWidth: 220 }}>Create room</button>
+      <button className="auth__btn" type="submit" style={{ maxWidth: 220 }} disabled={busy}>
+        {busy ? 'Creating…' : 'Create room'}
+      </button>
     </form>
   );
 }

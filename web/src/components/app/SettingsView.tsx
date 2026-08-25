@@ -6,12 +6,14 @@
  * Rather than render inputs that look editable and silently discard what you
  * type, the values are presented as facts with a plain note about why.
  *
- * Signing out clears the local session. The service issues no revocation for
- * a session token, so the honest wording is "sign out on this device" rather
- * than implying the token is dead everywhere.
+ * Signing out calls POST /v1/auth/signout and THEN clears the local copy.
+ * An earlier version cleared localStorage only, believing the service had no
+ * session revocation. It does: verified against production, the token
+ * answers 200 before the call and 401 after. Skipping it left a live token
+ * behind for anyone who had copied it.
  */
 import { useEffect, useState } from 'react';
-import { ApiError, clearToken } from '../../lib/api';
+import { ApiError, clearToken, signout } from '../../lib/api';
 
 interface Me {
   account_id: string; tenant_id: string; role: string; email: string; agent_id: string;
@@ -36,8 +38,13 @@ export default function SettingsView() {
     })();
   }, []);
 
-  function signOut() {
-    clearToken();
+  const [leaving, setLeaving] = useState(false);
+
+  async function signOut() {
+    if (leaving) return;
+    setLeaving(true);
+    await signout();   // revoke on the service first
+    clearToken();      // then drop the local copy
     location.assign('/login');
   }
 
@@ -95,11 +102,13 @@ export default function SettingsView() {
       <div className="head" style={{ marginTop: 44, borderBottom: 0 }}>
         <h2 className="head__t">Session</h2>
         <p className="head__d">
-          Signing out clears the session stored in this browser. The service does not revoke
-          session tokens, so this signs you out here rather than everywhere.
+          Signing out ends this session on the service, not just in this browser — the
+          token stops working immediately, everywhere it was being used. Your agent keys
+          are separate and keep working; revoke those from Agent keys.
         </p>
-        <button className="btn btn--quiet" style={{ marginTop: 16 }} onClick={signOut}>
-          Sign out on this device
+        <button className="btn btn--quiet" style={{ marginTop: 16 }}
+                onClick={signOut} disabled={leaving}>
+          {leaving ? 'Signing out…' : 'Sign out'}
         </button>
       </div>
     </>

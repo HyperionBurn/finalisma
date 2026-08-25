@@ -6,24 +6,25 @@
  * rooms with live state because that is what a person opens this for; the
  * settings links sit underneath, quiet, where they belong.
  *
+ * The rooms and the account identity are islands, NOT static markup. They
+ * were once a hardcoded array and a hardcoded email address, which meant
+ * every account saw four invented rooms and the author's address on every
+ * page - while the main column, which did ask the service, said "No rooms
+ * yet" directly beside it.
+ *
  * Room state is shown as a dot AND a figure, never colour alone — a green
  * pill that means "healthy" is invisible to a colour-blind operator, and
  * this is a surface people will scan under pressure.
  */
 import '../styles/app.css';
+import RailRooms from '../components/app/RailRooms.tsx';
+import RailAccount from '../components/app/RailAccount.tsx';
 
 interface Props {
   title: string;
   current?: string;
 }
 const { title, current = '' } = Astro.props;
-
-const ROOMS = [
-  { id: 'incident-4471', name: 'incident-4471', members: 6, state: 'live' },
-  { id: 'release-train', name: 'release-train', members: 2, state: 'live' },
-  { id: 'spec-review', name: 'spec-review', members: 0, state: 'idle' },
-  { id: 'nightly-bench', name: 'nightly-bench', members: 0, state: 'idle' },
-];
 ---
 
 <!doctype html>
@@ -56,19 +57,7 @@ const ROOMS = [
       </a>
 
       <p class="rail__label">Rooms</p>
-      <div class="rail__group">
-        {ROOMS.map((r) => (
-          <a
-            class="nav"
-            href={`/app/room?id=${r.id}`}
-            aria-current={current === r.id ? 'page' : undefined}
-          >
-            <span class={`dot dot--${r.state === 'live' ? 'live' : 'off'}`} aria-hidden="true"></span>
-            <span class="nav__n">{r.name}</span>
-            <span class="nav__c">{r.members || '—'}</span>
-          </a>
-        ))}
-      </div>
+      <RailRooms client:load />
 
       <p class="rail__label">Account</p>
       <div class="rail__group">
@@ -95,13 +84,7 @@ const ROOMS = [
       </div>
 
       <div class="rail__foot">
-        <a class="who" href="/app/settings">
-          <span class="who__av" aria-hidden="true">W</span>
-          <span class="who__n">
-            <span class="who__e">wasif@wasifwaseem.tech</span>
-            <span class="who__p">Free · 5 rooms</span>
-          </span>
-        </a>
+        <RailAccount client:load />
       </div>
     </aside>
 

@@ -119,6 +119,49 @@ export const signup = (email: string, password: string, org_name?: string) =>
 export const signin = (email: string, password: string) =>
   rest<Session>('/v1/auth/signin', { email, password });
 
+/**
+ * End the session on the SERVICE, not just in this browser.
+ *
+ * Verified against production: the token answers 200 on /v1/me before this
+ * call and 401 after it. An earlier version of the settings screen cleared
+ * localStorage only, on the stated belief that the service does not revoke
+ * session tokens - it does, and skipping this left a token that anyone who
+ * had copied it could keep using after the owner had "signed out".
+ *
+ * Never throws: the local session is cleared by the caller regardless, and a
+ * failure here must not trap someone on a page they are trying to leave.
+ */
+export async function signout(): Promise<void> {
+  const token = getToken();
+  if (!token) return;
+  try {
+    await fetch(API_ORIGIN + '/v1/auth/signout', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch { /* offline: the local clear below is still correct */ }
+}
+
+export interface Me {
+  account_id: string; tenant_id: string; role: string;
+  email: string; agent_id: string;
+}
+
+/**
+ * Who is signed in. Measured shape - the service returns exactly these five
+ * fields and NO plan or quota information, so anything plan-shaped in the UI
+ * has to be derived from real counts rather than read from here.
+ */
+export async function me(): Promise<Me> {
+  const token = requireAuth();
+  const res = await fetch(API_ORIGIN + '/v1/me', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (res.status === 401) { clearToken(); location.replace('/login?expired=1'); throw new ApiError('Session expired', 'unauthenticated', 401); }
+  if (!res.ok) throw new ApiError(`Could not load your account (${res.status})`, 'load_failed', res.status);
+  return res.json();
+}
+
 export interface AgentKey {
   key_id: string; label: string; agent_key?: string; created_at: string;
 }
@@ -214,9 +257,29 @@ export interface Member {
 }
 
 export const listRooms = () => tool<{ rooms: Room[] }>('room_list');
+export interface CreatedRoom {
+  room_id: string;
+  link_id?: string;
+  link_token?: string;
+  /** The full https://…/j/<token> URL. Returned HERE AND NOWHERE ELSE. */
+  shareable_link?: string;
+  /** Unix seconds (float) when the link stops working. */
+  expires_at?: number;
+  cap?: number;
+  state?: string;
+  owner_agent_id?: string;
+}
+
+/**
+ * Create a room.
+ *
+ * The response carries `shareable_link`, and this is the only call in the
+ * whole API that ever returns it — room_info and room_list do not. Losing
+ * this response means losing the link, and the only recovery is creating a
+ * different room. Callers must show it before navigating anywhere.
+ */
 export const createRoom = (name: string, cap: number, ttl_seconds?: number) =>
-  tool<{ room_id: string; link_token?: string; link_id?: string }>('room_create',
-    { name, cap, ...(ttl_seconds ? { ttl_seconds } : {}) });
+  tool<CreatedRoom>('room_create', { name, cap, ...(ttl_seconds ? { ttl_seconds } : {}) });
 export const joinRoom = (room_id: string, link_token: string) =>
   tool('room_join', { room_id, link_token, consent: true, capabilities: ['read', 'write'] });
 export const roomInfo = (room_id: string) =>
