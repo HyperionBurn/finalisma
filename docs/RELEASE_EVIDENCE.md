@@ -9,7 +9,7 @@ compatibility claim.
 Measured on the current source/test stack after deployed fix commit `20b4ba0`:
 
 - Command: `python -B -m unittest discover -s tests`
-- Result: **1330 tests discovered; 1329 passed; 1 skipped**
+- Result: **1331 tests discovered; 1330 passed; 1 skipped**
 - Duration: 653.296 seconds on the local Windows runner
 - Focused API-readiness routing/identity suite: 69 tests passed locally
   (`tests.test_probe_live_release`, `tests.test_probe_live_release_contract`,
@@ -168,9 +168,11 @@ and unauthenticated MCP routing checks.
   intentional HTTP 400 refusal; there were no failed network requests. The
   owner page explained that owners cannot leave and offered email-based member
   selectors after acceptance, while the member page hid admin controls and
-  retained the leave action. The member then left successfully, lost the
-  session, and disappeared from the owner's roster. The expanded workflow
-  completed with zero browser errors and zero failed requests.
+  retained the leave action. The owner then promoted the member through the
+  browser, and the resulting admin page hid owner-only role targets and the
+  owner-grant option. The admin left successfully, lost the session, and
+  disappeared from the owner's roster. The expanded workflow completed with
+  zero browser errors and zero failed requests.
 - Read-only VM operations check on **2026-08-25** found `weft-outbox` active and
   running with exit status 0 since the current deployment. Its SMTP environment
   file contains the expected host, port, username, password, and sender keys;

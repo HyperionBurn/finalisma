@@ -265,8 +265,35 @@ async function main() {
         'form[action="/org/invite"], form[action="/org/role"], form[action="/org/remove"]',
       ).count() === 0
       && orgText.includes("Only organization admins can invite or manage members");
+    const memberLeaveForm = memberPage.locator('form[action="/org/leave"]');
+    checks.member_can_leave = await memberLeaveForm.count() === 1;
+
+    await ownerPage.goto(edgeOrigin + "/org", { waitUntil: "networkidle", timeout: 30000 });
+    const ownerRoleForm = ownerPage.locator('form[action="/org/role"]');
+    const memberOption = ownerRoleForm.locator('select[name="account_id"] option')
+      .filter({ hasText: memberEmail }).first();
+    const memberAccountId = await memberOption.getAttribute("value");
+    if (!memberAccountId) throw new Error("owner role form did not expose the accepted member");
+    await ownerRoleForm.locator('select[name="account_id"]').selectOption(memberAccountId);
+    await ownerRoleForm.locator('select[name="role"]').selectOption("admin");
+    await Promise.all([
+      ownerPage.waitForURL((url) => url.pathname === "/org", { timeout: 30000 }),
+      ownerRoleForm.getByRole("button", { name: "Set role", exact: true }).click(),
+    ]);
+    checks.owner_promoted_member = true;
+
+    await loginExisting(memberPage, memberEmail, memberPassword);
+    await memberPage.goto(edgeOrigin + "/org", { waitUntil: "networkidle", timeout: 30000 });
+    const adminRoleForm = memberPage.locator('form[action="/org/role"]');
+    const adminRoleTargets = await adminRoleForm
+      .locator('select[name="account_id"] option').allTextContents();
+    checks.admin_page_has_management = await memberPage.locator('form[action="/org/invite"]').count() === 1;
+    checks.admin_cannot_target_owner = !adminRoleTargets.some((label) => label.includes(ownerEmail));
+    checks.admin_cannot_grant_owner = await adminRoleForm
+      .locator('select[name="role"] option[value="owner"]').count() === 0;
+
     const leaveForm = memberPage.locator('form[action="/org/leave"]');
-    checks.member_can_leave = await leaveForm.count() === 1;
+    checks.member_can_leave = checks.member_can_leave && await leaveForm.count() === 1;
     if (checks.member_can_leave) {
       await Promise.all([
         memberPage.waitForURL((url) => url.pathname === "/login", { timeout: 30000 }),

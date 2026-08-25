@@ -374,6 +374,29 @@ class TestRoleManagement(unittest.TestCase):
         self.assertIn('<label>Member <select name="account_id"', body)
         self.assertIn(self.member_email, body)
 
+    def test_admin_does_not_see_impossible_owner_controls(self):
+        csrf = self.driver.csrf()
+        status, _, _ = self.driver.post(
+            "/org/role",
+            {"account_id": self.member_acct, "role": "admin", "_csrf": csrf},
+        )
+        self.assertEqual(status, 303)
+        owner_acct = self.driver.account_id_for_email(self.tenant_id, self.owner_email)
+        self.driver.cookies.clear()
+        self.driver.post("/login", {"email": self.member_email, "password": self.member_password})
+        status, body, _ = self.driver.get("/org")
+        self.assertEqual(status, 200)
+        role_form = re.search(
+            r'<form method="post" action="/org/role">(.*?)</form>', body, re.DOTALL
+        ).group(1)
+        self.assertNotIn(f'value="{owner_acct}"', role_form)
+        self.assertNotIn('<option value="owner">owner</option>', role_form)
+        remove_match = re.search(
+            r'<form method="post" action="/org/remove">(.*?)</form>', body, re.DOTALL
+        )
+        if remove_match:
+            self.assertNotIn(f'value="{owner_acct}"', remove_match.group(1))
+
 
 class TestRemoveMember(unittest.TestCase):
     """§3.2: owner can remove a member; removed member's session is gone."""

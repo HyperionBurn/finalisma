@@ -1480,7 +1480,9 @@ class WeftWebApp:
             )
 
         manageable_members = [
-            member for member in members if member["account_id"] != ctx.account_id
+            member for member in members
+            if member["account_id"] != ctx.account_id
+            and (ctx.role == "owner" or member["role"] != "owner")
         ]
         role_options = member_options(manageable_members)
         if not role_options:
@@ -1496,6 +1498,10 @@ class WeftWebApp:
             '<button type="submit">Set role</button>'
             if manageable_members
             else '<button type="submit" disabled>Set role</button>'
+        )
+        owner_role_option = (
+            '<option value="owner">owner</option>'
+            if ctx.role == "owner" else ""
         )
         removable_members = [
             member for member in manageable_members if member["role"] != "owner"
@@ -1538,7 +1544,7 @@ class WeftWebApp:
                 '<label>New role <select name="role">'
                 '<option value="member">member</option>'
                 '<option value="admin">admin</option>'
-                '<option value="owner">owner</option>'
+                f'{owner_role_option}'
                 '</select></label>'
                 f'{role_button}'
                 '</form>'

@@ -320,7 +320,7 @@ hot-path change in that window, the presence touch, is now an in-memory
 throttle (zero DB work inside the window); the run immediately after that fix
 moved from -50.6% to +4.5% weighted median. The baseline was not rewritten to
 make the gate pass. The latest local regression is recorded in
-[`docs/RELEASE_EVIDENCE.md`](docs/RELEASE_EVIDENCE.md): 1330 tests discovered,
+[`docs/RELEASE_EVIDENCE.md`](docs/RELEASE_EVIDENCE.md): 1331 tests discovered,
 1314 passed, and 1 skipped. The published count is guarded by
 `tests/test_site.py::TestCountSyncTests`; this is local evidence, not a hosted
 release or universal latency claim. See
