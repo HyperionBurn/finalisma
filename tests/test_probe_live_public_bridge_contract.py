@@ -17,6 +17,9 @@ class TestLivePublicBridgeProbeContract(unittest.TestCase):
             "room_send",
             "room_poll",
             "room_ack",
+            "room_wait",
+            "external_listener_joined",
+            "bridge_wait_woke_on_external_message",
             "browser_cleanup_deleted_organization",
         ):
             self.assertIn(marker, text)

@@ -247,7 +247,7 @@ async function main() {
       }
     };
 
-    const room = await callTool("room_create", { cap: 2, name: "Hosted public bridge dogfood" });
+    const room = await callTool("room_create", { cap: 3, name: "Hosted public bridge dogfood" });
     checks.bridge_room_created_forming = room.state === "forming"
       && Boolean(room.room_id && room.link_token);
     if (!checks.bridge_room_created_forming) fail("bridge room_create did not return a forming room");
@@ -295,6 +295,48 @@ async function main() {
     checks.bridge_ack_replay_clean = acked.last_ack_seq === polled.cursor_head
       && Array.isArray(afterAck.events) && afterAck.events.length === 0;
     if (!checks.bridge_ack_replay_clean) fail("bridge room_ack did not clear replayed events");
+
+    const listenerEmail = `weft-bridge-listener-${nonce}@example.com`;
+    const listenerPassword = `Weft-Bridge-${nonce}-listener!`;
+    const listenerSignup = await callApi("/auth/signup", {
+      email: listenerEmail,
+      password: listenerPassword,
+    });
+    if (!listenerSignup.ok || !listenerSignup.body.session_token) {
+      fail(`listener signup failed (${listenerSignup.status})`);
+    }
+    createdAccounts.push({ email: listenerEmail, password: listenerPassword });
+    const listenerJoin = await callApi("/rooms/join", {
+      room_id: room.room_id,
+      link_token: room.link_token,
+      consent: true,
+      capabilities: ["read", "write"],
+    }, listenerSignup.body.session_token);
+    checks.external_listener_joined = listenerJoin.ok && listenerJoin.body.status === "active";
+    if (!checks.external_listener_joined) fail(`listener join failed (${listenerJoin.status})`);
+
+    const waitMarker = `bridge-wake-${nonce}`;
+    const waitReply = callTool("room_wait", {
+      room_id: room.room_id,
+      after_seq: acked.last_ack_seq,
+      limit: 50,
+      timeout_seconds: 25,
+    });
+    const listenerSend = await callApi("/rooms/send", {
+      room_id: room.room_id,
+      target_spec: "*",
+      payload: { text: waitMarker, workflow: "bridge-wake-roundtrip" },
+    }, listenerSignup.body.session_token);
+    checks.external_listener_message_sent = listenerSend.ok;
+    if (!checks.external_listener_message_sent) fail(`listener send failed (${listenerSend.status})`);
+    const waited = await waitReply;
+    const waitedEvents = Array.isArray(waited.events) ? waited.events : [];
+    checks.bridge_wait_woke_on_external_message = waitedEvents.some(
+      (event) => eventPayload(event).text === waitMarker,
+    );
+    if (!checks.bridge_wait_woke_on_external_message) {
+      fail("bridge room_wait did not wake on the external listener message");
+    }
 
     bridge.stdin.end();
     await new Promise((resolve) => bridge.once("close", resolve));

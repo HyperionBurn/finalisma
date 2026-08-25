@@ -87,9 +87,10 @@ and unauthenticated MCP routing checks.
   subprocess initialized, listed the room tools, created a forming room,
   joined its own agent-key identity, sent and received a room message, proved
   that the server-derived key identity differs from the owning account,
-  acknowledged the event without replay, exited cleanly, and deleted the
-  disposable organization through the web UI. It reported 0 browser console
-  errors and 0 failed requests.
+  acknowledged the event without replay, then woke `room_wait` from a second
+  external listener message, exited cleanly, and deleted all disposable
+  organizations through the web UI. It reported 0 browser console errors and
+  0 failed requests.
 - `scripts/probe_live_opencode.cjs` launched the installed OpenCode **1.18.22**
   process with the generated OpenCode 1.x config and the exact requested model
   `opencode-go/deepseek-v4-pro`. The provider rejected the run before any MCP
