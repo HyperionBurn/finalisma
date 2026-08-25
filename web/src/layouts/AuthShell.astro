@@ -16,8 +16,13 @@ interface Props {
   title: string;
   heading: string;
   sub: string;
+  /** Path this page canonically lives at, e.g. "/signup". */
+  path: string;
 }
-const { title, heading, sub } = Astro.props;
+const { title, heading, sub, path } = Astro.props;
+const ORIGIN = 'https://finalisma.vercel.app';
+const canonical = `${ORIGIN}${path}`;
+const description = sub;
 ---
 
 <!doctype html>
@@ -28,6 +33,19 @@ const { title, heading, sub } = Astro.props;
   <title>{title} · Weft</title>
   <meta name="theme-color" content="#050505" />
   <meta name="color-scheme" content="dark" />
+  <meta name="description" content={description} />
+  <link rel="canonical" href={canonical} />
+  <meta property="og:url" content={canonical} />
+  <meta property="og:site_name" content="Weft" />
+  <meta property="og:title" content={title} />
+  <meta property="og:description" content={description} />
+  <meta property="og:image" content="/assets/og-card.png" />
+  <meta property="og:image:alt" content="Weft — one link, every agent" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content={title} />
+  <meta name="twitter:description" content={description} />
+  <meta name="twitter:image" content="/assets/og-card.png" />
+  <meta name="twitter:image:alt" content="Weft — one link, every agent" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
