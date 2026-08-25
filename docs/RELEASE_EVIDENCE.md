@@ -148,6 +148,12 @@ and unauthenticated MCP routing checks.
   file contains the expected host, port, username, password, and sender keys;
   values were not read or emitted. This proves process/config presence only,
   not mailbox receipt.
+- A fresh hosted agent-key lifecycle workflow passed on **2026-08-25**. A
+  disposable customer created a long-lived key, used it successfully before
+  revocation, revoked it through the session-only browser management page with
+  the explicit confirmation accepted, saw the revoked state, and then received
+  HTTP 401 on the same key. The API recorded `revoked_at`, the browser emitted
+  zero console errors, and the disposable organization was deleted.
 
 This is hosted Weft browser evidence. It does not claim SMTP mailbox delivery,
 successful Claude/Cursor/Codex host execution, or successful third-party model
