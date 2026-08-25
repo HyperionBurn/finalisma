@@ -6,11 +6,11 @@ compatibility claim.
 
 ## Latest regression evidence
 
-Measured on the current source/test stack after merge commit `4232ea5`:
+Measured on the current source/test stack after deployed fix commit `20b4ba0`:
 
 - Command: `PYTHONPATH=src python -B -m unittest discover -s tests -q`
 - Result: **1327 tests discovered; 1326 passed; 1 skipped**
-- Duration: 533.336 seconds on the local Windows runner
+- Duration: 526.188 seconds on the local Windows runner
 - Focused API-readiness routing/identity suite: 69 tests passed locally
   (`tests.test_probe_live_release`, `tests.test_probe_live_release_contract`,
   `tests.test_deploy_gate`, and `tests.test_deploy_ops`)
@@ -52,7 +52,7 @@ Measured on the current source/test stack after merge commit `4232ea5`:
 
 ## Hosted customer journey evidence
 
-The backend release at commit `901b43c` was deployed through the strict
+The backend release at commit `20b4ba0` was deployed through the strict
 archive gate. The gate ran **1319 tests with 0 failures**, then passed the
 WAL-safe backup and restore drill, service restart proof, public readiness,
 and unauthenticated MCP routing checks.
@@ -161,6 +161,12 @@ and unauthenticated MCP routing checks.
   polled successfully. The owner UI showed `Join link revoked`, all three
   disposable organizations were deleted, and the browser emitted zero console
   errors.
+- Post-deploy room-lifecycle verification for **20b4ba0** passed at the live
+  origin. The browser created a forming room, closed it, saw the closed state,
+  saw the closed room in the room list, confirmed both destructive controls were
+  hidden, created a second room using the released slot, and deleted the
+  disposable organization. The 320x568 customer journey, release probe, and
+  downloaded bridge `room_wait` workflow also passed after cutover.
 
 This is hosted Weft browser evidence. It does not claim SMTP mailbox delivery,
 successful Claude/Cursor/Codex host execution, or successful third-party model
