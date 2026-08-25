@@ -6,11 +6,11 @@ compatibility claim.
 
 ## Latest regression evidence
 
-Measured on the current source/test stack at release candidate `6cfa079`:
+Measured on the current source/test stack at probe/evidence head `27d332e`:
 
-- The strict clean-archive deployment gate ran
-  `PYTHONPATH=src python -B -m unittest discover -s tests -q`.
-- Result: **1315 tests; 0 failures** (the suite's known one skip remains).
+- Command: `PYTHONPATH=src python -B -m unittest discover -s tests -q`
+- Result: **1319 tests discovered; 1318 passed; 1 skipped**
+- Duration: 522.395 seconds on the local Windows runner
 - Focused API-readiness routing/identity suite: 69 tests passed locally
   (`tests.test_probe_live_release`, `tests.test_probe_live_release_contract`,
   `tests.test_deploy_gate`, and `tests.test_deploy_ops`)
