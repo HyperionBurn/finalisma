@@ -102,6 +102,23 @@ export interface Session {
 export const signup = (email: string, password: string, org_name?: string) =>
   rest<Session>('/v1/auth/signup', { email, password, ...(org_name ? { org_name } : {}) });
 
+/**
+ * Sign in to an EXISTING account.
+ *
+ * This is a different endpoint from signup, despite an earlier comment in
+ * AuthForm claiming signup doubled as sign-in. Verified against production:
+ * re-posting signup with the correct credentials answers 400 email_exists,
+ * while /v1/auth/signin answers 200 with a fresh session for the same
+ * account_id. The login page was calling signup, so every returning user was
+ * locked out and shown a misleading "password does not match".
+ *
+ * A wrong password and an unknown address BOTH answer 401
+ * invalid_credentials - deliberately indistinguishable, so callers must not
+ * word the error as though they know which one it was.
+ */
+export const signin = (email: string, password: string) =>
+  rest<Session>('/v1/auth/signin', { email, password });
+
 export interface AgentKey {
   key_id: string; label: string; agent_key?: string; created_at: string;
 }

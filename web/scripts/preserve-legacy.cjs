@@ -36,7 +36,10 @@
  *   - _astro → Astro's own build output dir.
  *
  * IMPORTANT: exclusion applies ONLY to root-level entries. Nested index.html
- * files (e.g. site/docs/index.html, site/blog/index.html) ARE preserved.
+ * files (e.g. site/docs/index.html, site/blog/index.html) ARE preserved -
+ * but ONLY where Astro did not generate that path itself. Restore fills
+ * gaps; it never overwrites this build's output. See
+ * copyDirFillingGapsOnly() for why that distinction caused an outage.
  *
  * Exits non-zero on any failure.
  */
@@ -79,6 +82,36 @@ function copyDir(src, dest) {
     const d = path.join(dest, entry.name);
     if (entry.isDirectory()) {
       copyDir(s, d);
+    } else {
+      fs.copyFileSync(s, d);
+    }
+  }
+}
+
+/**
+ * Restore-side copy: fills in what Astro did NOT emit, and never overwrites
+ * what it did.
+ *
+ * Astro wipes outDir at the start of the build, so anything present in site/
+ * afterwards was written by Astro this run. A file existing at the
+ * destination is therefore proof that Astro owns that path, and copying the
+ * legacy version over it would destroy the page that was just built.
+ *
+ * This was a real outage: the root-level-only exclusion list protected
+ * site/index.html, but every nested route Astro generates - /signup/,
+ * /login/, /app/* - was silently reverted to its pre-Astro version on every
+ * single build. The served signup page was a plain HTML form posting to the
+ * Python backend, so retiring that backend 404'd signup and login.
+ */
+function copyDirFillingGapsOnly(src, dest, skipped) {
+  ensureDir(dest);
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const s = path.join(src, entry.name);
+    const d = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      copyDirFillingGapsOnly(s, d, skipped);
+    } else if (fs.existsSync(d)) {
+      skipped.push(path.relative(SITE, d).split(path.sep).join('/'));
     } else {
       fs.copyFileSync(s, d);
     }
@@ -138,17 +171,25 @@ function restore() {
     console.error('[preserve-legacy] ERROR: .legacy-staging/ is empty — a snapshot of nothing is a bug. Refusing to silently do nothing.');
     process.exit(1);
   }
+  const skipped = [];
   for (const entry of entries) {
     const s = path.join(STAGING, entry.name);
     const d = path.join(SITE, entry.name);
     if (entry.isDirectory()) {
-      copyDir(s, d);
+      copyDirFillingGapsOnly(s, d, skipped);
+    } else if (fs.existsSync(d)) {
+      skipped.push(entry.name);
     } else {
       fs.copyFileSync(s, d);
     }
   }
   fs.rmSync(STAGING, { recursive: true, force: true });
   console.log(`[preserve-legacy] restore complete: ${entries.length} entries → site/`);
+  if (skipped.length) {
+    console.log(`[preserve-legacy] kept Astro's build for ${skipped.length} path(s) instead of the legacy copy:`);
+    for (const rel of skipped.slice(0, 20)) console.log(`  ${rel}`);
+    if (skipped.length > 20) console.log(`  … and ${skipped.length - 20} more`);
+  }
 }
 
 const args = process.argv.slice(2);

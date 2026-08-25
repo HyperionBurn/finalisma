@@ -1,4 +1,4 @@
-import{j as e}from"./jsx-runtime.D_zvdyIk.js";import{r as a}from"./index.Dy6lLLXr.js";import{c as b,A as N}from"./api.DCGSRady.js";const y=[{id:"claude",name:"Claude Code",file:"claude_desktop_config.json"},{id:"cursor",name:"Cursor",file:".cursor/mcp.json"},{id:"windsurf",name:"Windsurf",file:"~/.codeium/windsurf/mcp_config.json"},{id:"codex",name:"Codex",file:"~/.codex/config.toml"}],r="<path-to-the-file-you-downloaded>",_="agk_… (create a key below)";function T(s,i,n){return s==="codex"?`[mcp_servers.weft]
+import{j as e}from"./jsx-runtime.D_zvdyIk.js";import{r as a}from"./index.Dy6lLLXr.js";import{c as b,A as N}from"./api.B6RyR_7y.js";const y=[{id:"claude",name:"Claude Code",file:"claude_desktop_config.json"},{id:"cursor",name:"Cursor",file:".cursor/mcp.json"},{id:"windsurf",name:"Windsurf",file:"~/.codeium/windsurf/mcp_config.json"},{id:"codex",name:"Codex",file:"~/.codex/config.toml"}],r="<path-to-the-file-you-downloaded>",_="agk_… (create a key below)";function T(s,i,n){return s==="codex"?`[mcp_servers.weft]
 command = "python"
 args = ["-B", "${r}", "--remote", "${n}", "--token-env", "WEFT_TOKEN"]
 

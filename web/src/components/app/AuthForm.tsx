@@ -10,7 +10,7 @@
  * is too short, the person needs to know which, and the API already says so.
  */
 import { useEffect, useState } from 'react';
-import { ApiError, isSignedIn, setToken, signup } from '../../lib/api';
+import { ApiError, isSignedIn, setToken, signin, signup } from '../../lib/api';
 
 interface Props { mode: 'signup' | 'login' }
 
@@ -46,20 +46,32 @@ export default function AuthForm({ mode }: Props) {
 
     setBusy(true);
     try {
-      // Sign-in reuses the same endpoint: an existing account with the right
-      // password returns a fresh session rather than creating a duplicate.
-      const s = await signup(email.trim(), password, mode === 'signup' ? org.trim() || undefined : undefined);
+      // Signup and sign-in are SEPARATE endpoints. An earlier version called
+      // signup for both, on the assumption that signing up an existing
+      // account returns a session; it does not - it answers 400 email_exists,
+      // which locked out every returning user.
+      const s = mode === 'signup'
+        ? await signup(email.trim(), password, org.trim() || undefined)
+        : await signin(email.trim(), password);
       setToken(s.session_token);
       location.assign(next());
     } catch (err) {
       const e = err as ApiError;
-      if (e.code === 'offline') setError('Could not reach the service. Check your connection and try again.');
-      else if (e.status === 409 || /exist/i.test(e.message)) {
+      if (e.code === 'offline') {
+        setError('Could not reach the service. Check your connection and try again.');
+      } else if (mode === 'signup'
+                 && (e.code === 'email_exists' || e.status === 409 || /exist/i.test(e.message))) {
         setField('email');
-        setError(mode === 'signup'
-          ? 'That address already has an account. Sign in instead.'
-          : 'That password does not match this account.');
-      } else setError(e.message);
+        setError('That address already has an account. Sign in instead.');
+      } else if (mode === 'login'
+                 && (e.code === 'invalid_credentials' || e.status === 401)) {
+        // The service answers identically for a wrong password and an unknown
+        // address, on purpose - so this must not imply which one it was.
+        setField('password');
+        setError('That email and password do not match. Check both and try again.');
+      } else {
+        setError(e.message);
+      }
       setBusy(false);
     }
   }
