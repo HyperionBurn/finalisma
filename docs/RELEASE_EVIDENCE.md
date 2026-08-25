@@ -203,7 +203,6 @@ is local evidence.
 
 - Docker image build and Compose lifecycle
 - SMTP mailbox delivery and recipient receipt
-- Public-edge invite opening and acceptance
 - Successful live Claude, Cursor, or Codex host-product execution; Claude was
   launched but stopped before MCP calls because it was not logged in
 - Successful OpenCode model execution; OpenCode was launched but stopped before
