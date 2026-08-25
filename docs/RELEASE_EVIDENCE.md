@@ -71,6 +71,9 @@ metadata strings. The wrapping fix shipped in `77f2ea9`; the post-deploy pass
 reported all mobile overflow and axe checks true, 0 console errors, 0 failed
 requests, 0 unexpected responses, and cleanup complete.
 
+After `1b4e7dd`, the same outside-in journey also passed at the desktop
+`1440x900` viewport with the same zero-error diagnostics and cleanup result.
+
 The current hosted MCP schema fix shipped in `1b4e7dd` after a native-client
 reproduction showed that a 30-second `room_wait` hit the desktop RPC deadline
 while 25 seconds returned the normal empty timeout envelope. The published
@@ -178,7 +181,8 @@ and unauthenticated MCP routing checks.
   burst produced 0 transport resets, 0 unexpected statuses, 0 browser console
   errors, and 0 failed browser requests. The disposable organization was
   deleted through the guarded owner web flow.
-- `scripts/probe_live_opencode.cjs` launched the installed OpenCode **1.18.22**
+- The latest `scripts/probe_live_opencode.cjs` run launched the installed
+  OpenCode **1.18.22**
   process with the generated OpenCode 1.x config and the exact requested model
   `opencode-go/deepseek-v4-pro`. The provider rejected the run before any MCP
   tool call with `Insufficient balance`. The probe deleted the disposable
