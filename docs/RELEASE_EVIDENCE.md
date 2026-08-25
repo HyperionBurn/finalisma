@@ -6,11 +6,11 @@ compatibility claim.
 
 ## Latest regression evidence
 
-Measured on the current source/test stack after deployed fix commit `46e21f4`:
+Measured on the current source/test stack after deployed fix commit `9cecb14`:
 
 - Command: `python -B -m unittest discover -s tests`
 - Result: **1335 tests discovered; 1334 passed; 1 skipped**
-- Duration: 653.296 seconds on the local Windows runner
+- Guarded archive gate: `Ran 1335 tests, exit code 0`
 - Focused API-readiness routing/identity suite: 69 tests passed locally
   (`tests.test_probe_live_release`, `tests.test_probe_live_release_contract`,
   `tests.test_deploy_gate`, and `tests.test_deploy_ops`)
@@ -64,20 +64,23 @@ probe launched with the generated config but stopped before any MCP call with
 
 ## Hosted customer journey evidence
 
-The backend release at commit `46e21f4` was deployed through the strict
-archive gate. The gate ran **1333 tests with 0 failures**, then passed the
+The backend release at commit `9cecb14` was deployed through the strict
+archive gate. The gate ran **1335 tests with 0 failures**, then passed the
 WAL-safe backup and restore drill, service restart proof, public readiness,
 and unauthenticated MCP routing checks.
 
-- The deployment backup at `/var/backups/weft/cloud-20260825T152406Z.db`
-  passed its restore drill with 343 identity accounts and 141 rooms. The
+- The deployment backup at `/var/backups/weft/cloud-20260825T160844Z.db`
+  passed its restore drill with 350 identity accounts and 143 rooms. The
   previous release was retained at
-  `/opt/weft-releases/pre-deploy-20260825T152407Z`, and all three services
+  `/opt/weft-releases/pre-deploy-20260825T160844Z`, and all three services
   restarted with new main PIDs. The cutover script observed a transient public
-  `/signup` 404 during nginx/service convergence; an outside-in recheck then
-  returned 200 for `/signup`, `/healthz`, and `/v1/readyz`, and every subsequent
-  browser and release probe passed. This transient observation is retained
-  rather than presented as a clean single-command deploy verdict.
+  `/signup` 404 while a parallel static-site config owned the catch-all. A
+  pinned diagnosis confirmed local `weft-web` on 18789 still returned 200. The
+  route backup was preserved at
+  `/opt/weft-releases/nginx/finalisma.pre-weft-20260825T160846Z`, the durable
+  helper restored the customer-app catch-all, `nginx -t` and reload passed, and
+  the final public verification returned 200 for `/signup`, `/healthz`, and
+  `/v1/readyz`.
 - A parallel static-site cutover then replaced nginx's customer-app catch-all
   with `/opt/weft/site`, making public `/signup` return the static 404 page
   while local `weft-web` on 18789 still returned 200. A pinned, read-only
@@ -216,7 +219,7 @@ and unauthenticated MCP routing checks.
   polled successfully. The owner UI showed `Join link revoked`, all three
   disposable organizations were deleted, and the browser emitted zero console
   errors.
-- Post-deploy room-lifecycle verification for **46e21f4** passed at the live
+- Post-deploy room-lifecycle verification for **9cecb14** passed at the live
   origin. The browser created a forming room, closed it, saw the closed state,
   saw the closed room in the room list, confirmed both destructive controls were
   hidden, created a second room using the released slot, and deleted the
