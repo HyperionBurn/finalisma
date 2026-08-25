@@ -1,4 +1,4 @@
-# Release evidence — 2026-08-24
+# Release evidence — 2026-08-25
 
 This is the current local evidence ledger for the integration hardening work.
 It is not a hosted-release approval, deployment proof, or third-party client
@@ -8,9 +8,9 @@ compatibility claim.
 
 Measured on the current source/test stack after deployed fix commit `20b4ba0`:
 
-- Command: `PYTHONPATH=src python -B -m unittest discover -s tests -q`
+- Command: `python -B -m unittest discover -s tests`
 - Result: **1327 tests discovered; 1326 passed; 1 skipped**
-- Duration: 526.188 seconds on the local Windows runner
+- Duration: 653.296 seconds on the local Windows runner
 - Focused API-readiness routing/identity suite: 69 tests passed locally
   (`tests.test_probe_live_release`, `tests.test_probe_live_release_contract`,
   `tests.test_deploy_gate`, and `tests.test_deploy_ops`)
@@ -49,6 +49,15 @@ Measured on the current source/test stack after deployed fix commit `20b4ba0`:
   failed requests, or HTTP error responses occurred, and axe reported zero
   violations across eight scanned pages
 - `git diff --check`: passed
+
+Fresh verification in this session also passed the 320x568 customer journey,
+the three-identity cross-tenant roundtrip, and the downloaded public-bridge
+workflow. Each disposable organization was deleted through the product UI.
+The browser probes reported zero console errors and zero failed requests.
+The real OpenCode probe selected `opencode-go/deepseek-v4-pro` but the
+provider returned `Insufficient balance` before any MCP call. The real Claude
+probe launched with the generated config but stopped before any MCP call with
+`Not logged in`. Both host-state failures completed disposable cleanup.
 
 ## Hosted customer journey evidence
 
