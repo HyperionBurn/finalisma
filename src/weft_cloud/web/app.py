@@ -166,6 +166,39 @@ def _format_iso(ts: Any) -> str:
             return text
 
 
+_EVENT_PAYLOAD_PREVIEW_MAX = 2048
+
+
+def _event_payload_preview(payload: Any) -> str:
+    """Return a bounded, deterministic preview for the browser event views.
+
+    The API already applies viewer-specific redaction before this helper sees
+    a payload. The web surface must still bound the rendered value because a
+    valid message may be much larger than a useful browser row.
+    """
+    try:
+        text = json.dumps(payload, ensure_ascii=False, sort_keys=True,
+                          separators=(",", ":"))
+    except (TypeError, ValueError):
+        text = str(payload)
+    if len(text) <= _EVENT_PAYLOAD_PREVIEW_MAX:
+        return text
+    return text[:_EVENT_PAYLOAD_PREVIEW_MAX] + "… [truncated]"
+
+
+def _event_item_html(event: dict[str, Any]) -> str:
+    """Render one escaped event row, including the already-redacted payload."""
+    payload = _event_payload_preview(event.get("payload"))
+    return (
+        f'<li data-event-seq="{_esc(event.get("seq"))}">'
+        f'<span class="seq">#{_esc(event.get("seq"))}</span> '
+        f'{_esc(event.get("kind"))} <span class="muted">from '
+        f'{_esc(event.get("origin_agent"))} at '
+        f'{_esc(_format_iso(event.get("created_at")))}</span>'
+        f'<code class="event-payload">{_esc(payload)}</code></li>'
+    )
+
+
 def _new_csrf() -> str:
     return secrets.token_urlsafe(32)
 
@@ -193,6 +226,10 @@ _DASH_CSS = (
     'button[type=submit]{background:#111;color:#fff;border-color:#111;}'
     'li{overflow-wrap:anywhere;word-break:break-word;}'
     '.muted{color:#707070;overflow-wrap:anywhere;word-break:break-word;}'
+    '.event-payload{display:block;max-width:100%;box-sizing:border-box;'
+    'margin:.25rem 0 .5rem;padding:.35rem .5rem;background:#f6f6f4;'
+    'border-left:3px solid #d0d0cc;white-space:pre-wrap;overflow-wrap:anywhere;'
+    'word-break:break-word;}'
     '.flash{border:1px solid #d0d0cc;background:#fafaf8;'
     'padding:.5rem .75rem;margin:.5rem 0;}'
     '.flash code{display:inline-block;max-width:100%;box-sizing:border-box;white-space:normal;}'
@@ -230,6 +267,94 @@ _COPY_JS = (
     '}'
     '</script>'
 )
+
+# The room detail page is useful without JavaScript, then progressively polls
+# the same authenticated JSON route to surface another agent's message while
+# the operator is looking at the room. DOM nodes are built with textContent so
+# a message payload can never become executable HTML.
+_ROOM_EVENTS_JS = r'''
+<script>
+(function () {
+  function startRoomEventPolling() {
+    var list = document.querySelector("[data-room-event-log]");
+    if (!list) return;
+    var roomId = list.getAttribute("data-room-id");
+    var status = document.querySelector("[data-room-events-status]");
+    var afterSeq = Number(list.getAttribute("data-after-seq") || "0");
+    var stopped = false;
+    var timer = null;
+
+    function formatPayload(value) {
+      try {
+        var text = JSON.stringify(value);
+        if (text.length > 2048) return text.slice(0, 2048) + "… [truncated]";
+        return text;
+      } catch (error) {
+        return String(value);
+      }
+    }
+
+    function appendEvent(event) {
+      var seq = Number(event.seq);
+      if (!Number.isFinite(seq) || seq <= afterSeq) return;
+      var empty = list.querySelector("[data-empty-events]");
+      if (empty) empty.remove();
+      var item = document.createElement("li");
+      item.setAttribute("data-event-seq", String(seq));
+      var seqLabel = document.createElement("span");
+      seqLabel.className = "seq";
+      seqLabel.textContent = "#" + String(seq);
+      item.appendChild(seqLabel);
+      item.appendChild(document.createTextNode(" " + String(event.kind || "event") + " "));
+      var source = document.createElement("span");
+      source.className = "muted";
+      source.textContent = "from " + String(event.origin || "") + " at " + String(event.created_at || "");
+      item.appendChild(source);
+      var payload = document.createElement("code");
+      payload.className = "event-payload";
+      payload.textContent = formatPayload(event.payload);
+      item.appendChild(payload);
+      list.appendChild(item);
+      while (list.children.length > 50) list.removeChild(list.firstElementChild);
+      afterSeq = Math.max(afterSeq, seq);
+    }
+
+    function poll() {
+      if (stopped) return;
+      fetch("/room/" + encodeURIComponent(roomId) + "/events?after_seq=" + encodeURIComponent(String(afterSeq)), {
+        credentials: "same-origin",
+        headers: { Accept: "application/json" },
+        cache: "no-store"
+      }).then(function (response) {
+        if (!response.ok) throw new Error("events " + response.status);
+        return response.json();
+      }).then(function (data) {
+        var events = Array.isArray(data.events) ? data.events : [];
+        events.forEach(appendEvent);
+        if (status) status.textContent = events.length
+          ? "Live update received. Waiting for another agent…"
+          : "Live updates on. Waiting for another agent…";
+      }).catch(function () {
+        if (status) status.textContent = "Live updates unavailable. Refresh to check for new events.";
+      }).finally(function () {
+        if (!stopped) timer = window.setTimeout(poll, 5000);
+      });
+    }
+
+    window.addEventListener("pagehide", function () {
+      stopped = true;
+      if (timer) window.clearTimeout(timer);
+    }, { once: true });
+    poll();
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", startRoomEventPolling, { once: true });
+  } else {
+    startRoomEventPolling();
+  }
+}());
+</script>
+'''
 
 
 def _copy_button(data_copy: str, label: str = "Copy") -> str:
@@ -2355,16 +2480,11 @@ class WeftWebApp:
         if not roster_html:
             roster_html = '<li class="muted">No members yet.</li>'
 
-        events_html = ""
-        for e in events[-50:]:
-            events_html += (
-                f'<li><span class="seq">#{_esc(e["seq"])}</span> '
-                f'{_esc(e["kind"])} <span class="muted">from '
-                f'{_esc(e["origin_agent"])} at '
-                f'{_esc(_format_iso(e.get("created_at")))}</span></li>'
-            )
+        recent_events = events[-50:]
+        events_html = "".join(_event_item_html(e) for e in recent_events)
         if not events_html:
-            events_html = '<li class="muted">No events yet.</li>'
+            events_html = '<li class="muted" data-empty-events>No events yet.</li>'
+        last_event_seq = recent_events[-1]["seq"] if recent_events else 0
 
         # Link control surface — owner and active members only.
         link_section = ""
@@ -2449,14 +2569,19 @@ class WeftWebApp:
             '<h2>Members</h2>'
             f'<ul>{roster_html}</ul>'
             '<h2>Recent events</h2>'
-            f'<ol>{events_html}</ol>'
+            '<p class="muted" data-room-events-status role="status">'
+            'Live updates on. Waiting for another agent…</p>'
+            f'<ol id="room-event-log" data-room-event-log '
+            f'data-room-id="{_esc(room_id)}" data-after-seq="{_esc(last_event_seq)}" '
+            f'aria-live="polite" aria-label="Recent room events">{events_html}</ol>'
             f'<p><a href="/room/{_esc(room_id)}/connect">Connect an agent</a></p>'
             f'{close_form}'
             f'<p><a href="/">Back to dashboard</a> · '
             f'<a href="/room/{_esc(room_id)}/audit">Audit log</a></p>'
         )
         body = _page(_esc(info.get("name") or room_id), body_html,
-                     csrf_token=csrf, extra_head=_DASH_CSS + _COPY_JS)
+                     csrf_token=csrf,
+                     extra_head=_DASH_CSS + _COPY_JS + _ROOM_EVENTS_JS)
         handler.send_response(HTTPStatus.OK)
         self._set_csrf_cookie(handler, csrf)
         handler.send_header("Content-Type", "text/html; charset=utf-8")
@@ -2571,16 +2696,14 @@ class WeftWebApp:
                 self._send_html(handler, HTTPStatus.FORBIDDEN,
                                 _page("Forbidden", '<p>Not a member.</p>'))
             return
-        items_html = ""
-        for e in events:
-            items_html += (
-                f'<li><span class="seq">#{_esc(e["seq"])}</span> '
-                f'{_esc(e["kind"])} <span class="muted">from '
-                f'{_esc(e["origin_agent"])}</span></li>'
-            )
+        items_html = "".join(_event_item_html(e) for e in events)
+        if not items_html:
+            items_html = '<li class="muted">No events yet.</li>'
         body_html = (
             '<h1>Audit log</h1>'
-            f'<ol>{items_html}</ol>'
+            '<p class="muted">Payloads are shown after viewer-specific '
+            'redaction and truncated for readability.</p>'
+            f'<ol aria-label="Room audit events">{items_html}</ol>'
             f'<p><a href="/room/{_esc(room_id)}">Back to room</a></p>'
         )
         body = _page("Audit log", body_html, extra_head=_DASH_CSS)

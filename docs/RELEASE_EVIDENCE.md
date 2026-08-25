@@ -6,11 +6,16 @@ compatibility claim.
 
 ## Latest regression evidence
 
-Measured on the current source/test stack after deployed fix commit `1b4e7dd`:
+Measured on the current source/test stack. The deployed runtime baseline is
+`1b4e7dd`; the room live-event UI change in this worktree is pending its
+guarded deployment.
 
 - Command: `python -B -m unittest discover -s tests`
-- Result: **1335 tests discovered; 1334 passed; 1 skipped**
-- Guarded archive gate: `Ran 1335 tests, exit code 0`
+- Result: **1336 tests discovered; 1335 passed; 1 skipped**
+- Current full-suite result: `Ran 1336 tests, exit code 0`
+- Full current-source run: `Ran 1336 tests in 540.918s`, `OK (skipped=1)`
+- Focused live room-detail regression: 6 tests passed, including escaped
+  payload rendering, audit visibility, and the live-poll contract
 - Focused API-readiness routing/identity suite: 69 tests passed locally
   (`tests.test_probe_live_release`, `tests.test_probe_live_release_contract`,
   `tests.test_deploy_gate`, and `tests.test_deploy_ops`)
@@ -57,7 +62,7 @@ reported runner ID 0, zero billable milliseconds, and no executed steps. The
 workflow therefore has no remote test result yet. The same commit's local
 CI-equivalent commands passed, including compileall, the 3 count-guard tests,
 the 37 release-boundary tests, all 14 Node UX tests, the preservation guard,
-and the full 1335-test Python suite.
+and the full 1336-test Python suite.
 
 Fresh verification in this session also passed the 320x568 customer journey,
 the three-identity cross-tenant roundtrip, and the downloaded public-bridge

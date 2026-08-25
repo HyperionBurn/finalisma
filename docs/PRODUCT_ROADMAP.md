@@ -193,8 +193,8 @@ The goal is complete only when **every** line is true and independently verified
 - [ ] No claim of customers, traction, or verified hosts without a committed artifact.
 - [ ] `AGENTS.md` and `AGENT_HANDOVER.md` current with the code in the same commit.
 
-> **Current local evidence (2026-08-24):** the integration hardening stack is
-> documented in [`docs/RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1335 tests
+> **Current local evidence (2026-08-25):** the integration hardening stack is
+> documented in [`docs/RELEASE_EVIDENCE.md`](RELEASE_EVIDENCE.md): 1336 tests
 > discovered, 1334 passed, and 1 skipped. This is local evidence only; Docker,
 > hosted deployment, and third-party host-product proof remain open.
 

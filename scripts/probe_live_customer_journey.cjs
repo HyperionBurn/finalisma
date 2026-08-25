@@ -312,8 +312,41 @@ async function main() {
     await checkNoHorizontalOverflow("room_detail");
     await checkAccessibility("room_detail");
 
+    // Real operator workflow: keep the room detail page open while another
+    // event arrives, then confirm the payload appears in both the live list
+    // and the audit snapshot. The page must remain useful without JS, but a
+    // live operator should not need to refresh after every agent message.
+    const liveEventMarker = `live-customer-event-${nonce}`;
+    const liveUpdate = page.waitForFunction(
+      (marker) => document.body.innerText.includes(marker),
+      liveEventMarker,
+      { timeout: 15000 },
+    ).then(() => true).catch(() => false);
+    const liveMessageResponse = await page.request.post(`${apiOrigin}/v1/rooms/send`, {
+      headers: { Authorization: `Bearer ${sessionToken}` },
+      data: {
+        room_id: new URL(page.url()).pathname.split("/")[2] || "",
+        target_spec: "*",
+        payload: { text: liveEventMarker, workflow: "customer-event-dogfood" },
+      },
+    });
+    checks.room_message_send_accepted = liveMessageResponse.status() === 200;
+    checks.room_live_event_stream_updates = checks.room_message_send_accepted
+      && await liveUpdate;
+    if (!checks.room_live_event_stream_updates) {
+      fail("room detail did not surface a newly sent event while open");
+    }
+
     const roomId = new URL(page.url()).pathname.split("/")[2] || "";
     const detailText = await page.locator("body").innerText();
+    checks.room_detail_shows_message_payload = detailText.includes(liveEventMarker);
+    await page.goto(`${apiOrigin}/room/${roomId}/audit`, { waitUntil: "networkidle", timeout: 30000 });
+    const auditText = await page.locator("body").innerText();
+    checks.audit_shows_message_payload = auditText.includes(liveEventMarker)
+      && auditText.includes("Payloads are shown after viewer-specific redaction");
+    await checkNoHorizontalOverflow("audit");
+    await checkAccessibility("audit");
+    await page.goto(`${apiOrigin}/room/${roomId}`, { waitUntil: "networkidle", timeout: 30000 });
     const connectLink = page.getByRole("link", { name: /connect an agent/i });
     checks.room_detail_links_to_connect = await connectLink.count() === 1
       && (await connectLink.getAttribute("href")) === `/room/${roomId}/connect`;

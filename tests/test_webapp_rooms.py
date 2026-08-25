@@ -431,6 +431,33 @@ class TestRoomDetail(unittest.TestCase):
         self.assertIn("room.created", body)
         self.assertIn("room.joined", body)
 
+    def test_room_detail_renders_message_payload_and_live_poll_contract(self):
+        with self.driver.backend.transaction() as tx:
+            account = tx.execute(
+                "SELECT account_id, tenant_id FROM cloud_identity_accounts "
+                "WHERE email = ?",
+                (self.email,),
+            ).fetchone()
+        marker = f"operator-message-{time.time_ns()}"
+        self.driver.app.rooms.room_send(
+            account["tenant_id"], self.room_id, account["account_id"], "*",
+            {"text": marker, "html": "<script>alert(1)</script>"},
+            exclude_sender=False,
+        )
+        status, body, _ = self.driver.get(f"/room/{self.room_id}")
+        self.assertEqual(status, 200)
+        self.assertIn(marker, body)
+        self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", body)
+        self.assertNotIn("<script>alert(1)</script>", body)
+        self.assertIn('data-room-event-log', body)
+        self.assertIn('data-room-events-status', body)
+        self.assertIn('fetch(\"/room/\"', body)
+
+        status, audit, _ = self.driver.get(f"/room/{self.room_id}/audit")
+        self.assertEqual(status, 200)
+        self.assertIn(marker, audit)
+        self.assertIn("Payloads are shown after viewer-specific redaction", audit)
+
     def test_room_detail_shows_shareable_link_to_owner_only(self):
         """The raw rm_ join link appears on the detail page ONLY for callers
         entitled to it (owner or active member of THIS room) — never for a
