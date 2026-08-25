@@ -134,6 +134,15 @@ and unauthenticated MCP routing checks.
   tools/list, key-derived identity, send/poll/ack, external room_wait wake-up,
   clean exit, and disposable cleanup. All browser probes reported zero console
   errors and zero failed requests.
+- A fresh hosted organization-invite workflow also passed on **2026-08-25**.
+  The owner created a member invite, the public `/invite/{token}` form accepted
+  the member, the member role appeared in the organization view, replay of the
+  consumed invite returned the intended `Invalid or expired invite` HTTP 400,
+  owner deletion removed the organization, and the member session was
+  invalidated. The invite token came from the one scoped production outbox row
+  because SMTP mailbox delivery remains an explicit unverified boundary. The
+  only browser-console entry was Chromium's expected diagnostic for that
+  intentional HTTP 400 refusal; there were no failed network requests.
 
 This is hosted Weft browser evidence. It does not claim SMTP mailbox delivery,
 successful Claude/Cursor/Codex host execution, or successful third-party model
