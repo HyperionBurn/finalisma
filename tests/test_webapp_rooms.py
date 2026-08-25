@@ -777,7 +777,7 @@ class TestConnectPage(unittest.TestCase):
     def test_authenticated_metadata_text_meets_wcag_aa_contrast(self):
         status, body, _ = self.driver.get("/")
         self.assertEqual(status, 200)
-        self.assertIn(".muted{color:#707070;}", body)
+        self.assertIn(".muted{color:#707070;", body)
         self.assertNotIn(".muted{color:#777;}", body)
         self.assertIn("border:1px solid #767676;", body)
         self.assertIn("border:1px solid #707070;", body)
