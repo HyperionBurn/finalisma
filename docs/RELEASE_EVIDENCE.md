@@ -6,7 +6,7 @@ compatibility claim.
 
 ## Latest regression evidence
 
-Measured on the current source/test stack after deployed fix commit `9cecb14`:
+Measured on the current source/test stack after deployed fix commit `77f2ea9`:
 
 - Command: `python -B -m unittest discover -s tests`
 - Result: **1335 tests discovered; 1334 passed; 1 skipped**
@@ -62,12 +62,29 @@ provider returned `Insufficient balance` before any MCP call. The real Claude
 probe launched with the generated config but stopped before any MCP call with
 `Not logged in`. Both host-state failures completed disposable cleanup.
 
+The latest deployed 320x568 dogfood pass also covered the real agent-key
+lifecycle: session-only key creation, one-time raw-key display, key-backed room
+creation, account-owner room close, secret-free key listing, browser revocation,
+and immediate HTTP 401 refusal on the revoked key. The same pass found and then
+fixed a real mobile room-detail overflow caused by long join-link and roster
+metadata strings. The wrapping fix shipped in `77f2ea9`; the post-deploy pass
+reported all mobile overflow and axe checks true, 0 console errors, 0 failed
+requests, 0 unexpected responses, and cleanup complete.
+
 ## Hosted customer journey evidence
 
-The backend release at commit `9cecb14` was deployed through the strict
+The backend release at commit `77f2ea9` was deployed through the strict
 archive gate. The gate ran **1335 tests with 0 failures**, then passed the
 WAL-safe backup and restore drill, service restart proof, public readiness,
 and unauthenticated MCP routing checks.
+
+- The current deployment backup is
+  `/var/backups/weft/cloud-20260825T165832Z.db` (6,303,744 bytes). Its restore
+  drill reported 353 identity accounts and 147 rooms. The previous release was
+  retained at `/opt/weft-releases/pre-deploy-20260825T165832Z`. Cloud, web, and
+  outbox all restarted with new main PIDs. Nginx syntax validation and reload
+  passed, and the public checks returned 200 for health, readiness, signup, and
+  the agent card, 401 for unauthenticated room creation and `/mcp`.
 
 - The deployment backup at `/var/backups/weft/cloud-20260825T160844Z.db`
   passed its restore drill with 350 identity accounts and 143 rooms. The
