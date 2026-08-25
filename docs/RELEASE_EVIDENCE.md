@@ -9,7 +9,7 @@ compatibility claim.
 Measured on the current source/test stack after probe commit `4b1aa2f`:
 
 - Command: `PYTHONPATH=src python -B -m unittest discover -s tests -q`
-- Result: **1321 tests discovered; 1320 passed; 1 skipped**
+- Result: **1327 tests discovered; 1326 passed; 1 skipped**
 - Duration: 533.336 seconds on the local Windows runner
 - Focused API-readiness routing/identity suite: 69 tests passed locally
   (`tests.test_probe_live_release`, `tests.test_probe_live_release_contract`,
