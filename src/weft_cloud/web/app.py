@@ -2263,7 +2263,12 @@ class WeftWebApp:
                             '<button type="submit">Generate replacement join link</button>'
                             '</form>'
                         )
-            if is_owner and info.get("link_id"):
+            if (
+                is_owner
+                and info.get("link_id")
+                and not info.get("link_revoked")
+                and info.get("state") != "closed"
+            ):
                 revoke_form = (
                     '<form method="post" '
                     f'action="/room/{_esc(room_id)}/revoke-link">'
@@ -2275,7 +2280,7 @@ class WeftWebApp:
                 link_section += revoke_form
 
         close_form = ""
-        if is_owner:
+        if is_owner and info.get("state") != "closed":
             close_form = (
                 f'<form method="post" action="/room/{_esc(room_id)}/close">'
                 f'{_csrf_input(csrf)}'

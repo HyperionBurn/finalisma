@@ -972,6 +972,16 @@ class TestCloseRoom(unittest.TestCase):
         status, body, _ = self.driver.get(f"/room/{self.room_id}")
         self.assertEqual(status, 200)
         self.assertIn("closed", body)
+        self.assertNotIn(
+            f'action="/room/{self.room_id}/close"',
+            body,
+            "a closed room must not render a stale Close room control",
+        )
+        self.assertNotIn(
+            "Revoke join link",
+            body,
+            "a closed room must not render a stale link-revocation control",
+        )
 
 
 class TestMemberCannotClose(unittest.TestCase):
