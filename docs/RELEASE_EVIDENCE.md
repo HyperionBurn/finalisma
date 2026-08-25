@@ -82,6 +82,13 @@ service remains compatible with 30 seconds. The post-deploy native check saw
 `maximum: 25`, and `room_wait(25)` returned `timed_out: true` without a
 transport error.
 
+The same current-release recheck also passed the real password-recovery
+workflow: truthful reset-request notice, public reset form, old-password
+refusal, new-password login, prior-session revocation, deletion, and cleanup.
+A bounded production burst of 80 room messages admitted 60 requests with HTTP
+200 and returned 20 structured HTTP 429 responses with numeric `Retry-After`
+values, with 0 transport resets and clean browser cleanup.
+
 ## Hosted customer journey evidence
 
 The backend release at commit `1b4e7dd` was deployed through the strict
