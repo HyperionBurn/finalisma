@@ -100,5 +100,5 @@ class HostedToolSchemaClarityTests(unittest.TestCase):
         self.assertEqual(field("room_create", "ttl_seconds")["minimum"], 1)
         self.assertEqual(field("room_create", "ttl_seconds")["default"], 86400)
         self.assertEqual(field("room_poll", "limit")["maximum"], 200)
-        self.assertEqual(field("room_wait", "timeout_seconds")["maximum"], 30)
+        self.assertEqual(field("room_wait", "timeout_seconds")["maximum"], 25)
         self.assertEqual(field("room_wait", "timeout_seconds")["default"], 20)

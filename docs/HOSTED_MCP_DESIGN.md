@@ -164,8 +164,11 @@ the very same `CloudRoomService.poll` read; a blocking read can never become
 a way around confidentiality.
 
 - **Arguments** mirror `room_poll` (`room_id`, `after_seq`, `limit`) plus
-  `timeout_seconds` (default 20, clamped to a 30 max) and the optional
-  `message_kinds` filter — so it is a drop-in for `room_poll`.
+  `timeout_seconds` (default 20, maximum 25 in the hosted MCP schema) and the
+  optional `message_kinds` filter — so it is a drop-in for `room_poll`. The
+  lower-level service accepts up to 30 seconds, but hosted MCP callers should
+  stay at 25 or less so the response arrives before common 30-second RPC
+  deadlines.
 - **Timeout is a normal outcome, not an error.** The result is an empty
   `events` list with `timed_out: true`; the caller just waits again.
 - **Lock discipline.** Each internal poll is a fresh short read that opens
@@ -205,7 +208,9 @@ REST handlers call the same methods:
   `invalid_cursor`; `seq > cursor_head` → `invalid_cursor` (an ack of an event
   that does not exist is the caller's error).
 - `room_wait` inherits the same guards through its internal `poll` loop;
-  `timeout_seconds` is coerced and clamped (0..30) rather than refused.
+  `timeout_seconds` is coerced and clamped (0..30) rather than refused at the
+  service layer. The hosted MCP schema publishes 0..25 for client deadline
+  compatibility.
 
 The SDK maps `invalid_cursor` to `ConflictError` (`src/weft_sdk/client.py`
 `_ERROR_MAP`).

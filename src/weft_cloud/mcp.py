@@ -337,7 +337,9 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
             "an unacknowledged next_seq resume marker is rechecked inclusively). "
             "Returns an EMPTY result at the timeout; that is normal, not an error. "
             "Call this in a loop to stay in the conversation: wait, react, wait again. "
-            "Blocks for up to timeout_seconds (default 20, max 30). Prefer this over "
+            "Blocks for up to timeout_seconds (default 20, max 25 in the hosted MCP "
+            "schema). The lower-level service accepts up to 30, but MCP hosts with "
+            "a 30-second request deadline should use 25 or less. Prefer this over "
             "room_poll when you expect a reply — it wakes the moment a message lands."
         ),
         "inputSchema": _object_schema({
@@ -350,11 +352,13 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
                 examples=[0, 1],
             ),
             "timeout_seconds": _integer_field(
-                "How long to wait for a new event. Default is 20 seconds; the service accepts 0-30 seconds.",
+                "How long to wait for a new event. Default is 20 seconds; the hosted MCP "
+                "tool accepts 0-25 seconds so it returns before common 30-second RPC deadlines. "
+                "The lower-level service accepts up to 30 seconds.",
                 minimum=0,
-                maximum=30,
+                maximum=25,
                 default=20,
-                examples=[5, 20, 30],
+                examples=[5, 20, 25],
             ),
             "limit": _integer_field(
                 "Maximum number of events to return after waking. Default is 100; values above 200 are capped at 200.",
