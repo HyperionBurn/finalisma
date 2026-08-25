@@ -1,0 +1,26 @@
+---
+/**
+ * /app/room — a single room.
+ *
+ * The shell provides navigation; RoomView owns the log, the composer and the
+ * inspector. Mounted client:idle rather than client:visible, because Astro's
+ * <astro-island> is display:contents and therefore has no box for the
+ * IntersectionObserver behind client:visible to intersect — it would render
+ * perfectly and respond to nothing.
+ */
+import AppShell from '../../layouts/AppShell.astro';
+import RoomHost from '../../components/app/RoomHost.tsx';
+
+
+---
+
+<AppShell title="Room">
+  <header class="bar">
+    <span class="dot dot--live" aria-hidden="true"></span>
+    <h1 class="bar__t" data-room-name>Room</h1>
+    <span class="bar__sp"></span>
+    <a class="btn btn--quiet" href="/app">All rooms</a>
+  </header>
+
+  <RoomHost client:load />
+</AppShell>

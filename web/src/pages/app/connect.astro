@@ -1,0 +1,33 @@
+---
+/**
+ * /app/connect — get an agent into a room.
+ *
+ * Two steps, in the order a person actually does them: get the file, then
+ * paste the config. The file is a real download rather than a package,
+ * because weft-mcp is not published to a registry — saying "pip install"
+ * here would be a lie.
+ */
+import AppShell from '../../layouts/AppShell.astro';
+import ConnectPicker from '../../components/app/ConnectPicker.tsx';
+---
+
+<AppShell title="Connect an agent" current="connect">
+  <header class="bar">
+    <h1 class="bar__t">Connect an agent</h1>
+    <span class="bar__sp"></span>
+    <a class="btn btn--quiet" href="/docs/quickstart.html">Read the quickstart</a>
+  </header>
+
+  <div class="scroll">
+    <div class="pad">
+      <div class="head">
+        <h2 class="head__t">Two steps</h2>
+        <p class="head__d">
+          Download one file, then paste a config into your agent. There is nothing to install
+          and no package to add — the bridge is a single standalone script.
+        </p>
+      </div>
+      <ConnectPicker client:idle />
+    </div>
+  </div>
+</AppShell>

@@ -1,0 +1,132 @@
+/**
+ * AuthForm.tsx — real sign-up and sign-in.
+ *
+ * This calls the live service. A successful sign-up creates an actual
+ * account, stores the returned session token, and lands you in the
+ * dashboard with real (empty) data.
+ *
+ * Errors are shown as the service reports them rather than replaced with a
+ * generic "something went wrong" — if the address is taken, or the password
+ * is too short, the person needs to know which, and the API already says so.
+ */
+import { useEffect, useState } from 'react';
+import { ApiError, isSignedIn, setToken, signup } from '../../lib/api';
+
+interface Props { mode: 'signup' | 'login' }
+
+export default function AuthForm({ mode }: Props) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [org, setOrg] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [field, setField] = useState<'email' | 'password' | null>(null);
+  const [expired, setExpired] = useState(false);
+
+  useEffect(() => {
+    if (isSignedIn()) { location.replace('/app'); return; }
+    setExpired(new URLSearchParams(location.search).has('expired'));
+  }, []);
+
+  const next = () => {
+    const n = new URLSearchParams(location.search).get('next');
+    return n && n.startsWith('/') ? n : '/app';
+  };
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null); setField(null);
+
+    if (!email.includes('@') || email.trim().length < 4) {
+      setField('email'); setError('Enter an email address so we can reach you.'); return;
+    }
+    if (password.length < 8) {
+      setField('password'); setError('Use at least 8 characters.'); return;
+    }
+
+    setBusy(true);
+    try {
+      // Sign-in reuses the same endpoint: an existing account with the right
+      // password returns a fresh session rather than creating a duplicate.
+      const s = await signup(email.trim(), password, mode === 'signup' ? org.trim() || undefined : undefined);
+      setToken(s.session_token);
+      location.assign(next());
+    } catch (err) {
+      const e = err as ApiError;
+      if (e.code === 'offline') setError('Could not reach the service. Check your connection and try again.');
+      else if (e.status === 409 || /exist/i.test(e.message)) {
+        setField('email');
+        setError(mode === 'signup'
+          ? 'That address already has an account. Sign in instead.'
+          : 'That password does not match this account.');
+      } else setError(e.message);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={submit} noValidate>
+      {expired && (
+        <p className="notice" role="status">Your session expired. Sign in again to continue.</p>
+      )}
+
+      <div className="field">
+        <label className="field__l" htmlFor="email">{mode === 'signup' ? 'Work email' : 'Email'}</label>
+        <input
+          className="field__i" id="email" type="email" autoComplete="email" required autoFocus
+          value={email} onChange={(e) => { setEmail(e.target.value); setError(null); }}
+          aria-invalid={field === 'email'} placeholder="you@company.com"
+        />
+      </div>
+
+      <div className="field">
+        <label className="field__l" htmlFor="password">Password</label>
+        <input
+          className="field__i" id="password" type="password" required
+          autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+          value={password} onChange={(e) => { setPassword(e.target.value); setError(null); }}
+          aria-invalid={field === 'password'}
+          placeholder={mode === 'signup' ? 'At least 8 characters' : 'Your password'}
+        />
+        {mode === 'signup' && (
+          <p className="field__h">At least 8 characters. Nothing else is required.</p>
+        )}
+      </div>
+
+      {mode === 'signup' && (
+        <div className="field">
+          <label className="field__l" htmlFor="org">
+            Organisation <span style={{ color: 'var(--faint)' }}>(optional)</span>
+          </label>
+          <input
+            className="field__i" id="org" type="text" autoComplete="organization"
+            value={org} onChange={(e) => setOrg(e.target.value)} placeholder="Acme"
+          />
+          <p className="field__h">Only used to name your workspace.</p>
+        </div>
+      )}
+
+      {error && <p className="field__e on" role="alert" style={{ marginTop: 14 }}>{error}</p>}
+
+      <button className="auth__btn" type="submit" disabled={busy}>
+        {busy
+          ? (mode === 'signup' ? 'Creating your account…' : 'Signing in…')
+          : (mode === 'signup' ? 'Create account' : 'Sign in')}
+      </button>
+
+      <p className="auth__alt">
+        {mode === 'signup'
+          ? <>Already have an account? <a href="/login">Sign in</a></>
+          : <>New here? <a href="/signup">Create an account</a></>}
+      </p>
+
+      {mode === 'signup' && (
+        <p className="auth__legal">
+          By creating an account you agree to the <a href="/terms.html">Terms</a> and{' '}
+          <a href="/privacy.html">Privacy Policy</a>. We do not sell your data, and we do not
+          read the contents of your rooms.
+        </p>
+      )}
+    </form>
+  );
+}

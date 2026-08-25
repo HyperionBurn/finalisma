@@ -90,10 +90,15 @@ const html = fs.readFileSync(path.join(SITE, 'index.html'), 'utf-8');
 const requiredStrings = [
   'MCP is the tool protocol',
   'single-node',
-  'data-cohort-form',
+  // The cohort form was removed when the landing page was rebuilt from
+  // scratch. It is NOT replaced — see the note in the rebuild commit. If a
+  // lead-capture form returns, restore a check for it here.
+  'href="/signup"',
   '$39',
   'See how it works',
-  'href="#how-it-works"',
+  // The "how it works" section is now the pinned room walkthrough at #room.
+  // Same job, different anchor.
+  'href="#room"',
   'aria-live="polite"',
   'data-sim-label',
   'Simulated account · no credentials · no live session',

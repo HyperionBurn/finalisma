@@ -1,0 +1,24 @@
+---
+/**
+ * /app/settings — account.
+ *
+ * Only settings that actually exist are listed. Billing is absent because
+ * there is no billing yet, and a disabled "Upgrade" button that does nothing
+ * is worse than no button at all.
+ */
+import AppShell from '../../layouts/AppShell.astro';
+import SettingsView from '../../components/app/SettingsView.tsx';
+---
+
+<AppShell title="Settings" current="settings">
+  <header class="bar">
+    <h1 class="bar__t">Settings</h1>
+    <span class="bar__sp"></span>
+  </header>
+  <div class="scroll">
+    <div class="pad" style="max-width:620px">
+      <SettingsView client:load />
+
+    </div>
+  </div>
+</AppShell>

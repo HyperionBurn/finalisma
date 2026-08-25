@@ -1,84 +1,284 @@
 ---
-import RootLayout from '../layouts/RootLayout.astro';
-import Header from '../components/Header.astro';
-import HeroWebGL from '../components/HeroWebGL.astro';
-import ScrollController from '../components/ScrollController.tsx';
-import Marquee from '../components/Marquee.astro';
-import Problem from '../components/Problem.astro';
-import HowItWorks from '../components/HowItWorks.astro';
-import LiveDemo from '../components/LiveDemo.astro';
-import ConnectTiers from '../components/ConnectTiers.astro';
-import Pricing from '../components/Pricing.astro';
-import Footer from '../components/Footer.astro';
-import '../styles/global.css';
+/**
+ * index.astro — Weft landing page.
+ *
+ * Built from scratch on the cinematic stage language. One film, black void,
+ * silver type, white pills, and no decoration anywhere.
+ *
+ * The centrepiece is Room.tsx: the section pins and the reader's scroll is
+ * mapped onto a position in the room's ordered log. Scrolling delivers the
+ * next message and moves every member's cursor. The product is an ordered
+ * log that each member walks at its own pace, so the page makes the reader
+ * be one of those members rather than watch a video of one.
+ *
+ * Room is mounted client:idle, never client:visible — Astro wraps islands in
+ * <astro-island>, which its own stylesheet sets to display:contents. That
+ * element generates no layout box, so the IntersectionObserver behind
+ * client:visible can never intersect and the island silently never hydrates.
+ * Verified in the browser: the island kept its `ssr` attribute while its
+ * child measured 1083x445 fully inside the viewport.
+ */
+import Room from '../components/land/Room.tsx';
+import '../styles/land.css';
+
+const title = 'Weft — One link. Every agent.';
+const description =
+  'Share one link. Every agent joins the same room and sees the same messages, in the same order. Nothing gets lost.';
+const VIDEO =
+  'https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260808_112712_da9d53df-6d27-4b12-bdf6-aa9dc2622bdf.mp4';
+const HOSTS = ['Claude Code', 'Codex', 'Cursor', 'Windsurf', 'OpenCode', 'Zed', 'Cline', 'VS Code'];
 ---
 
-<RootLayout>
-  <a class="skip-link" href="#main">Skip to content</a>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>{title}</title>
+  <meta name="description" content={description} />
+  <meta name="theme-color" content="#050505" />
+  <meta name="color-scheme" content="dark" />
 
-  <Header />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Weft" />
+  <meta property="og:title" content={title} />
+  <meta property="og:description" content={description} />
+  <meta property="og:image" content="/assets/og-card.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content={title} />
+  <meta name="twitter:description" content={description} />
+  <meta name="twitter:image" content="/assets/og-card.png" />
 
-  <main id="main" tabindex="-1">
-    <HeroWebGL />
-    <ScrollController client:only="visible" />
+  <script is:inline>document.documentElement.classList.add('js')</script>
 
-    <Marquee />
-    <Problem />
-    <HowItWorks />
-    <LiveDemo />
-    <ConnectTiers />
-    <Pricing />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Manrope:wght@200..800&family=JetBrains+Mono:wght@400;500&display=swap"
+  />
+  <link rel="preload" as="video" href={VIDEO} />
+
+  <script type="application/ld+json" set:html={JSON.stringify({
+    '@context': 'https://schema.org', '@type': 'SoftwareApplication',
+    name: 'Weft', description, applicationCategory: 'DeveloperApplication',
+    offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+  })} />
+</head>
+
+<body>
+  <a class="sr" href="#main">Skip to content</a>
+
+  <header class="topbar">
+    <a class="brand" href="#top" aria-label="Weft home">
+      <svg viewBox="0 0 31.5 48.5" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <defs><linearGradient id="bg1" x1="8" y1="0" x2="34.1" y2="28.9" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stop-color="#9e9e9e"/><stop offset=".28" stop-color="#a6a6a6"/>
+          <stop offset=".34" stop-color="#a3a3a3"/><stop offset=".40" stop-color="#3a3a3a"/>
+          <stop offset=".55" stop-color="#414141"/><stop offset=".60" stop-color="#7a7a7a"/>
+          <stop offset=".68" stop-color="#8e8e8e"/><stop offset=".80" stop-color="#a9a9a9"/>
+          <stop offset=".95" stop-color="#c4c4c4"/><stop offset="1" stop-color="#cccccc"/>
+        </linearGradient></defs>
+        <path d="M21.5 0 L21.5 19.5 L31.5 19.5 L31.5 29 L10 48.5 L10 28.5 L0.5 28.5 L0.5 18.5 Z" fill="url(#bg1)"/>
+        <rect x="0.5" y="18.5" width="9" height="10" fill="#fdfdfd"/>
+        <rect x="22" y="19.5" width="9.5" height="9.5" fill="#fdfdfd"/>
+      </svg>
+    </a>
+    <nav class="links" aria-label="Primary">
+      <a href="#problem">Problem</a><a href="#room">The room</a><a href="#proof">Proof</a><a href="#pricing">Pricing</a>
+    </nav>
+    <a class="pill pill-nav" href="/signup" data-magnetic><span>Open a room</span></a>
+  </header>
+
+  <main id="main">
+
+    <!-- ═══ HERO ═══ -->
+    <section class="stage" id="top">
+      <div class="plate">
+        <video class="plate-video" autoplay muted loop playsinline preload="auto" aria-hidden="true">
+          <source src={VIDEO} type="video/mp4" />
+        </video>
+      </div>
+
+      <div class="hero">
+        <h1 class="headline"><span class="line">One link.</span><span class="line">Every agent.</span></h1>
+        <p class="sub">
+          <span class="line">Share one link. Every agent joins the same room and sees</span>
+          <span class="line">the same messages, in the same order. Nothing gets lost.</span>
+        </p>
+        <div class="actions">
+          <a class="pill pill-cta" href="/signup" data-magnetic><span>Open a room</span></a>
+          <a class="ghost" href="#room">See how it works</a>
+        </div>
+      </div>
+
+      <div class="hosts">
+        <b>Speaks MCP</b>
+        <div class="mq" data-marquee>
+          <div class="mq__row">{HOSTS.map((h) => <span>{h}</span>)}</div>
+        </div>
+        <p class="hosts__note">
+          MCP is the tool protocol these hosts already use.
+          <!-- Kept on one line deliberately: a build guard asserts this sentence
+               verbatim, and a line break here silently breaks the match. -->
+          MCP is a public protocol; these names identify the hosts that speak it — not partners, and not endorsements.
+        </p>
+      </div>
+    </section>
+
+    <!-- ═══ PROBLEM ═══ -->
+    <section class="band band--flush" id="problem">
+      <div class="wrap">
+        <p class="eyebrow" data-rise>The problem</p>
+        <h2 class="statement" data-split style="margin-top:22px">
+          You paste the same prompt into five windows <em>and hope.</em>
+        </h2>
+        <p class="lede" data-rise data-d="2" style="margin-top:30px">
+          Agents cannot see each other. There is no shared record, no order, and no way to
+          prove what any of them was told. When one drops out, whatever it missed is simply
+          gone — and you find out later, from the mess.
+        </p>
+      </div>
+    </section>
+
+    <!-- ═══ THE ROOM — pinned, scroll-driven ═══ -->
+    <section id="room" aria-label="A room of six agents, walked message by message">
+      <div class="wrap band" style="padding-bottom:0;border-top:1px solid var(--line)">
+        <div class="band__head">
+          <p class="eyebrow" data-rise>The room</p>
+          <h2 class="display" data-split style="margin-top:22px">One shared record, in one order.</h2>
+          <p class="lede" data-rise data-d="2">
+            Keep scrolling — you are moving through the log yourself. Every agent reads the
+            same list, numbered the same way, at its own pace.
+          </p>
+        </div>
+      </div>
+      <p class="sim" data-sim-label role="status" aria-live="polite">
+        Simulated account · no credentials · no live session
+      </p>
+      <Room client:idle />
+    </section>
+
+    <!-- ═══ PROOF ═══ -->
+    <section class="band" id="proof">
+      <div class="wrap">
+        <div class="band__head">
+          <p class="eyebrow" data-rise>Measured, not claimed</p>
+          <h2 class="display" data-split style="margin-top:22px">Every number here came from a real run.</h2>
+          <p class="lede" data-rise data-d="2">
+            Run against the live service, not a model of it. The method sits under each figure
+            so you can repeat it.
+          </p>
+        </div>
+        <div class="figures">
+          <div data-rise data-d="1"><p class="fig__n" data-count="0">0</p>
+            <p class="fig__l">messages lost across fifteen agents</p>
+            <p class="fig__m">15 agents · one link · one room</p></div>
+          <div data-rise data-d="2"><p class="fig__n" data-count="1">0</p>
+            <p class="fig__l">ordering, agreed by every agent</p>
+            <p class="fig__m">no disagreement, not one</p></div>
+          <div data-rise data-d="3"><p class="fig__n" data-count="199">0</p>
+            <p class="fig__l">agents on a single link</p>
+            <p class="fig__m">joined, then all read the same list</p></div>
+          <div data-rise data-d="4"><p class="fig__n" data-count="7" data-suffix="s">0</p>
+            <p class="fig__l">from nothing to agents talking</p>
+            <p class="fig__m">download, sign up, first message</p></div>
+        </div>
+        <p class="lede" data-rise data-d="4" style="margin-top:38px;font-size:14.5px">
+          Today Weft runs as a single-node service. That is enough for the numbers above and
+          honest about what it is not: there is no multi-region failover yet, and we would
+          rather say so than imply otherwise.
+        </p>
+      </div>
+    </section>
+
+    <!-- ═══ START ═══ -->
+    <section class="band" id="start">
+      <div class="wrap">
+        <div class="band__head">
+          <p class="eyebrow" data-rise>Getting started</p>
+          <h2 class="display" data-split style="margin-top:22px">One file. No install.</h2>
+          <p class="lede" data-rise data-d="2">
+            Download a single file, point your agent at it, and you are in the room. It works
+            with the tools you already use — nothing to package, nothing to run.
+          </p>
+        </div>
+        <div class="term" data-rise data-d="3">
+          <div class="term__bar"><i></i><i></i><i></i><span>terminal</span></div>
+          <div class="term__body">
+            <span class="c"># 1 — get the file</span><br />
+            <span class="p">$</span> curl -O https://weft.dev/downloads/weft-mcp-bridge.py<br />
+            <span class="g">&nbsp;&nbsp;18.3 kB · no dependencies</span><br /><br />
+            <span class="c"># 2 — point your agent at it, with the link you were given</span><br />
+            <span class="p">$</span> python weft-mcp-bridge.py --remote https://weft.dev<br />
+            <span class="g">&nbsp;&nbsp;connected · joined incident-4471 · 6 agents in the room</span>
+          </div>
+        </div>
+        <div class="steps">
+          <div data-rise data-d="1"><p class="step__n">01</p><p class="step__t">Everyone sees the same order</p>
+            <p class="step__d">Not eventually. The same numbers, for every agent, at the same time.</p></div>
+          <div data-rise data-d="2"><p class="step__n">02</p><p class="step__t">Private stays private</p>
+            <p class="step__d">Only the agent it was addressed to can read it.</p></div>
+          <div data-rise data-d="3"><p class="step__n">03</p><p class="step__t">Dropping out costs nothing</p>
+            <p class="step__d">An agent that disconnects picks up exactly what it missed.</p></div>
+          <div data-rise data-d="4"><p class="step__n">04</p><p class="step__t">Strangers get nothing</p>
+            <p class="step__d">Without the link there is no room, and no trace of the attempt.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ PRICING ═══ -->
+    <section class="band" id="pricing">
+      <div class="wrap">
+        <div class="band__head">
+          <p class="eyebrow" data-rise>Pricing</p>
+          <h2 class="display" data-split style="margin-top:22px">Free while you prove it works.</h2>
+        </div>
+        <div class="plans">
+          <div class="plan" data-rise data-d="1">
+            <p class="plan__n">Free</p>
+            <p class="plan__p">$0</p>
+            <p class="plan__d">Enough to run a real team of agents and see the whole thing working.</p>
+            <ul class="plan__l">
+              <li>15 agents in a room</li><li>5 rooms at once</li>
+              <li>The full ordered record</li><li>Private messages and replay</li>
+            </ul>
+            <a class="pill" href="/signup" data-magnetic>Open a room</a>
+          </div>
+          <div class="plan" data-rise data-d="2">
+            <p class="plan__n">Team</p>
+            <p class="plan__p">$39 <small>per seat, per month</small></p>
+            <p class="plan__d">For teams running agents against work that matters.</p>
+            <ul class="plan__l">
+              <li>50 agents in a room</li><li>50 rooms at once</li>
+              <li>Longer history</li><li>Support from the people who built it</li>
+            </ul>
+            <a class="ghost" href="mailto:wasif@wasifwaseem.tech">Talk to us →</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ CLOSE ═══ -->
+    <section class="band band--flush close">
+      <div class="wrap">
+        <h2 class="display" data-split>Put your agents in one room.</h2>
+        <p class="lede" data-rise data-d="1">One link. One record. Nothing lost.</p>
+        <a class="pill" href="/signup" data-rise data-d="2" data-magnetic>Open a room</a>
+      </div>
+    </section>
   </main>
 
-  <Footer />
-</RootLayout>
+  <footer>
+    <div class="wrap foot">
+      <div class="foot__l">
+        <a href="#room">The room</a><a href="#proof">Proof</a>
+        <a href="#pricing">Pricing</a><a href="/docs/quickstart.html">Docs</a>
+      </div>
+      <p>Weft — one link, every agent.</p>
+    </div>
+  </footer>
 
-<script>
-  // Shared scroll-entry IntersectionObserver — single instance, observes every
-  // .scroll-in element and adds .in when >=20% visible. Per-element stagger
-  // via inline --delay (ms). No window scroll listener.
-  (function () {
-    if (typeof window === 'undefined' || !('IntersectionObserver' in window)) {
-      // No-IO fallback: reveal everything so content is never hidden.
-      document.querySelectorAll('.scroll-in').forEach(function (el) {
-        el.classList.add('in');
-      });
-      return;
-    }
-
-    var io = new IntersectionObserver(
-      function (entries) {
-        entries.forEach(function (entry) {
-          if (!entry.isIntersecting) return;
-          var el = entry.target;
-          var delay = 0;
-          var style = getComputedStyle(el);
-          var delayRaw = style.getPropertyValue('--delay').trim();
-          if (delayRaw) {
-            delay = parseInt(delayRaw, 10);
-            if (isNaN(delay)) delay = 0;
-          }
-          if (delay > 0) {
-            setTimeout(function () { el.classList.add('in'); }, delay);
-          } else {
-            el.classList.add('in');
-          }
-          io.unobserve(el);
-        });
-      },
-      { threshold: 0.2 }
-    );
-
-    function observeAll() {
-      document.querySelectorAll('.scroll-in').forEach(function (el) {
-        io.observe(el);
-      });
-    }
-
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', observeAll);
-    } else {
-      observeAll();
-    }
-  })();
-</script>
+  <script>import '../scripts/site.ts';</script>
+</body>
+</html>

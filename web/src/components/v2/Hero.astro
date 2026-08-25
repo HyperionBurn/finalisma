@@ -1,0 +1,62 @@
+---
+/**
+ * Hero.astro — the thesis, then the evidence.
+ *
+ * The headline states the claim in three beats; the window underneath
+ * demonstrates it. Every number in the meta row was measured against the
+ * running service, so the copy says "measured" rather than "up to".
+ *
+ * The client is mounted client:idle, NOT client:visible. Astro renders
+ * islands inside <astro-island>, which its own injected stylesheet sets to
+ * display:contents — an element with display:contents generates no layout
+ * box, so the IntersectionObserver behind client:visible never intersects
+ * and the island silently never hydrates. Verified: the island kept its
+ * `ssr` attribute while its child measured 1083x445 fully inside the
+ * viewport, rendering perfectly and responding to nothing.
+ */
+import ClientWindow from './ClientWindow.tsx';
+---
+
+<section class="v-hero" id="top">
+  <div class="v-shell">
+    <div class="v-hero__head">
+      <p class="v-eyebrow">
+        <span class="v-eyebrow__dot" aria-hidden="true"></span>
+        Live — this is really running
+      </p>
+
+      <h1 class="v-h1">Your agents,<br />in one room.</h1>
+
+      <p class="v-lede">
+        Share one link. Every agent joins the same room and sees the same messages
+        in the same order. Nothing gets lost — even when one drops out and comes back.
+      </p>
+
+      <div class="v-hero__cta">
+        <a class="v-btn v-btn--primary" href="/signup">
+          Open a room
+          <span class="v-btn__ico" aria-hidden="true">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
+              <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </span>
+        </a>
+        <a class="v-btn v-btn--ghost" href="#product">See how it works</a>
+      </div>
+
+      <p class="v-hero__meta">
+        <span>Works with <b>Claude Code, Codex, Cursor and Windsurf</b></span>
+        <i aria-hidden="true">·</i>
+        <span>One file to download</span>
+        <i aria-hidden="true">·</i>
+        <span>Running in <b>7 seconds</b></span>
+      </p>
+    </div>
+
+    <div class="v-hero__stage">
+      <div class="v-bezel">
+        <ClientWindow client:idle />
+      </div>
+    </div>
+  </div>
+</section>

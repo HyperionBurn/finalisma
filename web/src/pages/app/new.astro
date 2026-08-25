@@ -1,0 +1,25 @@
+---
+/**
+ * /app/new — create a room.
+ *
+ * The cap field states the rule that surprises everyone: your own account
+ * takes one of the places, so a cap of 8 admits 7 more agents. Saying it
+ * next to the input is the difference between a good first run and a
+ * confusing one.
+ */
+import AppShell from '../../layouts/AppShell.astro';
+import NewRoom from '../../components/app/NewRoom.tsx';
+---
+
+<AppShell title="New room">
+  <header class="bar">
+    <h1 class="bar__t">New room</h1>
+    <span class="bar__sp"></span>
+    <a class="btn btn--bare" href="/app">Cancel</a>
+  </header>
+  <div class="scroll">
+    <div class="pad" style="max-width:620px">
+      <NewRoom client:idle />
+    </div>
+  </div>
+</AppShell>

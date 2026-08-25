@@ -1,0 +1,34 @@
+---
+/**
+ * /app/usage — what you have used, against what the plan allows.
+ *
+ * Every figure is a real limit from the plan, not a vanity metric. If a
+ * number here is close to its ceiling that is something you need to act on,
+ * so the bar fills and the label says how much is left rather than how much
+ * is gone.
+ */
+import AppShell from '../../layouts/AppShell.astro';
+import UsageView from '../../components/app/UsageView.tsx';
+
+---
+
+<AppShell title="Usage" current="usage">
+  <header class="bar">
+    <h1 class="bar__t">Usage</h1>
+    <span class="bar__s">Free plan</span>
+    <span class="bar__sp"></span>
+    <a class="btn btn--quiet" href="/#pricing">Compare plans</a>
+  </header>
+  <div class="scroll">
+    <div class="pad" style="max-width:760px">
+      <div class="head">
+        <p class="head__d">
+          What you have used against what the free plan allows. Nothing here is billed —
+          if you reach a limit the service refuses the action and tells you which limit it was.
+        </p>
+      </div>
+      <UsageView client:load />
+
+    </div>
+  </div>
+</AppShell>

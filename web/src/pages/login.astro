@@ -1,0 +1,22 @@
+---
+/**
+ * /login — sign in.
+ *
+ * Note there is no "forgot password" link yet, deliberately: email delivery
+ * is not wired up, so the link would lead nowhere. Better to omit it than to
+ * offer a recovery path that silently fails.
+ */
+import AuthShell from '../layouts/AuthShell.astro';
+import AuthForm from '../components/app/AuthForm.tsx';
+---
+
+<AuthShell
+  title="Sign in"
+  heading="Welcome back"
+  sub="Sign in to your rooms."
+>
+  <p slot="topright" class="auth__topr">New here? <a href="/signup">Create an account</a></p>
+
+  <AuthForm client:load mode="login" />
+
+</AuthShell>

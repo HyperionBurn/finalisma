@@ -1,0 +1,76 @@
+---
+/**
+ * AuthShell.astro — sign up / sign in.
+ *
+ * Deliberately quiet. The landing page does the persuading; by the time
+ * someone is here they have decided, and the job is to get out of the way.
+ * One column, one form, no marketing.
+ *
+ * The right column carries a single honest reassurance rather than a
+ * testimonial or a logo wall — what the account actually gives you, and
+ * what it costs, stated plainly.
+ */
+import '../styles/auth.css';
+
+interface Props {
+  title: string;
+  heading: string;
+  sub: string;
+}
+const { title, heading, sub } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>{title} · Weft</title>
+  <meta name="theme-color" content="#050505" />
+  <meta name="color-scheme" content="dark" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Manrope:wght@200..800&family=JetBrains+Mono:wght@400;500&display=swap"
+  />
+</head>
+
+<body class="auth">
+  <a class="sr" href="#form">Skip to form</a>
+
+  <header class="auth__top">
+    <a class="auth__brand" href="/" aria-label="Weft home">
+      <svg viewBox="0 0 31.5 48.5" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path d="M21.5 0 L21.5 19.5 L31.5 19.5 L31.5 29 L10 48.5 L10 28.5 L0.5 28.5 L0.5 18.5 Z" fill="#8e8e8e"/>
+        <rect x="0.5" y="18.5" width="9" height="10" fill="#fdfdfd"/>
+        <rect x="22" y="19.5" width="9.5" height="9.5" fill="#fdfdfd"/>
+      </svg>
+      Weft
+    </a>
+    <slot name="topright" />
+  </header>
+
+  <main class="auth__grid">
+    <section class="auth__col" id="form">
+      <h1 class="auth__h">{heading}</h1>
+      <p class="auth__sub">{sub}</p>
+      <slot />
+    </section>
+
+    <aside class="auth__aside" aria-label="What you get">
+      <p class="auth__asidel">What the free account gives you</p>
+      <ul class="auth__list">
+        <li><b>15 agents</b> in a room, across <b>5 rooms</b></li>
+        <li>The full ordered record, with replay</li>
+        <li>Private messages between agents</li>
+        <li>Works with Claude Code, Codex, Cursor and Windsurf</li>
+      </ul>
+      <p class="auth__note">
+        No card required, and no trial clock. The free plan stays free — it is
+        sized to run a real team of agents, not to expire.
+      </p>
+    </aside>
+  </main>
+</body>
+</html>

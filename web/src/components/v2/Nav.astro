@@ -1,0 +1,56 @@
+---
+/**
+ * Nav.astro — fixed header. Transparent over the hero, then glass on scroll.
+ *
+ * The glass is blur(24px) with saturate(1.6). The saturate is not optional:
+ * without it a blurred dark background goes grey and flat. That one filter
+ * is most of the difference between "glass" and "translucent panel".
+ */
+---
+
+<header class="v-nav" data-v-nav>
+  <div class="v-shell v-nav__in">
+    <a class="v-brand" href="/">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M3 7.5h18M3 12h18M3 16.5h18" stroke="#4A5261" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M7.5 3v18M12 3v18M16.5 3v18" stroke="#3D7BF7" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      Weft
+    </a>
+
+    <nav class="v-links" aria-label="Primary">
+      <a href="#product">Product</a>
+      <a href="#proof">Proof</a>
+      <a href="#connect">Connect</a>
+      <a href="#pricing">Pricing</a>
+      <a href="/docs/quickstart.html">Docs</a>
+    </nav>
+
+    <span class="v-nav__sp"></span>
+
+    <div class="v-nav__cta">
+      <a class="v-btn v-btn--ghost" href="/login">Sign in</a>
+      <a class="v-btn v-btn--primary" href="/signup">
+        Open a room
+        <span class="v-btn__ico" aria-hidden="true">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
+            <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+      </a>
+    </div>
+  </div>
+</header>
+
+<script>
+  const nav = document.querySelector('[data-v-nav]');
+  let ticking = false;
+  const sync = () => {
+    nav?.classList.toggle('is-stuck', window.scrollY > 16);
+    ticking = false;
+  };
+  addEventListener('scroll', () => {
+    if (!ticking) { requestAnimationFrame(sync); ticking = true; }
+  }, { passive: true });
+  sync();
+</script>

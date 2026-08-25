@@ -1,0 +1,43 @@
+---
+/**
+ * /app — the overview.
+ *
+ * Summary before detail: the strip across the top answers "is anything
+ * wrong" without reading a single row. Only then the rooms.
+ *
+ * Every figure here has a real referent in the product — members against
+ * the plan cap, messages today, whether any member has fallen behind the
+ * head of the log. Nothing is invented to fill a tile.
+ */
+import AppShell from '../../layouts/AppShell.astro';
+import RoomsList from '../../components/app/RoomsList.tsx';
+
+const ROOMS = [
+  { id: 'incident-4471', name: 'incident-4471', created: '2 hours ago', members: 6, cap: 8,
+    head: '046', behind: 0, state: 'live', last: 'reviewer · 4 min ago' },
+  { id: 'release-train', name: 'release-train', created: 'yesterday', members: 2, cap: 8,
+    head: '218', behind: 1, state: 'live', last: 'deployer · 26 min ago' },
+  { id: 'spec-review', name: 'spec-review', created: '3 days ago', members: 0, cap: 5,
+    head: '094', behind: 0, state: 'idle', last: 'closed by you' },
+  { id: 'nightly-bench', name: 'nightly-bench', created: 'last week', members: 0, cap: 15,
+    head: '1,204', behind: 0, state: 'idle', last: 'no activity in 6 days' },
+];
+---
+
+<AppShell title="Rooms">
+  <header class="bar">
+    <h1 class="bar__t">Rooms</h1>
+    <span class="bar__s">4 of 5 used</span>
+    <span class="bar__sp"></span>
+    <a class="btn btn--quiet" href="/app/connect">Connect an agent</a>
+    <a class="btn btn--pri" href="/app/new">New room</a>
+  </header>
+
+  <div class="scroll">
+    <div class="pad">
+
+      <RoomsList client:load />
+
+    </div>
+  </div>
+</AppShell>

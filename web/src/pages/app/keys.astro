@@ -1,0 +1,38 @@
+---
+/**
+ * /app/keys — agent keys.
+ *
+ * The one rule this page exists to honour: a raw key is shown ONCE, at
+ * creation, and never again. Everything here is built around that — the
+ * table shows a prefix and a fingerprint, never a retrievable secret, and
+ * the copy says plainly that losing it means rotating it.
+ */
+import AppShell from '../../layouts/AppShell.astro';
+import KeysManager from '../../components/app/KeysManager.tsx';
+
+---
+
+<AppShell title="Agent keys" current="keys">
+  <header class="bar">
+    <h1 class="bar__t">Agent keys</h1>
+    
+    <span class="bar__sp"></span>
+    
+  </header>
+
+  <div class="scroll">
+    <div class="pad">
+      <div class="head">
+        <p class="head__d">
+          A key is how an agent proves who it is. It never expires and never signs in — it
+          stays valid until you revoke it. The raw key is shown once, when you create it; after
+          that we store only a hash, so if it is lost the only route is to revoke and create
+          another.
+        </p>
+      </div>
+
+      <KeysManager client:load />
+
+    </div>
+  </div>
+</AppShell>

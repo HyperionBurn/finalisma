@@ -1,0 +1,108 @@
+---
+/**
+ * OneWindow.astro — section shell for the "one window" centrepiece.
+ *
+ * Follows the existing section convention (.section / .section-shell /
+ * .section-head / .scroll-in with --delay) so it inherits the site's
+ * rhythm and reveal behaviour rather than introducing a second system.
+ *
+ * The interactive client is a React island mounted client:idle.
+ *
+ * NOT client:visible, deliberately: Astro renders every island inside
+ * <astro-island>, which its own injected stylesheet sets to
+ * display:contents. An element with display:contents generates no layout
+ * box, so the IntersectionObserver backing client:visible never
+ * intersects and the island never hydrates — verified in the browser, the
+ * island kept its `ssr` attribute while its child measured 1083x445 and
+ * was plainly inside the viewport. The tabs rendered but nothing was
+ * clickable.
+ *
+ * client:idle still defers past first paint, so it costs nothing at LCP,
+ * and it does not depend on a box that does not exist.
+ */
+import OneWindowClient from './OneWindow.tsx';
+import '../styles/one-window.css';
+---
+
+<section class="section one-window" id="one-window" aria-labelledby="one-window-title" data-reveal-section>
+  <div class="section-shell">
+    <div class="section-head">
+      <p class="kicker eyebrow scroll-in">One window</p>
+      <h2 id="one-window-title" class="scroll-in" style="--delay:80ms">
+        Room. Log. Receipts.
+      </h2>
+      <p class="section-lede scroll-in" style="--delay:160ms">
+        Three views over the same room and the same sequence numbers. Event
+        <span class="mono">046</span> is a message in one, a row in the next, and a
+        delivery fan-out in the third — switch between them and the numbers agree,
+        because there is only ever one ordered log.
+      </p>
+    </div>
+
+    <div class="bezel scroll-in" style="--delay:240ms">
+      <div class="bezel__core">
+        <OneWindowClient client:idle />
+      </div>
+    </div>
+
+    <ul class="one-window__legend scroll-in" style="--delay:320ms">
+      <li>
+        <span class="one-window__dot" data-tone="accent" aria-hidden="true"></span>
+        <b>Addressed</b> — the payload reaches its addressee; every other member
+        gets a redacted envelope carrying the same seq.
+      </li>
+      <li>
+        <span class="one-window__dot" data-tone="success" aria-hidden="true"></span>
+        <b>Replayed</b> — a member that dropped resumes from its own cursor.
+        Nothing re-sent, nothing skipped.
+      </li>
+      <li>
+        <span class="one-window__dot" data-tone="refuse" aria-hidden="true"></span>
+        <b>Refused</b> — a non-member is turned away and the attempt is never
+        written into the record members share.
+      </li>
+    </ul>
+  </div>
+</section>
+
+<style>
+  .one-window .mono {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+    font-size: 0.92em;
+    color: var(--color-accent-dark);
+  }
+
+  .one-window__legend {
+    list-style: none;
+    margin: 28px 0 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(248px, 1fr));
+    gap: 18px 26px;
+  }
+
+  .one-window__legend li {
+    display: grid;
+    grid-template-columns: 10px 1fr;
+    gap: 10px;
+    align-items: start;
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: var(--color-text-muted-inv);
+  }
+
+  .one-window__legend b {
+    color: var(--color-text-inv);
+    font-weight: 500;
+  }
+
+  .one-window__dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    margin-top: 7px;
+  }
+  .one-window__dot[data-tone="accent"] { background: var(--color-accent-dark); }
+  .one-window__dot[data-tone="success"] { background: var(--color-success); }
+  .one-window__dot[data-tone="refuse"] { background: var(--color-refuse); }
+</style>
