@@ -200,6 +200,10 @@ async function main() {
     await ownerPage.goto(edgeOrigin + "/org", { waitUntil: "networkidle", timeout: 30000 });
     checks.owner_org_page_is_usable = await ownerPage
       .getByRole("heading", { name: "Organization", exact: true }).isVisible();
+    const ownerOrgText = await ownerPage.locator("body").innerText();
+    checks.owner_cannot_leave =
+      await ownerPage.locator('form[action="/org/leave"]').count() === 0
+      && ownerOrgText.includes("Owners cannot leave an organization");
     const inviteForm = ownerPage.locator('form[action="/org/invite"]');
     const inviteRole = inviteForm.getByRole("combobox");
     checks.invite_form_is_user_addressable =
@@ -212,6 +216,14 @@ async function main() {
       inviteForm.getByRole("button", { name: "Invite", exact: true }).click(),
     ]);
     checks.owner_sent_member_invite = true;
+    const roleTargetLabels = await ownerPage
+      .locator('form[action="/org/role"] select[name="account_id"] option')
+      .allTextContents();
+    const removeTargetLabels = await ownerPage
+      .locator('form[action="/org/remove"] select[name="account_id"] option')
+      .allTextContents();
+    checks.owner_can_choose_member_by_email = roleTargetLabels.some((label) => label.includes(memberEmail));
+    checks.owner_can_choose_removable_member_by_email = removeTargetLabels.some((label) => label.includes(memberEmail));
 
     const token = lookupInviteToken(memberEmail, sshTarget, sshKey, knownHosts);
     memberContext = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: "en-US" });
@@ -247,6 +259,12 @@ async function main() {
     checks.member_role_is_visible = orgText.includes(memberEmail) && /\bmember\b/i.test(orgText);
     checks.member_org_view_is_usable = await memberPage
       .getByRole("heading", { name: "Organization", exact: true }).isVisible();
+    checks.member_admin_controls_hidden =
+      await memberPage.locator(
+        'form[action="/org/invite"], form[action="/org/role"], form[action="/org/remove"]',
+      ).count() === 0
+      && orgText.includes("Only organization admins can invite or manage members");
+    checks.member_can_leave = await memberPage.locator('form[action="/org/leave"]').count() === 1;
   } catch (error) {
     checks.failure = redact(error.message);
   } finally {

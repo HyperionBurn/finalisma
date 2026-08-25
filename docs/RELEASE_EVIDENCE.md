@@ -9,7 +9,7 @@ compatibility claim.
 Measured on the current source/test stack after deployed fix commit `20b4ba0`:
 
 - Command: `python -B -m unittest discover -s tests`
-- Result: **1327 tests discovered; 1326 passed; 1 skipped**
+- Result: **1330 tests discovered; 1329 passed; 1 skipped**
 - Duration: 653.296 seconds on the local Windows runner
 - Focused API-readiness routing/identity suite: 69 tests passed locally
   (`tests.test_probe_live_release`, `tests.test_probe_live_release_contract`,

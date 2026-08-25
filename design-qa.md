@@ -82,7 +82,7 @@ Desktop density is 1440 x 900 at deviceScaleFactor 1. Mobile coverage is 390 x 8
 
 `python -B -m unittest discover -s tests -p "test_*.py"` passed the current
 local regression; the current local repository evidence is recorded in
-[`docs/RELEASE_EVIDENCE.md`](docs/RELEASE_EVIDENCE.md) (1315 discovered, 1314
+[`docs/RELEASE_EVIDENCE.md`](docs/RELEASE_EVIDENCE.md) (1330 discovered, 1329
 passed, 1 skipped). This does not claim browser or production proof.
 
 `python -B scripts/run-site-qa.py` ran the rendered Playwright harness on

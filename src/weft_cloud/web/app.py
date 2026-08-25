@@ -1472,42 +1472,102 @@ class WeftWebApp:
                 f'<tr><td>{_esc(m["email"])}</td><td>{_esc(m["role"])}</td>'
                 f'<td>{_esc(m.get("account_id", ""))}</td></tr>'
             )
+        def member_options(candidates: list[dict]) -> str:
+            return "".join(
+                f'<option value="{_esc(str(member["account_id"]))}">'
+                f'{_esc(member["email"])} ({_esc(member["role"])})</option>'
+                for member in candidates
+            )
+
+        manageable_members = [
+            member for member in members if member["account_id"] != ctx.account_id
+        ]
+        role_options = member_options(manageable_members)
+        if not role_options:
+            role_options = (
+                '<option value="" disabled selected>'
+                'No other members yet</option>'
+            )
+        role_select = (
+            '<select name="account_id" required="required">'
+            f'{role_options}</select>'
+        )
+        role_button = (
+            '<button type="submit">Set role</button>'
+            if manageable_members
+            else '<button type="submit" disabled>Set role</button>'
+        )
+        removable_members = [
+            member for member in manageable_members if member["role"] != "owner"
+        ]
+        removable_options = member_options(removable_members)
+        if removable_options:
+            remove_select = (
+                '<select name="account_id" required="required">'
+                f'{removable_options}</select>'
+            )
+            remove_html = (
+                '<h2>Remove a member</h2>'
+                '<form method="post" action="/org/remove">'
+                f'{_csrf_input(csrf)}'
+                f'{_label("Member", remove_select)}'
+                '<button type="submit">Remove member</button>'
+                '</form>'
+            )
+        else:
+            remove_html = (
+                '<h2>Remove a member</h2>'
+                '<p class="muted">There are no other removable members.</p>'
+            )
+        if ctx.role in ("owner", "admin"):
+            admin_html = (
+                '<h2>Invite a member</h2>'
+                '<form method="post" action="/org/invite">'
+                f'{_csrf_input(csrf)}'
+                f'{_label("Email", _input("email", "email", required="required"))}'
+                '<label>Role <select name="role">'
+                '<option value="member">member</option>'
+                '<option value="admin">admin</option>'
+                '</select></label>'
+                '<button type="submit">Invite</button>'
+                '</form>'
+                '<h2>Change a member role</h2>'
+                '<form method="post" action="/org/role">'
+                f'{_csrf_input(csrf)}'
+                f'{_label("Member", role_select)}'
+                '<label>New role <select name="role">'
+                '<option value="member">member</option>'
+                '<option value="admin">admin</option>'
+                '<option value="owner">owner</option>'
+                '</select></label>'
+                f'{role_button}'
+                '</form>'
+                + remove_html
+            )
+        else:
+            admin_html = (
+                '<p class="muted">Only organization admins can invite or manage members.</p>'
+            )
+        if ctx.role == "owner":
+            leave_html = (
+                '<h2>Organization membership</h2>'
+                '<p class="muted">Owners cannot leave an organization. Transfer '
+                'ownership or delete the organization instead.</p>'
+            )
+        else:
+            leave_html = (
+                '<h2>Leave organization</h2>'
+                '<form method="post" action="/org/leave">'
+                f'{_csrf_input(csrf)}'
+                '<button type="submit">Leave organization</button>'
+                '</form>'
+            )
         body_html = (
             '<h1>Organization</h1>'
             '<table><thead><tr><th>Email</th><th>Role</th><th>ID</th></tr></thead>'
             f'<tbody>{rows_html}</tbody></table>'
-            '<h2>Invite</h2>'
-            '<form method="post" action="/org/invite">'
-            f'{_csrf_input(csrf)}'
-            f'{_label("Email", _input("email", "email", required="required"))}'
-            '<label>Role <select name="role">'
-            '<option value="member">member</option>'
-            '<option value="admin">admin</option>'
-            '</select></label>'
-            '<button type="submit">Invite</button>'
-            '</form>'
-            '<h2>Role</h2>'
-            '<form method="post" action="/org/role">'
-            f'{_csrf_input(csrf)}'
-            f'{_label("Account ID", _input("account_id", "text", required="required"))}'
-            '<label>Role <select name="role">'
-            '<option value="member">member</option>'
-            '<option value="admin">admin</option>'
-            '<option value="owner">owner</option>'
-            '</select></label>'
-            '<button type="submit">Set role</button>'
-            '</form>'
-            '<h2>Remove</h2>'
-            '<form method="post" action="/org/remove">'
-            f'{_csrf_input(csrf)}'
-            f'{_label("Account ID", _input("account_id", "text", required="required"))}'
-            '<button type="submit">Remove</button>'
-            '</form>'
-            '<h2>Leave</h2>'
-            '<form method="post" action="/org/leave">'
-            f'{_csrf_input(csrf)}'
-            '<button type="submit">Leave organization</button>'
-            '</form>'
+            f'{admin_html}'
+            f'{leave_html}'
             + (
                 '<h2>Delete organization</h2>'
                 '<p class="warn"><strong>This is permanent.</strong> Delete the '

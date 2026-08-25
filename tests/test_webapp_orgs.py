@@ -368,6 +368,12 @@ class TestRoleManagement(unittest.TestCase):
         self.assertEqual(status, 303)
         self.assertTrue(headers["Location"].startswith("/org"))
 
+    def test_owner_can_choose_member_by_email_instead_of_copying_account_id(self):
+        status, body, _ = self.driver.get("/org")
+        self.assertEqual(status, 200)
+        self.assertIn('<label>Member <select name="account_id"', body)
+        self.assertIn(self.member_email, body)
+
 
 class TestRemoveMember(unittest.TestCase):
     """§3.2: owner can remove a member; removed member's session is gone."""
@@ -453,6 +459,12 @@ class TestOwnerLeave(unittest.TestCase):
         self.assertIn("Owners cannot leave", body)
         # Org still exists.
         self.assertIsNotNone(self.driver.backend.get_tenant(self.tenant_id))
+
+    def test_owner_org_page_explains_that_leave_is_unavailable(self):
+        status, body, _ = self.driver.get("/org")
+        self.assertEqual(status, 200)
+        self.assertNotIn('action="/org/leave"', body)
+        self.assertIn("Owners cannot leave an organization", body)
 
 
 class TestOwnerLeaveAlone(unittest.TestCase):
@@ -691,6 +703,14 @@ class TestMemberCannotAdmin(unittest.TestCase):
             {"email": f"x{time.time_ns()}@example.com", "role": "member", "_csrf": csrf},
         )
         self.assertEqual(status, 403)
+
+    def test_member_org_page_hides_admin_controls(self):
+        status, body, _ = self.driver.get("/org")
+        self.assertEqual(status, 200)
+        for action in ("/org/invite", "/org/role", "/org/remove"):
+            self.assertNotIn(f'action="{action}"', body)
+        self.assertIn("Only organization admins can invite or manage members", body)
+        self.assertIn('action="/org/leave"', body)
 
     def test_member_cannot_remove(self):
         owner_acct = self.driver.account_id_for_email(self.tenant_id, self.owner_email)
