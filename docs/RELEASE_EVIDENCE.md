@@ -65,6 +65,10 @@ and unauthenticated MCP routing checks.
   --require-https-edge`: **healthcheck ok**. The cloud base and public edge
   are deliberately probed separately because `/readyz` at the public root
   belongs to the web process, while `/v1/readyz` belongs to `weft-cloud`.
+- Fresh read-only recheck on **2026-08-25**: `scripts/probe_live_release.py`
+  with the verified root API origin returned **PASS** with an empty diagnostic
+  list, and `scripts/healthcheck.py` returned **healthcheck ok** with `/healthz`
+  200, `/v1/readyz` 200, and unauthenticated `/mcp` 401.
 - `scripts/probe_live_customer_journey.cjs` passed at **1440x900**, **390x844**,
   and **320x568**. Each fresh browser context completed the real
   site CTA → signup → login → dashboard → room creation → room-detail connect
