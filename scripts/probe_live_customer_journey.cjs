@@ -305,6 +305,19 @@ async function main() {
       && !configText.includes("python -m weft_mcp");
     checks.generated_credential_is_warned = configText.includes("live credential")
       && configText.includes("revoking the key invalidates");
+    await page.evaluate(() => {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: { writeText: async () => { throw new Error("clipboard denied"); } },
+      });
+      Object.defineProperty(document, "execCommand", {
+        configurable: true,
+        value: () => false,
+      });
+    });
+    const copyConfigButton = page.locator('button[onclick="wfCopy(this)"]').first();
+    await copyConfigButton.click();
+    checks.copy_failure_is_honest = (await copyConfigButton.textContent()) === "Copy failed";
     await checkNoHorizontalOverflow("config");
     await checkAccessibility("config");
 
