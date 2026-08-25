@@ -6,7 +6,7 @@ compatibility claim.
 
 ## Latest regression evidence
 
-Measured on the current source/test stack after deployed fix commit `77f2ea9`:
+Measured on the current source/test stack after deployed fix commit `1b4e7dd`:
 
 - Command: `python -B -m unittest discover -s tests`
 - Result: **1335 tests discovered; 1334 passed; 1 skipped**
@@ -71,17 +71,25 @@ metadata strings. The wrapping fix shipped in `77f2ea9`; the post-deploy pass
 reported all mobile overflow and axe checks true, 0 console errors, 0 failed
 requests, 0 unexpected responses, and cleanup complete.
 
+The current hosted MCP schema fix shipped in `1b4e7dd` after a native-client
+reproduction showed that a 30-second `room_wait` hit the desktop RPC deadline
+while 25 seconds returned the normal empty timeout envelope. The published
+hosted schema now caps `timeout_seconds` at 25 and explains that the lower-level
+service remains compatible with 30 seconds. The post-deploy native check saw
+`maximum: 25`, and `room_wait(25)` returned `timed_out: true` without a
+transport error.
+
 ## Hosted customer journey evidence
 
-The backend release at commit `77f2ea9` was deployed through the strict
+The backend release at commit `1b4e7dd` was deployed through the strict
 archive gate. The gate ran **1335 tests with 0 failures**, then passed the
 WAL-safe backup and restore drill, service restart proof, public readiness,
 and unauthenticated MCP routing checks.
 
 - The current deployment backup is
-  `/var/backups/weft/cloud-20260825T165832Z.db` (6,303,744 bytes). Its restore
+  `/var/backups/weft/cloud-20260825T172033Z.db` (6,344,704 bytes). Its restore
   drill reported 353 identity accounts and 147 rooms. The previous release was
-  retained at `/opt/weft-releases/pre-deploy-20260825T165832Z`. Cloud, web, and
+  retained at `/opt/weft-releases/pre-deploy-20260825T172033Z`. Cloud, web, and
   outbox all restarted with new main PIDs. Nginx syntax validation and reload
   passed, and the public checks returned 200 for health, readiness, signup, and
   the agent card, 401 for unauthenticated room creation and `/mcp`.
