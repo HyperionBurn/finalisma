@@ -115,6 +115,10 @@ and unauthenticated MCP routing checks.
   probes. Seven older zero-room disposable organizations from the stale run
   were removed through the product's `OrgStore.delete_org` teardown, and a
   read-only DB check confirmed zero remaining `weft-dogfood-*` accounts.
+- Post-cutover recheck on **2026-08-25** passed the full 320x568 browser
+  journey and the downloaded public-bridge `room_wait` round trip again. Both
+  probes reported zero console errors, zero failed requests, and completed
+  disposable cleanup.
 
 This is hosted Weft browser evidence. It does not claim SMTP mailbox delivery,
 successful Claude/Cursor/Codex host execution, or successful third-party model
