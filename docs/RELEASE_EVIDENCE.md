@@ -6,7 +6,7 @@ compatibility claim.
 
 ## Latest regression evidence
 
-Measured on the current source/test stack after deployed fix commit `20b4ba0`:
+Measured on the current source/test stack after deployed fix commit `46e21f4`:
 
 - Command: `python -B -m unittest discover -s tests`
 - Result: **1333 tests discovered; 1332 passed; 1 skipped**
@@ -62,10 +62,20 @@ probe launched with the generated config but stopped before any MCP call with
 
 ## Hosted customer journey evidence
 
-The backend release at commit `20b4ba0` was deployed through the strict
-archive gate. The gate ran **1319 tests with 0 failures**, then passed the
+The backend release at commit `46e21f4` was deployed through the strict
+archive gate. The gate ran **1333 tests with 0 failures**, then passed the
 WAL-safe backup and restore drill, service restart proof, public readiness,
 and unauthenticated MCP routing checks.
+
+- The deployment backup at `/var/backups/weft/cloud-20260825T152406Z.db`
+  passed its restore drill with 343 identity accounts and 141 rooms. The
+  previous release was retained at
+  `/opt/weft-releases/pre-deploy-20260825T152407Z`, and all three services
+  restarted with new main PIDs. The cutover script observed a transient public
+  `/signup` 404 during nginx/service convergence; an outside-in recheck then
+  returned 200 for `/signup`, `/healthz`, and `/v1/readyz`, and every subsequent
+  browser and release probe passed. This transient observation is retained
+  rather than presented as a clean single-command deploy verdict.
 
 - `scripts/probe_live_release.py` against the public API and Vercel site:
   **PASS**, with no diagnostics and all release-alignment checks true.
@@ -106,10 +116,15 @@ and unauthenticated MCP routing checks.
   organizations through the web UI. It reported 0 browser console errors and
   0 failed requests.
 - `scripts/probe_live_public_invite.cjs` passed against the public edge with
-  separate owner and invitee browser contexts. The owner created a member
-  invite, the public `/invite/{token}` page exposed labelled controls, a wrong
-  email was refused without consuming the invite, the addressed email joined
-  with the exact `member` role, and the owner deleted the organization. It
+  separate owner, member, and transfer-target browser contexts. The owner
+  created two member invites, the public `/invite/{token}` page exposed
+  labelled controls, a wrong email was refused without consuming the invite,
+  both addressed emails joined with the exact `member` role, and the owner
+  promoted one member to admin. The admin could not target the owner or grant
+  owner, then left and lost its session. The owner transferred ownership to
+  the remaining member through the explicit transfer form, the former owner
+  was demoted to admin and could leave, and the new owner retained deletion
+  authority. The disposable organization was deleted by the new owner. It
   reported 0 browser console errors and 0 failed requests.
 - `scripts/probe_live_password_reset.cjs` passed against the public edge with
   separate owner and recovery browser contexts. The reset-request form showed
@@ -191,7 +206,7 @@ and unauthenticated MCP routing checks.
   polled successfully. The owner UI showed `Join link revoked`, all three
   disposable organizations were deleted, and the browser emitted zero console
   errors.
-- Post-deploy room-lifecycle verification for **20b4ba0** passed at the live
+- Post-deploy room-lifecycle verification for **46e21f4** passed at the live
   origin. The browser created a forming room, closed it, saw the closed state,
   saw the closed room in the room list, confirmed both destructive controls were
   hidden, created a second room using the released slot, and deleted the
