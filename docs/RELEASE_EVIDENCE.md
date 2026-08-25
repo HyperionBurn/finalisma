@@ -7,8 +7,7 @@ compatibility claim.
 ## Latest regression evidence
 
 Measured on the current source/test stack. The deployed runtime baseline is
-`1b4e7dd`; the room live-event UI change in this worktree is pending its
-guarded deployment.
+`7cc2da5`; the room live-event UI change is now deployed and rechecked below.
 
 - Command: `python -B -m unittest discover -s tests`
 - Result: **1336 tests discovered; 1335 passed; 1 skipped**
@@ -120,9 +119,26 @@ not join a room or create an event. The earlier bridge-side hang was not
 reproduced at the HTTP boundary, so it remains a bridge/probe investigation,
 not a confirmed hosted-service defect.
 
+The latest guarded deployment of `7cc2da5` passed the extracted-HEAD gate with
+1336 tests, then passed the WAL-safe backup and restore drill, nginx validation,
+restart proof, and public health/readiness checks. The current backup is
+`/var/backups/weft/cloud-20260825T184820Z.db` (10,055,680 bytes); its restore
+drill reported 353 identity accounts and 147 rooms. The previous release was
+retained at `/opt/weft-releases/pre-deploy-20260825T184821Z`, and cloud, web,
+and outbox restarted with new main PIDs 395489, 395491, and 395490.
+
+Post-deploy real-user verification passed at 320x568 and 1440x900. Both runs
+covered live room-event arrival while the detail page stayed open, escaped
+payload display, audit payload display, bridge/config onboarding, key revoke,
+organization deletion, zero axe violations, zero console errors, zero failed
+requests, and complete disposable cleanup. The downloaded public bridge and
+full invite/role/ownership workflow also passed with zero browser errors.
+The correctly invoked root-origin release probe returned `PASS` with no
+diagnostics, and `healthcheck.py` returned `healthcheck ok`.
+
 ## Hosted customer journey evidence
 
-The backend release at commit `1b4e7dd` was deployed through the strict
+An earlier backend release at commit `1b4e7dd` was deployed through the strict
 archive gate. The gate ran **1335 tests with 0 failures**, then passed the
 WAL-safe backup and restore drill, service restart proof, public readiness,
 and unauthenticated MCP routing checks.

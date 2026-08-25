@@ -619,8 +619,8 @@ Priority order for the next agent:
    a. host-product breadth beyond the historical OpenCode 1.18.13 run — the
       HTTP/bridge/SDK protocol-tier transcripts are committed, but current
       third-party host runs remain the open item per `docs/PRODUCT_ROADMAP.md` §3;
-   b. scale proof at 10/50 agents (in flight in a separate worktree — do not
-      claim numbers until it lands with evidence);
+   b. scale proof at 10/50 agents is landed in `docs/SCALE_PROOF.md`; its
+      measurements are local loopback evidence, not production scale or uptime;
    c. a controlled idle-host rerun of the performance gate, which is red
       under host-load noise (`docs/PERFORMANCE.md` owns the numbers).
 
