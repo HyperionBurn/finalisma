@@ -52,7 +52,8 @@ Measured on the current source/test stack after deployed fix commit `20b4ba0`:
 
 Fresh verification in this session also passed the 320x568 customer journey,
 the three-identity cross-tenant roundtrip, and the downloaded public-bridge
-workflow. Each disposable organization was deleted through the product UI.
+workflow, plus the public-edge organization-invite workflow. Each disposable
+organization was deleted through the product UI.
 The browser probes reported zero console errors and zero failed requests.
 The real OpenCode probe selected `opencode-go/deepseek-v4-pro` but the
 provider returned `Insufficient balance` before any MCP call. The real Claude
@@ -104,6 +105,12 @@ and unauthenticated MCP routing checks.
   external listener message, exited cleanly, and deleted all disposable
   organizations through the web UI. It reported 0 browser console errors and
   0 failed requests.
+- `scripts/probe_live_public_invite.cjs` passed against the public edge with
+  separate owner and invitee browser contexts. The owner created a member
+  invite, the public `/invite/{token}` page exposed labelled controls, a wrong
+  email was refused without consuming the invite, the addressed email joined
+  with the exact `member` role, and the owner deleted the organization. It
+  reported 0 browser console errors and 0 failed requests.
 - `scripts/probe_live_rate_limit.cjs` passed a bounded production burst of 80
   authenticated room messages with concurrency 8. The service admitted 60
   requests with HTTP 200 and refused 20 with structured HTTP 429 responses,
