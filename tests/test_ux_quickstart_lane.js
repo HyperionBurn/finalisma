@@ -11,12 +11,10 @@ test('quickstart states the hosted/self-hosted tool boundary and bridge prerequi
 
   assert.match(html, /14 MCP tools on POST \/mcp/);
   assert.doesNotMatch(html, /\b9 MCP tools\b|No local install|&lt;absolute-path-to-repo&gt;/);
-  assert.match(html, /Python 3\.11\+/);
-  assert.match(html, /Install the <code>weft-mcp<\/code> package/);
-  assert.match(html, /python -m venv \.venv/);
-  assert.match(html, /verify-package-install\.py/);
+  assert.match(html, /standalone MCP bridge/);
+  assert.match(html, /No package installation or source checkout is required/);
+  assert.match(html, /&lt;path-to-downloaded-weft-mcp-bridge\.py&gt;/);
   assert.match(html, /absolute interpreter path/);
-  assert.match(html, /"-B",\s*"-m",\s*"weft_mcp"/);
   assert.match(html, /"PYTHONUTF8":\s*"1"/);
   assert.match(html, /full <strong>59-tool<\/strong> surface/);
   assert.match(html, /OpenCode has two native config contracts/);
