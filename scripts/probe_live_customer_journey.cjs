@@ -106,6 +106,9 @@ async function main() {
   let cleanupAttempted = false;
   let cleanupCompleted = false;
   let expectedNegativeResponse = false;
+  let keyCreatedRoom = null;
+  let keyRoomClosed = false;
+  let sessionToken = "";
 
   try {
     browser = await chromium.launch({ headless: true });
@@ -121,6 +124,7 @@ async function main() {
       }
     });
     page.on("pageerror", (error) => consoleErrors.push(redactDiagnostic(error.message)));
+    page.on("dialog", (dialog) => dialog.accept());
     page.on("requestfailed", () => failedRequests.push("request-failed"));
     page.on("response", (response) => {
       const status = response.status();
@@ -128,6 +132,8 @@ async function main() {
       const path = pathOf(response.url());
       // A wrong confirmation is an intentional 400 in this probe.
       if (path === "/org/delete") return;
+      // A revoked bearer key is expected to fail on its next request.
+      if (expectedNegativeResponse && status === 401) return;
       unexpectedResponses.push(`${status}:${path}`);
     });
 
@@ -234,6 +240,64 @@ async function main() {
     if (!checks.login_reaches_dashboard) fail("login did not reach the dashboard");
     await checkNoHorizontalOverflow("dashboard");
     await checkAccessibility("dashboard");
+    const sessionCookie = (await context.cookies(apiOrigin))
+      .find((cookie) => cookie.name === "fss_session");
+    sessionToken = sessionCookie?.value || "";
+    if (!sessionToken) fail("the signed-in browser session has no API bearer token");
+
+    await page.goto(`${apiOrigin}/agent-keys`, { waitUntil: "networkidle", timeout: 30000 });
+    const keyLabel = "customer-dogfood-key";
+    checks.agent_key_page_is_usable = await page.locator('input[name="label"]').count() === 1
+      && await page.getByRole("button", { name: "Create key", exact: true }).count() === 1;
+    if (!checks.agent_key_page_is_usable) fail("agent-key page is missing its creation controls");
+    await page.locator('input[name="label"]').fill(keyLabel);
+    await page.getByRole("button", { name: "Create key", exact: true }).click();
+    await page.waitForLoadState("networkidle");
+    const createdKeyText = await page.locator("body").innerText();
+    const rawAgentKey = createdKeyText.match(/agk_[A-Za-z0-9_-]+/)?.[0] || "";
+    checks.agent_key_shown_once = createdKeyText.includes("You will not see this key again")
+      && rawAgentKey.startsWith("agk_");
+    if (!checks.agent_key_shown_once) fail("agent-key creation did not show a one-time credential");
+    const keyRoomResponse = await page.request.post(`${apiOrigin}/v1/rooms/create`, {
+      headers: { Authorization: `Bearer ${rawAgentKey}` },
+      data: { name: "Agent-key dogfood room", cap: 2 },
+    });
+    checks.agent_key_can_use_room = keyRoomResponse.status() === 201;
+    if (checks.agent_key_can_use_room) {
+      keyCreatedRoom = await keyRoomResponse.json();
+    }
+    if (!checks.agent_key_can_use_room || !keyCreatedRoom?.room_id) {
+      fail("new agent key could not use the hosted room API");
+    }
+    await page.goto(`${apiOrigin}/agent-keys`, { waitUntil: "networkidle", timeout: 30000 });
+    const keyListText = await page.locator("body").innerText();
+    const keyRow = page.getByRole("row").filter({ hasText: keyLabel });
+    checks.agent_key_list_hides_secret = await keyRow.count() === 1 && !keyListText.includes(rawAgentKey);
+    if (!checks.agent_key_list_hides_secret) fail("agent-key list exposed or lost the key metadata");
+    const closeKeyRoomResponse = await page.request.post(`${apiOrigin}/v1/rooms/close`, {
+      headers: { Authorization: `Bearer ${sessionToken}` },
+      data: { room_id: keyCreatedRoom.room_id },
+    });
+    keyRoomClosed = closeKeyRoomResponse.status() === 200;
+    checks.agent_key_room_closes_cleanly = keyRoomClosed;
+    if (!keyRoomClosed) fail("the signed-in owner could not close the agent-key-created room");
+    await keyRow.getByRole("button", { name: "Revoke", exact: true }).click();
+    await page.waitForLoadState("networkidle");
+    const revokedText = await page.locator("body").innerText();
+    checks.agent_key_revoke_is_visible = revokedText.includes(keyLabel) && revokedText.includes("revoked");
+    if (!checks.agent_key_revoke_is_visible) fail("agent-key revocation was not visible in the list");
+    expectedNegativeResponse = true;
+    try {
+      const revokedResponse = await page.request.post(`${apiOrigin}/v1/rooms/send`, {
+        headers: { Authorization: `Bearer ${rawAgentKey}` },
+        data: { room_id: keyCreatedRoom.room_id, target_spec: "*", payload: { text: "should be refused" } },
+      });
+      checks.revoked_agent_key_refused = revokedResponse.status() === 401;
+    } finally {
+      expectedNegativeResponse = false;
+    }
+    if (!checks.revoked_agent_key_refused) fail("revoked agent key remained usable");
+    await page.goto(`${apiOrigin}/`, { waitUntil: "networkidle", timeout: 30000 });
 
     await page.locator('input[name="name"]').fill("Hosted customer dogfood");
     await page.locator('input[name="cap"]').fill("2");
@@ -348,6 +412,17 @@ async function main() {
   } catch (error) {
     checks.failure = error.message;
   } finally {
+    if (keyCreatedRoom && !keyRoomClosed && page) {
+      try {
+        const closeKeyRoomResponse = await page.request.post(`${apiOrigin}/v1/rooms/close`, {
+          headers: sessionToken ? { Authorization: `Bearer ${sessionToken}` } : undefined,
+          data: { room_id: keyCreatedRoom.room_id },
+        });
+        keyRoomClosed = closeKeyRoomResponse.status() === 200;
+      } catch {
+        keyRoomClosed = false;
+      }
+    }
     // If the journey failed after signup, use the same guarded owner path to
     // clean the disposable organization. Never attempt a broad or anonymous
     // cleanup request.

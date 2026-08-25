@@ -454,6 +454,8 @@ class TestRoomDetail(unittest.TestCase):
             "the long shareable URL must wrap instead of widening the document",
         )
         self.assertIn("word-break:break-word", body)
+        self.assertIn(".flash code{display:inline-block", body)
+        self.assertIn("li{overflow-wrap:anywhere", body)
 
     def test_room_detail_uses_configured_public_origin_for_join_link(self):
         previous = os.environ.get("WEFT_PUBLIC_ORIGIN")
