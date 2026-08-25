@@ -6,7 +6,7 @@ compatibility claim.
 
 ## Latest regression evidence
 
-Measured on the current source/test stack at probe/evidence head `cb330d4`:
+Measured on the current source/test stack after probe commit `4b1aa2f`:
 
 - Command: `PYTHONPATH=src python -B -m unittest discover -s tests -q`
 - Result: **1321 tests discovered; 1320 passed; 1 skipped**
