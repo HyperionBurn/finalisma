@@ -143,6 +143,11 @@ and unauthenticated MCP routing checks.
   because SMTP mailbox delivery remains an explicit unverified boundary. The
   only browser-console entry was Chromium's expected diagnostic for that
   intentional HTTP 400 refusal; there were no failed network requests.
+- Read-only VM operations check on **2026-08-25** found `weft-outbox` active and
+  running with exit status 0 since the current deployment. Its SMTP environment
+  file contains the expected host, port, username, password, and sender keys;
+  values were not read or emitted. This proves process/config presence only,
+  not mailbox receipt.
 
 This is hosted Weft browser evidence. It does not claim SMTP mailbox delivery,
 successful Claude/Cursor/Codex host execution, or successful third-party model
@@ -155,7 +160,7 @@ is local evidence.
 ## Explicitly unverified here
 
 - Docker image build and Compose lifecycle
-- VM systemd installation, SMTP credentials, mailbox delivery, and worker health
+- SMTP mailbox delivery and recipient receipt
 - Public-edge invite opening and acceptance
 - Successful live Claude, Cursor, or Codex host-product execution; Claude was
   launched but stopped before MCP calls because it was not logged in
