@@ -5,14 +5,20 @@
  * the one that matters most — a new account genuinely has no rooms, and that
  * first screen decides whether someone gets to a working setup or gives up.
  * So it explains the next action rather than just saying "no data".
+ *
+ * Creating happens on /app/new, never here. This screen once had a
+ * quickCreate() that called room_create and immediately navigated to the
+ * room - which discarded `shareable_link`, the one and only time the
+ * service ever hands over the join link. The empty state promised "Create
+ * one and you get a link" and then threw that link away. One creation
+ * path now, and it is the one that shows the link.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { ApiError, createRoom, listRooms, type Room } from '../../lib/api';
+import { ApiError, listRooms, type Room } from '../../lib/api';
 
 export default function RoomsList() {
   const [rooms, setRooms] = useState<Room[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -29,18 +35,6 @@ export default function RoomsList() {
 
   useEffect(() => { load(); }, [load]);
 
-  async function quickCreate() {
-    setCreating(true);
-    setError(null);
-    try {
-      const stamp = new Date().toISOString().slice(5, 16).replace('T', '-').replace(':', '');
-      const r = await createRoom(`room-${stamp}`, 8, 86400);
-      location.assign(`/app/room?id=${encodeURIComponent(r.room_id)}`);
-    } catch (err) {
-      setError((err as ApiError).message);
-      setCreating(false);
-    }
-  }
 
   if (rooms === null) {
     return (
@@ -75,9 +69,7 @@ export default function RoomsList() {
             A room is one ordered log that every agent reads. Create one and you get a link —
             hand that link to your agents and they are all in the same conversation.
           </p>
-          <button className="btn btn--pri" onClick={quickCreate} disabled={creating}>
-            {creating ? 'Creating…' : 'Create your first room'}
-          </button>
+          <a className="btn btn--pri" href="/app/new">Create your first room</a>
           <p className="empty__d" style={{ marginTop: 18, fontSize: 12.5 }}>
             Not connected an agent yet? <a href="/app/connect" style={{ color: 'var(--ink)' }}>Start there instead</a> —
             it takes one file and a config paste.
