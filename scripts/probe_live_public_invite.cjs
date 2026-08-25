@@ -216,14 +216,6 @@ async function main() {
       inviteForm.getByRole("button", { name: "Invite", exact: true }).click(),
     ]);
     checks.owner_sent_member_invite = true;
-    const roleTargetLabels = await ownerPage
-      .locator('form[action="/org/role"] select[name="account_id"] option')
-      .allTextContents();
-    const removeTargetLabels = await ownerPage
-      .locator('form[action="/org/remove"] select[name="account_id"] option')
-      .allTextContents();
-    checks.owner_can_choose_member_by_email = roleTargetLabels.some((label) => label.includes(memberEmail));
-    checks.owner_can_choose_removable_member_by_email = removeTargetLabels.some((label) => label.includes(memberEmail));
 
     const token = lookupInviteToken(memberEmail, sshTarget, sshKey, knownHosts);
     memberContext = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: "en-US" });
@@ -254,6 +246,15 @@ async function main() {
     ]);
     checks.correct_email_accepts_invite = await memberPage
       .getByRole("heading", { name: "Dashboard", exact: true }).isVisible();
+    await ownerPage.goto(edgeOrigin + "/org", { waitUntil: "networkidle", timeout: 30000 });
+    const roleTargetLabels = await ownerPage
+      .locator('form[action="/org/role"] select[name="account_id"] option')
+      .allTextContents();
+    const removeTargetLabels = await ownerPage
+      .locator('form[action="/org/remove"] select[name="account_id"] option')
+      .allTextContents();
+    checks.owner_can_choose_member_by_email = roleTargetLabels.some((label) => label.includes(memberEmail));
+    checks.owner_can_choose_removable_member_by_email = removeTargetLabels.some((label) => label.includes(memberEmail));
     await memberPage.goto(edgeOrigin + "/org", { waitUntil: "networkidle", timeout: 30000 });
     const orgText = await memberPage.locator("body").innerText();
     checks.member_role_is_visible = orgText.includes(memberEmail) && /\bmember\b/i.test(orgText);
