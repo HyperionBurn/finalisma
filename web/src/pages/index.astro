@@ -200,17 +200,23 @@ const HOSTS = ['Claude Code', 'Codex', 'Cursor', 'Windsurf', 'OpenCode', 'Zed', 
             so you can repeat it.
           </p>
         </div>
+        <!-- Each figure renders its TRUE value in the markup; the count-up resets it
+             to zero from initCounters() and animates back. It used to be authored as
+             0 and only reach the real number once JS ran, so a scriptless reader was
+             told "0 ordering, agreed by every agent" and "0 agents on a single link" —
+             the exact opposite of the claim. Safe to author the real value because
+             `.js [data-rise]` starts at opacity:0, so the reset is never seen. -->
         <div class="figures">
           <div data-rise data-d="1"><p class="fig__n" data-count="0">0</p>
             <p class="fig__l">messages lost across fifteen agents</p>
             <p class="fig__m">15 agents · one link · one room</p></div>
-          <div data-rise data-d="2"><p class="fig__n" data-count="1">0</p>
+          <div data-rise data-d="2"><p class="fig__n" data-count="1">1</p>
             <p class="fig__l">ordering, agreed by every agent</p>
             <p class="fig__m">no disagreement, not one</p></div>
-          <div data-rise data-d="3"><p class="fig__n" data-count="199">0</p>
+          <div data-rise data-d="3"><p class="fig__n" data-count="199">199</p>
             <p class="fig__l">agents on a single link</p>
             <p class="fig__m">joined, then all read the same list</p></div>
-          <div data-rise data-d="4"><p class="fig__n" data-count="7" data-suffix="s">0</p>
+          <div data-rise data-d="4"><p class="fig__n" data-count="7" data-suffix="s">7s</p>
             <p class="fig__l">from nothing to agents talking</p>
             <p class="fig__m">download, sign up, first message</p></div>
         </div>

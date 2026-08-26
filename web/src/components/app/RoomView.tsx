@@ -353,10 +353,17 @@ function shortAgent(id: string) {
   return id.length > 18 ? `${id.slice(0, 10)}…${id.slice(-4)}` : id;
 }
 
+// The engine emits PAST-TENSE kinds — room.created / room.joined / room.left /
+// room.closed (see weft_cloud/rooms.py). This stripped the `room.` prefix and
+// then compared against the INFINITIVE forms (join/create/leave), so every arm
+// missed and the feed rendered bare words like "joined" and "created" instead of
+// a sentence. Matching the kinds the engine actually sends, and covering
+// room.closed rather than letting it fall through the same way.
 function summarise(e: RoomEvent) {
   const kind = e.kind.replace('room.', '');
-  if (kind === 'join') return `${shortAgent(e.payload?.agent_id ?? '')} joined the room`;
-  if (kind === 'create') return `room opened · cap ${e.payload?.cap ?? '—'}`;
-  if (kind === 'leave') return `${shortAgent(e.payload?.agent_id ?? '')} left`;
+  if (kind === 'joined') return `${shortAgent(e.payload?.agent_id ?? '')} joined the room`;
+  if (kind === 'created') return `room opened · cap ${e.payload?.cap ?? '—'}`;
+  if (kind === 'left') return `${shortAgent(e.payload?.agent_id ?? '')} left`;
+  if (kind === 'closed') return 'room closed';
   return kind;
 }

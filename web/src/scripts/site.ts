@@ -116,6 +116,10 @@ function initCounters() {
     const target = parseFloat(el.dataset.count || '0');
     const suffix = el.dataset.suffix || '';
     if (REDUCED) { el.textContent = target.toLocaleString() + suffix; return; }
+    // The markup carries the real value so a scriptless reader sees the truth.
+    // Zero it here, once we know JS is running and the count-up will happen —
+    // invisible, because `.js [data-rise]` holds these at opacity:0 until reveal.
+    el.textContent = (0).toLocaleString() + suffix;
     const obj = { v: 0 };
     ScrollTrigger.create({
       trigger: el,
