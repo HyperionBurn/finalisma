@@ -24,8 +24,16 @@ import '../styles/land.css';
 const title = 'Weft — One link. Every agent.';
 const description =
   'Share one link. Every agent joins the same room and sees the same messages, in the same order. Nothing gets lost.';
-const VIDEO =
-  'https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260808_112712_da9d53df-6d27-4b12-bdf6-aa9dc2622bdf.mp4';
+// Self-hosted, and it has to stay that way: vercel.json ships
+// `media-src 'self'`, so the previous CloudFront URL was blocked outright in
+// production — the hero simply did not play on finalisma.vercel.app. Nothing
+// local could see it, because `astro dev` and `astro preview` send no CSP.
+// Re-encoded from the 5.24 MB source at native 1664x1248, CRF 26 -> 1.05 MB,
+// +faststart so it streams progressively instead of arriving all at once.
+const VIDEO = '/assets/hero.mp4';
+// First frame of that same clip. The poster is what paints for LCP, so the
+// hero no longer waits on a megabyte of video to show something.
+const VIDEO_POSTER = '/assets/hero-poster.webp';
 const HOSTS = ['Claude Code', 'Codex', 'Cursor', 'Windsurf', 'OpenCode', 'Zed', 'Cline', 'VS Code'];
 ---
 
@@ -61,25 +69,20 @@ const HOSTS = ['Claude Code', 'Codex', 'Cursor', 'Windsurf', 'OpenCode', 'Zed', 
        file would just recreate the 404. -->
   <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
 
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <!-- Loaded non-render-blocking. As a plain stylesheet this was one of only two
-       render-blocking resources, and it costs a DNS+TLS+fetch to googleapis before
-       a second hop to gstatic for the files themselves. The URL already carries
-       display=swap, so text paints in the fallback face either way — blocking the
-       render bought nothing. The noscript copy keeps the fonts for scriptless UAs. -->
-  <link
-    rel="stylesheet"
-    media="print"
-    onload="this.media='all';this.onload=null"
-    href="https://fonts.googleapis.com/css2?family=Manrope:wght@200..800&family=JetBrains+Mono:wght@400;500&display=swap"
-  />
-  <noscript>
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Manrope:wght@200..800&family=JetBrains+Mono:wght@400;500&display=swap"
-    />
-  </noscript>
+  <!-- Fonts are self-hosted (see styles/fonts.css). They used to come from
+       googleapis, which production's `style-src 'self'` blocked outright — and
+       `font-src 'self'` would have blocked gstatic straight after, so allowlisting
+       one origin would have failed twice. Same-origin also drops the DNS+TLS hop
+       to googleapis and the second hop to gstatic entirely.
+
+       Preloaded because @font-face now lives inside the bundled stylesheet: the
+       browser cannot discover these files until that CSS parses, and the preload
+       closes that gap. Only the two latin faces — latin-ext is a rare-glyph
+       fallback and preloading it would cost bytes on every visit for nothing. -->
+  <link rel="preload" as="font" type="font/woff2" crossorigin
+        href="/assets/fonts/manrope-var-latin.woff2" />
+  <link rel="preload" as="font" type="font/woff2" crossorigin
+        href="/assets/fonts/jetbrains-mono-var-latin.woff2" />
   <!-- The previous <link rel="preload" as="video"> here was inert: "video" is not a
        valid preload destination, so browsers ignore the hint entirely. The <video>
        element's own preload attribute is what actually governs the fetch. -->
@@ -121,7 +124,8 @@ const HOSTS = ['Claude Code', 'Codex', 'Cursor', 'Windsurf', 'OpenCode', 'Zed', 
     <!-- ═══ HERO ═══ -->
     <section class="stage" id="top">
       <div class="plate">
-        <video class="plate-video" autoplay muted loop playsinline preload="auto" aria-hidden="true">
+        <video class="plate-video" autoplay muted loop playsinline preload="metadata"
+               poster={VIDEO_POSTER} aria-hidden="true">
           <source src={VIDEO} type="video/mp4" />
         </video>
       </div>

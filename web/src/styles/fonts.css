@@ -1,0 +1,68 @@
+/* ═══════════════════════════════════════════════════════════
+   Self-hosted webfonts — Manrope + JetBrains Mono.
+
+   These used to come from fonts.googleapis.com. They cannot:
+   vercel.json ships `style-src 'self' 'unsafe-inline'` and
+   `font-src 'self'`, so in production the stylesheet was blocked
+   outright and every page fell back to system type. The block was
+   invisible locally — `astro dev` and `astro preview` send no CSP —
+   and it hit all ten pages that pull these families, not just the
+   landing page.
+
+   Both are OFL 1.1; the licences ship beside the binaries as
+   OFL-manrope.txt and OFL-jetbrains-mono.txt.
+
+   Root-relative URLs so they resolve against site/ wherever the
+   built stylesheet lands (/_astro/index.<hash>.css) — same
+   convention as the Archivo/IBM Plex faces in global.css.
+
+   Both files are VARIABLE. Google served JetBrains Mono 400 and 500
+   as two @font-face rules pointing at one identical file; declaring
+   the real axis instead means `<b>` in a mono run gets a genuine
+   700 rather than a synthesised or clamped one. Axes read from the
+   files themselves: Manrope wght 200–800, JetBrains Mono wght 400–800.
+   ═══════════════════════════════════════════════════════════ */
+
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+  src: url('/assets/fonts/manrope-var-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+  src: url('/assets/fonts/manrope-var-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url('/assets/fonts/jetbrains-mono-var-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url('/assets/fonts/jetbrains-mono-var-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
