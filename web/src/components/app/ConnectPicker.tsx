@@ -20,6 +20,7 @@
  */
 import { useState } from 'react';
 import { ApiError, createAgentKey } from '../../lib/api';
+import { APP_ORIGIN_EXAMPLE } from '../../lib/app';
 
 type Client = 'claude' | 'cursor' | 'windsurf' | 'codex';
 
@@ -61,7 +62,15 @@ export default function ConnectPicker() {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
-  const origin = typeof location !== 'undefined' ? location.origin : 'https://weft.dev';
+  // `location` is undefined while this page is prerendered, so the fallback is what
+  // ships in the static HTML and is what a reader copies before React hydrates.
+  // It used to be https://weft.dev, a domain that does not resolve — so the config
+  // on the page was dead on arrival for anyone who copied it early or with JS off.
+  // APP_ORIGIN_EXAMPLE is the placeholder the rest of the site already shows
+  // (docs/quickstart, examples/mcp.json), and resolves to the real origin when a
+  // deployment sets PUBLIC_APP_ORIGIN. A visible placeholder tells the reader to
+  // substitute their origin; a dead domain just fails later.
+  const origin = typeof location !== 'undefined' ? location.origin : APP_ORIGIN_EXAMPLE;
   const meta = CLIENTS.find((c) => c.id === client)!;
   const config = buildConfig(client, key ?? PLACEHOLDER, origin);
 
