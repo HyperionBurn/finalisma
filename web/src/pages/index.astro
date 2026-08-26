@@ -19,6 +19,11 @@
  * child measured 1083x445 fully inside the viewport.
  */
 import Room from '../components/land/Room.tsx';
+// The site's own documented origin abstraction. APP_ORIGIN_EXAMPLE renders the
+// configured PUBLIC_APP_ORIGIN when a deployment sets one, and an explicit
+// placeholder when it does not — the same value docs/quickstart already shows,
+// so the page never invents a hosted origin it cannot stand behind.
+import { APP_ORIGIN_EXAMPLE } from '../lib/app';
 import '../styles/land.css';
 
 const title = 'Weft — One link. Every agent.';
@@ -34,6 +39,14 @@ const VIDEO = '/assets/hero.mp4';
 // First frame of that same clip. The poster is what paints for LCP, so the
 // hero no longer waits on a megabyte of video to show something.
 const VIDEO_POSTER = '/assets/hero-poster.webp';
+// weft.dev was advertised here for the download AND for --remote, and the domain
+// does not resolve (DNS gaierror) — the page's very first instruction failed for
+// every reader who tried it. The bridge genuinely ships from THIS site
+// (site/downloads/weft-mcp-bridge.py, 18.3 kB as claimed), so the download now
+// names this site's canonical origin. The --remote target is a different thing:
+// it is the reader's own API origin, so it uses APP_ORIGIN_EXAMPLE rather than
+// hardcoding a second domain that can rot the same way.
+const SITE_ORIGIN = 'https://finalisma.vercel.app';
 const HOSTS = ['Claude Code', 'Codex', 'Cursor', 'Windsurf', 'OpenCode', 'Zed', 'Cline', 'VS Code'];
 ---
 
@@ -243,10 +256,10 @@ const HOSTS = ['Claude Code', 'Codex', 'Cursor', 'Windsurf', 'OpenCode', 'Zed', 
           <div class="term__bar"><i></i><i></i><i></i><span>terminal</span></div>
           <div class="term__body">
             <span class="c"># 1 — get the file</span><br />
-            <span class="p">$</span> curl -O https://weft.dev/downloads/weft-mcp-bridge.py<br />
+            <span class="p">$</span> curl -O {SITE_ORIGIN}/downloads/weft-mcp-bridge.py<br />
             <span class="g">&nbsp;&nbsp;18.3 kB · no dependencies</span><br /><br />
             <span class="c"># 2 — point your agent at it, with the link you were given</span><br />
-            <span class="p">$</span> python weft-mcp-bridge.py --remote https://weft.dev<br />
+            <span class="p">$</span> python weft-mcp-bridge.py --remote {APP_ORIGIN_EXAMPLE}<br />
             <span class="g">&nbsp;&nbsp;connected · joined incident-4471 · 6 agents in the room</span>
           </div>
         </div>
