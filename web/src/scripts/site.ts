@@ -198,35 +198,71 @@ function initMarquee() {
   });
 }
 
-/* ── land on the right section when arriving with a hash ─────── */
+/* ── land on the right section when arriving with a hash ─── */
 /**
- * Arriving from another page at `/#start` or `/#pricing` used to land the
- * reader thousands of pixels short of the target.
+ * Arriving from another page at `/#start` or `/#pricing` lands the reader
+ * thousands of pixels short of the target.
  *
  * The browser resolves the hash while parsing, against a document that has not
- * been laid out yet. Room.tsx then pins `.room__pin` with ScrollTrigger, which
- * inserts a pin spacer and makes the document taller. Every section AFTER the
- * room shifts down by that spacer, so the position the browser already scrolled
- * to is now the wrong one. `#room` itself is the pin, so it survives — which is
- * exactly why two unrelated anchors were observed landing at one identical
- * offset while a third was fine.
+ * finished laying out. `<Room client:idle />` then hydrates and its effect
+ * creates a ScrollTrigger with `pin: '.room__pin'` and an end of roughly 4.6
+ * viewports, inserting a pin spacer that makes the document that much taller.
+ * Every section after the room moves down by the spacer height, so whatever
+ * position was already scrolled to is now short by exactly that amount. `#room`
+ * is the pin itself, which is why it was always the one that worked, and why
+ * two unrelated anchors were measured landing at one identical offset.
  *
- * In-page clicks never hit this: initSmoothScroll intercepts `a[href^="#"]` and
- * hands the scroll to Lenis after layout has settled. Only cross-page arrivals
- * are affected, which is why the docs and blog links were the ones that broke.
+ * Two earlier attempts failed, both by assuming a moment that never came:
+ *   1. re-resolving right after boot's ScrollTrigger.refresh() — too early, the
+ *      island hydrates on idle, so the pin did not exist yet and this just
+ *      re-scrolled to the same wrong place the browser had already picked;
+ *   2. re-applying on ScrollTrigger's global `refresh` event — that event is
+ *      dispatched by the static ScrollTrigger.refresh(), not by an individual
+ *      trigger being created, so it need never fire for the pin we care about.
  *
- * So re-resolve the hash once the pins exist. getElementById rather than
- * querySelector: a hash is arbitrary user input and need not be a valid selector.
+ * So key off the thing actually being observed instead of a library event:
+ * the document getting taller. Whenever scrollHeight changes, the layout the
+ * hash was resolved against is stale, so resolve it again. That holds no matter
+ * how or when the pin appears — hydration, fonts, images, or a resize.
+ *
+ * Two guards, because silently moving someone's scroll is worse than landing
+ * them short: any real input cancels it, and it stops after a few seconds
+ * regardless, so nothing can yank the page out from under a reader.
+ *
+ * getElementById rather than querySelector: a hash is arbitrary user input and
+ * need not be a valid CSS selector.
  */
-function restoreHashTarget(lenis: Lenis | null) {
+function initHashLanding(lenis: Lenis | null) {
   const raw = location.hash.slice(1);
   if (!raw) return;
   let id: string;
   try { id = decodeURIComponent(raw); } catch { id = raw; }
-  const target = document.getElementById(id);
-  if (!target) return;
-  if (lenis) lenis.scrollTo(target, { offset: 0, immediate: true });
-  else target.scrollIntoView();
+  if (!document.getElementById(id)) return;
+
+  const deadline = performance.now() + 5000;
+  let live = true;
+  let lastHeight = -1;
+
+  const stop = () => { live = false; };
+  // The reader always wins the scrollbar.
+  (['wheel', 'touchstart', 'keydown', 'pointerdown'] as const).forEach((type) =>
+    window.addEventListener(type, stop, { once: true, passive: true }),
+  );
+
+  const tick = () => {
+    if (!live || performance.now() > deadline) return;
+    const height = document.documentElement.scrollHeight;
+    if (height !== lastHeight) {
+      lastHeight = height;
+      const target = document.getElementById(id);
+      if (target) {
+        if (lenis) lenis.scrollTo(target, { offset: 0, immediate: true });
+        else target.scrollIntoView();
+      }
+    }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
 }
 
 /* ── boot ───────────────────────────────────────────────────────── */
@@ -241,15 +277,12 @@ function boot() {
   initNav();
   initMarquee();
   ScrollTrigger.refresh();
-  // Pins exist now, so the document is its final height — an inbound hash can
-  // finally be resolved against the layout the reader will actually see.
-  restoreHashTarget(lenis);
+  // Re-resolves whenever the document height changes, so the pin spacer the
+  // Room island inserts on idle is accounted for rather than raced.
+  initHashLanding(lenis);
 
   // Fonts change metrics; recompute trigger positions once they land.
-  document.fonts?.ready.then(() => {
-    ScrollTrigger.refresh();
-    restoreHashTarget(lenis);
-  });
+  document.fonts?.ready.then(() => ScrollTrigger.refresh());
 
   // Safety net: nothing stays invisible, whatever happens above.
   window.setTimeout(() => {
