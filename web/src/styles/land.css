@@ -72,6 +72,10 @@ li{list-style:none}
 .js [data-rise]{opacity:0;transform:translateY(22px);
   transition:opacity .9s var(--ease),transform .9s var(--ease)}
 .js [data-rise].is-in{opacity:1;transform:none}
+/* Escape hatch for a main module that never ran — see the inline failsafe
+   in index.astro. Nothing stays invisible because a script failed. */
+.reveal-failsafe [data-rise]{opacity:1!important;transform:none!important}
+.reveal-failsafe .w__i{opacity:1!important;transform:none!important}
 .js [data-rise][data-d="1"]{transition-delay:.08s}
 .js [data-rise][data-d="2"]{transition-delay:.16s}
 .js [data-rise][data-d="3"]{transition-delay:.24s}

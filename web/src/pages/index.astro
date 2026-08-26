@@ -74,7 +74,19 @@ const HOSTS = ['Claude Code', 'Codex', 'Cursor', 'Windsurf', 'OpenCode', 'Zed', 
   <meta name="twitter:image" content="/assets/og-card.png" />
   <meta name="twitter:image:alt" content="Weft — one link, every agent" />
 
-  <script is:inline>document.documentElement.classList.add('js')</script>
+  <!-- `.js` gates the reveal system's hidden state, but the code that UNDOES
+       that state lives in the bottom module. If that module is blocked, fails,
+       or simply never arrives, everything below the hero stays transparent
+       forever — the page has already shipped that failure once. The failsafe is
+       inline on purpose: it cannot itself fail to load, so the hidden state can
+       never outlive its own escape hatch. boot() clears the timer as soon as it
+       runs, so this only ever fires when the module genuinely did not. -->
+  <script is:inline>
+    document.documentElement.classList.add('js');
+    window.__revealFailsafe = setTimeout(function () {
+      document.documentElement.classList.add('reveal-failsafe');
+    }, 3500);
+  </script>
 
   <!-- site/assets/favicon.svg already ships. Without an icon link every visit probes
        /favicon.ico, 404s, and logs a console error — the only console error on the

@@ -116,22 +116,28 @@ function initCounters() {
     const target = parseFloat(el.dataset.count || '0');
     const suffix = el.dataset.suffix || '';
     if (REDUCED) { el.textContent = target.toLocaleString() + suffix; return; }
-    // The markup carries the real value so a scriptless reader sees the truth.
-    // Zero it here, once we know JS is running and the count-up will happen —
-    // invisible, because `.js [data-rise]` holds these at opacity:0 until reveal.
-    el.textContent = (0).toLocaleString() + suffix;
+    // The markup carries the real value, and it STAYS there until the moment the
+    // count-up actually starts. Zeroing at boot (as this did) left every figure
+    // reading 0 for any hydrated reader before the trigger fired — invisible to
+    // the eye, because `.js [data-rise]` holds them at opacity:0, but not to a
+    // screen reader, which reads the text regardless of opacity. And if a
+    // trigger never fires, the zero is permanent: the page then states the
+    // opposite of its own claim, "0 ordering, agreed by every agent".
+    // So reset inside onEnter, one frame before animating away from it.
     const obj = { v: 0 };
     ScrollTrigger.create({
       trigger: el,
       start: 'top 90%',
       once: true,
-      onEnter: () =>
+      onEnter: () => {
+        el.textContent = (0).toLocaleString() + suffix;
         gsap.to(obj, {
           v: target, duration: 1.5, ease: 'power2.out',
           onUpdate: () => {
             el.textContent = Math.round(obj.v).toLocaleString() + suffix;
           },
-        }),
+        });
+      },
     });
   });
 }
@@ -286,6 +292,8 @@ function initHashLanding(lenis: Lenis | null) {
 /* ── boot ───────────────────────────────────────────────────────── */
 function boot() {
   document.documentElement.classList.add('js');
+  // The module arrived, so the inline failsafe is not needed.
+  clearTimeout((window as unknown as { __revealFailsafe?: number }).__revealFailsafe);
   const lenis = initSmoothScroll();
   initTextReveals();
   initReveals();

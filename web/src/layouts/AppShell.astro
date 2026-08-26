@@ -39,6 +39,21 @@ const { title, current = '' } = Astro.props;
 </head>
 
 <body>
+  <!-- Every interactive surface in this shell is a React island: the forms carry
+       no action/method and no named fields, the lists are API-driven, and the
+       buttons look enabled because they are ordinary buttons. Without JS they do
+       nothing at all, silently — an enabled control that cannot act is a false
+       affordance, and saying so is the least we owe someone in that position.
+       This does not fix the underlying JS requirement; it stops the page lying
+       about it. -->
+  <noscript>
+    <div style="background:#1a1206;border-bottom:1px solid #c39a4a;color:#f0e6d2;
+                padding:12px 20px;font:400 14px/1.5 system-ui,sans-serif;text-align:center">
+      This part of Weft needs JavaScript to run. The controls below are visible
+      but will not work until it is enabled — nothing you type here is sent.
+    </div>
+  </noscript>
+
   <div class="app">
     <aside class="rail">
       <a class="rail__brand" href="/app">
