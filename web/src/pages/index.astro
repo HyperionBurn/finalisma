@@ -55,13 +55,35 @@ const HOSTS = ['Claude Code', 'Codex', 'Cursor', 'Windsurf', 'OpenCode', 'Zed', 
 
   <script is:inline>document.documentElement.classList.add('js')</script>
 
+  <!-- site/assets/favicon.svg already ships. Without an icon link every visit probes
+       /favicon.ico, 404s, and logs a console error — the only console error on the
+       page. No apple-touch-icon: no square source exists, and pointing at a missing
+       file would just recreate the 404. -->
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <!-- Loaded non-render-blocking. As a plain stylesheet this was one of only two
+       render-blocking resources, and it costs a DNS+TLS+fetch to googleapis before
+       a second hop to gstatic for the files themselves. The URL already carries
+       display=swap, so text paints in the fallback face either way — blocking the
+       render bought nothing. The noscript copy keeps the fonts for scriptless UAs. -->
   <link
     rel="stylesheet"
+    media="print"
+    onload="this.media='all';this.onload=null"
     href="https://fonts.googleapis.com/css2?family=Manrope:wght@200..800&family=JetBrains+Mono:wght@400;500&display=swap"
   />
-  <link rel="preload" as="video" href={VIDEO} />
+  <noscript>
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@200..800&family=JetBrains+Mono:wght@400;500&display=swap"
+    />
+  </noscript>
+  <!-- The previous <link rel="preload" as="video"> here was inert: "video" is not a
+       valid preload destination, so browsers ignore the hint entirely. The <video>
+       element's own preload attribute is what actually governs the fetch. -->
+
 
   <script type="application/ld+json" set:html={JSON.stringify({
     '@context': 'https://schema.org', '@type': 'SoftwareApplication',

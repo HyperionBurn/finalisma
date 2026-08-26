@@ -20,8 +20,20 @@
   --muted:#a7a6a6;
   --nav:#b6b5b5;
   --strip:#8b8a8a;
-  --dim:#5a5a5f;
-  --faint:#3d3d42;
+  /* --dim and --faint were #5a5a5f and #3d3d42, measuring 2.92:1 and 1.85:1 against
+     the page's near-black. Both carry SMALL text (~8.3-8.6pt), so WCAG AA requires
+     4.5:1, and axe failed six elements on them.
+     What made this worth fixing beyond the score: --faint is what renders the honest
+     labels — "Simulated account · no credentials · no live session" and the message
+     sequence numbers. A build guard asserts those sentences exist, but at 1.85:1 they
+     were the least readable text on the page. A disclosure nobody can read is not a
+     disclosure.
+     Values below are close to the AA minimum on purpose, so the design keeps its
+     restraint, and the tonal order still reads
+     faint(4.70) < dim(5.46) < strip(5.81) < muted(8.24) — measured on #08080a, the
+     lighter of the two backgrounds these sit on and therefore the harder case. */
+  --dim:#85858c;
+  --faint:#7a7a82;
   --line:rgba(255,255,255,.085);
   --line-2:rgba(255,255,255,.16);
   --pill:#fff;
