@@ -32,8 +32,16 @@
 
   --ink:#fafafa;
   --muted:#a7a6a6;
-  --dim:#6f6e72;
-  --faint:#4a494d;
+  /* AA contrast. These were #6f6e72 / #4a494d, which measure 4.02:1 and
+     2.28:1 on --void and fail WCAG AA for small text. The landing page's
+     copy of these tokens was fixed earlier; this second, separately-bundled
+     copy was missed, so login, signup and every /app/* page kept shipping the
+     failing values. Found by axe, not by eye.
+     --faint is lighter here than on the landing page (#82828a vs #7a7a82)
+     because this shell paints on --panel #0E0F12, not --void: #7a7a82 lands
+     at 4.502:1 there, which passes only by rounding. #82828a gives 5.03:1. */
+  --dim:#85858c;
+  --faint:#82828a;
 
   --ok:#5fa876;
   --warn:#c39a4a;

@@ -198,10 +198,41 @@ function initMarquee() {
   });
 }
 
+/* ── land on the right section when arriving with a hash ─────── */
+/**
+ * Arriving from another page at `/#start` or `/#pricing` used to land the
+ * reader thousands of pixels short of the target.
+ *
+ * The browser resolves the hash while parsing, against a document that has not
+ * been laid out yet. Room.tsx then pins `.room__pin` with ScrollTrigger, which
+ * inserts a pin spacer and makes the document taller. Every section AFTER the
+ * room shifts down by that spacer, so the position the browser already scrolled
+ * to is now the wrong one. `#room` itself is the pin, so it survives — which is
+ * exactly why two unrelated anchors were observed landing at one identical
+ * offset while a third was fine.
+ *
+ * In-page clicks never hit this: initSmoothScroll intercepts `a[href^="#"]` and
+ * hands the scroll to Lenis after layout has settled. Only cross-page arrivals
+ * are affected, which is why the docs and blog links were the ones that broke.
+ *
+ * So re-resolve the hash once the pins exist. getElementById rather than
+ * querySelector: a hash is arbitrary user input and need not be a valid selector.
+ */
+function restoreHashTarget(lenis: Lenis | null) {
+  const raw = location.hash.slice(1);
+  if (!raw) return;
+  let id: string;
+  try { id = decodeURIComponent(raw); } catch { id = raw; }
+  const target = document.getElementById(id);
+  if (!target) return;
+  if (lenis) lenis.scrollTo(target, { offset: 0, immediate: true });
+  else target.scrollIntoView();
+}
+
 /* ── boot ───────────────────────────────────────────────────────── */
 function boot() {
   document.documentElement.classList.add('js');
-  initSmoothScroll();
+  const lenis = initSmoothScroll();
   initTextReveals();
   initReveals();
   initCounters();
@@ -210,9 +241,15 @@ function boot() {
   initNav();
   initMarquee();
   ScrollTrigger.refresh();
+  // Pins exist now, so the document is its final height — an inbound hash can
+  // finally be resolved against the layout the reader will actually see.
+  restoreHashTarget(lenis);
 
   // Fonts change metrics; recompute trigger positions once they land.
-  document.fonts?.ready.then(() => ScrollTrigger.refresh());
+  document.fonts?.ready.then(() => {
+    ScrollTrigger.refresh();
+    restoreHashTarget(lenis);
+  });
 
   // Safety net: nothing stays invisible, whatever happens above.
   window.setTimeout(() => {
