@@ -1314,5 +1314,193 @@ class TestCsrfOnClose(unittest.TestCase):
         self.assertNotIn("closed", body)
 
 
+class TestRoomSendStrictValidation(unittest.TestCase):
+    """MPAI-53: POST /v1/rooms/send rejects unknown top-level arguments with 400."""
+
+    def setUp(self):
+        self.driver = WebAppDriver()
+        self.owner_email = f"owner{time.time_ns()}@example.com"
+        self.owner_password = "owner-password-ok"
+        self.driver.login(self.owner_email, self.owner_password)
+        self.room_id = self.driver.create_room(name="Send Validation Room")
+
+        # 1. Recover link token
+        _, owner_body, _ = self.driver.get(f"/room/{self.room_id}/connect")
+        self.link_token = re.search(r"(rm_[A-Za-z0-9_-]+)", owner_body).group(1)
+
+        # 2. Spin up cloud service
+        self._start_cloud_service()
+
+        # 3. Mint Agent-Alpha key
+        _, signin_a = self._cloud_post("/v1/auth/signin", {
+            "email": self.owner_email, "password": self.owner_password,
+        })
+        self.session_token_a = signin_a["session_token"]
+        _, key_a = self._cloud_post("/v1/agent-keys", {
+            "label": "Agent-Alpha",
+        }, token=self.session_token_a)
+        self.agent_key_alpha = key_a["agent_key"]
+        self.agent_id_alpha = key_a["key_id"]
+
+        # 4. Join room as Alpha
+        self._cloud_post("/v1/rooms/join", {
+            "room_id": self.room_id,
+            "link_token": self.link_token,
+            "consent": True,
+            "capabilities": [],
+        }, token=self.agent_key_alpha)
+
+        # 5. Create external Account B & Agent-Beta
+        self.b_email = f"devb{time.time_ns()}@example.com"
+        self.b_pass = "devb-password-ok"
+        _, signup_b = self._cloud_post("/v1/auth/signup", {
+            "email": self.b_email, "password": self.b_pass,
+        })
+        self.session_token_b = signup_b["session_token"]
+        _, key_b = self._cloud_post("/v1/agent-keys", {
+            "label": "Agent-Beta",
+        }, token=self.session_token_b)
+        self.agent_key_beta = key_b["agent_key"]
+        self.agent_id_beta = key_b["key_id"]
+
+        # 6. Join room as Beta
+        self._cloud_post("/v1/rooms/join", {
+            "room_id": self.room_id,
+            "link_token": self.link_token,
+            "consent": True,
+            "capabilities": [],
+        }, token=self.agent_key_beta)
+
+        # 7. Create third-party Account C & Agent-Gamma
+        self.c_email = f"devc{time.time_ns()}@example.com"
+        self.c_pass = "devc-password-ok"
+        _, signup_c = self._cloud_post("/v1/auth/signup", {
+            "email": self.c_email, "password": self.c_pass,
+        })
+        self.session_token_c = signup_c["session_token"]
+        _, key_c = self._cloud_post("/v1/agent-keys", {
+            "label": "Agent-Gamma",
+        }, token=self.session_token_c)
+        self.agent_key_gamma = key_c["agent_key"]
+        self.agent_id_gamma = key_c["key_id"]
+
+        # 8. Join room as Gamma
+        self._cloud_post("/v1/rooms/join", {
+            "room_id": self.room_id,
+            "link_token": self.link_token,
+            "consent": True,
+            "capabilities": [],
+        }, token=self.agent_key_gamma)
+
+
+    def tearDown(self):
+        if hasattr(self, "_cloud_httpd"):
+            try:
+                self._cloud_httpd.shutdown()
+            finally:
+                self._cloud_httpd.server_close()
+        self.driver.close()
+
+    def _start_cloud_service(self):
+        """Serve the REAL WeftCloudService over the SAME backend as the web app."""
+        from weft_cloud.service import WeftCloudService, _CloudHTTPHandler
+
+        self._cloud = WeftCloudService(self.driver.backend,
+                                       origin=f"http://127.0.0.1:{self.driver.port}")
+        _CloudHTTPHandler.service = self._cloud
+        self._cloud_httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _CloudHTTPHandler)
+        self._cloud_port = self._cloud_httpd.server_address[1]
+        self._cloud_thread = threading.Thread(
+            target=self._cloud_httpd.serve_forever, daemon=True,
+        )
+        self._cloud_thread.start()
+
+    def _cloud_post(self, path: str, body: dict, token: str | None = None):
+        conn = http.client.HTTPConnection("127.0.0.1", self._cloud_port, timeout=10)
+        headers = {"Content-Type": "application/json"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        conn.request("POST", path, body=json.dumps(body), headers=headers)
+        resp = conn.getresponse()
+        raw = resp.read().decode("utf-8", errors="replace")
+        conn.close()
+        payload = {}
+        try:
+            payload = json.loads(raw)
+        except Exception:
+            pass
+        return resp.status, payload
+
+    def test_send_with_typo_targets_is_rejected_400_and_does_not_broadcast(self):
+        """A typo like 'targets' instead of 'target_spec' MUST fail with 400 and NOT broadcast."""
+        # Attempt to send with 'targets'
+        status, resp = self._cloud_post("/v1/rooms/send", {
+            "room_id": self.room_id,
+            "targets": self.agent_id_alpha,
+            "payload": {"secret": "confidential_db_credential_123"},
+        }, token=self.agent_key_beta)
+
+        self.assertEqual(status, 400)
+        self.assertEqual(resp.get("error", {}).get("code"), "invalid_argument")
+        self.assertIn("targets", resp.get("error", {}).get("message", ""))
+        self.assertIn("target_spec", resp.get("error", {}).get("message", ""))
+
+        # Verify message was NOT broadcast: poll as Agent-Gamma and verify 0 events received
+        p_status, p_resp = self._cloud_post("/v1/rooms/poll", {
+            "room_id": self.room_id,
+            "after_seq": 0,
+        }, token=self.agent_key_gamma)
+        self.assertEqual(p_status, 200)
+        messages = [e for e in p_resp.get("events", []) if e.get("kind") == "room.message"]
+        self.assertEqual(len(messages), 0, "typo send must not have reached Gamma")
+
+    def test_send_with_arbitrary_unknown_fields_is_rejected_400(self):
+        """Any unexpected top-level field on /v1/rooms/send is refused with 400."""
+        status, resp = self._cloud_post("/v1/rooms/send", {
+            "room_id": self.room_id,
+            "target_spec": "*",
+            "payload": {"text": "hello"},
+            "extra_unrecognized_argument": 123,
+        }, token=self.agent_key_beta)
+
+        self.assertEqual(status, 400)
+        self.assertEqual(resp.get("error", {}).get("code"), "invalid_argument")
+        self.assertIn("extra_unrecognized_argument", resp.get("error", {}).get("message", ""))
+
+    def test_valid_target_spec_unicast_delivers_only_to_addressee(self):
+        """Valid target_spec unicast works properly and is redacted for non-addressees."""
+        status, resp = self._cloud_post("/v1/rooms/send", {
+            "room_id": self.room_id,
+            "target_spec": self.agent_id_alpha,
+            "payload": {"secret": "alpha_only_credential_456"},
+        }, token=self.agent_key_beta)
+
+        self.assertEqual(status, 200)
+        seq = resp.get("seq")
+        self.assertIsNotNone(seq)
+
+        # Alpha polls: receives unredacted secret
+        _, alpha_poll = self._cloud_post("/v1/rooms/poll", {
+            "room_id": self.room_id,
+            "after_seq": 0,
+        }, token=self.agent_key_alpha)
+        alpha_msgs = [e for e in alpha_poll.get("events", []) if e.get("kind") == "room.message"]
+        self.assertEqual(len(alpha_msgs), 1)
+        self.assertEqual(alpha_msgs[0]["payload"]["payload"]["secret"], "alpha_only_credential_456")
+
+        # Gamma polls: receives REDACTED envelope
+        _, gamma_poll = self._cloud_post("/v1/rooms/poll", {
+            "room_id": self.room_id,
+            "after_seq": 0,
+        }, token=self.agent_key_gamma)
+        gamma_msgs = [e for e in gamma_poll.get("events", []) if e.get("kind") == "room.message"]
+        self.assertEqual(len(gamma_msgs), 1)
+        self.assertTrue(gamma_msgs[0]["payload"].get("redacted"))
+        self.assertEqual(gamma_msgs[0]["payload"].get("reason"), "not_the_addressee")
+
+
+
 if __name__ == "__main__":
     unittest.main()
+
+

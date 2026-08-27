@@ -29,11 +29,11 @@ conversation or sharing provider credentials.
 - One-use pairing links with preview-before-consent.
 - Member-bound session credentials and replayable ordered events.
 - Scoped tasks, leases, fencing tokens, artifact hashes, and evidence gates.
- - 1308 passing standard-library tests (1324 discovered, 16 skipped; measured
-   locally on 2026-08-23), including concurrency, restart, HTTP,
-  tenancy isolation, roster routing, durable outbox, bridge adapters, SDK
-  flows, room lifecycle, cloud storage, cross-team boundary cases, identity,
-  and the stdio-to-hosted bridge (docs/STDIO_BRIDGE.md).
+ - 1311 passing standard-library tests (1327 discovered, 16 skipped; measured
+   locally 2026-08-23, see `docs/RELEASE_EVIDENCE.md`), 0 external runtime dependencies,
+   covering concurrency, restart, HTTP, tenancy isolation, roster routing, durable outbox,
+   bridge adapters, SDK flows, room lifecycle, cloud storage, cross-team boundary cases,
+   identity, and the stdio-to-hosted bridge (docs/STDIO_BRIDGE.md).
 - A locked same-machine coordinator benchmark with a 72.221 ms reference artifact.
   The latest complete local gate measured 137.404 ms weighted median / 155.381 ms
   p95 and failed its timing guards while its quality sub-gates passed; this remains

@@ -1077,6 +1077,25 @@ class WeftCloudService:
         ctx = self._authenticate(handler)
         body = _read_body(handler)
         self._reject_identity_args(body)
+        allowed_keys = {
+            "room_id",
+            "target_spec",
+            "payload",
+            "exclude_sender",
+            "message_kind",
+            "idempotency_key",
+        }
+        unknown = sorted(set(body.keys()) - allowed_keys)
+        if unknown:
+            hint = ""
+            if "targets" in unknown:
+                hint = f" (did you mean 'target_spec'? '{unknown[0]}' was supplied instead of 'target_spec')"
+            elif any("target" in k for k in unknown):
+                hint = " (use 'target_spec' for recipient routing, or omit for broadcast)"
+            raise _ServiceError(
+                "invalid_argument",
+                f"Unknown argument(s) on send request: {', '.join(repr(k) for k in unknown)}{hint}",
+            )
         room_id = body.get("room_id")
         target_spec = body.get("target_spec", "*")
         if "payload" not in body or body["payload"] is None:
@@ -1101,6 +1120,7 @@ class WeftCloudService:
             message_kind=message_kind, idempotency_key=idempotency_key,
         )
         return _json_response(HTTPStatus.OK, result)
+
 
     def handle_room_receipts(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
         """Query delivery/read state for the caller's own sends (POST /v1/rooms/receipts).
