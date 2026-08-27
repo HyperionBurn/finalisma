@@ -159,6 +159,27 @@ const HOSTS = ['Claude Code', 'Codex', 'Cursor', 'Windsurf', 'OpenCode', 'Zed', 
                poster={VIDEO_POSTER} aria-hidden="true">
           <source src={VIDEO} type="video/mp4" />
         </video>
+        <!-- `autoplay` is an HTML attribute, so neither the reduced-motion CSS
+             block nor the reduced-motion short-circuit in site.ts can stop it:
+             both govern OUR animations, and the browser starts this one on its
+             own. Someone who asked their OS to stop motion still got a looping
+             video. This runs synchronously immediately after the element is
+             parsed - before playback begins - and leaves the poster showing, so
+             the frame is still there and nothing moves. Kept inline for the same
+             reason as the reveal failsafe: a guard that can fail to load is not
+             a guard. -->
+        <script is:inline>
+          (function () {
+            try {
+              if (!matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+              var v = document.currentScript.previousElementSibling;
+              if (!v || v.tagName !== 'VIDEO') return;
+              v.removeAttribute('autoplay');
+              v.autoplay = false;
+              v.pause();
+            } catch (e) {}
+          })();
+        </script>
       </div>
 
       <div class="hero">
