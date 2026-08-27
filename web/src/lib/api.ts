@@ -203,6 +203,8 @@ export async function me(): Promise<Me> {
 
 export interface AgentKey {
   key_id: string; label: string; agent_key?: string; created_at: string;
+  /** Revocation timestamp; revoked rows remain listed for auditability. */
+  revoked_at?: number | string | null;
 }
 export const listAgentKeys = () =>
   rest<{ keys: AgentKey[] }>('/v1/agent-keys', undefined, requireAuth());

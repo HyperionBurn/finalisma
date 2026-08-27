@@ -639,7 +639,7 @@ class AgentKeyNoOracleTests(AgentKeyServiceTestBase):
 
 
 class AgentKeyListTests(AgentKeyServiceTestBase):
-    """Listing exposes id/label/created/last-used — never the secret."""
+    """Listing exposes metadata, including revocation state, never secrets."""
 
     def test_list_shows_metadata_never_secret_or_hash(self) -> None:
         acct = self._signup("list-key@example.com")
@@ -673,6 +673,32 @@ class AgentKeyListTests(AgentKeyServiceTestBase):
         status, resp = _get(self.base, "/v1/agent-keys", token=acct["session_token"])
         self.assertEqual(status, HTTPStatus.OK)
         self.assertNotIn(key["agent_key"], json.dumps(resp))
+
+    def test_list_retains_revoked_state_for_visibility(self) -> None:
+        """The UI must be able to distinguish a retained revoked row."""
+        acct = self._signup("revoked-list@example.com")
+        session = acct["session_token"]
+        key = self._create_key(session, label="retained-revoked")
+
+        status, response = _post(
+            self.base,
+            "/v1/agent-keys/revoke",
+            {"key_id": key["key_id"]},
+            token=session,
+        )
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertIs(response["revoked"], True)
+
+        status, response = _get(self.base, "/v1/agent-keys", token=session)
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertEqual(len(response["keys"]), 1)
+        entry = response["keys"][0]
+        self.assertEqual(entry["key_id"], key["key_id"])
+        self.assertEqual(entry["label"], "retained-revoked")
+        self.assertIsNotNone(entry["revoked_at"])
+        serialized = json.dumps(response["keys"])
+        self.assertNotIn(key["agent_key"], serialized)
+        self.assertNotIn("token_hash", serialized)
 
 
 if __name__ == "__main__":

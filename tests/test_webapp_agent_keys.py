@@ -219,6 +219,20 @@ class AgentKeyWebPageTests(WebAgentKeysBase):
         self.assertNotIn(key_id, body, "revoked key must disappear from the list")
         self.assertNotIn(raw_key, body)
 
+        # The shipped Astro key manager receives retained revoked rows from
+        # GET /v1/agent-keys and must render their state without offering the
+        # irreversible action again.
+        component = (ROOT / "web" / "src" / "components" / "app" / "KeysManager.tsx").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("revoked_at", component)
+        self.assertRegex(component, r"const revoked = Boolean\(k\.revoked_at\)")
+        self.assertIn("Revoked", component)
+        self.assertRegex(
+            component,
+            r"(?s)\{revoked \? \(.*?No action.*?\)\s*:\s*\(.*?<button",
+        )
+
     def test_mutations_are_csrf_gated(self):
         self._signup_login()
         status, body, _ = self.driver.post("/agent-keys", {"label": "x", "_csrf": "wrong"})

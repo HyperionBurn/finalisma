@@ -2,10 +2,10 @@
  * KeysManager.tsx — agent keys, against the live service.
  *
  * The one rule the whole screen is built around: a raw key is returned ONCE,
- * by the create call, and never again. `GET /v1/agent-keys` deliberately
- * returns only key_id, label and created_at — so this component holds the
- * new key in memory for exactly as long as the person needs to copy it, and
- * never pretends it can be retrieved later.
+ * by the create call, and never again. `GET /v1/agent-keys` returns metadata
+ * (including the revocation timestamp) but never the raw token, so this
+ * component holds the new key in memory for exactly as long as the person
+ * needs to copy it and never pretends it can be retrieved later.
  *
  * Revocation IS implemented and IS enforced. An earlier version of this file
  * claimed otherwise and hid the button; that was wrong. `POST /v1/agent-keys/revoke`
@@ -148,36 +148,54 @@ export default function KeysManager() {
             <span className="metric__l">Name</span>
             <span className="metric__l">Key id</span>
             <span className="metric__l">Created</span>
-            <span className="metric__l" style={{ textAlign: 'right' }}>Revoke</span>
+            <span className="metric__l" style={{ textAlign: 'right' }}>Status / action</span>
           </div>
-          {keys.map((k) => (
-            <div className="row row--key" key={k.key_id}>
-              <span>
-                <span className="row__n">{k.label || 'Unnamed key'}</span>
-                <span className="row__sub">agk_…  ·  raw value shown only at creation</span>
-              </span>
-              <span className="row__m">{k.key_id.replace('key_', '').slice(0, 12)}…</span>
-              <span className="row__t">{ago(k.created_at)}</span>
-              <span style={{ textAlign: 'right' }}>
-                <button
-                  className={arming === k.key_id ? 'btn btn--danger' : 'btn btn--bare'}
-                  onClick={() => revoke(k.key_id)}
-                  disabled={revoking === k.key_id}
-                  aria-label={
-                    arming === k.key_id
-                      ? `Confirm revoking ${k.label || 'this key'} — this cannot be undone`
-                      : `Revoke ${k.label || 'this key'}`
-                  }
-                >
-                  {revoking === k.key_id
-                    ? 'Revoking…'
-                    : arming === k.key_id
-                      ? 'Sure? This is permanent'
-                      : 'Revoke'}
-                </button>
-              </span>
-            </div>
-          ))}
+          {keys.map((k) => {
+            const revoked = Boolean(k.revoked_at);
+            return (
+              <div className="row row--key" key={k.key_id}>
+                <span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <span className="row__n">{k.label || 'Unnamed key'}</span>
+                    <span
+                      className={`tag ${revoked ? 'tag--off' : 'tag--live'}`}
+                      role="status"
+                      aria-label={revoked ? 'Revoked key' : 'Active key'}
+                    >
+                      {revoked ? 'Revoked' : 'Active'}
+                    </span>
+                  </span>
+                  <span className="row__sub">agk_…  ·  raw value shown only at creation</span>
+                </span>
+                <span className="row__m">{k.key_id.replace('key_', '').slice(0, 12)}…</span>
+                <span className="row__t">{ago(k.created_at)}</span>
+                <span style={{ textAlign: 'right' }}>
+                  {revoked ? (
+                    <span className="row__sub" role="status" aria-label="No action; key is already revoked">
+                      No action
+                    </span>
+                  ) : (
+                    <button
+                      className={arming === k.key_id ? 'btn btn--danger' : 'btn btn--bare'}
+                      onClick={() => revoke(k.key_id)}
+                      disabled={revoking === k.key_id}
+                      aria-label={
+                        arming === k.key_id
+                          ? `Confirm revoking ${k.label || 'this key'} — this cannot be undone`
+                          : `Revoke ${k.label || 'this key'}`
+                      }
+                    >
+                      {revoking === k.key_id
+                        ? 'Revoking…'
+                        : arming === k.key_id
+                          ? 'Sure? This is permanent'
+                          : 'Revoke'}
+                    </button>
+                  )}
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
 
