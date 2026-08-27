@@ -241,6 +241,34 @@ _COPY_JS = (
     '</script>'
 )
 
+# Confirmation dialogs for destructive organization actions (member role change,
+# member removal, leaving organization). Progressively enhanced with data attributes
+# so the dialog names the targeted member and organization specifically.
+_ORG_JS = (
+    '<script>'
+    'function confirmOrgRole(btn){'
+    'var form=btn.form||btn.closest("form");'
+    'if(!form)return true;'
+    'var orgName=form.getAttribute("data-org-name")||"the organization";'
+    'var sel=form.querySelector("select[name=account_id]");'
+    'var rsel=form.querySelector("select[name=role]");'
+    'if(!sel||!sel.value)return true;'
+    'var txt=sel.options[sel.selectedIndex].text;'
+    'var role=rsel?rsel.value:"";'
+    'return confirm("Change role of " + txt + " to \'" + role + "\' in " + orgName + "?\\n\\nExisting sessions for this member will be rotated.");'
+    '}'
+    'function confirmOrgRemove(btn){'
+    'var form=btn.form||btn.closest("form");'
+    'if(!form)return true;'
+    'var orgName=form.getAttribute("data-org-name")||"the organization";'
+    'var sel=form.querySelector("select[name=account_id]");'
+    'if(!sel||!sel.value)return true;'
+    'var txt=sel.options[sel.selectedIndex].text;'
+    'return confirm("Remove " + txt + " from " + orgName + "?\\n\\nTheir membership, active sessions, and agent keys will be permanently revoked immediately.");'
+    '}'
+    '</script>'
+)
+
 
 def _copy_button(data_copy: str, label: str = "Copy") -> str:
     """Button that copies ``data_copy`` to the clipboard when JS is available."""
@@ -1625,51 +1653,123 @@ class WeftWebApp:
             return
         csrf = _new_csrf()
         members = self._list_members(ctx)
+        tenant = self.backend.get_tenant(ctx.tenant_id)
+        org_name = (tenant.get("name") if tenant else "") or "Organization"
+        owner_count = sum(1 for m in members if m.get("role") == "owner")
+        is_sole_owner = (ctx.role == "owner" and owner_count <= 1)
+
         rows_html = ""
+        role_options = '<option value="">Select a member...</option>'
+        remove_options = '<option value="">Select a member to remove...</option>'
+
         for m in members:
+            acct_id = m.get("account_id", "")
+            m_email = m.get("email", "")
+            m_role = m.get("role", "")
+            is_self = acct_id == ctx.account_id
+            self_tag = " (you)" if is_self else ""
+
             rows_html += (
-                f'<tr><td>{_esc(m["email"])}</td><td>{_esc(m["role"])}</td>'
-                f'<td>{_esc(m.get("account_id", ""))}</td></tr>'
+                f'<tr><td>{_esc(m_email)}{self_tag}</td><td>{_esc(m_role)}</td>'
+                f'<td><code>{_esc(acct_id)}</code></td></tr>'
             )
+
+            role_options += (
+                f'<option value="{_esc(acct_id)}">{_esc(m_email)} ({_esc(m_role)}){self_tag}</option>'
+            )
+
+            if m_role == "owner":
+                remove_options += (
+                    f'<option value="{_esc(acct_id)}" disabled>{_esc(m_email)} (owner — cannot remove){self_tag}</option>'
+                )
+            else:
+                remove_options += (
+                    f'<option value="{_esc(acct_id)}">{_esc(m_email)} ({_esc(m_role)}){self_tag}</option>'
+                )
+
+        leave_section = '<h2>Leave</h2>'
+        if ctx.role == "owner":
+            if is_sole_owner:
+                leave_section += (
+                    f'<div class="warn">'
+                    f'<p><strong>You are the sole owner of {_esc(org_name)}.</strong></p>'
+                    f'<p>Owners cannot leave an organization. If the sole owner were to leave, '
+                    f'{_esc(org_name)} would be orphaned with no owner to manage members, rooms, or credentials. '
+                    f'To step down, transfer ownership to another member under <strong>Role</strong> first, '
+                    f'or delete the organization if it is no longer needed.</p>'
+                    f'</div>'
+                    f'<form method="post" action="/org/leave" data-org-name="{_esc(org_name)}">'
+                    f'{_csrf_input(csrf)}'
+                    f'<button type="submit" onclick="return confirm(\'As the sole owner of {_esc(org_name)}, '
+                    f'you cannot leave directly without orphaning the organization. '
+                    f'Transfer ownership to another member before leaving.\');">'
+                    f'Leave organization</button>'
+                    f'</form>'
+                )
+            else:
+                leave_section += (
+                    f'<div class="warn">'
+                    f'<p><strong>You are an owner of {_esc(org_name)}.</strong></p>'
+                    f'<p>Owners cannot leave directly. To leave, change your role or transfer ownership '
+                    f'to another member first.</p>'
+                    f'</div>'
+                    f'<form method="post" action="/org/leave" data-org-name="{_esc(org_name)}">'
+                    f'{_csrf_input(csrf)}'
+                    f'<button type="submit" onclick="return confirm(\'As an owner of {_esc(org_name)}, '
+                    f'you cannot leave directly. Transfer ownership or change your role first.\');">'
+                    f'Leave organization</button>'
+                    f'</form>'
+                )
+        else:
+            leave_section += (
+                f'<p class="warn"><strong>Warning:</strong> Leaving {_esc(org_name)} will remove your membership '
+                f'and revoke your active session and all agent keys for this organization immediately.</p>'
+                f'<form method="post" action="/org/leave" data-org-name="{_esc(org_name)}">'
+                f'{_csrf_input(csrf)}'
+                f'<button type="submit" onclick="return confirm(\'Leave {_esc(org_name)}?\\n\\n'
+                f'Your membership will be removed and all your active sessions and agent keys for '
+                f'this organization will be revoked immediately.\');">'
+                f'Leave organization</button>'
+                f'</form>'
+            )
+
         body_html = (
-            '<h1>Organization</h1>'
-            '<table><thead><tr><th>Email</th><th>Role</th><th>ID</th></tr></thead>'
+            f'<h1>Organization</h1>'
+            f'<p>Managing <strong>{_esc(org_name)}</strong></p>'
+            f'<table><thead><tr><th>Email</th><th>Role</th><th>ID</th></tr></thead>'
             f'<tbody>{rows_html}</tbody></table>'
-            '<h2>Invite</h2>'
-            '<form method="post" action="/org/invite">'
+            f'<h2>Invite</h2>'
+            f'<form method="post" action="/org/invite">'
             f'{_csrf_input(csrf)}'
             f'{_label("Email", _input("email", "email", required="required"))}'
-            '<label>Role <select name="role">'
-            '<option value="member">member</option>'
-            '<option value="admin">admin</option>'
-            '</select></label>'
-            '<button type="submit">Invite</button>'
-            '</form>'
-            '<h2>Role</h2>'
-            '<form method="post" action="/org/role">'
+            f'<label>Role <select name="role">'
+            f'<option value="member">member</option>'
+            f'<option value="admin">admin</option>'
+            f'</select></label>'
+            f'<button type="submit">Invite</button>'
+            f'</form>'
+            f'<h2>Role</h2>'
+            f'<form method="post" action="/org/role" data-org-name="{_esc(org_name)}">'
             f'{_csrf_input(csrf)}'
-            f'{_label("Account ID", _input("account_id", "text", required="required"))}'
-            '<label>Role <select name="role">'
-            '<option value="member">member</option>'
-            '<option value="admin">admin</option>'
-            '<option value="owner">owner</option>'
-            '</select></label>'
-            '<button type="submit">Set role</button>'
-            '</form>'
-            '<h2>Remove</h2>'
-            '<form method="post" action="/org/remove">'
+            f'<label>Member <select name="account_id" required="required">{role_options}</select></label>'
+            f'<label>Role <select name="role">'
+            f'<option value="member">member</option>'
+            f'<option value="admin">admin</option>'
+            f'<option value="owner">owner</option>'
+            f'</select></label>'
+            f'<button type="submit" onclick="return confirmOrgRole(this);">Set role</button>'
+            f'</form>'
+            f'<h2>Remove</h2>'
+            f'<p class="warn"><strong>Warning:</strong> Removing a member permanently removes their membership and revokes all their active sessions and agent keys immediately.</p>'
+            f'<form method="post" action="/org/remove" data-org-name="{_esc(org_name)}">'
             f'{_csrf_input(csrf)}'
-            f'{_label("Account ID", _input("account_id", "text", required="required"))}'
-            '<button type="submit">Remove</button>'
-            '</form>'
-            '<h2>Leave</h2>'
-            '<form method="post" action="/org/leave">'
-            f'{_csrf_input(csrf)}'
-            '<button type="submit">Leave organization</button>'
-            '</form>'
-            '<p><a href="/legacy">Back to dashboard</a></p>'
+            f'<label>Member <select name="account_id" required="required">{remove_options}</select></label>'
+            f'<button type="submit" onclick="return confirmOrgRemove(this);">Remove</button>'
+            f'</form>'
+            f'{leave_section}'
+            f'<p><a href="/legacy">Back to dashboard</a></p>'
         )
-        body = _page("Organization", body_html, csrf_token=csrf)
+        body = _page("Organization", body_html, csrf_token=csrf, extra_head=_DASH_CSS + _ORG_JS)
         handler.send_response(HTTPStatus.OK)
         self._set_csrf_cookie(handler, csrf)
         handler.send_header("Content-Type", "text/html; charset=utf-8")
@@ -1853,12 +1953,14 @@ class WeftWebApp:
                             _page("Forbidden", '<p>CSRF validation failed.</p>'))
             return
         if ctx.role == "owner":
+            tenant = self.backend.get_tenant(ctx.tenant_id)
+            org_name = (tenant.get("name") if tenant else "") or "an organization"
             self._send_html(
                 handler,
                 HTTPStatus.BAD_REQUEST,
                 _page(
                     "Cannot leave",
-                    "<p>Owners cannot leave an organization. Transfer ownership "
+                    f"<p>Owners cannot leave {_esc(org_name)}. Transfer ownership "
                     "or delete the organization instead.</p>",
                 ),
             )

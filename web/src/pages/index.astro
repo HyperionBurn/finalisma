@@ -293,7 +293,13 @@ const HOSTS = ['Claude Code', 'Codex', 'Cursor', 'Windsurf', 'OpenCode', 'Zed', 
         </div>
         <div class="term" data-rise data-d="3">
           <div class="term__bar"><i></i><i></i><i></i><span>terminal</span></div>
-          <div class="term__body">
+          <!-- overflow-x:auto with no focusable content inside means a keyboard or
+           switch user cannot scroll this at all - the content simply ends at the
+           edge for them. tabindex makes the region itself focusable so arrow keys
+           work, and the label says what they have landed on, since a focus stop
+           that announces nothing is its own small cruelty. -->
+        <div class="term__body" tabindex="0" role="group"
+             aria-label="Terminal example. Scrollable; use the arrow keys.">
             <span class="c"># 1 — get the file</span><br />
             <span class="p">$</span> curl -O {SITE_ORIGIN}/downloads/weft-mcp-bridge.py<br />
             <span class="g">&nbsp;&nbsp;18.3 kB · no dependencies</span><br /><br />

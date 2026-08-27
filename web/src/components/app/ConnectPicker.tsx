@@ -106,7 +106,7 @@ export default function ConnectPicker() {
               {copied === 'curl' ? 'Copied' : 'Copy'}
             </button>
           </div>
-          <pre className="code__b"><span className="c"># one file · no dependencies · nothing to install</span>{'\n'}
+          <pre className="code__b" tabIndex={0} role="group" aria-label="Configuration snippet. Scrollable; use the arrow keys."><span className="c"># one file · no dependencies · nothing to install</span>{'\n'}
 <span className="k">curl -O {origin}/downloads/weft-mcp-bridge.py</span></pre>
         </div>
         <p className="warnline" style={{ marginTop: 10 }}>
