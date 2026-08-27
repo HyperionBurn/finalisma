@@ -1059,7 +1059,17 @@ class WeftCloudService:
         self._reject_identity_args(body)
         room_id = body.get("room_id")
         target_spec = body.get("target_spec", "*")
-        payload = body.get("payload", {})
+        if "payload" not in body or body["payload"] is None:
+            raise _ServiceError(
+                "invalid_argument",
+                "payload is required (expected shape: {'room_id': '...', 'payload': {'text': '...'}})",
+            )
+        payload = body["payload"]
+        if not isinstance(payload, dict):
+            raise _ServiceError(
+                "invalid_argument",
+                "payload must be a JSON object (expected shape: {'room_id': '...', 'payload': {'text': '...'}})",
+            )
         exclude_sender = body.get("exclude_sender", True)
         message_kind = body.get("message_kind")
         idempotency_key = body.get("idempotency_key")

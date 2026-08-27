@@ -262,6 +262,23 @@ def _validate_room_name(value: Any) -> str | None:
     return stripped
 
 
+def _validate_payload(value: Any) -> dict:
+    """Validate that message payload is a dictionary (JSON object).
+
+    A missing, non-dict, or scalar payload (e.g. caller sending top-level
+    fields like `text` instead of nesting them under `payload`) is rejected
+    at the boundary with 400 invalid_argument so contentless or malformed
+    messages cannot land in the authoritative immutable room log.
+    """
+    if value is None or not isinstance(value, dict):
+        raise RoomError(
+            "invalid_argument",
+            "payload must be a JSON object (expected shape: {'payload': {'text': '...'}})",
+            400,
+        )
+    return value
+
+
 def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
@@ -1994,6 +2011,7 @@ class CloudRoomService:
         # Verify the sender is an active member BEFORE the rate gate, so a
         # non-member cannot consume the room's per-minute message budget.
         message_kind = _validate_message_kind(message_kind)
+        payload = _validate_payload(payload)
         lock_context = self._idempotency_lock if idempotency_key else nullcontext()
         with lock_context:
             # Lazy TTL close commits in its own transaction, so a refusal in

@@ -1136,6 +1136,35 @@ class TestOrderedDelivery(CloudServiceTestBase):
         )
         self.assertNotIn(secret, json.dumps(outsider_poll))
 
+    def test_send_missing_payload_rejected_400(self) -> None:
+        """Top-level fields without payload (e.g. {'room_id': ..., 'text': 'hello'}) must 400."""
+        status, body = _post(self.base, "/v1/rooms/send", {
+            "room_id": self.room_id,
+            "text": "hello",
+        }, self.agent_tokens[0])
+        self.assertEqual(status, 400)
+        self.assertEqual(body["error"]["code"], "invalid_argument")
+        self.assertIn("payload is required", body["error"]["message"])
+
+    def test_send_scalar_payload_rejected_400(self) -> None:
+        """Scalar payload (e.g. {'room_id': ..., 'payload': 'hello'}) must 400."""
+        status, body = _post(self.base, "/v1/rooms/send", {
+            "room_id": self.room_id,
+            "payload": "hello",
+        }, self.agent_tokens[0])
+        self.assertEqual(status, 400)
+        self.assertEqual(body["error"]["code"], "invalid_argument")
+        self.assertIn("payload must be a JSON object", body["error"]["message"])
+
+    def test_send_null_payload_rejected_400(self) -> None:
+        """Null payload (e.g. {'room_id': ..., 'payload': None}) must 400."""
+        status, body = _post(self.base, "/v1/rooms/send", {
+            "room_id": self.room_id,
+            "payload": None,
+        }, self.agent_tokens[0])
+        self.assertEqual(status, 400)
+        self.assertEqual(body["error"]["code"], "invalid_argument")
+
     def test_non_member_send_refused(self) -> None:
         stranger = self._signup("delivery-stranger@example.com", "StrangerPass!1")
         status, body = _post(self.base, "/v1/rooms/send", {
