@@ -117,6 +117,10 @@ class _WebError(Exception):
         self.message = message
 
 
+class _StaticPathForbidden(Exception):
+    """Raised when a static request resolves outside the configured root."""
+
+
 def _esc(value: Any) -> str:
     """HTML-escaping helper. Never render unescaped user-controlled data."""
     return html.escape(str(value) if value is not None else "")
@@ -510,6 +514,70 @@ class WeftWebApp:
         self._send_security_headers(handler)
         handler.end_headers()
         handler.wfile.write(body)
+
+    def _resolve_static_target(self, path: str) -> Path | None:
+        """Resolve a URL path to a file in ``static_dir``.
+
+        Astro's static output uses directory indexes (``/app`` maps to
+        ``app/index.html``), while the preserved marketing pages also contain
+        extensionful files such as ``demo.html``.  Resolve-then-assert keeps
+        both forms working without a path blocklist and rejects symlinks or
+        encoded separators that escape the configured root.
+        """
+        if not self.static_dir:
+            return None
+        try:
+            root = Path(self.static_dir).resolve()
+            relative = unquote(path).lstrip("/\\")
+            target = (root / relative).resolve()
+        except (OSError, ValueError):
+            raise _StaticPathForbidden from None
+        if not target.is_relative_to(root):
+            raise _StaticPathForbidden
+
+        candidates = [target]
+        if target.is_dir():
+            candidates.append(target / "index.html")
+        elif target.suffix == "":
+            candidates.append(Path(f"{target}.html"))
+        for candidate in candidates:
+            try:
+                candidate = candidate.resolve()
+            except (OSError, ValueError):
+                raise _StaticPathForbidden from None
+            if not candidate.is_relative_to(root):
+                raise _StaticPathForbidden
+            if candidate.is_file():
+                return candidate
+        return None
+
+    @staticmethod
+    def _inject_legacy_csrf(body: bytes, token: str) -> bytes:
+        """Add a compatibility CSRF field to the static auth shell.
+
+        The Astro form submits through ``/v1/auth/*`` and does not need CSRF,
+        but browsers that already loaded the retired server-rendered form can
+        still POST ``/signup`` or ``/login`` during the transition.  A hidden
+        field plus the matching cookie lets those clients finish that request
+        without changing the shipped Astro bundle or exposing a session token.
+        """
+        try:
+            document = body.decode("utf-8")
+        except UnicodeDecodeError:
+            return body
+        # Keep the compatibility marker outside Astro's React island. Adding
+        # a child inside the hydrated form would create a client/server
+        # hydration mismatch and a console warning in the product shell.
+        match = re.search(r"<astro-island\b", document, flags=re.IGNORECASE)
+        if match:
+            insertion = match.start()
+        else:
+            form_match = re.search(r"<form\b[^>]*>", document, flags=re.IGNORECASE)
+            if not form_match:
+                return body
+            insertion = form_match.end()
+        field = f'<input type="hidden" name="_csrf" value="{_esc(token)}">'
+        return (document[:insertion] + field + document[insertion:]).encode("utf-8")
 
     # ------------------------------------------------------------------
     # Form parsing
@@ -2602,7 +2670,54 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
             path = urlsplit(self.path).path
             method = self.command
 
+            # --- Static product front door (GET) ---
+            # The Astro app uses relative /v1 and /mcp calls, so its shell and
+            # assets must come from this same origin.  Keep the old root
+            # dashboard available to browsers carrying a valid fss_session;
+            # new-token/localStorage clients have no such cookie and receive
+            # the static landing page instead.
+            if method == "GET" and app.static_dir:
+                if path == "/" and app._session_context(self) is None:
+                    self._serve_static(path)
+                    return
+                if path in {"/signup", "/signup/", "/login", "/login/"}:
+                    try:
+                        auth_target = app._resolve_static_target(path)
+                    except _StaticPathForbidden:
+                        self._serve_static(path, legacy_csrf=True)
+                        return
+                    if auth_target is not None:
+                        self._serve_static(path, legacy_csrf=True)
+                        return
+                if (
+                    path == "/app"
+                    or path.startswith("/app/")
+                    or path == "/assets"
+                    or path.startswith("/assets/")
+                    or path == "/_astro"
+                    or path.startswith("/_astro/")
+                    or path == "/downloads"
+                    or path.startswith("/downloads/")
+                ):
+                    self._serve_static(path)
+                    return
+
+                # Preserve public static documentation/marketing files too.
+                # A path that is not in the bundle falls through to the old
+                # auth gate, retaining legacy dynamic route behavior.
+                if path != "/":
+                    try:
+                        static_target = app._resolve_static_target(path)
+                    except _StaticPathForbidden:
+                        self._serve_static(path)
+                        return
+                    if static_target is not None:
+                        self._serve_static(path)
+                        return
+
             # --- Public pre-auth routes (GET) ---
+            # If no built bundle is mounted, retain the server-rendered auth
+            # pages as the standalone fallback.
             if method == "GET" and path == "/signup":
                 app.handle_get_signup(self)
                 return
@@ -2789,25 +2904,19 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
                            {"error": {"code": "not_found",
                                       "message": "Not found"}})
 
-        def _serve_static(self, path: str) -> None:
-            if path == "/":
-                path = "/index.html"
+        def _serve_static(self, path: str, *, legacy_csrf: bool = False) -> None:
             # Resolve-then-assert, never blocklist. A blocklist misses
             # backslashes, rooted absolute paths, drive letters, symlinks
             # and percent-encoded separators; containment on the resolved
-            # path catches all of them on every host OS.
+            # path catches all of them on every host OS.  Directory indexes
+            # and extensionless .html paths are resolved by the app helper.
             try:
-                root = Path(app.static_dir).resolve()
-                target = (root / unquote(path).lstrip("/\\")).resolve()
-            except (OSError, ValueError):
+                target = app._resolve_static_target(path)
+            except _StaticPathForbidden:
                 app._send_json(self, HTTPStatus.FORBIDDEN,
                                {"error": "forbidden"})
                 return
-            if not target.is_relative_to(root):
-                app._send_json(self, HTTPStatus.FORBIDDEN,
-                               {"error": "forbidden"})
-                return
-            if not target.is_file():
+            if target is None:
                 app._send_json(self, HTTPStatus.NOT_FOUND,
                                {"error": "not_found"})
                 return
@@ -2816,7 +2925,12 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
             ctype = _STATIC_CONTENT_TYPE.get(path) or (ctype or "application/octet-stream")
             with open(target, "rb") as f:
                 data = f.read()
+            legacy_token = _new_csrf() if legacy_csrf else None
+            if legacy_token is not None:
+                data = app._inject_legacy_csrf(data, legacy_token)
             self.send_response(HTTPStatus.OK)
+            if legacy_token is not None:
+                app._set_csrf_cookie(self, legacy_token)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-store")

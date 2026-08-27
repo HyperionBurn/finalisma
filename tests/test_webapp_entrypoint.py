@@ -124,6 +124,17 @@ class TestWebEntryPointBootsAndServes(unittest.TestCase):
                 self._wait_until_serving(port)
                 self.assertEqual(_get(port, "/signup"), 200, "GET /signup")
                 self.assertEqual(_get(port, "/login"), 200, "GET /login")
+                # The Astro shell is the product front door. It must be
+                # reachable from the same web origin as the API so the
+                # browser's relative /v1 and /mcp calls do not become Vercel
+                # HTML 404s.
+                for path in ("/", "/app", "/app/connect", "/assets/favicon.svg"):
+                    with self.subTest(path=path):
+                        self.assertEqual(_get(port, path), 200)
+                astro_asset = next((p.name for p in (ROOT / "site" / "_astro").iterdir()
+                                    if p.is_file()), None)
+                self.assertIsNotNone(astro_asset, "built Astro asset is required")
+                self.assertEqual(_get(port, f"/_astro/{astro_asset}"), 200)
                 self.assertEqual(_get(port, "/readyz"), 200, "GET /readyz")
             finally:
                 proc.terminate()
