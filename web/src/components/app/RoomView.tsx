@@ -207,7 +207,10 @@ export default function RoomView({ roomId }: Props) {
           )}
 
           {events.map((e) => {
-            const text = e.payload?.text ?? e.payload?.payload?.text ?? summarise(e);
+            const isRedacted = Boolean(e.payload?.redacted);
+            const text = isRedacted
+              ? '[private message]'
+              : (e.payload?.text ?? e.payload?.payload?.text ?? summarise(e));
             const pending = e.event_id.startsWith('pending-');
             const system = e.kind !== 'room.message';
             return (
@@ -218,8 +221,9 @@ export default function RoomView({ roomId }: Props) {
                   <p className="ev__who">
                     <span className="ev__from">{shortAgent(e.origin_agent)}</span>
                     {system && <span className="tag">{e.kind.replace('room.', '')}</span>}
+                    {isRedacted && <span className="tag tag--muted">private</span>}
                   </p>
-                  <p className="ev__body">{text}</p>
+                  <p className={`ev__body${isRedacted ? ' ev__body--muted' : ''}`}>{text}</p>
                 </div>
               </article>
             );
@@ -365,5 +369,6 @@ function summarise(e: RoomEvent) {
   if (kind === 'created') return `room opened · cap ${e.payload?.cap ?? '—'}`;
   if (kind === 'left') return `${shortAgent(e.payload?.agent_id ?? '')} left`;
   if (kind === 'closed') return 'room closed';
+  if (e.payload?.redacted) return '[private message]';
   return kind;
 }

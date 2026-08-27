@@ -165,6 +165,9 @@ export async function me(): Promise<Me> {
 export interface AgentKey {
   key_id: string; label: string; agent_key?: string; created_at: string;
 }
+export const listAgentKeys = () =>
+  rest<{ keys: AgentKey[] }>('/v1/agent-keys', undefined, requireAuth());
+
 export const createAgentKey = (label: string) =>
   rest<AgentKey>('/v1/agent-keys', { label }, requireAuth());
 

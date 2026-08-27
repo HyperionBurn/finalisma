@@ -15,16 +15,7 @@
  * arms first, and only the second click sends.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { ApiError, createAgentKey, revokeAgentKey, type AgentKey } from '../../lib/api';
-
-async function listKeys(): Promise<{ keys: AgentKey[] }> {
-  const token = localStorage.getItem('weft.session');
-  const res = await fetch('/v1/agent-keys', {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) throw new ApiError(`Could not load keys (${res.status})`, 'load_failed', res.status);
-  return res.json();
-}
+import { ApiError, createAgentKey, listAgentKeys, revokeAgentKey, type AgentKey } from '../../lib/api';
 
 export default function KeysManager() {
   const [keys, setKeys] = useState<AgentKey[] | null>(null);
@@ -39,7 +30,7 @@ export default function KeysManager() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const r = await listKeys();
+      const r = await listAgentKeys();
       setKeys(r.keys ?? []);
     } catch (err) {
       setError((err as ApiError).message);
