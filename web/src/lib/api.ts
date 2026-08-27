@@ -30,6 +30,7 @@
 const API_ORIGIN = '';
 const TOKEN_KEY = 'weft.session';
 const LEGACY_SESSION_MARKER_COOKIE = 'weft_legacy_session';
+const LEGACY_SESSION_MARKER_META = 'weft-legacy-session';
 
 export class ApiError extends Error {
   code: string;
@@ -64,19 +65,25 @@ export function isSignedIn() { return !!getToken(); }
 export function clearLegacySessionMarker() {
   try {
     document.cookie = `${LEGACY_SESSION_MARKER_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`;
+    document.querySelector(`meta[name="${LEGACY_SESSION_MARKER_META}"]`)?.remove();
   } catch {}
 }
 
 /** Consume the marker without ever reading or copying the HttpOnly session. */
 function consumeLegacySessionMarker(): boolean {
+  let found = false;
   try {
-    const found = document.cookie.split(';').some((part) => {
+    found = document.cookie.split(';').some((part) => {
       const [name, value] = part.trim().split('=', 2);
       return name === LEGACY_SESSION_MARKER_COOKIE && value === '1';
     });
-    if (found) clearLegacySessionMarker();
-    return found;
-  } catch { return false; }
+  } catch {}
+  try {
+    const meta = document.querySelector(`meta[name="${LEGACY_SESSION_MARKER_META}"]`);
+    if (meta?.getAttribute('content') === '1') found = true;
+  } catch {}
+  if (found) clearLegacySessionMarker();
+  return found;
 }
 
 /** Send the visitor to sign-in, remembering where they wanted to go. */

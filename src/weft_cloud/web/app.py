@@ -625,6 +625,33 @@ class WeftWebApp:
         field = f'<input type="hidden" name="_csrf" value="{_esc(token)}">'
         return (document[:insertion] + field + document[insertion:]).encode("utf-8")
 
+    @staticmethod
+    def _inject_legacy_session_marker(body: bytes) -> bytes:
+        """Embed a non-credential migration marker in a static app document.
+
+        The cookie marker remains useful to ordinary browsers, but a document
+        navigation may pass through a proxy or cookie policy that prevents the
+        new app from observing it through ``document.cookie``.  A meta marker
+        travels with the same HTML response and carries no identity or secret.
+        It is consumed and removed by the app before the login redirect.
+        """
+        try:
+            document = body.decode("utf-8")
+        except UnicodeDecodeError:
+            return body
+        if re.search(
+            r'<meta\b[^>]*\bname=["\']weft-legacy-session["\']',
+            document,
+            flags=re.IGNORECASE,
+        ):
+            return body
+        head = re.search(r"<head\b[^>]*>", document, flags=re.IGNORECASE)
+        if not head:
+            return body
+        marker = '<meta name="weft-legacy-session" content="1">'
+        insertion = head.end()
+        return (document[:insertion] + marker + document[insertion:]).encode("utf-8")
+
     # ------------------------------------------------------------------
     # Form parsing
     # ------------------------------------------------------------------
@@ -3065,6 +3092,8 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
             legacy_token = _new_csrf() if legacy_csrf else None
             if legacy_token is not None:
                 data = app._inject_legacy_csrf(data, legacy_token)
+            if legacy_session and ctype.startswith("text/html"):
+                data = app._inject_legacy_session_marker(data)
             self.send_response(HTTPStatus.OK)
             if legacy_token is not None:
                 app._set_csrf_cookie(self, legacy_token)

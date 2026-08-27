@@ -291,9 +291,16 @@ class TestLogin(unittest.TestCase):
         self.assertIn('href="/legacy"', rooms_body)
         # Visiting the app with this cookie gives the React shell a
         # non-credential marker so it can explain the one-time re-auth.
-        app_status, _, app_headers = self.driver.get("/app")
+        app_status, app_body, app_headers = self.driver.get("/app")
         self.assertEqual(app_status, 200)
         self.assertIn("weft_legacy_session=1", app_headers.get("Set-Cookie", ""))
+        # A real document navigation must carry a browser-readable marker even
+        # when an intermediary/browser does not expose the response cookie to
+        # document.cookie. It is a signal only, never a credential.
+        self.assertIn(
+            '<meta name="weft-legacy-session" content="1">',
+            app_body,
+        )
 
     def test_login_accepts_case_and_whitespace_variants(self):
         status, _, _ = self.driver.post(
@@ -657,6 +664,12 @@ class TestGatedRoutes(unittest.TestCase):
                 self.assertEqual(headers["Location"], "/login")
                 # No dashboard content leaked.
                 self.assertNotIn("Rooms", body)
+        # The app shell stays public, but the migration marker is emitted only
+        # when the server actually validates a legacy session cookie.
+        status, body, headers = self.driver.get("/app")
+        self.assertEqual(status, 200)
+        self.assertNotIn('<meta name="weft-legacy-session" content="1">', body)
+        self.assertNotIn("weft_legacy_session=1", headers.get("Set-Cookie", ""))
 
 
 class TestEmailMessaging(unittest.TestCase):

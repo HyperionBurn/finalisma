@@ -9,7 +9,7 @@
  * generic "something went wrong" — if the address is taken, or the password
  * is too short, the person needs to know which, and the API already says so.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ApiError, isSignedIn, setToken, signin, signup } from '../../lib/api';
 
 interface Props { mode: 'signup' | 'login' }
@@ -31,6 +31,13 @@ export default function AuthForm({ mode }: Props) {
     setMigrated(params.has('migrated'));
   }, []);
 
+  // Validation moves focus to the field it is about. Setting aria-invalid
+  // and leaving the caret on the submit button announces a problem and then
+  // makes the reader go hunting for it - worst for exactly the people who
+  // cannot see which field turned red.
+  const emailRef = useRef<HTMLInputElement>(null);
+  const passwordRef = useRef<HTMLInputElement>(null);
+
   const next = () => {
     const n = new URLSearchParams(location.search).get('next');
     return n && n.startsWith('/') ? n : '/app';
@@ -41,10 +48,12 @@ export default function AuthForm({ mode }: Props) {
     const emailTrimmed = email.trim();
     const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!EMAIL_RE.test(emailTrimmed)) {
-      setField('email'); setError('Enter a valid email address so we can reach you.'); return;
+      setField('email'); setError('Enter a valid email address so we can reach you.');
+      emailRef.current?.focus(); return;
     }
     if (password.length < 8) {
-      setField('password'); setError('Use at least 8 characters.'); return;
+      setField('password'); setError('Use at least 8 characters.');
+      passwordRef.current?.focus(); return;
     }
 
     setBusy(true);
@@ -93,6 +102,7 @@ export default function AuthForm({ mode }: Props) {
       <div className="field">
         <label className="field__l" htmlFor="email">{mode === 'signup' ? 'Work email' : 'Email'}</label>
         <input
+          ref={emailRef}
           className="field__i" id="email" type="email" autoComplete="email" required autoFocus
           value={email} onChange={(e) => { setEmail(e.target.value); setError(null); }}
           aria-invalid={field === 'email'} placeholder="you@company.com"
@@ -102,6 +112,7 @@ export default function AuthForm({ mode }: Props) {
       <div className="field">
         <label className="field__l" htmlFor="password">Password</label>
         <input
+          ref={passwordRef}
           className="field__i" id="password" type="password" required
           autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
           value={password} onChange={(e) => { setPassword(e.target.value); setError(null); }}
