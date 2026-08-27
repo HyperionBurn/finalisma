@@ -840,13 +840,12 @@ class CloudRoomService:
 
     @staticmethod
     def _filter_payload_for_agent(payload: Any, agent_id: str,
-                                  origin_agent: str | None = None,
-                                  *, owner_agent_id: str | None = None) -> dict:
+                                  origin_agent: str | None = None) -> dict:
         """Redact message payloads not addressed to ``agent_id``.
 
         Callers use this only for ``room.message`` events. Only agents listed
         in ``targets`` (or the originator, or everyone for broadcast
-        ``target_spec == "*"``, or the room owner) may see the payload. Non-addressees receive a
+        ``target_spec == "*"``) may see the payload. Non-addressees receive a
         redacted envelope so the ordered event sequence stays visible without
         leaking the body.
         """
@@ -854,8 +853,6 @@ class CloudRoomService:
         # must fail closed rather than leaking a scalar to every member.
         if not isinstance(payload, dict):
             return {"redacted": True, "reason": "not_the_addressee"}
-        if owner_agent_id is not None and agent_id == owner_agent_id:
-            return payload
         if payload.get("target_spec") == "*" or origin_agent == agent_id:
             return payload
         targets = payload.get("targets")
@@ -1734,10 +1731,7 @@ class CloudRoomService:
             for r in rows:
                 raw_payload = _parse_json(r["payload_json"], {})
                 visible_payload = (
-                    self._filter_payload_for_agent(
-                        raw_payload, agent_id, r["origin_agent"],
-                        owner_agent_id=room["owner_agent_id"],
-                    )
+                    self._filter_payload_for_agent(raw_payload, agent_id, r["origin_agent"])
                     if r["kind"] == "room.message"
                     else raw_payload
                 )
@@ -2227,7 +2221,7 @@ class CloudRoomService:
         body. ``SELECT *`` raw rows are never returned.
         """
         with self.backend.transaction() as tx:
-            room = self._require_room(tx, tenant_id, room_id)
+            self._require_room(tx, tenant_id, room_id)
             self._require_member(tx, tenant_id, room_id, agent_id)
             self._touch_member(tx, tenant_id, room_id, agent_id)
             rows = tx.execute(
@@ -2238,10 +2232,7 @@ class CloudRoomService:
         for r in rows:
             raw_payload = _parse_json(r["payload_json"], {})
             visible_payload = (
-                self._filter_payload_for_agent(
-                    raw_payload, agent_id, r["origin_agent"],
-                    owner_agent_id=room["owner_agent_id"],
-                )
+                self._filter_payload_for_agent(raw_payload, agent_id, r["origin_agent"])
                 if r["kind"] == "room.message"
                 else raw_payload
             )
