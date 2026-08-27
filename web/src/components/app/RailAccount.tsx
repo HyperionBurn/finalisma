@@ -22,10 +22,22 @@ export default function RailAccount() {
   useEffect(() => {
     let live = true;
     me().then((m) => { if (live) setWho(m); }).catch(() => {});
-    listRooms()
-      .then((r) => { if (live) setRooms((r.rooms ?? []).length); })
-      .catch(() => {});
-    return () => { live = false; };
+    const fetchRoomsCount = () => {
+      listRooms()
+        .then((r) => { if (live) setRooms((r.rooms ?? []).length); })
+        .catch(() => {});
+    };
+    fetchRoomsCount();
+
+    const onRoomsChanged = () => {
+      fetchRoomsCount();
+    };
+
+    window.addEventListener('weft:rooms_changed', onRoomsChanged);
+    return () => {
+      live = false;
+      window.removeEventListener('weft:rooms_changed', onRoomsChanged);
+    };
   }, []);
 
   const initial = (who?.email?.[0] ?? '·').toUpperCase();

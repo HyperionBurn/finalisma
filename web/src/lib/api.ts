@@ -300,7 +300,23 @@ export interface Member {
   cursor?: number; capabilities?: string[];
 }
 
-export const listRooms = () => tool<{ rooms: Room[] }>('room_list');
+let listRoomsInFlight: Promise<{ rooms: Room[] }> | null = null;
+
+/**
+ * List rooms for the signed-in account.
+ *
+ * Concurrent callers on the same page (for example RailRooms, RailAccount,
+ * and RoomsList all mounting during initial page load) share the single
+ * in-flight request rather than firing duplicate MCP calls.
+ */
+export function listRooms(): Promise<{ rooms: Room[] }> {
+  if (listRoomsInFlight) return listRoomsInFlight;
+  listRoomsInFlight = tool<{ rooms: Room[] }>('room_list').finally(() => {
+    listRoomsInFlight = null;
+  });
+  return listRoomsInFlight;
+}
+
 export interface CreatedRoom {
   room_id: string;
   link_id?: string;
@@ -322,8 +338,15 @@ export interface CreatedRoom {
  * this response means losing the link, and the only recovery is creating a
  * different room. Callers must show it before navigating anywhere.
  */
-export const createRoom = (name: string, cap: number, ttl_seconds?: number) =>
-  tool<CreatedRoom>('room_create', { name, cap, ...(ttl_seconds ? { ttl_seconds } : {}) });
+export const createRoom = async (name: string, cap: number, ttl_seconds?: number): Promise<CreatedRoom> => {
+  const room = await tool<CreatedRoom>('room_create', { name, cap, ...(ttl_seconds ? { ttl_seconds } : {}) });
+  listRoomsInFlight = null;
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('weft:rooms_changed', { detail: room }));
+  }
+  return room;
+};
+
 export const joinRoom = (room_id: string, link_token: string) =>
   tool('room_join', { room_id, link_token, consent: true, capabilities: ['read', 'write'] });
 export interface RoomInfo {
@@ -356,4 +379,12 @@ export const pollRoom = (room_id: string, after_seq?: number, limit = 100) =>
 export const sendMessage = (room_id: string, text: string, target_spec = '*') =>
   tool<{ seq: number; receipts?: any[] }>('room_send',
     { room_id, target_spec, payload: { text } });
-export const closeRoom = (room_id: string) => tool('room_close', { room_id });
+
+export const closeRoom = async (room_id: string) => {
+  const res = await tool('room_close', { room_id });
+  listRoomsInFlight = null;
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('weft:rooms_changed', { detail: { room_id, closed: true } }));
+  }
+  return res;
+};

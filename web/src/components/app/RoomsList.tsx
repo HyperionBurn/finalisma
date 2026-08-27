@@ -33,7 +33,14 @@ export default function RoomsList() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    const onRoomsChanged = () => { load(); };
+    window.addEventListener('weft:rooms_changed', onRoomsChanged);
+    return () => {
+      window.removeEventListener('weft:rooms_changed', onRoomsChanged);
+    };
+  }, [load]);
 
 
   if (rooms === null) {

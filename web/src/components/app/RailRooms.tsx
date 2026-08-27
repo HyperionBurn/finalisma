@@ -22,10 +22,23 @@ export default function RailRooms() {
 
   useEffect(() => {
     let live = true;
-    listRooms()
-      .then((r) => { if (live) setRooms(r.rooms ?? []); })
-      .catch(() => { if (live) setFailed(true); });
-    return () => { live = false; };
+    const fetchRooms = () => {
+      listRooms()
+        .then((r) => { if (live) setRooms(r.rooms ?? []); })
+        .catch(() => { if (live) setFailed(true); });
+    };
+
+    fetchRooms();
+
+    const onRoomsChanged = () => {
+      fetchRooms();
+    };
+
+    window.addEventListener('weft:rooms_changed', onRoomsChanged);
+    return () => {
+      live = false;
+      window.removeEventListener('weft:rooms_changed', onRoomsChanged);
+    };
   }, []);
 
   // which room this page is looking at, if any
