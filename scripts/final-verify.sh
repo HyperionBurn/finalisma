@@ -144,9 +144,7 @@ echo "  INFO  site html files: ${site_html:-0}; site/docs html files: ${docs_htm
 PAGE_MANIFEST="scripts/site-page-manifest.txt"
 page_manifest_check="$("$PYTHON" - "$PAGE_MANIFEST" site <<'PYEOF'
 from pathlib import Path
-import os
-import shutil
-import tempfile
+import sys
 
 manifest_path = Path(sys.argv[1])
 site_root = Path(sys.argv[2])
@@ -270,7 +268,9 @@ esac
 echo
 echo "=== TOOL SURFACE ==="
 tool_probe="$(PYTHONPATH=src timeout 180 "$PYTHON" - "$pkg_prefix" "$other_prefixes" 2>/dev/null <<'PYEOF'
-import sys
+import os
+import shutil
+import tempfile
 
 try:
     from weft_cloud.mcp import HostedMCPDispatcher
