@@ -1,9 +1,12 @@
-"""MPAI-64 regression tests:
+"""MPAI-64 & MPAI-66 regression tests:
 1. Unauthenticated visitor to /j/<link_token> gets room details + sign-in / sign-up paths with return URL.
 2. Authenticated non-member visitor to /j/<link_token> gets a 'Join this room' action that joins the room.
 3. Authenticated existing member visitor to /j/<link_token> sees 'already a member' state and dashboard link.
 4. POST /j/<link_token> executes the join and redirects to the room/app.
 5. Machine JSON descriptor (Accept: application/json) remains unchanged.
+6. Real POST /v1/auth/signup sets fss_session cookie and enables browser join flow (MPAI-66).
+7. Real POST /v1/auth/signin sets fss_session cookie and enables browser join flow (MPAI-66).
+8. Real POST /v1/auth/signout clears fss_session cookie with Max-Age=0 (MPAI-66).
 """
 
 from __future__ import annotations
@@ -27,7 +30,7 @@ from weft_cloud.service import WeftCloudService, _CloudHTTPHandler
 
 
 class TestHumanJoinLinkMPAI64(unittest.TestCase):
-    """Regression test suite for human join link affordance on /j/<token> (MPAI-64)."""
+    """Regression test suite for human join link affordance on /j/<token> (MPAI-64 & MPAI-66)."""
 
     def setUp(self):
         import http.server
@@ -91,8 +94,9 @@ class TestHumanJoinLinkMPAI64(unittest.TestCase):
         conn.request("GET", path, headers=headers)
         resp = conn.getresponse()
         body = resp.read().decode("utf-8", errors="replace")
+        headers_dict = dict(resp.getheaders())
         conn.close()
-        return resp.status, body, resp.headers
+        return resp.status, body, headers_dict
 
     def _post(self, path: str, cookie: str | None = None, body_data: str = ""):
         conn = http.client.HTTPConnection(self.host, self.port, timeout=10)
@@ -105,6 +109,28 @@ class TestHumanJoinLinkMPAI64(unittest.TestCase):
         headers_dict = dict(resp.getheaders())
         conn.close()
         return resp.status, body, headers_dict
+
+    def _post_json(self, path: str, payload: dict, auth_token: str | None = None):
+        conn = http.client.HTTPConnection(self.host, self.port, timeout=10)
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        if auth_token:
+            headers["Authorization"] = f"Bearer {auth_token}"
+        conn.request("POST", path, body=json.dumps(payload), headers=headers)
+        resp = conn.getresponse()
+        body = resp.read().decode("utf-8", errors="replace")
+        headers_dict = dict(resp.getheaders())
+        conn.close()
+        return resp.status, body, headers_dict
+
+    def _extract_cookie(self, headers_dict: dict, cookie_name: str = "fss_session") -> str | None:
+        set_cookie = headers_dict.get("Set-Cookie") or headers_dict.get("set-cookie")
+        if not set_cookie:
+            return None
+        for part in set_cookie.split(";"):
+            part = part.strip()
+            if part.startswith(f"{cookie_name}="):
+                return part[len(f"{cookie_name}="):]
+        return None
 
     def test_unauthenticated_visitor_sees_login_and_signup_paths(self):
         """GET /j/<link_token> without session shows sign-in/sign-up call to action."""
@@ -155,6 +181,55 @@ class TestHumanJoinLinkMPAI64(unittest.TestCase):
         data = json.loads(body)
         self.assertEqual(data["service"], "weft")
         self.assertEqual(data["room_id"], self.room_id)
+
+    def test_real_browser_signup_sets_cookie_and_enables_join_button(self):
+        """POST /v1/auth/signup issues Set-Cookie fss_session, and GET /j/<token> sees it (MPAI-66)."""
+        new_email = f"browser_{time.time_ns()}@example.com"
+        status, body, headers = self._post_json(
+            "/v1/auth/signup",
+            {"email": new_email, "password": "Password123!"},
+        )
+        self.assertEqual(status, 201)
+        raw_cookie = self._extract_cookie(headers, "fss_session")
+        self.assertIsNotNone(raw_cookie, "Set-Cookie must be present in signup response")
+        self.assertTrue(raw_cookie.startswith("fss_"), f"Cookie must be an fss_ token, got {raw_cookie}")
+
+        # Now browser presents this cookie to GET /j/<link_token>
+        get_status, get_body, _ = self._get(f"/j/{self.link_token}", cookie=raw_cookie)
+        self.assertEqual(get_status, 200)
+        self.assertIn("Join this room", get_body)
+
+        # POST /j/<link_token> to join room
+        post_status, _, _ = self._post(f"/j/{self.link_token}", cookie=raw_cookie)
+        self.assertEqual(post_status, 303)
+
+    def test_real_browser_signin_sets_cookie_and_enables_join_button(self):
+        """POST /v1/auth/signin issues Set-Cookie fss_session, and GET /j/<token> sees it (MPAI-66)."""
+        status, body, headers = self._post_json(
+            "/v1/auth/signin",
+            {"email": self.guest_email, "password": "Password123!"},
+        )
+        self.assertEqual(status, 200)
+        raw_cookie = self._extract_cookie(headers, "fss_session")
+        self.assertIsNotNone(raw_cookie, "Set-Cookie must be present in signin response")
+        self.assertTrue(raw_cookie.startswith("fss_"), f"Cookie must be an fss_ token, got {raw_cookie}")
+
+        # GET /j/<link_token> with this cookie
+        get_status, get_body, _ = self._get(f"/j/{self.link_token}", cookie=raw_cookie)
+        self.assertEqual(get_status, 200)
+        self.assertIn("Join this room", get_body)
+
+    def test_signout_clears_cookie(self):
+        """POST /v1/auth/signout issues Set-Cookie fss_session=; Max-Age=0 (MPAI-66)."""
+        status, body, headers = self._post_json(
+            "/v1/auth/signout",
+            {},
+            auth_token=self.guest_session,
+        )
+        self.assertEqual(status, 200)
+        set_cookie = headers.get("Set-Cookie") or headers.get("set-cookie") or ""
+        self.assertIn("fss_session=", set_cookie)
+        self.assertIn("Max-Age=0", set_cookie)
 
 
 if __name__ == "__main__":

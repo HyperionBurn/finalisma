@@ -29,6 +29,7 @@ import json
 import os
 import re
 import secrets
+import ssl
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -161,9 +162,32 @@ class _CloudMetrics:
         return "\n".join(lines) + "\n"
 
 
-def _json_response(status: int, payload: dict[str, Any]) -> tuple[int, bytes]:
+def _cookie_secure(handler: BaseHTTPRequestHandler) -> bool:
+    raw = os.environ.get("WEFT_WEB_SECURE_COOKIES", "").strip().lower()
+    if raw in ("1", "true", "yes", "on"):
+        return True
+    if raw in ("0", "false", "no", "off"):
+        return False
+    forwarded = (handler.headers.get("X-Forwarded-Proto", "") or "").lower()
+    if forwarded == "https":
+        return True
+    sock = getattr(handler, "request", None)
+    return isinstance(sock, ssl.SSLSocket)
+
+
+def _session_cookie_header(handler: BaseHTTPRequestHandler, raw_token: str) -> tuple[str, str]:
+    secure = "; Secure" if _cookie_secure(handler) else ""
+    return ("Set-Cookie", f"fss_session={raw_token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={DEFAULT_TTL_SECONDS}{secure}")
+
+
+def _clear_session_cookie_header(handler: BaseHTTPRequestHandler) -> tuple[str, str]:
+    secure = "; Secure" if _cookie_secure(handler) else ""
+    return ("Set-Cookie", f"fss_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0{secure}")
+
+
+def _json_response(status: int, payload: dict[str, Any], headers: list[tuple[str, str]] | None = None) -> tuple[int, bytes, list[tuple[str, str]]]:
     body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    return status, body
+    return status, body, headers or []
 
 
 def _read_body(handler: BaseHTTPRequestHandler, max_bytes: int = 1_048_576) -> dict:
@@ -489,6 +513,7 @@ class WeftCloudService:
                 (tenant_id, account_id),
             )
             tx.commit()
+        cookie_hdr = _session_cookie_header(handler, session_token)
         return _json_response(HTTPStatus.CREATED, {
             "account_id": account_id,
             "tenant_id": tenant_id,
@@ -496,9 +521,9 @@ class WeftCloudService:
             "email": email,
             "role": "owner",
             "email_verified": False,
-        })
+        }, headers=[cookie_hdr])
 
-    def handle_signin(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
+    def handle_signin(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes, list[tuple[str, str]]]:
         body = _read_body(handler)
         email = body.get("email")
         password = body.get("password")
@@ -566,14 +591,15 @@ class WeftCloudService:
         session_id, session_token = self.sessions.create(
             self.backend, tenant_id, account_id, role
         )
+        cookie_hdr = _session_cookie_header(handler, session_token)
         return _json_response(HTTPStatus.OK, {
             "account_id": account_id,
             "tenant_id": tenant_id,
             "session_token": session_token,
             "role": role,
-        })
+        }, headers=[cookie_hdr])
 
-    def handle_refresh(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
+    def handle_refresh(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes, list[tuple[str, str]]]:
         """Rotate one live hosted session into a fresh one-time bearer.
 
         Refresh is deliberately session-only: agent keys are the stable
@@ -588,12 +614,13 @@ class WeftCloudService:
             self.backend, handler, "refresh", limits=self.auth_rate_limits,
         )
         _session_id, new_token = self.sessions.rotate(self.backend, token or "")
+        cookie_hdr = _session_cookie_header(handler, new_token)
         return _json_response(HTTPStatus.OK, {
             "session_token": new_token,
             "expires_in": DEFAULT_TTL_SECONDS,
-        })
+        }, headers=[cookie_hdr])
 
-    def handle_signout(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
+    def handle_signout(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes, list[tuple[str, str]]]:
         self._authenticate(handler)
         token = _bearer_token(handler)
         if token:
@@ -613,7 +640,8 @@ class WeftCloudService:
                 self.agent_keys.revoke_by_token_hash(self.backend, token_hash)
             else:
                 self.sessions.revoke_by_token_hash(self.backend, token_hash)
-        return _json_response(HTTPStatus.OK, {"signed_out": True})
+        cookie_hdr = _clear_session_cookie_header(handler)
+        return _json_response(HTTPStatus.OK, {"signed_out": True}, headers=[cookie_hdr])
 
     def handle_me(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
         ctx = self._authenticate(handler)
@@ -1748,8 +1776,15 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
 
     def _handle(self, method: str, handler_fn) -> None:
         try:
-            status, body = handler_fn(self)
+            res = handler_fn(self)
+            if len(res) == 3:
+                status, body, extra_headers = res
+            else:
+                status, body = res
+                extra_headers = []
             self.send_response(status)
+            for hdr_name, hdr_val in extra_headers:
+                self.send_header(hdr_name, hdr_val)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
