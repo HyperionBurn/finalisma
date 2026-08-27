@@ -9,7 +9,8 @@
     "dev": "astro dev --port 4174",
     "build": "astro build",
     "preview": "astro preview --port 4175",
-    "astro": "astro"
+    "astro": "astro",
+    "postbuild": "node ../scripts/web-src-hash.cjs > ../site/.web-src-hash"
   },
   "dependencies": {
     "@astrojs/react": "4.2.0",

@@ -235,6 +235,30 @@ else
   echo "  INFO  web/scripts/verify-preservation.cjs not present — skipping"
 fi
 
+# --- built site/ must not lag its sources -------------------------------------
+# A commit can change a component under web/src, pass every other check here,
+# deploy, and still serve the PREVIOUS bundles, because nothing compared the
+# two. The fix lands, every signal says success, and the feature is simply not
+# there. site/.web-src-hash is written by the build; if it disagrees with the
+# sources in this archive, site/ was not rebuilt after the last source edit.
+WEB_SRC_STAMP="site/.web-src-hash"
+if [ -d web/src ]; then
+  if [ -f "$WEB_SRC_STAMP" ] && [ -f scripts/web-src-hash.cjs ] && command -v node >/dev/null 2>&1; then
+    stamped="$(tr -d '[:space:]' < "$WEB_SRC_STAMP")"
+    actual="$(node scripts/web-src-hash.cjs 2>/dev/null | tr -d '[:space:]')"
+    if [ -n "$actual" ] && [ "$stamped" = "$actual" ]; then
+      echo "  PASS  site/ was built from these sources"; pass=$((pass+1))
+    else
+      echo "  FAIL  site/ is STALE - web/src changed without a rebuild"
+      echo "        stamped=$(printf %.12s "$stamped")... actual=$(printf %.12s "$actual")..."
+      echo "        run 'npm run build' in web/ and commit site/ alongside your change"
+      fail=$((fail+1))
+    fi
+  else
+    echo "  INFO  no site/.web-src-hash yet - freshness check arms after the next build"
+  fi
+fi
+
 echo
 echo "=== TESTS (run against the extracted HEAD archive, not the working tree) ==="
 # FAILURE 3 (real incident): this used to pipe the suite through `| tail -4`
