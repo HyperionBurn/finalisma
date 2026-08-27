@@ -200,6 +200,18 @@ def _bearer_token(handler: BaseHTTPRequestHandler) -> str | None:
     return None
 
 
+def _session_token_from_handler(handler: BaseHTTPRequestHandler) -> str | None:
+    bearer = _bearer_token(handler)
+    if bearer:
+        return bearer
+    cookie_hdr = handler.headers.get("Cookie", "")
+    for part in cookie_hdr.split(";"):
+        part = part.strip()
+        if part.startswith("fss_session="):
+            return part[len("fss_session="):]
+    return None
+
+
 def _html_esc(value: Any) -> str:
     """HTML-escape a value. Never render unescaped data into a page."""
     return html.escape(str(value) if value is not None else "")
@@ -883,7 +895,7 @@ class WeftCloudService:
             handler.wfile.write(body)
             return
 
-        # Human audience — reuse the connect-page copy.
+        # Human audience — reuse the connect-page copy and provide a direct join affordance.
         from weft_cloud.web.copy import connect_page_body
         site_url = os.environ.get("WEFT_SITE_URL", "https://finalisma.vercel.app")
         header_html = (
@@ -893,9 +905,64 @@ class WeftCloudService:
             f'<span style="font-size:12px;color:#8b8a8a;text-transform:uppercase;letter-spacing:.05em;">Multiplayer AI Room</span>'
             f'</header>'
         )
+
+        room_name = "Room"
+        with self.backend.transaction() as tx:
+            room_row = tx.execute("SELECT name, cap, state FROM cloud_rooms WHERE room_id = ?", (room_id,)).fetchone()
+            if room_row is not None and room_row["name"]:
+                room_name = room_row["name"]
+
+        session_token = _session_token_from_handler(handler)
+        ctx = None
+        if session_token:
+            try:
+                ctx = self.sessions.validate(self.backend, session_token)
+            except Exception:
+                ctx = None
+
+        is_member = False
+        if ctx is not None:
+            with self.backend.transaction() as tx:
+                member_row = tx.execute(
+                    "SELECT 1 FROM cloud_room_members WHERE room_id = ? AND agent_id = ? AND status = 'active'",
+                    (room_id, ctx.account_id),
+                ).fetchone()
+                if member_row is not None:
+                    is_member = True
+
+        if ctx is not None and is_member:
+            join_card_html = (
+                f'<div style="background:#0e0e0e;border:1px solid #222;border-radius:8px;padding:20px;margin-bottom:28px;">'
+                f'<h2 style="font-size:18px;margin:0 0 8px;color:#fafafa;font-weight:600;letter-spacing:normal;text-transform:none;">{_html_esc(room_name)}</h2>'
+                f'<p style="margin:0 0 16px;color:#a7a6a6;">You are already a member of this room.</p>'
+                f'<a href="/app" style="display:inline-block;background:#fafafa;color:#0a0a0a;font-weight:600;font-size:14px;padding:10px 20px;border-radius:6px;text-decoration:none;">Open Dashboard</a>'
+                f'</div>'
+            )
+        elif ctx is not None and not is_member:
+            join_card_html = (
+                f'<div style="background:#0e0e0e;border:1px solid #222;border-radius:8px;padding:20px;margin-bottom:28px;">'
+                f'<h2 style="font-size:18px;margin:0 0 8px;color:#fafafa;font-weight:600;letter-spacing:normal;text-transform:none;">Join {_html_esc(room_name)}</h2>'
+                f'<p style="margin:0 0 16px;color:#a7a6a6;">You have been invited to join this room. Click below to join with your account.</p>'
+                f'<form method="post" action="/j/{_html_esc(link_token)}">'
+                f'<button type="submit" style="background:#fafafa;color:#0a0a0a;font-weight:600;font-size:14px;padding:10px 24px;border:0;border-radius:6px;cursor:pointer;">Join this room</button>'
+                f'</form>'
+                f'</div>'
+            )
+        else:
+            join_card_html = (
+                f'<div style="background:#0e0e0e;border:1px solid #222;border-radius:8px;padding:20px;margin-bottom:28px;">'
+                f'<h2 style="font-size:18px;margin:0 0 8px;color:#fafafa;font-weight:600;letter-spacing:normal;text-transform:none;">Join {_html_esc(room_name)}</h2>'
+                f'<p style="margin:0 0 16px;color:#a7a6a6;">You have been invited to join <strong>{_html_esc(room_name)}</strong> on Weft. Sign in to your account or create a new one to join.</p>'
+                f'<div style="display:flex;gap:12px;align-items:center;">'
+                f'<a href="/login?next=/j/{_html_esc(link_token)}" style="display:inline-block;background:#fafafa;color:#0a0a0a;font-weight:600;font-size:14px;padding:10px 20px;border-radius:6px;text-decoration:none;">Log in to join</a>'
+                f'<a href="/signup?next=/j/{_html_esc(link_token)}" style="display:inline-block;background:#181818;color:#fafafa;border:1px solid #333;font-weight:600;font-size:14px;padding:10px 20px;border-radius:6px;text-decoration:none;">Sign up</a>'
+                f'</div>'
+                f'</div>'
+            )
+
         intro_html = (
             f'<div style="background:#0e0e0e;border:1px solid #222;border-radius:8px;padding:16px 20px;margin-bottom:28px;">'
-            f'<p style="margin:0 0 8px;color:#fafafa;font-weight:500;">You have been invited to join a collaborative agent room on Weft.</p>'
+            f'<p style="margin:0 0 8px;color:#fafafa;font-weight:500;">Connect an agent to this room</p>'
             f'<p style="margin:0 0 8px;font-size:13px;color:#8b8a8a;">This room coordinates independent AI agents with a shared, consent-gated event log. '
             f'Room owners have administrative visibility over message history in rooms they create. '
             f'Messages between collaborator agents are protected by per-recipient redaction from all other room members.</p>'
@@ -905,14 +972,15 @@ class WeftCloudService:
         body_html = (
             header_html
             + '<main id="main" tabindex="-1">'
-            + '<h1>Connect an agent</h1>'
+            + f'<h1>{_html_esc(room_name)}</h1>'
+            + join_card_html
             + intro_html
             + f'<p>This link opens a Weft room. Give it to the agent you want to '
             f'connect, or use the config below yourself. The link is <code>{_html_esc(self.origin + "/j/" + link_token)}</code>.</p>'
             + connect_page_body(room_id, link_token)
             + '</main>'
         )
-        body = _html_page("Connect an agent", body_html)
+        body = _html_page(f"Join {room_name}", body_html)
         handler.send_response(HTTPStatus.OK)
         handler.send_header("Content-Type", "text/html; charset=utf-8")
         handler.send_header("Content-Length", str(len(body)))
@@ -920,6 +988,73 @@ class WeftCloudService:
         handler._send_security_headers(html=True)
         handler.end_headers()
         handler.wfile.write(body)
+
+    def handle_post_join_link(self, handler: BaseHTTPRequestHandler, link_token: str) -> None:
+        """Handle human browser join POST from /j/<link_token>."""
+        room_id = self.rooms.resolve_room_by_link_token(link_token)
+        if room_id is None:
+            handler.send_response(HTTPStatus.NOT_FOUND)
+            body = _html_page(
+                "Room not found",
+                '<main id="main" tabindex="-1">'
+                '<h1>Room not found</h1>'
+                '<p>This link does not open a room.</p>'
+                '</main>',
+            )
+            handler.send_header("Content-Type", "text/html; charset=utf-8")
+            handler.send_header("Content-Length", str(len(body)))
+            handler.send_header("Cache-Control", "no-store")
+            handler._send_security_headers(html=True)
+            handler.end_headers()
+            handler.wfile.write(body)
+            return
+
+        session_token = _session_token_from_handler(handler)
+        if not session_token:
+            handler.send_response(HTTPStatus.SEE_OTHER)
+            handler.send_header("Location", f"/login?next=/j/{link_token}")
+            handler.send_header("Content-Length", "0")
+            handler.send_header("Cache-Control", "no-store")
+            handler._send_security_headers()
+            handler.end_headers()
+            return
+
+        try:
+            ctx = self.sessions.validate(self.backend, session_token)
+        except AuthError:
+            handler.send_response(HTTPStatus.SEE_OTHER)
+            handler.send_header("Location", f"/login?next=/j/{link_token}")
+            handler.send_header("Content-Length", "0")
+            handler.send_header("Cache-Control", "no-store")
+            handler._send_security_headers()
+            handler.end_headers()
+            return
+
+        try:
+            self.rooms.join_room(
+                ctx.tenant_id,
+                room_id,
+                link_token,
+                ctx.account_id,
+                consent=True,
+                actor_token=session_token,
+            )
+            self.backend.append_audit(
+                ctx.tenant_id,
+                "room.join",
+                ctx.account_id,
+                room_id,
+                json.dumps({"agent_id": ctx.account_id, "via": "human_web_link"}),
+            )
+        except Exception:
+            pass
+
+        handler.send_response(HTTPStatus.SEE_OTHER)
+        handler.send_header("Location", "/app")
+        handler.send_header("Content-Length", "0")
+        handler.send_header("Cache-Control", "no-store")
+        handler._send_security_headers()
+        handler.end_headers()
 
     def handle_agent_card(self, handler: BaseHTTPRequestHandler) -> None:
         """Unauthenticated machine-readable agent card (GET /.well-known/agent-card.json).
@@ -1750,6 +1885,10 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
             finally:
                 limiter.release(limiter_key)
                 ip_limiter.release(ip_key)
+            return
+        join_match = _JOIN_LINK_RE.match(path)
+        if join_match:
+            self.service.handle_post_join_link(self, join_match.group(1))
             return
         routes = {
             "/v1/auth/signup": self.service.handle_signup,
