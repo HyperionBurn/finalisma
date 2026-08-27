@@ -144,7 +144,9 @@ echo "  INFO  site html files: ${site_html:-0}; site/docs html files: ${docs_htm
 PAGE_MANIFEST="scripts/site-page-manifest.txt"
 page_manifest_check="$("$PYTHON" - "$PAGE_MANIFEST" site <<'PYEOF'
 from pathlib import Path
-import sys
+import os
+import shutil
+import tempfile
 
 manifest_path = Path(sys.argv[1])
 site_root = Path(sys.argv[2])
@@ -268,33 +270,30 @@ esac
 echo
 echo "=== TOOL SURFACE ==="
 tool_probe="$(PYTHONPATH=src timeout 180 "$PYTHON" - "$pkg_prefix" "$other_prefixes" 2>/dev/null <<'PYEOF'
-import json, os, subprocess, sys
-
-pkg_prefix = sys.argv[1]
-other_prefixes = [p for p in sys.argv[2].split() if p]
-env = dict(os.environ)
-env["PYTHONPATH"] = "src"
+import sys
 
 try:
+    from weft_cloud.mcp import HostedMCPDispatcher
+    from weft_cloud.service import create_service
     from scripts.probe_hosted_mcp_surface import EXPECTED_TOOL_NAMES
 
-    proc = subprocess.Popen(
-        [sys.executable, "-B", "-m", f"{pkg_prefix}_mcp", "--transport", "stdio", "--team-id", "v"],
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, env=env,
-    )
-
-    def w(obj):
-        proc.stdin.write(json.dumps(obj) + "\n")
-        proc.stdin.flush()
-
-    w({"jsonrpc": "2.0", "id": 1, "method": "initialize",
-       "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "v", "version": "1"}}})
-    proc.stdout.readline()
-    w({"jsonrpc": "2.0", "method": "notifications/initialized"})
-    w({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
-    line = proc.stdout.readline()
-    tools = json.loads(line)["result"]["tools"]
-    proc.kill()
+    # Exercise the hosted dispatcher that owns the public /mcp catalog. A
+    # self-hosted ``weft_mcp`` process intentionally exposes a different,
+    # larger tool family and is not the production contract being checked.
+    temp_dir = tempfile.mkdtemp(prefix="weft-final-tool-")
+    service = None
+    try:
+        service = create_service(os.path.join(temp_dir, "state.db"))
+        dispatcher = HostedMCPDispatcher(service)
+        response = dispatcher.handle_json_rpc(
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+            ctx=object(),
+        )
+        tools = response["result"]["tools"]
+    finally:
+        if service is not None:
+            service.backend.close()
+        shutil.rmtree(temp_dir, ignore_errors=True)
     actual_names = [
         tool.get("name") for tool in tools
         if isinstance(tool, dict) and isinstance(tool.get("name"), str)
