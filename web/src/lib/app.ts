@@ -63,8 +63,9 @@ export const APP_ORIGIN = resolveAppOrigin();
 export const APP_ORIGIN_CONFIGURED = APP_ORIGIN !== undefined;
 export const APP_ORIGIN_EXAMPLE = APP_ORIGIN ?? 'https://YOUR-VERIFIED-WEFT-ORIGIN';
 
-export const APP_SIGNUP_URL = APP_ORIGIN ? `${APP_ORIGIN}/signup` : SELF_HOSTED_PROOF_URL;
-export const APP_LOGIN_URL = APP_ORIGIN ? `${APP_ORIGIN}/login` : HOSTED_PROOF_URL;
-export const APP_SIGNUP_LABEL = APP_ORIGIN ? 'Open a room' : 'Read the proof path';
-export const APP_LOGIN_LABEL = APP_ORIGIN ? 'Log in' : 'Read deployment gates';
-export const APP_DASHBOARD_URL = APP_ORIGIN;
+export const APP_SIGNUP_URL = APP_ORIGIN ? `${APP_ORIGIN}/signup` : '/signup';
+export const APP_LOGIN_URL = APP_ORIGIN ? `${APP_ORIGIN}/login` : '/login';
+export const APP_SIGNUP_LABEL = 'Open a room';
+export const APP_LOGIN_LABEL = 'Log in';
+export const APP_DASHBOARD_URL = APP_ORIGIN ? `${APP_ORIGIN}/app` : '/app';
+

@@ -35,10 +35,10 @@ export default function AuthForm({ mode }: Props) {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    setError(null); setField(null);
-
-    if (!email.includes('@') || email.trim().length < 4) {
-      setField('email'); setError('Enter an email address so we can reach you.'); return;
+    const emailTrimmed = email.trim();
+    const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!EMAIL_RE.test(emailTrimmed)) {
+      setField('email'); setError('Enter a valid email address so we can reach you.'); return;
     }
     if (password.length < 8) {
       setField('password'); setError('Use at least 8 characters.'); return;

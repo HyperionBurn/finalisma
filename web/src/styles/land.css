@@ -345,3 +345,20 @@ footer{border-top:1px solid var(--line);padding:44px 0 66px}
 .sim{max-width:var(--max);margin:0 auto;padding:0 var(--gut) 14px;
   font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;
   letter-spacing:.06em;color:var(--faint)}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .plate-video {
+    display: none;
+  }
+  .plate {
+    background-image: url('/assets/hero-poster.webp');
+    background-size: cover;
+    background-position: center;
+  }
+}
+

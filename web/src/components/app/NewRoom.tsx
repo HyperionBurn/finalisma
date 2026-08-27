@@ -42,12 +42,15 @@ export default function NewRoom() {
   const joiners = cap - 1;
 
   async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    if (busy) return;
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setError('Please enter a name for your room.');
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      const r = await createRoom(name.trim() || 'untitled room', cap, ttl);
+      const r = await createRoom(trimmed, cap, ttl);
       setRoom(r);
     } catch (err) {
       setError((err as ApiError).message);
