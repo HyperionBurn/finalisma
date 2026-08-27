@@ -267,7 +267,7 @@ export default function RoomView({ roomId }: Props) {
               ))}
             </select>
             <span style={{ flex: 1 }} />
-            <kbd>⌘</kbd><kbd>↵</kbd><span>to send</span>
+            <kbd>⌘ / Ctrl</kbd><kbd>↵</kbd><span>to send</span>
           </div>
         </div>
       </section>

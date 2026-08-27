@@ -69,7 +69,7 @@ const { title, current = '' } = Astro.props;
       <RailRooms client:load />
 
       <p class="rail__label">Account</p>
-      <div class="rail__group">
+      <nav class="rail__group" aria-label="Account">
         <a class="nav" href="/app/keys" aria-current={current === 'keys' ? 'page' : undefined}>
           <svg class="nav__ico" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <circle cx="5.5" cy="8" r="3" stroke="currentColor" stroke-width="1.4"/>
@@ -90,16 +90,17 @@ const { title, current = '' } = Astro.props;
           </svg>
           <span class="nav__n">Usage</span>
         </a>
-      </div>
+      </nav>
 
       <div class="rail__foot">
         <RailAccount client:load />
       </div>
     </aside>
 
-    <div class="main">
+    <main class="main" id="main-content">
       <slot />
-    </div>
+    </main>
   </div>
+
 </body>
 </html>

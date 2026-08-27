@@ -39,9 +39,19 @@ CLIENTS: dict[str, dict[str, str]] = {
         "file": "claude_desktop_config.json",
         "language": "json",
     },
+    "claude-code": {
+        "label": "Claude Code",
+        "file": "~/.claude.json",
+        "language": "json",
+    },
     "cursor": {
         "label": "Cursor",
         "file": ".cursor/mcp.json",
+        "language": "json",
+    },
+    "windsurf": {
+        "label": "Windsurf",
+        "file": "~/.codeium/windsurf/mcp_config.json",
         "language": "json",
     },
     "opencode-v2": {
@@ -62,6 +72,7 @@ CLIENTS: dict[str, dict[str, str]] = {
         "language": "toml",
     },
 }
+
 
 TOKEN_ENV_VAR = "WEFT_TOKEN"
 

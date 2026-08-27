@@ -142,6 +142,7 @@ export default function ConnectPicker() {
              style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
           {CLIENTS.map((c) => (
             <button key={c.id} role="tab" aria-selected={client === c.id}
+                    aria-controls="config-tabpanel"
                     className={client === c.id ? 'btn btn--pri' : 'btn btn--quiet'}
                     onClick={() => setClient(c.id)}>
               {c.name}
@@ -149,7 +150,7 @@ export default function ConnectPicker() {
           ))}
         </div>
 
-        <div className="code">
+        <div className="code" id="config-tabpanel" role="tabpanel" aria-label={`${meta.name} configuration`}>
           <div className="code__bar">
             <span>{meta.file}</span>
             <button className="btn btn--bare" onClick={() => copy('cfg', config)}
@@ -157,8 +158,9 @@ export default function ConnectPicker() {
               {copied === 'cfg' ? 'Copied' : 'Copy'}
             </button>
           </div>
-          <pre className="code__b">{config}</pre>
+          <pre className="code__b" tabIndex={0} aria-label={`${meta.name} config snippet`}>{config}</pre>
         </div>
+
 
         <p className="warnline" style={{ marginTop: 10 }}>
           Replace <code style={{ color: 'var(--muted)' }}>{PATH}</code> with wherever you saved
