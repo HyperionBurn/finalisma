@@ -24,7 +24,12 @@ export default function RailAccount() {
     me().then((m) => { if (live) setWho(m); }).catch(() => {});
     const fetchRoomsCount = () => {
       listRooms()
-        .then((r) => { if (live) setRooms((r.rooms ?? []).length); })
+        .then((r) => {
+          if (live) {
+            const open = (r.rooms ?? []).filter((room) => (room.state ?? 'open') !== 'closed');
+            setRooms(open.length);
+          }
+        })
         .catch(() => {});
     };
     fetchRoomsCount();

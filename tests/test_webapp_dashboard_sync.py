@@ -1,25 +1,59 @@
-"""MPAI-60 regression tests:
-1. Dashboard must deduplicate concurrent list-rooms calls on load into a single network call.
+"""MPAI-60 & MPAI-68 regression tests:
+1. Dashboard must deduplicate concurrent list-rooms calls on load into a single network call (MPAI-60).
 2. Room creation/closure must dispatch `weft:rooms_changed` event, and RailRooms / RailAccount / RoomsList
-   must listen to `weft:rooms_changed` so the sidebar and dashboard update without manual page reload.
+   must listen to `weft:rooms_changed` so the sidebar and dashboard update without manual page reload (MPAI-60).
+3. RailRooms and RailAccount must filter out closed rooms so closed rooms leave the rail and the quota count drops (MPAI-68).
+4. RoomView must provide an owner-only close control with a two-step confirmation step, and handle closed rooms cleanly (MPAI-68).
+5. Server must enforce owner-only room closure (403 owner_required for non-owners) and decrement active room quota upon closure so users can immediately create new rooms (MPAI-68).
 """
 
 from __future__ import annotations
 
 import json
 import subprocess
+import sys
+import tempfile
+import threading
 import unittest
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "src"))
+
+from weft_cloud.service import WeftCloudService, _CloudHTTPHandler
+from weft_cloud.storage import SqliteWalBackend
+
 API_TS = ROOT / "web" / "src" / "lib" / "api.ts"
 RAIL_ROOMS_TSX = ROOT / "web" / "src" / "components" / "app" / "RailRooms.tsx"
 RAIL_ACCOUNT_TSX = ROOT / "web" / "src" / "components" / "app" / "RailAccount.tsx"
 ROOMS_LIST_TSX = ROOT / "web" / "src" / "components" / "app" / "RoomsList.tsx"
+ROOM_VIEW_TSX = ROOT / "web" / "src" / "components" / "app" / "RoomView.tsx"
+
+
+def _post(base: str, path: str, body: dict, token: str | None = None) -> tuple[int, dict]:
+    data = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(base + path, data=data, method="POST")
+    req.add_header("Content-Type", "application/json")
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.status, json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        payload = {}
+        try:
+            payload = json.loads(exc.read().decode("utf-8"))
+        except Exception:
+            pass
+        finally:
+            exc.close()
+        return exc.code, payload
 
 
 class TestDashboardPapercutsMPAI60(unittest.TestCase):
-    """Regression test suite for Kevin's papercuts (MPAI-60)."""
+    """Regression test suite for Kevin's papercuts (MPAI-60 & MPAI-68)."""
 
     def test_list_rooms_deduplicates_concurrent_calls(self):
         """listRooms() must deduplicate in-flight requests so concurrent mounts only fire 1 network call."""
@@ -70,6 +104,101 @@ class TestDashboardPapercutsMPAI60(unittest.TestCase):
 
         # 4. RoomsList subscribes to weft:rooms_changed
         self.assertIn("weft:rooms_changed", rooms_list_source, "RoomsList must subscribe to weft:rooms_changed")
+
+    def test_rail_rooms_and_account_filter_out_closed_rooms(self):
+        """RailRooms and RailAccount must filter out closed rooms so closed rooms leave the rail."""
+        rail_rooms_source = RAIL_ROOMS_TSX.read_text(encoding="utf-8")
+        rail_account_source = RAIL_ACCOUNT_TSX.read_text(encoding="utf-8")
+
+        # Both RailRooms and RailAccount filter out closed rooms
+        self.assertIn("!== 'closed'", rail_rooms_source, "RailRooms must filter out closed rooms")
+        self.assertIn("!== 'closed'", rail_account_source, "RailAccount must filter out closed rooms")
+
+    def test_room_view_close_room_control_and_owner_gating(self):
+        """RoomView must provide an owner-only close button with confirmation and handle closed state."""
+        room_view_source = ROOM_VIEW_TSX.read_text(encoding="utf-8")
+
+        # 1. Imports closeRoom and me
+        self.assertIn("closeRoom", room_view_source, "RoomView must import closeRoom")
+        self.assertIn("me", room_view_source, "RoomView must import me to identify owner")
+
+        # 2. Gated on isOwner
+        self.assertIn("isOwner", room_view_source, "RoomView must compute and check isOwner")
+        self.assertIn("{isOwner &&", room_view_source, "Close control must be wrapped in isOwner guard")
+
+        # 3. Confirmation step
+        self.assertIn("armingClose", room_view_source, "RoomView must implement two-step arming for close")
+        self.assertIn("Sure? Close this room", room_view_source, "RoomView must prompt user before closing")
+
+        # 4. Disabled on closed room
+        self.assertIn("disabled={roomState === 'closed'", room_view_source, "Composer must be disabled when room is closed")
+
+    def test_server_close_room_reclaims_quota_and_enforces_owner_only(self):
+        """Server must enforce max 5 rooms on free plan, reject non-owner close with 403, and reclaim quota on close."""
+        import http.server
+        with tempfile.TemporaryDirectory() as tmp:
+            backend = SqliteWalBackend(str(Path(tmp) / "cloud.db"))
+            backend.initialize()
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _CloudHTTPHandler)
+            base = f"http://127.0.0.1:{server.server_address[1]}"
+            service = WeftCloudService(backend, origin=base)
+            _CloudHTTPHandler.service = service
+
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base = f"http://127.0.0.1:{server.server_address[1]}"
+
+            try:
+                # 1. Sign up owner and another member
+                st_owner, owner = _post(base, "/v1/auth/signup", {"email": "owner@example.com", "password": "password123"})
+                self.assertEqual(st_owner, 201)
+                owner_tok = owner["session_token"]
+
+                st_member, member = _post(base, "/v1/auth/signup", {"email": "member@example.com", "password": "password123"})
+                self.assertEqual(st_member, 201)
+                member_tok = member["session_token"]
+
+                # 2. Create 5 rooms (hitting free cap)
+                created_rooms = []
+                for i in range(5):
+                    st, rm = _post(base, "/v1/rooms/create", {"name": f"room-{i}", "cap": 8}, token=owner_tok)
+                    self.assertEqual(st, 201, f"Failed creating room {i}: {rm}")
+                    created_rooms.append(rm)
+
+                # 3. 6th room creation is refused with 409 / quota error
+                st_refuse, refuse = _post(base, "/v1/rooms/create", {"name": "room-overflow", "cap": 8}, token=owner_tok)
+                self.assertEqual(st_refuse, 409)
+                self.assertIn("tenant room limit reached", refuse["error"]["message"])
+
+                # 4. Member joins room 0
+                st_join, _ = _post(base, "/v1/rooms/join", {
+                    "room_id": created_rooms[0]["room_id"],
+                    "link_token": created_rooms[0]["link_token"],
+                    "consent": True,
+                }, token=member_tok)
+                self.assertEqual(st_join, 200)
+
+                # 5. Member tries to close room 0 -> refused with 403 owner_required
+                st_member_close, close_refuse = _post(base, "/v1/rooms/close", {
+                    "room_id": created_rooms[0]["room_id"],
+                }, token=member_tok)
+                self.assertEqual(st_member_close, 403)
+                self.assertEqual(close_refuse["error"]["code"], "owner_required")
+
+                # 6. Owner closes room 0 -> 200 OK
+                st_owner_close, close_ok = _post(base, "/v1/rooms/close", {
+                    "room_id": created_rooms[0]["room_id"],
+                }, token=owner_tok)
+                self.assertEqual(st_owner_close, 200)
+                self.assertEqual(close_ok["state"], "closed")
+
+                # 7. Owner can now create the 6th room (quota slot reclaimed)
+                st_reclaim, new_room = _post(base, "/v1/rooms/create", {"name": "room-reclaimed", "cap": 8}, token=owner_tok)
+                self.assertEqual(st_reclaim, 201)
+                self.assertEqual(new_room["room_id"] is not None, True)
+            finally:
+                server.shutdown()
+                server.server_close()
 
 
 if __name__ == "__main__":

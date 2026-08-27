@@ -19,7 +19,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ApiError, joinRoom, pollRoom, roomInfo, sendMessage,
+  ApiError, closeRoom, joinRoom, me, pollRoom, roomInfo, sendMessage,
   type Member, type RoomEvent,
 } from '../../lib/api';
 
@@ -38,6 +38,11 @@ export default function RoomView({ roomId }: Props) {
   const [target, setTarget] = useState('*');
   const [sending, setSending] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [isOwner, setIsOwner] = useState(false);
+  const [roomState, setRoomState] = useState<string>('open');
+  const [armingClose, setArmingClose] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const [closeError, setCloseError] = useState<string | null>(null);
 
   const cursor = useRef<number>(0);
   const scroller = useRef<HTMLDivElement>(null);
@@ -50,11 +55,18 @@ export default function RoomView({ roomId }: Props) {
   const loadAll = useCallback(async () => {
     setError(null);
     try {
-      const [info, page] = await Promise.all([
+      const [info, page, who] = await Promise.all([
         roomInfo(roomId).catch(() => ({} as any)),
         pollRoom(roomId, 0, 200),
+        me().catch(() => null),
       ]);
       setMembers(info?.members ?? []);
+      if (info?.state) setRoomState(info.state);
+      const ownerCheck = Boolean(
+        info?.link_id !== undefined ||
+        (who && (info?.owner_agent_id === who.account_id || info?.owner_agent_id === who.agent_id))
+      );
+      setIsOwner(ownerCheck);
       // NOT: info.room.link_token. room_info has no nested `room` object and
       // never returns the token - only link_id and link_revoked. That read
       // was always undefined, so `link` stays null and the panel below
@@ -90,11 +102,31 @@ export default function RoomView({ roomId }: Props) {
         }
         const info = await roomInfo(roomId).catch(() => null);
         if (info?.members) setMembers(info.members);
+        if (info?.state) setRoomState(info.state);
       } catch { /* transient: the next tick retries */ }
     };
     const id = window.setInterval(tick, POLL_MS);
     return () => { stop = true; window.clearInterval(id); };
   }, [roomId]);
+
+  async function handleClose() {
+    if (!armingClose) {
+      setArmingClose(true);
+      window.setTimeout(() => setArmingClose(false), 5000);
+      return;
+    }
+    setArmingClose(false);
+    setClosing(true);
+    setCloseError(null);
+    try {
+      await closeRoom(roomId);
+      setRoomState('closed');
+    } catch (err) {
+      setCloseError((err as ApiError).message);
+    } finally {
+      setClosing(false);
+    }
+  }
 
   /* ── stay pinned to the newest message unless scrolled away ─── */
   useEffect(() => {
@@ -238,7 +270,14 @@ export default function RoomView({ roomId }: Props) {
             <textarea
               ref={input} className="composer__in" rows={1} value={draft}
               aria-label="Message"
-              placeholder={target === '*' ? 'Message everyone in this room…' : `Message ${shortAgent(target)} privately…`}
+              disabled={roomState === 'closed'}
+              placeholder={
+                roomState === 'closed'
+                  ? 'This room is closed.'
+                  : target === '*'
+                    ? 'Message everyone in this room…'
+                    : `Message ${shortAgent(target)} privately…`
+              }
               onChange={(ev) => {
                 setDraft(ev.target.value);
                 const el = ev.target;
@@ -249,7 +288,7 @@ export default function RoomView({ roomId }: Props) {
                 if ((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter') { ev.preventDefault(); send(); }
               }}
             />
-            <button className="composer__send" onClick={send} disabled={!draft.trim() || sending}
+            <button className="composer__send" onClick={send} disabled={roomState === 'closed' || !draft.trim() || sending}
                     aria-label="Send message">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="M5 12h14M13 6l6 6-6 6" stroke="#050505" strokeWidth="2.4"
@@ -328,6 +367,44 @@ export default function RoomView({ roomId }: Props) {
             </p>
           )}
         </div>
+
+        {isOwner && (
+          <div className="insp__sec">
+            <p className="insp__l">Room management</p>
+            {closeError && (
+              <p className="notice notice--bad" role="alert" style={{ marginBottom: 10 }}>{closeError}</p>
+            )}
+            {roomState === 'closed' ? (
+              <p className="warnline" style={{ marginTop: 0 }}>
+                This room is closed. It no longer accepts messages or connections.
+              </p>
+            ) : (
+              <>
+                <button
+                  className={`btn ${armingClose ? 'btn--danger' : 'btn--quiet'}`}
+                  onClick={handleClose}
+                  disabled={closing}
+                  aria-label={
+                    armingClose
+                      ? 'Confirm closing this room — this cannot be undone'
+                      : 'Close room'
+                  }
+                  style={{ width: '100%' }}
+                >
+                  {closing
+                    ? 'Closing…'
+                    : armingClose
+                      ? 'Sure? Close this room'
+                      : 'Close room'}
+                </button>
+                <p className="warnline">
+                  Closing a room immediately invalidates its join link, disconnects agents,
+                  and frees up a room slot on your account. History remains visible.
+                </p>
+              </>
+            )}
+          </div>
+        )}
       </aside>
     </div>
   );

@@ -24,7 +24,12 @@ export default function RailRooms() {
     let live = true;
     const fetchRooms = () => {
       listRooms()
-        .then((r) => { if (live) setRooms(r.rooms ?? []); })
+        .then((r) => {
+          if (live) {
+            const open = (r.rooms ?? []).filter((room) => (room.state ?? 'open') !== 'closed');
+            setRooms(open);
+          }
+        })
         .catch(() => { if (live) setFailed(true); });
     };
 
