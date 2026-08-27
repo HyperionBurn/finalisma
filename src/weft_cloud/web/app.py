@@ -801,10 +801,7 @@ class WeftWebApp:
                     "origin_agent": r["origin_agent"],
                     "kind": r["kind"],
                     "payload": (
-                        self.rooms._filter_payload_for_agent(
-                            raw_payload, agent_id, r["origin_agent"],
-                            owner_agent_id=room["owner_agent_id"],
-                        )
+                        self.rooms._filter_payload_for_agent(raw_payload, agent_id, r["origin_agent"])
                         if r["kind"] == "room.message"
                         else raw_payload
                     ),
@@ -884,12 +881,11 @@ class WeftWebApp:
         """
         with self.backend.transaction() as tx:
             room = tx.execute(
-                "SELECT owner_agent_id FROM cloud_rooms WHERE tenant_id = ? AND room_id = ?",
+                "SELECT 1 FROM cloud_rooms WHERE tenant_id = ? AND room_id = ?",
                 (tenant_id, room_id),
             ).fetchone()
             if room is None:
                 raise RoomError("room_not_found", "Room not found", 404)
-            owner_agent_id = room["owner_agent_id"]
             rows = tx.execute(
                 "SELECT * FROM cloud_room_event_log WHERE tenant_id = ? AND room_id = ? ORDER BY seq",
                 (tenant_id, room_id),
@@ -903,10 +899,7 @@ class WeftWebApp:
                 "origin_agent": r["origin_agent"],
                 "kind": r["kind"],
                 "payload": (
-                    self.rooms._filter_payload_for_agent(
-                        raw_payload, agent_id, r["origin_agent"],
-                        owner_agent_id=owner_agent_id,
-                    )
+                    self.rooms._filter_payload_for_agent(raw_payload, agent_id, r["origin_agent"])
                     if r["kind"] == "room.message"
                     else raw_payload
                 ),

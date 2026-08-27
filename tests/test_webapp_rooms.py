@@ -555,25 +555,25 @@ class TestEventPoll(unittest.TestCase):
             payload={"text": "Secret unicast for receiver only"},
         )
 
-        # 3. Account (room owner) polls JSON events: both broadcast & unicast are visible
+        # 3. Account polls JSON events: broadcast is visible, unicast to another agent is redacted
         status, body, _ = self.driver.get(f"/room/{self.room_id}/events?after_seq=0")
         self.assertEqual(status, 200)
         data = json.loads(body)
         messages = [e for e in data["events"] if e["kind"] == "room.message"]
         self.assertEqual(len(messages), 2)
         self.assertEqual(messages[0]["payload"]["payload"]["text"], "Broadcast notice to all")
-        self.assertEqual(messages[1]["payload"]["payload"]["text"], "Secret unicast for receiver only")
+        self.assertEqual(messages[1]["payload"], {"redacted": True, "reason": "not_the_addressee"})
 
-        # 4. Account views room detail page and audit log: message text is rendered in HTML
+        # 4. Account views room detail page and audit log: broadcast text is rendered, unicast displays [redacted]
         status, detail_body, _ = self.driver.get(f"/room/{self.room_id}")
         self.assertEqual(status, 200)
         self.assertIn("Broadcast notice to all", detail_body)
-        self.assertIn("Secret unicast for receiver only", detail_body)
+        self.assertIn("[redacted]", detail_body)
 
         status, audit_body, _ = self.driver.get(f"/room/{self.room_id}/audit")
         self.assertEqual(status, 200)
         self.assertIn("Broadcast notice to all", audit_body)
-        self.assertIn("Secret unicast for receiver only", audit_body)
+        self.assertIn("[redacted]", audit_body)
 
         # 5. Non-addressee AGENT polls via API: unicast is REDACTED, broadcast is visible
         agent_poll = self.driver.app.rooms.poll(tenant_id, self.room_id, after_seq=0, agent_id="ag_other")
