@@ -28,7 +28,7 @@ from urllib.parse import quote
 from weft_cloud.origin import configured_origin
 from weft_cloud.storage import utc_now_iso
 
-from .mailer import LocalOutboxMailer
+from .mailer import LocalOutboxMailer, smtp_config_from_env
 from .schema import ensure_schema
 from .tokens import AuthError, generate_token, hash_token  # noqa: F401 (AuthError re-exported)
 
@@ -189,13 +189,17 @@ def signup(backend: Any, tenant_id: str, email: str, password: str) -> tuple[str
             (account_id, tenant_id, email, salt, password_hash, now_iso,
              token_hash, expires_at),
         )
+        smtp_active = smtp_config_from_env() is not None
+        status = "queued" if smtp_active else "disabled"
+        last_error = None if smtp_active else "smtp_disabled"
         tx.execute(
-            "INSERT INTO cloud_identity_outbox(entry_id, tenant_id, to_email, subject, body, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO cloud_identity_outbox("
+            "entry_id, tenant_id, to_email, subject, body, created_at, expires_at, status, last_error"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (_new_id("idem"), tenant_id, email, "Verify your email",
              "Verify your email: "
              f"{_verification_web_origin()}/verify?token={quote(raw_token, safe='')}",
-             now_iso),
+             now_iso, expires_at, status, last_error),
         )
         tx.commit()
     return account_id, raw_token
@@ -320,8 +324,12 @@ def request_password_reset(backend: Any, tenant_id: str, email: str) -> None:
             (token_hash, expires_at, row["account_id"]),
         )
         tx.commit()
+    smtp_active = smtp_config_from_env() is not None
+    status = "queued" if smtp_active else "disabled"
+    last_error = None if smtp_active else "smtp_disabled"
     LocalOutboxMailer(backend).send(
-        tenant_id, email, "Reset your password", f"Reset your password: {raw_token}"
+        tenant_id, email, "Reset your password", f"Reset your password: {raw_token}",
+        expires_at=expires_at, status=status, last_error=last_error,
     )
 
 

@@ -437,7 +437,75 @@ class OutboxDrainerTests(unittest.TestCase):
         combined = "\n".join(logs.output)
         self.assertNotIn(secret, combined)
         self.assertNotIn(body, combined)
-        self.assertNotIn("Reset your password", combined)
+    def test_expired_message_marked_expired_and_not_sent(self) -> None:
+        now = time.time()
+        LocalOutboxMailer(self.backend).send(
+            self.tenant_id, "to@example.com", "Reset your password", "Click: frt_old",
+            expires_at=now - 60, status="queued",
+        )
+        drainer = self._drainer()
+        result = drainer.drain_once(now=now)
+        self.assertEqual(result["expired"], 1)
+        self.assertEqual(result["sent"], 0)
+        self.assertEqual(FakeSMTP.total_sent(), 0)
+        row = self._row()
+        self.assertEqual(row["status"], "expired")
+        self.assertEqual(row["last_error"], "expired")
+
+    def test_fresh_message_with_expires_at_delivered(self) -> None:
+        now = time.time()
+        LocalOutboxMailer(self.backend).send(
+            self.tenant_id, "to@example.com", "Reset your password", "Click: frt_fresh",
+            expires_at=now + 1800, status="queued",
+        )
+        drainer = self._drainer()
+        result = drainer.drain_once(now=now)
+        self.assertEqual(result["sent"], 1)
+        self.assertEqual(result["expired"], 0)
+        self.assertEqual(FakeSMTP.total_sent(), 1)
+        row = self._row()
+        self.assertEqual(row["status"], "sent")
+
+    def test_legacy_message_without_expires_at_uses_ttl_fallback(self) -> None:
+        now = time.time()
+        entry_id = "idem_legacy"
+        created_at_old = "2026-08-27T01:00:00.000Z"
+        with self.backend.transaction() as tx:
+            tx.execute(
+                "INSERT INTO cloud_identity_outbox("
+                "entry_id, tenant_id, to_email, subject, body, created_at, expires_at, status"
+                ") VALUES (?, ?, ?, ?, ?, ?, NULL, 'queued')",
+                (entry_id, self.tenant_id, "to@example.com", "Reset your password",
+                 "Click: frt_legacy", created_at_old),
+            )
+            tx.commit()
+        drainer = self._drainer()
+        result = drainer.drain_once(now=now)
+        self.assertEqual(result["expired"], 1)
+        self.assertEqual(result["sent"], 0)
+        self.assertEqual(FakeSMTP.total_sent(), 0)
+        row = self._row(entry_id)
+        self.assertEqual(row["status"], "expired")
+
+    def test_unconfigured_smtp_tags_outbox_as_disabled(self) -> None:
+        from weft_cloud.identity.accounts import signup, request_password_reset
+        acct_id, token = signup(self.backend, self.tenant_id, "disabled-test@example.com", "SecurePass123!")
+        request_password_reset(self.backend, self.tenant_id, "disabled-test@example.com")
+        with self.backend.transaction() as tx:
+            rows = tx.execute(
+                "SELECT * FROM cloud_identity_outbox WHERE to_email = ? ORDER BY created_at",
+                ("disabled-test@example.com",),
+            ).fetchall()
+        self.assertEqual(len(rows), 2)
+        for r in rows:
+            self.assertEqual(r["status"], "disabled")
+            self.assertEqual(r["last_error"], "smtp_disabled")
+            self.assertIsNotNone(r["expires_at"])
+        drainer = self._drainer()
+        result = drainer.drain_once()
+        self.assertEqual(result["claimed"], 0)
+        self.assertEqual(result["sent"], 0)
+        self.assertEqual(FakeSMTP.total_sent(), 0)
 
 
 class OutboxWorkerConfigTests(unittest.TestCase):
@@ -534,7 +602,7 @@ class OutboxWorkerConfigTests(unittest.TestCase):
                     tx.execute("PRAGMA table_info(cloud_identity_outbox)").fetchall()
                 }
             for column in ("status", "attempts", "next_attempt_at",
-                           "claimed_at", "claimed_by", "last_error"):
+                           "claimed_at", "claimed_by", "last_error", "expires_at"):
                 self.assertIn(column, names)
             apply_migrations(backend)
             apply_migrations(backend)

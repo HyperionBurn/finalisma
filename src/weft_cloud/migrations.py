@@ -325,6 +325,10 @@ _IDENTITY_OUTBOX_DELIVERY_STATEMENTS = [
         "ALTER TABLE cloud_identity_outbox ADD COLUMN last_error TEXT",
         _has_identity_outbox_column("last_error"),
     ),
+    GuardedStatement(
+        "ALTER TABLE cloud_identity_outbox ADD COLUMN expires_at REAL",
+        _has_identity_outbox_column("expires_at"),
+    ),
 ]
 
 _ROOM_TABLES_SQL = """

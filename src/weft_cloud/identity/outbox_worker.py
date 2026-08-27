@@ -62,6 +62,8 @@ STATUS_QUEUED = "queued"
 STATUS_CLAIMED = "claimed"
 STATUS_SENT = "sent"
 STATUS_FAILED = "failed"
+STATUS_EXPIRED = "expired"
+STATUS_DISABLED = "disabled"
 
 # SMTP failures that may resolve on their own (connection drops, timeouts,
 # 4xx responses). A refused recipient or a rejected sender/message is
@@ -70,6 +72,30 @@ _PERMANENT_FAILURE_TYPES = (
     smtplib.SMTPRecipientsRefused,
     smtplib.SMTPSenderRefused,
 )
+
+
+def _is_message_expired(row: dict, now: float) -> bool:
+    """Check if an outbox row has expired before sending.
+
+    Prefers the row's own `expires_at` timestamp. If `expires_at` is None
+    (legacy pre-migration rows), falls back to parsing `created_at` against the
+    respective token TTL (30 minutes for reset emails, 24 hours for verification).
+    """
+    expires_at = row.get("expires_at")
+    if expires_at is not None and float(expires_at) > 0:
+        return now >= float(expires_at)
+    created_at = row.get("created_at")
+    if created_at:
+        try:
+            from datetime import datetime
+            dt = datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
+            created_ts = dt.timestamp()
+            subject = str(row.get("subject") or "").lower()
+            ttl = 1800.0 if "reset" in subject else 86400.0
+            return (now - created_ts) >= ttl
+        except Exception:
+            pass
+    return False
 
 
 def _classify_smtp_error(exc: BaseException) -> str:
@@ -166,7 +192,7 @@ class OutboxDrainer:
                  STATUS_QUEUED, STATUS_CLAIMED, now - self.lease_seconds, now),
             )
             owned = tx.execute(
-                f"SELECT entry_id, tenant_id, to_email, subject, body, attempts "
+                f"SELECT entry_id, tenant_id, to_email, subject, body, attempts, created_at, expires_at "
                 f"FROM cloud_identity_outbox "
                 f"WHERE entry_id IN ({placeholders}) AND status = ? AND claimed_by = ?",
                 (*ids, STATUS_CLAIMED, self.worker_id),
@@ -192,6 +218,17 @@ class OutboxDrainer:
             "UPDATE cloud_identity_outbox SET status = ?, dispatched_at = ?, last_error = NULL "
             "WHERE entry_id = ? AND status = ? AND claimed_by = ?",
             (STATUS_SENT, now, entry_id, STATUS_CLAIMED, self.worker_id),
+            lease_seconds=self.lease_seconds,
+            now=now,
+        )
+
+    def mark_expired(self, entry_id: str, attempts: int, error: str = "expired",
+                     now: float | None = None) -> bool:
+        return self._mark(
+            "UPDATE cloud_identity_outbox SET status = ?, attempts = ?, "
+            "claimed_at = NULL, claimed_by = NULL, last_error = ? "
+            "WHERE entry_id = ? AND status = ? AND claimed_by = ?",
+            (STATUS_EXPIRED, attempts, error, entry_id, STATUS_CLAIMED, self.worker_id),
             lease_seconds=self.lease_seconds,
             now=now,
         )
@@ -242,10 +279,26 @@ class OutboxDrainer:
     def drain_once(self, now: float | None = None) -> dict[str, int]:
         """One pass: claim due rows, send each exactly once, record outcomes."""
         now = _time.time() if now is None else now
-        result = {"claimed": 0, "sent": 0, "retried": 0, "failed": 0, "lost": 0}
+        result = {"claimed": 0, "sent": 0, "retried": 0, "failed": 0, "expired": 0, "lost": 0}
         for row in self.claim_due(now):
             result["claimed"] += 1
             entry_id = row["entry_id"]
+
+            if _is_message_expired(row, now):
+                if self.mark_expired(
+                    entry_id, attempts=row["attempts"], error="expired", now=_time.time()
+                ):
+                    result["expired"] += 1
+                    logger.warning(
+                        "outbox send expired entry_id=%s expires_at=%s",
+                        entry_id,
+                        row.get("expires_at"),
+                    )
+                else:
+                    result["lost"] += 1
+                    logger.warning("outbox lease lost entry_id=%s outcome=expired", entry_id)
+                continue
+
             delivery_error: Exception | None = None
             with LeaseHeartbeat(
                 self._lease_callback(entry_id), self.lease_seconds
@@ -392,8 +445,8 @@ def main(
         )
         while True:
             result = drainer.drain_once()
-            logger.info("drain pass claimed=%d sent=%d retried=%d failed=%d",
-                        result["claimed"], result["sent"], result["retried"], result["failed"])
+            logger.info("drain pass claimed=%d sent=%d retried=%d failed=%d expired=%d",
+                        result["claimed"], result["sent"], result["retried"], result["failed"], result["expired"])
             if "--once" in argv:
                 return 0
             _time.sleep(cfg["interval"])

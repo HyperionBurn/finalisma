@@ -56,14 +56,25 @@ class LocalOutboxMailer(Mailer):
     def __init__(self, backend: Any) -> None:
         self.backend = backend
 
-    def send(self, tenant_id: str, to_email: str, subject: str, body: str) -> None:
+    def send(
+        self,
+        tenant_id: str,
+        to_email: str,
+        subject: str,
+        body: str,
+        *,
+        expires_at: float | None = None,
+        status: str = "queued",
+        last_error: str | None = None,
+    ) -> None:
         entry_id = _new_id("idem")
         now_iso = utc_now_iso()
         with self.backend.transaction() as tx:
             tx.execute(
-                "INSERT INTO cloud_identity_outbox(entry_id, tenant_id, to_email, subject, body, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (entry_id, tenant_id, to_email, subject, body, now_iso),
+                "INSERT INTO cloud_identity_outbox("
+                "entry_id, tenant_id, to_email, subject, body, created_at, expires_at, status, last_error"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (entry_id, tenant_id, to_email, subject, body, now_iso, expires_at, status, last_error),
             )
             tx.commit()
 
