@@ -401,9 +401,15 @@ class TestRemoveMember(unittest.TestCase):
         saved = dict(self.driver.cookies)
         self.driver.cookies.clear()
         self.driver.cookies.update(self.member_cookies)
-        status, _, headers = self.driver.get("/legacy")
-        self.assertEqual(status, 303)
-        self.assertTrue(headers["Location"].startswith("/login"))
+        status, body, headers = self.driver.get("/legacy")
+        # The transition keeps the old sign-in lane reachable: a revoked
+        # member cookie gets a server-rendered CSRF form, not a redirect to
+        # the React bearer-login shell.
+        self.assertEqual(status, 200)
+        self.assertIn('name="email"', body)
+        self.assertIsNotNone(self.driver.extract_csrf(body))
+        self.assertNotIn("Location", headers)
+        self.assertNotIn("fss_session", self.driver.cookies)
         self.driver.cookies.clear()
         self.driver.cookies.update(saved)
 
@@ -778,4 +784,3 @@ class TestOrgSafetyAndMemberPickers(unittest.TestCase):
         self.assertIn("remove your membership", body)
         self.assertIn("revoke your active session and all agent keys", body)
         self.assertIn("Leave organization", body)
-
