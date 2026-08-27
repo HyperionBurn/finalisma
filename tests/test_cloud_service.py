@@ -1165,6 +1165,38 @@ class TestOrderedDelivery(CloudServiceTestBase):
         self.assertEqual(status, 400)
         self.assertEqual(body["error"]["code"], "invalid_argument")
 
+    def test_broadcast_empty_room_reports_no_recipients(self) -> None:
+        """Broadcast in a room where sender is the only member reports recipient_count=0 and no_recipients=True."""
+        # Create a fresh room where agent 0 is the sole member
+        status, room = _post(self.base, "/v1/rooms/create", {
+            "cap": 10,
+            "name": "forming-room",
+        }, self.agent_tokens[0])
+        self.assertEqual(status, 201)
+        fresh_room_id = room["room_id"]
+
+        status, body = _post(self.base, "/v1/rooms/send", {
+            "room_id": fresh_room_id,
+            "target_spec": "*",
+            "payload": {"text": "hello to nobody yet"},
+        }, self.agent_tokens[0])
+        self.assertEqual(status, 200)
+        self.assertEqual(body["recipient_count"], 0)
+        self.assertTrue(body["no_recipients"])
+        self.assertEqual(body["receipts"], [])
+
+    def test_send_with_targets_reports_recipient_count(self) -> None:
+        """Send with active targets reports recipient_count > 0 and no_recipients=False."""
+        status, body = _post(self.base, "/v1/rooms/send", {
+            "room_id": self.room_id,
+            "target_spec": "*",
+            "payload": {"text": "broadcast with members"},
+        }, self.agent_tokens[0])
+        self.assertEqual(status, 200)
+        self.assertEqual(body["recipient_count"], 4)
+        self.assertFalse(body["no_recipients"])
+        self.assertEqual(len(body["receipts"]), 4)
+
     def test_non_member_send_refused(self) -> None:
         stranger = self._signup("delivery-stranger@example.com", "StrangerPass!1")
         status, body = _post(self.base, "/v1/rooms/send", {

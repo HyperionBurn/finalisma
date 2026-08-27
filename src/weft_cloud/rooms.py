@@ -2034,12 +2034,15 @@ class CloudRoomService:
                         _check_idempotency_conflict(
                             existing, payload, target_spec, exclude_sender, message_kind,
                         )
+                        receipts = _idempotent_receipts(
+                            tx, tenant_id, room_id, sender_agent_id, existing,
+                        )
                         return {
                             "room_id": room_id,
                             "seq": int(existing["seq"]),
-                            "receipts": _idempotent_receipts(
-                                tx, tenant_id, room_id, sender_agent_id, existing,
-                            ),
+                            "recipient_count": len(receipts),
+                            "no_recipients": len(receipts) == 0,
+                            "receipts": receipts,
                         }
                 # Validate routing BEFORE the rate gate. A send that names a
                 # non-member is the caller's error (recipient_not_found) and
@@ -2090,11 +2093,33 @@ class CloudRoomService:
                         receipts = _idempotent_receipts(
                             tx, tenant_id, room_id, sender_agent_id, existing,
                         )
-                        return {"room_id": room_id, "seq": seq, "receipts": receipts}
+                        return {
+                            "room_id": room_id,
+                            "seq": seq,
+                            "recipient_count": len(receipts),
+                            "no_recipients": len(receipts) == 0,
+                            "receipts": receipts,
+                        }
 
                 # Enforce + count the monthly event budget in the SAME transaction
                 # as the append, so a refused message leaves no counter trace.
                 enforce_events_per_month(tx, tenant_id, plan_id, plan)
+
+                # Note on event payload wire format (double-nesting):
+                # `cloud_room_event_log` rows use a uniform envelope structure across
+                # all event kinds (`room.created`, `room.joined`, `room.message`, etc.).
+                # For `room.message`, the event row's `payload_json` contains the message
+                # delivery envelope:
+                #     {"payload": <caller_payload>, "target_spec": ..., "exclude_sender": ..., "targets": [...]}
+                # When callers poll `room.message` events, `event["payload"]` is this outer
+                # message envelope (carrying routing targets and delivery metadata), and the
+                # caller's user-supplied payload dictionary is accessed via `event["payload"]["payload"]`.
+                # This double-nesting is intentional and load-bearing:
+                # 1. It allows `_filter_payload_for_agent` to redact non-addressee message
+                #    bodies into `{"redacted": True, "reason": "not_the_addressee"}` while preserving
+                #    the outer event sequence and metadata.
+                # 2. It preserves uniform top-level event schema for all event types in the log.
+                # 3. SDKs, MCP tools, and log replay consumers rely on this stable wire contract.
                 seq = self._append_event(tx, tenant_id, room_id, sender_agent_id, "room.message",
                                          {"payload": payload, "target_spec": target_spec,
                                           "exclude_sender": exclude_sender,
@@ -2132,7 +2157,14 @@ class CloudRoomService:
                     })
                 tx.commit()
 
-            return {"room_id": room_id, "seq": seq, "receipts": receipts}
+            recipient_count = len(receipts)
+            return {
+                "room_id": room_id,
+                "seq": seq,
+                "recipient_count": recipient_count,
+                "no_recipients": recipient_count == 0,
+                "receipts": receipts,
+            }
 
     # ------------------------------------------------------------------
     # Groups

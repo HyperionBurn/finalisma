@@ -1059,7 +1059,15 @@ class RoomStore:
                     "status": "queued",
                     "read_status": receipt_statuses.get(entry_id, "queued"),
                 })
-            return {"room_id": room_id, "envelope": envelope, "receipts": receipts, "seq": seq}
+            recipient_count = len(receipts)
+            return {
+                "room_id": room_id,
+                "envelope": envelope,
+                "recipient_count": recipient_count,
+                "no_recipients": recipient_count == 0,
+                "receipts": receipts,
+                "seq": seq,
+            }
 
     def _route_targets(self, conn: sqlite3.Connection, room_id: str, target_spec: Any) -> list[str]:
         """Expand a target spec over the room's OWN member set.
