@@ -29,7 +29,7 @@ conversation or sharing provider credentials.
 - One-use pairing links with preview-before-consent.
 - Member-bound session credentials and replayable ordered events.
 - Scoped tasks, leases, fencing tokens, artifact hashes, and evidence gates.
- - 1317 passing standard-library tests (1333 discovered, 16 skipped; measured
+ - 1319 passing standard-library tests (1335 discovered, 16 skipped; measured
    locally 2026-08-23, see `docs/RELEASE_EVIDENCE.md`), 0 external runtime dependencies,
    covering concurrency, restart, HTTP, tenancy isolation, roster routing, durable outbox,
    bridge adapters, SDK flows, room lifecycle, cloud storage, cross-team boundary cases,
