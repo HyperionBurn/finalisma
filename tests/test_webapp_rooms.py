@@ -130,7 +130,7 @@ class WebAppDriver:
         m = re.search(r'name="_csrf"\s+value="([^"]+)"', html)
         return m.group(1) if m else None
 
-    def csrf(self, path="/"):
+    def csrf(self, path="/legacy"):
         """Fetch a page with the current session and return its CSRF token."""
         _, body, _ = self.get(path)
         token = self.extract_csrf(body)
@@ -173,7 +173,7 @@ class WebAppDriver:
 
     def create_room(self, name="My Room", cap=8):
         """Owner logs in, POSTs /rooms, follows to the detail page; returns room_id."""
-        html = self.get("/")[1]
+        html = self.get("/legacy")[1]
         csrf = self.extract_csrf(html)
         status, _, headers = self.post("/rooms", {"name": name, "cap": str(cap), "_csrf": csrf})
         assert status == 303, f"create room expected 303, got {status}"
@@ -221,7 +221,7 @@ class TestCreateRoom(unittest.TestCase):
         self.driver.close()
 
     def test_create_room_returns_303_with_room_id(self):
-        html = self.driver.get("/")[1]
+        html = self.driver.get("/legacy")[1]
         csrf = self.driver.extract_csrf(html)
         status, _, headers = self.driver.post(
             "/rooms", {"name": "War Room", "cap": "8", "_csrf": csrf}
@@ -372,8 +372,8 @@ class TestCreateRoom(unittest.TestCase):
                 (tenant["tenant_id"], room_ids[0]),
             )
             tx.commit()
-        self.assertIn("Rooms 4/5", self.driver.get("/")[1])
-        self.assertIn("largest room: 1", self.driver.get("/")[1])
+        self.assertIn("Rooms 4/5", self.driver.get("/legacy")[1])
+        self.assertIn("largest room: 1", self.driver.get("/legacy")[1])
 
         status, _, headers = self.driver.post(
             "/rooms",
@@ -381,7 +381,7 @@ class TestCreateRoom(unittest.TestCase):
         )
         self.assertEqual(status, 303)
         self.assertTrue(headers["Location"].startswith("/room/"))
-        self.assertIn("Rooms 5/5", self.driver.get("/")[1])
+        self.assertIn("Rooms 5/5", self.driver.get("/legacy")[1])
 
 
 class TestListRooms(unittest.TestCase):
@@ -787,7 +787,7 @@ class TestConnectPage(unittest.TestCase):
 
     def _assert_authenticated_pages_have_accessible_landmarks(self):
         paths = (
-            "/",
+            "/legacy",
             "/org",
             "/rooms",
             "/agent-keys",
@@ -807,7 +807,7 @@ class TestConnectPage(unittest.TestCase):
             self.assertEqual(body.count('<main id="main" tabindex="-1">'), 1, path)
 
     def test_authenticated_metadata_text_meets_wcag_aa_contrast(self):
-        status, body, _ = self.driver.get("/")
+        status, body, _ = self.driver.get("/legacy")
         self.assertEqual(status, 200)
         self.assertIn(".muted{color:#707070;}", body)
         self.assertNotIn(".muted{color:#777;}", body)
@@ -1502,5 +1502,4 @@ class TestRoomSendStrictValidation(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
 

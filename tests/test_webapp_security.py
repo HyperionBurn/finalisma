@@ -161,12 +161,18 @@ class TestAuthRefusals(unittest.TestCase):
     def tearDown(self):
         self.d.close()
 
-    def test_01_get_root_no_cookie_redirects_to_login(self):
+    def test_01_get_root_without_cookie_serves_product_front_door(self):
         status, body, hdrs = self.d.get("/")
-        self.assertEqual(status, 303)
-        self.assertTrue(hdrs.get("Location", "").startswith("/login"))
-        self.assertNotIn("room", body.lower())
+        self.assertEqual(status, 200)
+        self.assertNotIn("Location", hdrs)
+        self.assertIn("One link", body)
+        # The public product story quite deliberately describes shared rooms;
+        # the old dashboard must still be absent from this front door.
         self.assertNotIn("dashboard", body.lower())
+
+        legacy_status, _, legacy_headers = self.d.get("/legacy")
+        self.assertEqual(legacy_status, 303)
+        self.assertTrue(legacy_headers.get("Location", "").startswith("/login"))
 
     def test_02_get_room_no_cookie_redirects_to_login(self):
         status, body, hdrs = self.d.get("/room/room_A_1")
@@ -197,7 +203,7 @@ class TestAuthRefusals(unittest.TestCase):
         self.assertIsNotNone(row, "session row must exist after login")
         id_sessions.revoke(self.d.backend, row["session_id"])
         # Now send the old raw cookie
-        status, body, hdrs = self.d.get("/", extra_cookie=f"fss_session={raw_cookie}")
+        status, body, hdrs = self.d.get("/legacy", extra_cookie=f"fss_session={raw_cookie}")
         self.assertEqual(status, 303)
         self.assertTrue(hdrs.get("Location", "").startswith("/login"))
         # Cookie must be cleared
@@ -220,7 +226,7 @@ class TestAuthRefusals(unittest.TestCase):
             tx.commit()
         sid, raw = id_sessions.create(self.d.backend, tenant, acct, "owner", ttl_seconds=1)
         time.sleep(1.2)
-        status, body, hdrs = self.d.get("/", extra_cookie=f"fss_session={raw}")
+        status, body, hdrs = self.d.get("/legacy", extra_cookie=f"fss_session={raw}")
         self.assertEqual(status, 303)
         self.assertTrue(hdrs.get("Location", "").startswith("/login"))
 
@@ -231,7 +237,7 @@ class TestAuthRefusals(unittest.TestCase):
             tampered = tampered[:-1] + "b"
         else:
             tampered = tampered[:-1] + "a"
-        status, body, hdrs = self.d.get("/", extra_cookie=f"fss_session={tampered}")
+        status, body, hdrs = self.d.get("/legacy", extra_cookie=f"fss_session={tampered}")
         self.assertEqual(status, 303)
         self.assertTrue(hdrs.get("Location", "").startswith("/login"))
 
@@ -275,14 +281,14 @@ class TestRoleEnforcement(unittest.TestCase):
         self.assertTrue(self.d.login_only(self.owner_email, self.password))
         self.owner_cookie = self.d.cookies["fss_session"]
         # Create a room as owner
-        _, body, _ = self.d.get("/")
+        _, body, _ = self.d.get("/legacy")
         csrf = self.d.extract_csrf(body)
         self.d.post("/rooms", {"name": "room_a", "_csrf": csrf})
         # Find room id
         m = re.search(r"/room/([a-zA-Z0-9_-]+)", body)
         if not m:
             # re-fetch dashboard
-            _, body2, _ = self.d.get("/")
+            _, body2, _ = self.d.get("/legacy")
             m = re.search(r"/room/([a-zA-Z0-9_-]+)", body2)
         self.room_a = m.group(1)
         # Login member
@@ -365,10 +371,10 @@ class TestTenantIsolation(unittest.TestCase):
         self.d.cookies.clear()
         self.assertTrue(self.d.login_only(self.owner_a, self.password))
         # Create room A
-        _, body, _ = self.d.get("/")
+        _, body, _ = self.d.get("/legacy")
         csrf = self.d.extract_csrf(body)
         self.d.post("/rooms", {"name": "room_a", "_csrf": csrf})
-        _, body2, _ = self.d.get("/")
+        _, body2, _ = self.d.get("/legacy")
         m = re.search(r"/room/([a-zA-Z0-9_-]+)", body2)
         self.room_a = m.group(1)
         self.d.cookies.clear()
@@ -378,10 +384,10 @@ class TestTenantIsolation(unittest.TestCase):
         self.d.cookies.clear()
         self.owner_b = "owner_b@example.com"
         self.assertTrue(self.d.signup_verify_login(self.owner_b, self.password))
-        _, body, _ = self.d.get("/")
+        _, body, _ = self.d.get("/legacy")
         csrf = self.d.extract_csrf(body)
         self.d.post("/rooms", {"name": "room_b", "_csrf": csrf})
-        _, body2, _ = self.d.get("/")
+        _, body2, _ = self.d.get("/legacy")
         m = re.search(r"/room/([a-zA-Z0-9_-]+)", body2)
         self.room_b = m.group(1)
 
@@ -457,10 +463,10 @@ class TestCsrfRefusals(unittest.TestCase):
 
     def test_28_post_room_close_wrong_csrf_refused(self):
         # Create a room first with correct csrf
-        _, body, _ = self.d.get("/")
+        _, body, _ = self.d.get("/legacy")
         csrf = self.d.extract_csrf(body)
         self.d.post("/rooms", {"name": "csrf_room", "_csrf": csrf})
-        _, body2, _ = self.d.get("/")
+        _, body2, _ = self.d.get("/legacy")
         m = re.search(r"/room/([a-zA-Z0-9_-]+)", body2)
         room_id = m.group(1)
         # Now try close with wrong csrf
@@ -481,10 +487,10 @@ class TestNoSecretsInHtml(unittest.TestCase):
         self.assertTrue(self.d.signup_verify_login(self.email, self.password))
         self.cookie = self.d.cookies["fss_session"]
         # Create a room
-        _, body, _ = self.d.get("/")
+        _, body, _ = self.d.get("/legacy")
         csrf = self.d.extract_csrf(body)
         self.d.post("/rooms", {"name": "sec_room", "_csrf": csrf})
-        _, body2, _ = self.d.get("/")
+        _, body2, _ = self.d.get("/legacy")
         m = re.search(r"/room/([a-zA-Z0-9_-]+)", body2)
         self.room_id = m.group(1)
 
@@ -548,10 +554,10 @@ class TestRoomLinkRefusals(unittest.TestCase):
         self.password = "Password123!"
         self.assertTrue(self.d.signup_verify_login(self.email, self.password))
         self.cookie = self.d.cookies["fss_session"]
-        _, body, _ = self.d.get("/")
+        _, body, _ = self.d.get("/legacy")
         csrf = self.d.extract_csrf(body)
         self.d.post("/rooms", {"name": "link_room", "_csrf": csrf})
-        _, body2, _ = self.d.get("/")
+        _, body2, _ = self.d.get("/legacy")
         m = re.search(r"/room/([a-zA-Z0-9_-]+)", body2)
         self.room_id = m.group(1)
 

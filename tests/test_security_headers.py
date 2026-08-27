@@ -224,7 +224,7 @@ class TestSessionCookieSecureFlag(unittest.TestCase):
 
     def test_logout_clear_cookie_carries_same_attributes(self):
         self.assertTrue(self.d.signup_verify_login("c@example.com", "Password123!"))
-        _, body, _ = self.d.get("/")
+        _, body, _ = self.d.get("/legacy")
         csrf = re.search(r'name="_csrf"\s+value="([^"]+)"', body).group(1)
         status, _, hdrs = self.d.post(
             "/logout", {"_csrf": csrf},
@@ -287,23 +287,19 @@ class TestHtmlResponseSecurityHeaders(unittest.TestCase):
         self.assertIn("script-src 'self' 'unsafe-inline'", csp,
                       "static marketing pages need inline-script allowance")
 
-    def test_marketing_index_is_auth_gated_on_web_app_with_headers(self):
-        # The web app only serves /terms.html and /privacy.html pre-auth; the
-        # marketing index is behind the auth gate (the marketing bundle is
-        # served by the site server / nginx instead). The 303 must still carry
-        # the always-on header block so the login redirect is protected.
+    def test_marketing_index_is_public_on_web_app_with_headers(self):
+        # The Astro product front door is served by the web app itself, so the
+        # static index must be public and carry the full HTML header block.
         status, _, hdrs = self.d.get("/index.html")
-        self.assertEqual(status, 303)
-        self.assertTrue(hdrs.get("Location", "").startswith("/login"))
-        for name in REQUIRED_ALWAYS_HEADERS:
-            self.assertIn(name, hdrs, f"/index.html redirect: missing {name}")
+        self.assertEqual(status, 200)
+        self._assert_full_block(hdrs, "/index.html")
 
-    def test_unauthenticated_redirect_carries_always_on_headers(self):
+    def test_unauthenticated_root_carries_full_html_headers(self):
         status, _, hdrs = self.d.get("/")
-        self.assertEqual(status, 303)
-        self.assertTrue(hdrs.get("Location", "").startswith("/login"))
+        self.assertEqual(status, 200)
+        self._assert_full_block(hdrs, "/")
         for name in REQUIRED_ALWAYS_HEADERS:
-            self.assertIn(name, hdrs, f"redirect: missing {name}")
+            self.assertIn(name, hdrs, f"root: missing {name}")
         self.assertEqual(hdrs.get("X-Content-Type-Options"), "nosniff")
 
     def test_static_assets_after_login_carry_always_on_headers(self):
@@ -436,7 +432,7 @@ class TestLoginStillWorks(unittest.TestCase):
 
     def test_login_roundtrip_over_plain_http(self):
         self.assertTrue(self.d.signup_verify_login("dev@example.com", "Password123!"))
-        status, body, _ = self.d.get("/")
+        status, body, _ = self.d.get("/legacy")
         self.assertEqual(status, 200)
         self.assertIn("Dashboard", body)
         self.assertNotIn(self.d.cookies["fss_session"], body)
@@ -452,7 +448,7 @@ class TestLoginStillWorks(unittest.TestCase):
             self.d.signup_verify_login("prod@example.com", "Password123!", extra_headers=hdr)
         )
         self.assertIn("fss_session", self.d.cookies)
-        status, body, _ = self.d.get("/", extra_headers=hdr)
+        status, body, _ = self.d.get("/legacy", extra_headers=hdr)
         self.assertEqual(status, 200)
         self.assertIn("Dashboard", body)
 
@@ -464,7 +460,7 @@ class TestLoginStillWorks(unittest.TestCase):
         # Simulate the browser: cross-site Referer + Sec-Fetch-Site, cookie
         # jar already holding the Lax session.
         self.assertTrue(self.d.signup_verify_login("ext@example.com", "Password123!"))
-        _, dashboard, _ = self.d.get("/")
+        _, dashboard, _ = self.d.get("/legacy")
         csrf = re.search(r'name="_csrf"\s+value="([^"]+)"', dashboard).group(1)
         status, _, hdrs = self.d.post(
             "/rooms", {"name": "External-room", "cap": "8", "_csrf": csrf}

@@ -165,8 +165,8 @@ class TestSignup(unittest.TestCase):
     def test_signup_get_renders_form_with_csrf(self):
         status, body, _ = self.driver.get("/signup")
         self.assertEqual(status, 200)
-        self.assertIn('name="email"', body)
-        self.assertIn('name="password"', body)
+        self.assertIn('id="email"', body)
+        self.assertIn('id="password"', body)
         self.assertIsNotNone(self.driver.extract_csrf(body))
 
     def test_signup_post_creates_account_and_redirects_no_session(self):
@@ -250,8 +250,8 @@ class TestLogin(unittest.TestCase):
     def test_login_get_renders_form(self):
         status, body, _ = self.driver.get("/login")
         self.assertEqual(status, 200)
-        self.assertIn('name="email"', body)
-        self.assertIn('name="password"', body)
+        self.assertIn('id="email"', body)
+        self.assertIn('id="password"', body)
         self.assertIsNotNone(self.driver.extract_csrf(body))
 
     def test_login_requires_csrf(self):
@@ -271,9 +271,29 @@ class TestLogin(unittest.TestCase):
             "/login", {"email": self.email, "password": self.password, "_csrf": csrf}
         )
         self.assertEqual(status, 303)
-        self.assertEqual(headers["Location"], "/")
+        self.assertEqual(headers["Location"], "/legacy")
         self.assertIn("fss_session", self.driver.cookies)
         self.assertNotEqual(csrf_before, self.driver.cookies.get("fss_csrf"))
+        # The product front door is universal even for an existing legacy
+        # cookie; the old dashboard is explicit and remains reachable.
+        root_status, root_body, _ = self.driver.get("/")
+        self.assertEqual(root_status, 200)
+        self.assertIn("One link", root_body)
+        legacy_status, legacy_body, _ = self.driver.get("/legacy")
+        self.assertEqual(legacy_status, 200)
+        self.assertIn("Dashboard", legacy_body)
+        self.assertIn("Rooms", legacy_body)
+        # A page opened in the old UI before cutover can still follow its
+        # ordinary room link; the destination is a real legacy route, not a
+        # stale root that now belongs to Astro.
+        rooms_status, rooms_body, _ = self.driver.get("/rooms")
+        self.assertEqual(rooms_status, 200)
+        self.assertIn('href="/legacy"', rooms_body)
+        # Visiting the app with this cookie gives the React shell a
+        # non-credential marker so it can explain the one-time re-auth.
+        app_status, _, app_headers = self.driver.get("/app")
+        self.assertEqual(app_status, 200)
+        self.assertIn("weft_legacy_session=1", app_headers.get("Set-Cookie", ""))
 
     def test_login_accepts_case_and_whitespace_variants(self):
         status, _, _ = self.driver.post(
@@ -315,7 +335,7 @@ class TestLogin(unittest.TestCase):
         old_cookie = "fss_bogus_pre_login_value"
         saved = self.driver.cookies.copy()
         self.driver.cookies = {"fss_session": old_cookie}
-        status2, _, headers2 = self.driver.get("/")
+        status2, _, headers2 = self.driver.get("/legacy")
         self.assertEqual(status2, 303)
         self.assertEqual(headers2["Location"], "/login")
         self.driver.cookies = saved
@@ -326,23 +346,23 @@ class TestLogin(unittest.TestCase):
         )
         self.assertEqual(status, 303)
         old_cookie = self.driver.cookies["fss_session"]
-        status, body, _ = self.driver.get("/")
+        status, body, _ = self.driver.get("/legacy")
         self.assertEqual(status, 200)
         csrf = self.driver.extract_csrf(body)
         self.assertIsNotNone(csrf)
 
         status, _, headers = self.driver.post("/refresh", {"_csrf": csrf})
         self.assertEqual(status, 303)
-        self.assertEqual(headers["Location"], "/")
+        self.assertEqual(headers["Location"], "/legacy")
         new_cookie = self.driver.cookies["fss_session"]
         self.assertNotEqual(new_cookie, old_cookie)
 
         self.driver.cookies = {"fss_session": old_cookie}
-        old_status, _, old_headers = self.driver.get("/")
+        old_status, _, old_headers = self.driver.get("/legacy")
         self.assertEqual(old_status, 303)
         self.assertEqual(old_headers["Location"], "/login")
         self.driver.cookies = {"fss_session": new_cookie}
-        new_status, _, _ = self.driver.get("/")
+        new_status, _, _ = self.driver.get("/legacy")
         self.assertEqual(new_status, 200)
 
     def test_refresh_wrong_csrf_preserves_browser_session(self):
@@ -354,7 +374,7 @@ class TestLogin(unittest.TestCase):
         status, _, _ = self.driver.post("/refresh", {"_csrf": "wrong"})
         self.assertEqual(status, 403)
         self.assertEqual(self.driver.cookies["fss_session"], old_cookie)
-        status, _, _ = self.driver.get("/")
+        status, _, _ = self.driver.get("/legacy")
         self.assertEqual(status, 200)
 
 
@@ -517,7 +537,7 @@ class TestResetPassword(unittest.TestCase):
             "/login", {"email": self.email, "password": new_password}
         )
         self.assertEqual(s_new, 303)
-        self.assertEqual(h_new["Location"], "/")
+        self.assertEqual(h_new["Location"], "/legacy")
 
         # Token reuse rejected. Fetch a fresh CSRF token because the intervening
         # login form refreshes the double-submit cookie.
@@ -566,7 +586,7 @@ class TestResetPassword(unittest.TestCase):
         # Pre-reset cookie must no longer work.
         saved = self.driver.cookies.copy()
         self.driver.cookies = {"fss_session": pre_reset_cookie}
-        status, _, headers = self.driver.get("/")
+        status, _, headers = self.driver.get("/legacy")
         self.assertEqual(status, 303)
         self.assertEqual(headers["Location"], "/login")
         self.driver.cookies = saved
@@ -588,7 +608,7 @@ class TestLogout(unittest.TestCase):
 
     def test_logout_clears_session_and_redirects(self):
         # We need a CSRF token. The dashboard home renders the logout form.
-        _, body, _ = self.driver.get("/")
+        _, body, _ = self.driver.get("/legacy")
         csrf = self.driver.extract_csrf(body)
         self.assertIsNotNone(csrf)
         saved_cookie = self.driver.cookies.get("fss_session")
@@ -596,10 +616,13 @@ class TestLogout(unittest.TestCase):
         self.assertEqual(status, 303)
         self.assertEqual(headers["Location"], "/login")
         self.assertNotIn("fss_session", self.driver.cookies)
-        # After logout, GET / redirects.
-        status2, _, headers2 = self.driver.get("/")
-        self.assertEqual(status2, 303)
-        self.assertEqual(headers2["Location"], "/login")
+        # After logout, the product front door is public; the legacy alias
+        # still requires a session.
+        status2, _, _ = self.driver.get("/")
+        self.assertEqual(status2, 200)
+        legacy_status, _, legacy_headers = self.driver.get("/legacy")
+        self.assertEqual(legacy_status, 303)
+        self.assertEqual(legacy_headers["Location"], "/login")
         _ = saved_cookie  # referenced for clarity
 
     def test_logout_missing_csrf_403_and_preserves_session(self):
@@ -627,7 +650,7 @@ class TestGatedRoutes(unittest.TestCase):
         self.driver.close()
 
     def test_unauthenticated_gated_routes_redirect_to_login(self):
-        for path in ("/", "/org", "/rooms", "/room/nope"):
+        for path in ("/legacy", "/org", "/rooms", "/room/nope"):
             with self.subTest(path=path):
                 status, body, headers = self.driver.get(path)
                 self.assertEqual(status, 303, f"{path} should redirect")

@@ -120,7 +120,7 @@ class WebAppDriver:
         m = re.search(r'name="_csrf"\s+value="([^"]+)"', html)
         return m.group(1) if m else None
 
-    def csrf(self, path="/"):
+    def csrf(self, path="/legacy"):
         """Fetch a page with the current session and return its CSRF token."""
         _, body, _ = self.get(path)
         token = self.extract_csrf(body)
@@ -401,7 +401,7 @@ class TestRemoveMember(unittest.TestCase):
         saved = dict(self.driver.cookies)
         self.driver.cookies.clear()
         self.driver.cookies.update(self.member_cookies)
-        status, _, headers = self.driver.get("/")
+        status, _, headers = self.driver.get("/legacy")
         self.assertEqual(status, 303)
         self.assertTrue(headers["Location"].startswith("/login"))
         self.driver.cookies.clear()

@@ -22,10 +22,13 @@ export default function AuthForm({ mode }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [field, setField] = useState<'email' | 'password' | null>(null);
   const [expired, setExpired] = useState(false);
+  const [migrated, setMigrated] = useState(false);
 
   useEffect(() => {
     if (isSignedIn()) { location.replace('/app'); return; }
-    setExpired(new URLSearchParams(location.search).has('expired'));
+    const params = new URLSearchParams(location.search);
+    setExpired(params.has('expired'));
+    setMigrated(params.has('migrated'));
   }, []);
 
   const next = () => {
@@ -80,6 +83,11 @@ export default function AuthForm({ mode }: Props) {
     <form onSubmit={submit} noValidate>
       {expired && (
         <p className="notice" role="status">Your session expired. Sign in again to continue.</p>
+      )}
+      {migrated && (
+        <p className="notice" role="status">
+          We moved the app to a new interface. Your rooms and keys are untouched; sign in once to continue.
+        </p>
       )}
 
       <div className="field">

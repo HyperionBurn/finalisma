@@ -68,6 +68,8 @@ from weft_cloud.web.security_headers import security_headers
 
 SESSION_COOKIE = "fss_session"
 CSRF_COOKIE = "fss_csrf"
+LEGACY_SESSION_MARKER_COOKIE = "weft_legacy_session"
+LEGACY_SESSION_MARKER_TTL_SECONDS = 300
 _INVITE_PATH_RE = re.compile(r"^/invite/([A-Za-z0-9_-]+)$")
 _ROOM_PATH_RE = re.compile(r"^/room/([A-Za-z0-9_-]+)$")
 _ROOM_EVENTS_RE = re.compile(r"^/room/([A-Za-z0-9_-]+)/events$")
@@ -435,6 +437,22 @@ class WeftWebApp:
         handler.send_header(
             "Set-Cookie",
             f"{CSRF_COOKIE}={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={DEFAULT_TTL_SECONDS}{secure}",
+        )
+
+    def _set_legacy_session_marker(self, handler: BaseHTTPRequestHandler) -> None:
+        """Mark a static-app request that still carries a valid web session.
+
+        The marker carries no identity or credential. It is deliberately
+        readable by the new app only so it can explain the one-time sign-in
+        required when moving from the HttpOnly legacy cookie to its bearer
+        session in localStorage. The app consumes and expires it before
+        redirecting to login.
+        """
+        secure = "; Secure" if self._cookie_secure(handler) else ""
+        handler.send_header(
+            "Set-Cookie",
+            f"{LEGACY_SESSION_MARKER_COOKIE}=1; Path=/; SameSite=Lax; "
+            f"Max-Age={LEGACY_SESSION_MARKER_TTL_SECONDS}{secure}",
         )
 
     def _read_csrf_cookie(self, handler: BaseHTTPRequestHandler) -> str | None:
@@ -1278,7 +1296,11 @@ class WeftWebApp:
             self.backend, tenant_id, account_id, role
         )
         handler.send_response(HTTPStatus.SEE_OTHER)
-        handler.send_header("Location", "/")
+        # Legacy form login only establishes the HttpOnly browser cookie; it
+        # cannot seed the Astro app's localStorage bearer. Keep that flow on
+        # the cookie-backed dashboard rather than landing in a shell whose
+        # first API call would fail.
+        handler.send_header("Location", "/legacy")
         self._set_session_cookie(handler, raw_token)
         # Rotate the pre-auth CSRF token when the browser session changes.
         self._set_csrf_cookie(handler, _new_csrf())
@@ -1319,7 +1341,7 @@ class WeftWebApp:
             handler.end_headers()
             return
         handler.send_response(HTTPStatus.SEE_OTHER)
-        handler.send_header("Location", "/")
+        handler.send_header("Location", "/legacy")
         self._set_session_cookie(handler, new_token)
         handler.send_header("Content-Length", "0")
         handler.send_header("Cache-Control", "no-store")
@@ -1645,7 +1667,7 @@ class WeftWebApp:
             f'{_csrf_input(csrf)}'
             '<button type="submit">Leave organization</button>'
             '</form>'
-            '<p><a href="/">Back to dashboard</a></p>'
+            '<p><a href="/legacy">Back to dashboard</a></p>'
         )
         body = _page("Organization", body_html, csrf_token=csrf)
         handler.send_response(HTTPStatus.OK)
@@ -1756,7 +1778,7 @@ class WeftWebApp:
                                   '<p>Invalid or expired invite.</p>'))
             return
         handler.send_response(HTTPStatus.SEE_OTHER)
-        handler.send_header("Location", "/")
+        handler.send_header("Location", "/legacy")
         self._set_session_cookie(handler, session_token)
         handler.send_header("Content-Length", "0")
         handler.send_header("Cache-Control", "no-store")
@@ -1917,7 +1939,7 @@ class WeftWebApp:
             '<th>Status</th><th></th></tr></thead>'
             f'<tbody>{rows_html}</tbody></table>'
             '<p><a href="/config">Generate a connector config</a> · '
-            '<a href="/">Back to dashboard</a></p>'
+            '<a href="/legacy">Back to dashboard</a></p>'
         )
         body = _page("Agent keys", body_html, csrf_token=csrf, extra_head=_DASH_CSS + _COPY_JS)
         handler.send_response(HTTPStatus.OK)
@@ -1959,7 +1981,7 @@ class WeftWebApp:
             f'whole config for you. It never expires; revoke it here when you '
             'stop using it.</p>'
             f'<p><a href="/agent-keys">Manage agent keys</a> · '
-            f'<a href="/">Back to dashboard</a></p>'
+            f'<a href="/legacy">Back to dashboard</a></p>'
         )
         body = _page("Agent key created", body_html, extra_head=_DASH_CSS + _COPY_JS)
         self._send_html(handler, HTTPStatus.OK, body)
@@ -2018,7 +2040,7 @@ class WeftWebApp:
             'The generated config contains a real <code>agk_</code> agent key. '
             'Anyone who gets the config can act as that agent, and revoking the '
             'key invalidates the config. Treat it like a password.</p>'
-            + '<p><a href="/">Back to dashboard</a></p>'
+            + '<p><a href="/legacy">Back to dashboard</a></p>'
         )
         body = _page("Connector config", body_html, csrf_token=csrf,
                      extra_head=_DASH_CSS)
@@ -2107,7 +2129,7 @@ class WeftWebApp:
             '<code>room_wait</code>, …) appear in your client once connected.</p>'
             + '<p><a href="/agent-keys">Manage agent keys</a> · '
             '<a href="/config">Generate another</a> · '
-            '<a href="/">Back to dashboard</a></p>'
+            '<a href="/legacy">Back to dashboard</a></p>'
         )
         body = _page("Connector config", body_html, extra_head=_DASH_CSS + _COPY_JS)
         self._send_html(handler, HTTPStatus.OK, body)
@@ -2207,7 +2229,7 @@ class WeftWebApp:
             f'{_label("Cap (total members, including your own account)", _input("cap", "number", value="15", min="2", max="64"))}'
             '<button type="submit">Create room</button>'
             '</form>'
-            '<p><a href="/">Back to dashboard</a></p>'
+            '<p><a href="/legacy">Back to dashboard</a></p>'
         )
         body = _page("Rooms", body_html, csrf_token=csrf)
         handler.send_response(HTTPStatus.OK)
@@ -2356,7 +2378,7 @@ class WeftWebApp:
             f'<ol>{events_html}</ol>'
             f'<p><a href="/room/{_esc(room_id)}/connect">Connect an agent</a></p>'
             f'{close_form}'
-            f'<p><a href="/">Back to dashboard</a> · '
+            f'<p><a href="/legacy">Back to dashboard</a> · '
             f'<a href="/room/{_esc(room_id)}/audit">Audit log</a></p>'
         )
         body = _page(_esc(info.get("name") or room_id), body_html,
@@ -2667,20 +2689,28 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
                     pass
 
         def _dispatch(self) -> None:
-            path = urlsplit(self.path).path
+            request_url = urlsplit(self.path)
+            path = request_url.path
+            query = parse_qs(request_url.query)
             method = self.command
 
             # --- Static product front door (GET) ---
             # The Astro app uses relative /v1 and /mcp calls, so its shell and
-            # assets must come from this same origin.  Keep the old root
-            # dashboard available to browsers carrying a valid fss_session;
-            # new-token/localStorage clients have no such cookie and receive
-            # the static landing page instead.
+            # assets must come from this same origin. The old dashboard is
+            # explicitly namespaced at /legacy below; a valid legacy cookie
+            # must never silently select it at the product root.
             if method == "GET" and app.static_dir:
-                if path == "/" and app._session_context(self) is None:
+                if path == "/":
                     self._serve_static(path)
                     return
-                if path in {"/signup", "/signup/", "/login", "/login/"}:
+                legacy_login_notice = (
+                    path in {"/login", "/login/"}
+                    and any(key in query for key in {
+                        "verify_sent", "reset_sent", "verified", "reset_done",
+                    })
+                )
+                if path in {"/signup", "/signup/", "/login", "/login/"} \
+                        and not legacy_login_notice:
                     try:
                         auth_target = app._resolve_static_target(path)
                     except _StaticPathForbidden:
@@ -2699,13 +2729,17 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
                     or path == "/downloads"
                     or path.startswith("/downloads/")
                 ):
-                    self._serve_static(path)
+                    legacy_session = (
+                        (path == "/app" or path.startswith("/app/"))
+                        and app._session_context(self) is not None
+                    )
+                    self._serve_static(path, legacy_session=legacy_session)
                     return
 
                 # Preserve public static documentation/marketing files too.
                 # A path that is not in the bundle falls through to the old
                 # auth gate, retaining legacy dynamic route behavior.
-                if path != "/":
+                if path != "/" and not legacy_login_notice:
                     try:
                         static_target = app._resolve_static_target(path)
                     except _StaticPathForbidden:
@@ -2799,7 +2833,7 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
                 return
 
             # --- Authenticated routes ---
-            if method == "GET" and path == "/":
+            if method == "GET" and path in {"/legacy", "/legacy/"}:
                 app.handle_get_root(self)
                 return
             if method == "GET" and path == "/org":
@@ -2904,7 +2938,8 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
                            {"error": {"code": "not_found",
                                       "message": "Not found"}})
 
-        def _serve_static(self, path: str, *, legacy_csrf: bool = False) -> None:
+        def _serve_static(self, path: str, *, legacy_csrf: bool = False,
+                          legacy_session: bool = False) -> None:
             # Resolve-then-assert, never blocklist. A blocklist misses
             # backslashes, rooted absolute paths, drive letters, symlinks
             # and percent-encoded separators; containment on the resolved
@@ -2931,6 +2966,8 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
             self.send_response(HTTPStatus.OK)
             if legacy_token is not None:
                 app._set_csrf_cookie(self, legacy_token)
+            if legacy_session:
+                app._set_legacy_session_marker(self)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-store")

@@ -29,6 +29,7 @@
 
 const API_ORIGIN = '';
 const TOKEN_KEY = 'weft.session';
+const LEGACY_SESSION_MARKER_COOKIE = 'weft_legacy_session';
 
 export class ApiError extends Error {
   code: string;
@@ -42,7 +43,14 @@ export class ApiError extends Error {
 
 /* ── session ─────────────────────────────────────────────────────── */
 export function getToken(): string | null {
-  try { return localStorage.getItem(TOKEN_KEY); } catch { return null; }
+  try {
+    const token = localStorage.getItem(TOKEN_KEY);
+    // A returning legacy-cookie user may already have a bearer token (for
+    // example in another tab). In that case there is no migration prompt to
+    // show, so retire the marker before it can surprise a later logout.
+    if (token) clearLegacySessionMarker();
+    return token;
+  } catch { return null; }
 }
 export function setToken(t: string) {
   try { localStorage.setItem(TOKEN_KEY, t); } catch {}
@@ -52,12 +60,32 @@ export function clearToken() {
 }
 export function isSignedIn() { return !!getToken(); }
 
+/** Remove the one-time marker emitted for a legacy cookie session. */
+export function clearLegacySessionMarker() {
+  try {
+    document.cookie = `${LEGACY_SESSION_MARKER_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`;
+  } catch {}
+}
+
+/** Consume the marker without ever reading or copying the HttpOnly session. */
+function consumeLegacySessionMarker(): boolean {
+  try {
+    const found = document.cookie.split(';').some((part) => {
+      const [name, value] = part.trim().split('=', 2);
+      return name === LEGACY_SESSION_MARKER_COOKIE && value === '1';
+    });
+    if (found) clearLegacySessionMarker();
+    return found;
+  } catch { return false; }
+}
+
 /** Send the visitor to sign-in, remembering where they wanted to go. */
 export function requireAuth(): string {
   const t = getToken();
   if (!t) {
     const back = encodeURIComponent(location.pathname + location.search);
-    location.replace(`/login?next=${back}`);
+    const migrated = consumeLegacySessionMarker() ? '&migrated=1' : '';
+    location.replace(`/login?next=${back}${migrated}`);
     throw new ApiError('Not signed in', 'unauthenticated', 401);
   }
   return t;
@@ -133,13 +161,17 @@ export const signin = (email: string, password: string) =>
  */
 export async function signout(): Promise<void> {
   const token = getToken();
-  if (!token) return;
+  if (!token) {
+    clearLegacySessionMarker();
+    return;
+  }
   try {
     await fetch(API_ORIGIN + '/v1/auth/signout', {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },
     });
   } catch { /* offline: the local clear below is still correct */ }
+  clearLegacySessionMarker();
 }
 
 export interface Me {

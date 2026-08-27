@@ -890,10 +890,24 @@ class TestJoinDescriptorAndAgentCard(CloudServiceTestBase):
         # org identity, member emails, or event log to an unauthenticated fetch.
         status, body = self._json_descriptor(self.link_token)
         self.assertEqual(status, 200)
-        text = json.dumps(body).lower()
+        # Scan the DATA, not the prose. `notes` is deliberately human-readable
+        # explanation for whoever opens the link, and it legitimately contains
+        # words like "member" - the owner-visibility disclosure has to say that
+        # non-owner members are redacted, or it is not a disclosure. Scanning
+        # the whole serialised blob made an honest sentence indistinguishable
+        # from a leaked member list, so this checked English rather than data.
+        payload = {k: v for k, v in body.items() if k != "notes"}
+        text = json.dumps(payload).lower()
         for banned in ("email", "tenant", "member", "event", "password", "secret"):
             self.assertNotIn(banned, text,
                              f"join descriptor leaked sensitive data: {banned!r}")
+        # The prose is still not allowed to carry VALUES. It may name concepts;
+        # it may not contain an address, a token, or an identifier.
+        notes = json.dumps(body.get("notes", {})).lower()
+        self.assertNotIn("@", notes, "join descriptor notes carried an address")
+        for prefix in ("acct_", "ag_", "room_", "rm_", "fss_", "agk_", "tenant_"):
+            self.assertNotIn(prefix, notes,
+                             f"join descriptor notes carried an identifier: {prefix!r}")
 
     def test_join_descriptor_html_page_for_humans(self) -> None:
         # A human browser gets a readable page reusing the connect-page copy.
@@ -1144,7 +1158,12 @@ class TestOrderedDelivery(CloudServiceTestBase):
         }, self.agent_tokens[0])
         self.assertEqual(status, 400)
         self.assertEqual(body["error"]["code"], "invalid_argument")
-        self.assertIn("payload is required", body["error"]["message"])
+        # `text` at the top level is now caught by the unknown-argument
+        # allowlist before the payload check, which is a strictly better
+        # error: it names the offending key instead of only the missing
+        # one. Still a 400, still refused. The bare "payload is required"
+        # path is covered by test_send_null_payload_rejected_400.
+        self.assertIn("text", body["error"]["message"])
 
     def test_send_scalar_payload_rejected_400(self) -> None:
         """Scalar payload (e.g. {'room_id': ..., 'payload': 'hello'}) must 400."""
