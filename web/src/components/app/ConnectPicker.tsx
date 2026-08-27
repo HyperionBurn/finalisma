@@ -18,7 +18,7 @@
  * on PyPI and the source repo is private, so a module invocation would be a
  * config no customer could run.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ApiError, createAgentKey } from '../../lib/api';
 import { APP_ORIGIN_EXAMPLE } from '../../lib/app';
 
@@ -70,7 +70,21 @@ export default function ConnectPicker() {
   // (docs/quickstart, examples/mcp.json), and resolves to the real origin when a
   // deployment sets PUBLIC_APP_ORIGIN. A visible placeholder tells the reader to
   // substitute their origin; a dead domain just fails later.
-  const origin = typeof location !== 'undefined' ? location.origin : APP_ORIGIN_EXAMPLE;
+  // Read at MOUNT, not during render. `typeof location !== 'undefined'` is also
+  // true on the client's first render, so computing it inline made that render
+  // disagree with the prerendered HTML and React threw a hydration mismatch on
+  // every visit to this page. Seeding from the same value the server used makes
+  // the first client render identical, and the effect swaps in the real origin
+  // one tick later.
+  //
+  // The user-facing risk was not the warning. Between paint and hydration the
+  // page showed a pasteable config containing the literal placeholder, and this
+  // is a block whose whole purpose is to be copied - a fast reader on a slow
+  // connection could take the dead value and wonder why nothing connects.
+  const [origin, setOrigin] = useState(APP_ORIGIN_EXAMPLE);
+  useEffect(() => {
+    if (typeof location !== 'undefined') setOrigin(location.origin);
+  }, []);
   const meta = CLIENTS.find((c) => c.id === client)!;
   const config = buildConfig(client, key ?? PLACEHOLDER, origin);
 
