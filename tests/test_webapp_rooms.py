@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import http.client
 import json
-from weft_cloud.web.config_gen import SCRIPT_PATH_PLACEHOLDER
 import os
 import re
 import sys
@@ -38,6 +37,7 @@ from weft_cloud.storage import SqliteWalBackend
 from weft_cloud.identity.schema import ensure_schema
 from weft_cloud.quotas import DEFAULT_ROOM_CAP
 from weft_cloud.web.app import WeftWebApp  # RED: package absent
+from weft_cloud.web.config_gen import SCRIPT_PATH_PLACEHOLDER
 
 SITE_DIR = str(ROOT / "site")
 
@@ -555,25 +555,25 @@ class TestEventPoll(unittest.TestCase):
             payload={"text": "Secret unicast for receiver only"},
         )
 
-        # 3. Account polls JSON events: broadcast is visible, unicast to another agent is redacted
+        # 3. Account (room owner) polls JSON events: broadcast and unicast are visible
         status, body, _ = self.driver.get(f"/room/{self.room_id}/events?after_seq=0")
         self.assertEqual(status, 200)
         data = json.loads(body)
         messages = [e for e in data["events"] if e["kind"] == "room.message"]
         self.assertEqual(len(messages), 2)
         self.assertEqual(messages[0]["payload"]["payload"]["text"], "Broadcast notice to all")
-        self.assertEqual(messages[1]["payload"], {"redacted": True, "reason": "not_the_addressee"})
+        self.assertEqual(messages[1]["payload"]["payload"]["text"], "Secret unicast for receiver only")
 
-        # 4. Account views room detail page and audit log: broadcast text is rendered, unicast displays [redacted]
+        # 4. Account (room owner) views room detail page and audit log: broadcast and unicast text are rendered
         status, detail_body, _ = self.driver.get(f"/room/{self.room_id}")
         self.assertEqual(status, 200)
         self.assertIn("Broadcast notice to all", detail_body)
-        self.assertIn("[redacted]", detail_body)
+        self.assertIn("Secret unicast for receiver only", detail_body)
 
         status, audit_body, _ = self.driver.get(f"/room/{self.room_id}/audit")
         self.assertEqual(status, 200)
         self.assertIn("Broadcast notice to all", audit_body)
-        self.assertIn("[redacted]", audit_body)
+        self.assertIn("Secret unicast for receiver only", audit_body)
 
         # 5. Non-addressee AGENT polls via API: unicast is REDACTED, broadcast is visible
         agent_poll = self.driver.app.rooms.poll(tenant_id, self.room_id, after_seq=0, agent_id="ag_other")
