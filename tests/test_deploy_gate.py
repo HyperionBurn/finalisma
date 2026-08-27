@@ -33,6 +33,10 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 from classify_suite_log import classify, INCONCLUSIVE, PASS, REAL_FAILURE  # noqa: E402
+from check_test_count_ratchet import FAIL as RATCHET_FAIL  # noqa: E402
+from check_test_count_ratchet import OVERRIDE as RATCHET_OVERRIDE  # noqa: E402
+from check_test_count_ratchet import PASS as RATCHET_PASS  # noqa: E402
+from check_test_count_ratchet import evaluate as evaluate_test_count_ratchet  # noqa: E402
 from normalize_line_endings import normalize, normalize_file  # noqa: E402
 from restart_proof import evaluate_restart  # noqa: E402
 from tests._process_cleanup import cleanup_tempdir  # noqa: E402
@@ -373,6 +377,52 @@ class ShippedScriptSanityTests(unittest.TestCase):
         self.assertIn("HostedMCPDispatcher", final_verify)
         self.assertIn("create_service(os.path.join(temp_dir, \"state.db\"))", final_verify)
         self.assertNotIn('f"{pkg_prefix}_mcp"', final_verify)
+        self.assertIn("origin/main", final_verify)
+        self.assertIn("WEFT_TEST_COUNT_BASELINE_DECREASE_OVERRIDE", final_verify)
+        self.assertIn("WEFT_TEST_COUNT_BASELINE_DECREASE_REASON", final_verify)
+        self.assertIn("OVERRIDE", final_verify)
+        self.assertIn("check_test_count_ratchet.py", final_verify)
+        baseline_count = int(baseline.read_text(encoding="utf-8").strip())
+        self.assertGreater(baseline_count, 5)
+        for current, upstream, override, reason, expected_status in (
+            (baseline_count, baseline_count, "", "", RATCHET_PASS),
+            (baseline_count + 6, baseline_count, "", "", RATCHET_PASS),
+            (baseline_count - 5, baseline_count, "", "", RATCHET_FAIL),
+            (baseline_count - 5, baseline_count, "1", "retired test module", RATCHET_OVERRIDE),
+            (baseline_count - 5, baseline_count, "1", "", RATCHET_FAIL),
+            (baseline_count - 5, baseline_count, "yes", "retired test module", RATCHET_FAIL),
+        ):
+            with self.subTest(current=current, upstream=upstream, override=override, reason=reason):
+                result = evaluate_test_count_ratchet(current, upstream, override=override, reason=reason)
+                self.assertEqual(result.status, expected_status)
+        cli_fail = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPTS_DIR / "check_test_count_ratchet.py"),
+                str(baseline_count - 5),
+                str(baseline_count),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(cli_fail.returncode, 1)
+        self.assertIn("FAIL", cli_fail.stdout)
+        cli_override = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPTS_DIR / "check_test_count_ratchet.py"),
+                str(baseline_count - 5),
+                str(baseline_count),
+                "--override",
+                "1",
+                "--reason",
+                "retired test module",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(cli_override.returncode, 0)
+        self.assertIn("OVERRIDE", cli_override.stdout)
         self.assertIn("site-page-manifest.txt", final_verify)
         self.assertIn("site-page-manifest.txt", preservation)
         self.assertNotIn("blog.length >= 4", preservation)

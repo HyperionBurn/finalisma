@@ -25,6 +25,7 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PYTHON="${PYTHON:-python}"
+TEST_COUNT_BASELINE_FILE="scripts/test-count-baseline.txt"
 
 pass=0; fail=0
 chk() { # chk "label" "expected" "actual"
@@ -73,6 +74,29 @@ if [ -n "$DIRTY" ]; then
   printf '%s\n' "$DIRTY" | sed 's/^/             /'
 else
   echo "  INFO: working tree is clean — HEAD and the working tree match."
+fi
+
+echo
+echo "=== TEST-COUNT BASELINE LINEAGE ==="
+# The candidate archive below has no .git directory, so read the comparison
+# value while still in the worktree. The release baseline is allowed to rise
+# with deliberate test additions, but a decrease must be an explicit,
+# transcript-visible exception. Missing origin/main evidence fails closed.
+origin_main_baseline=""
+origin_main_baseline_valid=0
+if git show-ref --verify --quiet refs/remotes/origin/main; then
+  origin_main_sha="$(git rev-parse --short refs/remotes/origin/main 2>/dev/null || true)"
+  origin_main_baseline="$(git show "origin/main:$TEST_COUNT_BASELINE_FILE" 2>/dev/null | tr -d '[:space:]' || true)"
+  if [[ "$origin_main_baseline" =~ ^[1-9][0-9]*$ ]]; then
+    echo "  INFO  origin/main baseline: $origin_main_baseline (ref $origin_main_sha)"
+    origin_main_baseline_valid=1
+  else
+    echo "  FAIL  origin/main baseline missing or invalid: $TEST_COUNT_BASELINE_FILE (ref $origin_main_sha)"
+    fail=$((fail+1))
+  fi
+else
+  echo "  FAIL  origin/main ref unavailable — cannot prove baseline lineage"
+  fail=$((fail+1))
 fi
 
 ARCHIVE_DIR="$(mktemp -d 2>/dev/null || mktemp -d -t weft-verify)"
@@ -236,7 +260,6 @@ n="$(grep -aoE 'Ran [0-9]+ test' "$SUITE_LOG" 2>/dev/null | tail -1 | grep -oE '
 # This file is the one deliberate ratchet value. Raising it requires a
 # committed diff, while the actual count remains derived from this run's
 # unittest discovery output; there is no second hardcoded floor.
-TEST_COUNT_BASELINE_FILE="scripts/test-count-baseline.txt"
 test_count_baseline="$(tr -d '[:space:]' < "$TEST_COUNT_BASELINE_FILE" 2>/dev/null || true)"
 if [[ "$test_count_baseline" =~ ^[1-9][0-9]*$ ]]; then
   echo "  last-known-good test count: $test_count_baseline (from $TEST_COUNT_BASELINE_FILE)"
@@ -247,6 +270,29 @@ else
   test_count_baseline_valid=0
 fi
 echo "  test count  : ${n:-<none captured>}  (must not drop below the committed ratchet)"
+
+if [ "$test_count_baseline_valid" -eq 1 ] && [ "$origin_main_baseline_valid" -eq 1 ]; then
+  # A decrease is permitted only when both an exact override token and a
+  # bounded reason are supplied. The helper prints the result so any accepted
+  # exception is visible in the same evidence transcript as the gate verdict.
+  # Operators must set WEFT_TEST_COUNT_BASELINE_DECREASE_OVERRIDE=1 and
+  # WEFT_TEST_COUNT_BASELINE_DECREASE_REASON to explain intentional retirement.
+  ratchet_output="$($PYTHON "scripts/check_test_count_ratchet.py" \
+    "$test_count_baseline" "$origin_main_baseline" \
+    --override "${WEFT_TEST_COUNT_BASELINE_DECREASE_OVERRIDE:-}" \
+    --reason "${WEFT_TEST_COUNT_BASELINE_DECREASE_REASON:-}" 2>&1)"
+  ratchet_rc=$?
+  if [ "$ratchet_rc" -eq 0 ]; then
+    case "$ratchet_output" in
+      OVERRIDE*) echo "  OVERRIDE  test-count baseline lineage: $ratchet_output" ;;
+      *)         echo "  PASS  test-count baseline lineage: $ratchet_output" ;;
+    esac
+    pass=$((pass+1))
+  else
+    echo "  FAIL  test-count baseline lineage: ${ratchet_output:-helper produced no result}"
+    fail=$((fail+1))
+  fi
+fi
 
 case "$verdict_rc" in
   0)
