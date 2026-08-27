@@ -19,7 +19,9 @@ the original" guarantee is itself asserted with a hash comparison.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -34,6 +36,15 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 
 from backup_cloud_db import backup_database, newest_backup  # noqa: E402
 from restore_drill import DrillFailure, run_restore_drill  # noqa: E402
+
+
+def _manifest_path(backup_path: Path) -> Path:
+    return backup_path.with_name(backup_path.name + ".manifest.json")
+
+
+def _copy_backup_with_manifest(source: Path, destination: Path) -> None:
+    shutil.copy2(source, destination)
+    shutil.copy2(_manifest_path(source), _manifest_path(destination))
 
 
 def _make_fixture_db(path: Path, *, accounts: int = 3, rooms: int = 2, wal: bool = True) -> None:
@@ -71,6 +82,18 @@ class BackupDatabaseTests(unittest.TestCase):
     def test_backup_is_a_faithful_online_snapshot(self):
         dest = backup_database(self.src, self.backup_dir, keep=10)
         self.assertTrue(dest.is_file())
+        manifest_path = _manifest_path(dest)
+        self.assertTrue(manifest_path.is_file())
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        self.assertEqual(manifest["format"], "weft-backup-manifest-v1")
+        self.assertEqual(manifest["backup_file"], dest.name)
+        tables = {table["name"]: table for table in manifest["tables"]}
+        self.assertEqual(set(tables), {"cloud_identity_accounts", "cloud_rooms"})
+        self.assertEqual(tables["cloud_identity_accounts"]["row_count"], 3)
+        self.assertEqual(tables["cloud_rooms"]["row_count"], 2)
+        for table in tables.values():
+            for field in ("schema_sha256", "row_identity_sha256", "rows_sha256"):
+                self.assertRegex(table[field], r"^[0-9a-f]{64}$")
         conn = sqlite3.connect(str(dest))
         try:
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM cloud_identity_accounts").fetchone()[0], 3)
@@ -115,6 +138,11 @@ class BackupDatabaseTests(unittest.TestCase):
         paths = [backup_database(self.src, self.backup_dir, keep=3, now=_ts(i)) for i in range(5)]
         remaining = sorted(self.backup_dir.glob("cloud-*.db"))
         self.assertEqual([p.name for p in remaining], [p.name for p in paths[-3:]])
+        manifests = sorted(self.backup_dir.glob("cloud-*.db.manifest.json"))
+        self.assertEqual(
+            [p.name for p in manifests],
+            [_manifest_path(p).name for p in paths[-3:]],
+        )
 
     def test_rotation_disabled_when_keep_is_zero(self):
         for i in range(4):
@@ -134,6 +162,7 @@ class BackupDatabaseTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("@example.com", result.stdout)
+        self.assertNotIn("@example.com", _manifest_path(newest_backup(self.backup_dir)).read_text())
 
     def test_newest_backup_helper(self):
         self.assertIsNone(newest_backup(self.backup_dir))
@@ -180,8 +209,12 @@ class RestoreDrillTests(unittest.TestCase):
         empty_src = Path(self.tmp.name) / "empty2.db"
         _make_fixture_db(empty_src, accounts=0, rooms=0)
         empty_backup = backup_database(empty_src, Path(self.tmp.name) / "empty2-backups", keep=10)
+        manifest = json.loads(_manifest_path(empty_backup).read_text(encoding="utf-8"))
+        tables = {table["name"]: table for table in manifest["tables"]}
+        self.assertEqual(tables["cloud_rooms"]["row_count"], 0)
         result = run_restore_drill(empty_backup, min_accounts=0)
         self.assertEqual(result.accounts_count, 0)
+        self.assertEqual(result.rooms_count, 0)
 
     def test_missing_backup_file_fails_loudly(self):
         with self.assertRaises(DrillFailure):
@@ -208,10 +241,11 @@ class RestoreDrillTests(unittest.TestCase):
         conn.close()
         with self.assertRaises(DrillFailure) as ctx:
             run_restore_drill(odd_db)
-        self.assertIn("no table matching", str(ctx.exception))
+        self.assertIn("manifest", str(ctx.exception))
 
-    def test_finds_tables_by_substring_if_exact_names_absent(self):
-        # Defends against a future schema rename blinding the drill entirely.
+    def test_rejects_unapproved_table_names_even_if_they_contain_account_or_room(self):
+        # A fuzzy substring fallback can bless an unrelated table after a
+        # schema mistake. The manifest's exact approved identities must win.
         renamed_db = Path(self.tmp.name) / "renamed.db"
         conn = sqlite3.connect(str(renamed_db))
         conn.execute("CREATE TABLE tenant_accounts_v2 (id TEXT)")
@@ -219,9 +253,47 @@ class RestoreDrillTests(unittest.TestCase):
         conn.execute("INSERT INTO tenant_accounts_v2 VALUES ('a')")
         conn.commit()
         conn.close()
-        result = run_restore_drill(renamed_db, min_accounts=1)
-        self.assertEqual(result.accounts_table, "tenant_accounts_v2")
-        self.assertEqual(result.rooms_table, "tenant_rooms_v2")
+        renamed_backup = backup_database(
+            renamed_db, Path(self.tmp.name) / "renamed-backups", keep=10,
+        )
+        with self.assertRaises(DrillFailure) as ctx:
+            run_restore_drill(renamed_backup, min_accounts=1)
+        self.assertIn("approved", str(ctx.exception).lower())
+
+    def test_manifest_rejects_deleted_rooms_even_when_old_threshold_drill_passes(self):
+        gutted = Path(self.tmp.name) / "gutted.db"
+        _copy_backup_with_manifest(self.backup_path, gutted)
+        conn = sqlite3.connect(str(gutted))
+        try:
+            conn.execute("DELETE FROM cloud_rooms")
+            conn.commit()
+            # This is the old drill's blind spot: min_rooms defaults to zero,
+            # so one surviving account plus zero rooms looked healthy.
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM cloud_rooms").fetchone()[0], 0)
+        finally:
+            conn.close()
+        with self.assertRaises(DrillFailure) as ctx:
+            run_restore_drill(gutted, min_accounts=1)
+        self.assertIn("cloud_rooms", str(ctx.exception))
+
+    def test_manifest_rejects_schema_and_row_drift(self):
+        cases = (
+            ("schema", "ALTER TABLE cloud_rooms ADD COLUMN accidental TEXT"),
+            ("row", "UPDATE cloud_rooms SET name = 'changed' WHERE room_id = 'room_0'"),
+            ("table", "CREATE TABLE cloud_room_shadow (id TEXT)"),
+        )
+        for label, statement in cases:
+            with self.subTest(label=label):
+                mutated = Path(self.tmp.name) / f"mutated-{label}.db"
+                _copy_backup_with_manifest(self.backup_path, mutated)
+                conn = sqlite3.connect(str(mutated))
+                try:
+                    conn.execute(statement)
+                    conn.commit()
+                finally:
+                    conn.close()
+                with self.assertRaises(DrillFailure):
+                    run_restore_drill(mutated, min_accounts=1)
 
     def test_never_prints_row_content_or_email_addresses(self):
         result = subprocess.run(

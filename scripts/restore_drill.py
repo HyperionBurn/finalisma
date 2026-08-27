@@ -2,8 +2,10 @@
 """Prove a backup is actually restorable. An untested backup is not a backup.
 
 Restores the newest (or an explicitly named) backup file to a private temp
-path, opens the COPY read-only, and asserts the accounts and rooms tables are
-present and readable with plausible row counts. This is the drill described
+path, opens the COPY read-only, and verifies its paired source-time manifest:
+exact table identities, schema fingerprints, row identities, row hashes, and
+counts. It then asserts the accounts and rooms tables are present and
+readable. This is the drill described
 in the ops brief: "restore the newest backup to a temp path, open it, assert
 the accounts and rooms tables are readable with plausible row counts. ...
 It must FAIL loudly if the restore is unusable."
@@ -16,7 +18,8 @@ Safety properties, all enforced and covered by tests/test_deploy_backup.py:
   live database; it has no code path that opens `--src`-style live paths.
 - Never prints row content, credentials, or email addresses — only table
   names and integer counts.
-- Fails loudly (non-zero exit, explicit message) on: missing backup,
+- Fails loudly (non-zero exit, explicit message) on: missing backup or
+  manifest,
   zero-byte backup, a file that is not a SQLite database, a database that
   fails `PRAGMA integrity_check`, or missing/unreadable accounts/rooms
   tables. It never reports success by omission.
@@ -34,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import shutil
 import sqlite3
 import sys
@@ -41,9 +45,12 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-# Prefer the exact production name if present, then this repo's actual
-# migrations.py schema name, then fall back to a substring search — the
-# drill should not go blind just because a table got renamed.
+from backup_cloud_db import MANIFEST_FORMAT, build_manifest, manifest_path
+
+# Only these exact schema identities are approved for the account and room
+# anchors. A fuzzy substring fallback can bless an unrelated table after a
+# partial restore, which is precisely the false confidence this drill exists
+# to prevent.
 ACCOUNTS_TABLE_CANDIDATES = ("accounts", "cloud_identity_accounts")
 ROOMS_TABLE_CANDIDATES = ("rooms", "cloud_rooms")
 
@@ -76,22 +83,103 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _find_table(conn: sqlite3.Connection, candidates: "tuple[str, ...]") -> str:
-    existing = {
-        row[0]
-        for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
-    }
+def _find_approved_table(
+    table_names: set[str],
+    candidates: "tuple[str, ...]",
+    kind: str,
+) -> str:
     for name in candidates:
-        if name in existing:
-            return name
-    # Fall back to a substring match so a schema rename doesn't blind the drill.
-    needle = candidates[0].rstrip("s")  # "accounts" -> "account", "rooms" -> "room"
-    for name in sorted(existing):
-        if needle in name.lower():
+        if name in table_names:
             return name
     raise DrillFailure(
-        f"no table matching {candidates} found. Tables present: {sorted(existing) or '(none)'}"
+        f"manifest has no approved {kind} table; expected one of {candidates}, "
+        f"found {sorted(table_names) or '(none)'}"
     )
+
+
+def _read_manifest(backup_path: Path) -> dict[str, object]:
+    path = manifest_path(backup_path)
+    if not path.is_file():
+        raise DrillFailure(f"manifest file not found for backup: {path}")
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise DrillFailure(f"manifest is unreadable: {path}") from exc
+    if not isinstance(manifest, dict):
+        raise DrillFailure("manifest must be a JSON object")
+    if manifest.get("format") != MANIFEST_FORMAT:
+        raise DrillFailure(
+            f"unsupported manifest format: {manifest.get('format')!r}"
+        )
+    if not isinstance(manifest.get("backup_file"), str) or not manifest["backup_file"]:
+        raise DrillFailure("manifest has no backup filename")
+    tables = manifest.get("tables")
+    if not isinstance(tables, list) or not tables:
+        raise DrillFailure("manifest contains no approved table identities")
+    names: list[str] = []
+    for table in tables:
+        if not isinstance(table, dict) or not isinstance(table.get("name"), str):
+            raise DrillFailure("manifest contains an invalid table identity")
+        name = table["name"]
+        if not name or name.lower().startswith("sqlite_") or name in names:
+            raise DrillFailure("manifest contains duplicate or reserved table names")
+        for field in ("schema_sha256", "row_identity_sha256", "rows_sha256"):
+            value = table.get(field)
+            if (
+                not isinstance(value, str)
+                or len(value) != 64
+                or any(char not in "0123456789abcdef" for char in value)
+            ):
+                raise DrillFailure(f"manifest table {name!r} has invalid {field}")
+        identity_columns = table.get("row_identity_columns")
+        if not isinstance(identity_columns, list) or not all(
+            isinstance(column, str) for column in identity_columns
+        ):
+            raise DrillFailure(f"manifest table {name!r} has invalid identity columns")
+        if (
+            type(table.get("row_count")) is not int
+            or table["row_count"] < 0
+        ):
+            raise DrillFailure(f"manifest table {name!r} has invalid row count")
+        names.append(name)
+    if names != sorted(names):
+        raise DrillFailure("manifest table identities are not sorted")
+    if not isinstance(manifest.get("captured_at"), str) or not manifest["captured_at"]:
+        raise DrillFailure("manifest has no source capture time")
+    return manifest
+
+
+def _manifest_table_map(manifest: dict[str, object]) -> dict[str, dict[str, object]]:
+    tables = manifest["tables"]
+    assert isinstance(tables, list)
+    return {table["name"]: table for table in tables if isinstance(table, dict)}
+
+
+def _manifest_mismatch(
+    expected: dict[str, object],
+    actual: dict[str, object],
+) -> str | None:
+    expected_tables = _manifest_table_map(expected)
+    actual_tables = _manifest_table_map(actual)
+    expected_names = set(expected_tables)
+    actual_names = set(actual_tables)
+    if expected_names != actual_names:
+        missing = sorted(expected_names - actual_names)
+        unexpected = sorted(actual_names - expected_names)
+        return f"table identities changed (missing={missing}, unexpected={unexpected})"
+    for name in sorted(expected_names):
+        expected_table = expected_tables[name]
+        actual_table = actual_tables[name]
+        for field in (
+            "schema_sha256",
+            "row_identity_columns",
+            "row_identity_sha256",
+            "rows_sha256",
+            "row_count",
+        ):
+            if actual_table.get(field) != expected_table.get(field):
+                return f"manifest mismatch for table {name!r}: {field} changed"
+    return None
 
 
 def run_restore_drill(
@@ -109,11 +197,16 @@ def run_restore_drill(
     if backup_path.stat().st_size == 0:
         raise DrillFailure(f"backup file is zero bytes: {backup_path}")
 
+    source_manifest = _read_manifest(backup_path)
+    source_manifest_path = manifest_path(backup_path)
     before_hash = _sha256(backup_path)
+    manifest_before_hash = _sha256(source_manifest_path)
 
     with tempfile.TemporaryDirectory(prefix="weft-restore-drill-") as tmp:
         copy_path = Path(tmp) / backup_path.name
+        copy_manifest_path = manifest_path(copy_path)
         shutil.copy2(backup_path, copy_path)
+        shutil.copy2(source_manifest_path, copy_manifest_path)
 
         try:
             copy_uri = f"file:{copy_path.resolve().as_posix()}?mode=ro"
@@ -129,14 +222,30 @@ def run_restore_drill(
             if not integrity or integrity[0] != "ok":
                 raise DrillFailure(f"PRAGMA integrity_check failed: {integrity}")
 
-            accounts_table = _find_table(conn, accounts_candidates)
-            rooms_table = _find_table(conn, rooms_candidates)
-
             try:
-                accounts_count = conn.execute(f"SELECT COUNT(*) FROM {accounts_table}").fetchone()[0]
-                rooms_count = conn.execute(f"SELECT COUNT(*) FROM {rooms_table}").fetchone()[0]
-            except sqlite3.Error as exc:
-                raise DrillFailure(f"tables exist but are not readable: {exc}") from exc
+                actual_manifest = build_manifest(
+                    copy_path,
+                    backup_file=backup_path.name,
+                    captured_at=source_manifest["captured_at"],
+                )
+            except sqlite3.DatabaseError as exc:
+                raise DrillFailure(
+                    f"could not fingerprint restored copy: {exc}"
+                ) from exc
+            mismatch = _manifest_mismatch(source_manifest, actual_manifest)
+            if mismatch is not None:
+                raise DrillFailure(f"backup manifest mismatch: {mismatch}")
+
+            actual_tables = _manifest_table_map(actual_manifest)
+            table_names = set(actual_tables)
+            accounts_table = _find_approved_table(
+                table_names, accounts_candidates, "accounts",
+            )
+            rooms_table = _find_approved_table(
+                table_names, rooms_candidates, "rooms",
+            )
+            accounts_count = int(actual_tables[accounts_table]["row_count"])
+            rooms_count = int(actual_tables[rooms_table]["row_count"])
 
             if accounts_count < min_accounts:
                 raise DrillFailure(
@@ -157,6 +266,15 @@ def run_restore_drill(
         # must never report success.
         raise DrillFailure(
             "backup file changed during the drill (hash mismatch) — refusing to report PASS"
+        )
+
+    try:
+        manifest_after_hash = _sha256(source_manifest_path)
+    except OSError as exc:
+        raise DrillFailure("manifest disappeared during the drill") from exc
+    if manifest_before_hash != manifest_after_hash:
+        raise DrillFailure(
+            "manifest changed during the drill - refusing to report PASS"
         )
 
     return DrillResult(backup_path, accounts_table, accounts_count, rooms_table, rooms_count)

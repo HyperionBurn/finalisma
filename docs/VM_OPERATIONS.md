@@ -183,16 +183,24 @@ Production is one SQLite file in WAL mode. `backup_cloud_db.py` uses
 its `-wal`/`-shm` sidecars at inconsistent points and hand you a backup that
 looks fine and is silently corrupt. Every backup is `chmod 0600`
 immediately (best-effort on Windows, where POSIX bits don't apply) and
-rotated (`--keep`, default 30 in the systemd template).
+rotated (`--keep`, default 30 in the systemd template) together with a
+private `.manifest.json` sidecar. The manifest records exact user-table names,
+schema fingerprints, source-time row counts, and stable row identities (using
+primary keys when present) plus aggregate row hashes without recording row
+content.
 
 "An untested backup is not a backup": `restore_drill.py` copies a backup to
 a private temp path (never touches the original — verified with a SHA-256
-before/after check), opens the copy, runs `PRAGMA integrity_check`, and
-asserts the accounts and rooms tables are present and readable with a
+before/after check), opens the copy, runs `PRAGMA integrity_check`, and compares
+the copy against the source-time manifest (exact table identities, schema,
+row identities, hashes, and counts), and then asserts the accounts and rooms
+tables are present and readable with a
 plausible row count. It fails loudly — a raised exception with a specific
 message, non-zero CLI exit — on: missing file, zero-byte file, corrupt
 file, missing tables, or too few rows. It never prints row content,
-emails, or credentials. `redeploy-weft.sh` runs it against the backup it
+emails, or credentials. The manifest makes a zero-room source snapshot
+legitimate while rejecting rooms deleted from a non-empty snapshot; threshold
+flags are secondary diagnostics. `redeploy-weft.sh` runs it against the backup it
 just took, on every deploy, as a hard pre-promotion gate. A missing backup,
 missing restore drill, or failed restore drill exits non-zero before release
 retention or code promotion; deploying without a recoverable database is not a

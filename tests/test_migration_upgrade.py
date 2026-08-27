@@ -1160,5 +1160,69 @@ class IdentityEmailCanonicalMigrationTests(unittest.TestCase):
         self.assertFalse(any(row["name"] == "idx_identity_accounts_email_unique" for row in indexes))
 
 
+
+class OutboxExpiryMigrationTests(unittest.TestCase):
+    """A statement appended to an already-applied migration never runs.
+
+    This reproduces the production failure of 2026-08-27: `expires_at` was
+    added to cloud_008's statement list, that migration was already recorded
+    as applied on every live database, so the runner skipped it by name and
+    the column was never created. Signup then died with
+    `sqlite3.OperationalError: table cloud_identity_outbox has no column
+    named expires_at` while the entire test suite stayed green - because
+    every other test builds a FRESH schema, where the whole list runs.
+
+    So this test deliberately does not start from a fresh schema. It builds a
+    database that already believes the outbox migrations are done and is
+    missing the column, which is exactly what production looked like.
+    """
+
+    def _legacy_db(self, path: Path) -> None:
+        conn = sqlite3.connect(path)
+        conn.execute(
+            "CREATE TABLE cloud_identity_outbox ("
+            "entry_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL,"
+            "to_email TEXT NOT NULL, subject TEXT NOT NULL, body TEXT NOT NULL,"
+            "created_at TEXT NOT NULL, dispatched_at REAL, status TEXT,"
+            "attempts INTEGER, next_attempt_at REAL, claimed_at REAL,"
+            "claimed_by TEXT, last_error TEXT)"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS schema_migrations "
+            "(migration_id TEXT PRIMARY KEY, applied_at TEXT)"
+        )
+        for applied in ("cloud_008_identity_outbox_delivery",):
+            conn.execute(
+                "INSERT OR IGNORE INTO schema_migrations VALUES (?, ?)",
+                (applied, "2026-01-01T00:00:00Z"),
+            )
+        conn.commit()
+        conn.close()
+
+    def test_expires_at_reaches_a_database_that_predates_it(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "legacy.db"
+            self._legacy_db(path)
+
+            conn = sqlite3.connect(path)
+            before = {r[1] for r in conn.execute(
+                "PRAGMA table_info(cloud_identity_outbox)")}
+            conn.close()
+            self.assertNotIn("expires_at", before,
+                             "fixture must start WITHOUT the column")
+
+            with WeftStore(path, Path(tmp) / "ws") as store:
+                apply_migrations(store)
+
+            conn = sqlite3.connect(path)
+            after = {r[1] for r in conn.execute(
+                "PRAGMA table_info(cloud_identity_outbox)")}
+            conn.close()
+            self.assertIn(
+                "expires_at", after,
+                "expires_at never reached a database created before it - the "
+                "statement is almost certainly attached to a migration that "
+                "is already recorded as applied, so the runner skips it")
+
 if __name__ == "__main__":
     unittest.main()

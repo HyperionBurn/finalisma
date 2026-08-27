@@ -325,6 +325,16 @@ _IDENTITY_OUTBOX_DELIVERY_STATEMENTS = [
         "ALTER TABLE cloud_identity_outbox ADD COLUMN last_error TEXT",
         _has_identity_outbox_column("last_error"),
     ),
+]
+
+_IDENTITY_OUTBOX_EXPIRY_STATEMENTS = [
+    # This column was originally appended to cloud_008's statement list. That
+    # migration had already been recorded as applied on every existing
+    # database, so the runner skipped the whole entry by name and the column
+    # was never added - it only ever appeared on a freshly created schema.
+    # Every test builds a fresh schema, so the suite was green while production
+    # threw sqlite3.OperationalError on signup. A statement added to an applied
+    # migration is dead code; it needs its own migration name to ever run.
     GuardedStatement(
         "ALTER TABLE cloud_identity_outbox ADD COLUMN expires_at REAL",
         _has_identity_outbox_column("expires_at"),
@@ -820,6 +830,11 @@ MIGRATIONS: list[Migration] = [
         "cloud_017_identity_email_canonical",
         "canonical identity email storage and global uniqueness",
         up_fn=_canonicalize_identity_emails,
+    ),
+    Migration(
+        "cloud_018_identity_outbox_expires_at",
+        "outbox expiry column so stale mail is never delivered",
+        statements=_IDENTITY_OUTBOX_EXPIRY_STATEMENTS,
     ),
 ]
 
