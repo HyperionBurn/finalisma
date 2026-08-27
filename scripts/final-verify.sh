@@ -136,29 +136,73 @@ echo
 echo "=== SITE INTEGRITY (this repo has destroyed site/ before) ==="
 site_html="$(find site -name '*.html' 2>/dev/null | wc -l | tr -d ' ')"
 docs_html="$(find site/docs -name '*.html' 2>/dev/null | wc -l | tr -d ' ')"
-chk_ge "site html files"      18 "${site_html:-0}"
-chk_ge "site/docs html files" 7  "${docs_html:-0}"
+# Counts are diagnostics only. The committed manifest below is the gate: a
+# deliberate route addition/removal must update one reviewed identity list in
+# the same diff, so deleting one page and replacing it with another cannot
+# preserve a healthy-looking number.
+echo "  INFO  site html files: ${site_html:-0}; site/docs html files: ${docs_html:-0} (identity manifest is authoritative)"
+PAGE_MANIFEST="scripts/site-page-manifest.txt"
+page_manifest_check="$("$PYTHON" - "$PAGE_MANIFEST" site <<'PYEOF'
+from pathlib import Path
+import sys
 
-# A COUNT CANNOT DETECT A DELETION. On 2026-08-25 a deploy removed nine pages
-# from site/ - signup, login and the whole app/ shell - and this section passed,
-# because the 18 survivors landed exactly on the floor of 18. A floor answers
-# "are there enough files", never "are the RIGHT files still here", which is the
-# only question a tree that has been destroyed before actually needs answered.
-# So name the pages that must exist. If a page is deliberately retired, delete
-# its line here in the same commit and the reviewer sees the intent.
-missing_pages=""
-for required in   index.html 404.html   signup/index.html login/index.html   app/index.html app/room/index.html app/keys/index.html app/connect/index.html   app/new/index.html app/settings/index.html app/usage/index.html   docs/index.html docs/quickstart.html docs/protocol.html docs/security.html   docs/pilot.html docs/compatibility.html   blog/index.html   privacy.html terms.html license.html
-do
-  [ -f "site/$required" ] || missing_pages="${missing_pages} ${required}"
-done
-if [ -z "$missing_pages" ]; then
-  echo "  PASS  required site pages present"; pass=$((pass+1))
+manifest_path = Path(sys.argv[1])
+site_root = Path(sys.argv[2])
+if not manifest_path.is_file():
+    print(f"manifest missing: {manifest_path}")
+    raise SystemExit(1)
+
+expected = []
+seen = set()
+# inv: seen contains every valid, unique manifest path read so far; term: the
+# line iterator advances monotonically to EOF.
+for raw_line in manifest_path.read_text(encoding="utf-8").splitlines():
+    value = raw_line.strip()
+    if not value or value.startswith("#"):
+        continue
+    relative = Path(value)
+    normalized = relative.as_posix()
+    if relative.is_absolute() or ".." in relative.parts or relative.suffix.lower() != ".html":
+        print(f"invalid manifest path: {value}")
+        raise SystemExit(1)
+    if normalized in seen:
+        print(f"duplicate manifest path: {normalized}")
+        raise SystemExit(1)
+    seen.add(normalized)
+    expected.append(normalized)
+
+if not expected:
+    print("manifest contains no HTML paths")
+    raise SystemExit(1)
+
+expected_set = set(expected)
+actual_set = {
+    path.relative_to(site_root).as_posix()
+    for path in site_root.rglob("*.html")
+    if path.is_file()
+}
+missing = sorted(expected_set - actual_set)
+unexpected = sorted(actual_set - expected_set)
+if missing or unexpected:
+    if missing:
+        print("missing manifest paths: " + ", ".join(missing))
+    if unexpected:
+        print("unlisted HTML paths: " + ", ".join(unexpected))
+    raise SystemExit(1)
+print(f"exact HTML route set: {len(expected_set)} paths")
+PYEOF
+)"
+page_manifest_rc=$?
+if [ "$page_manifest_rc" -eq 0 ]; then
+  echo "  PASS  exact HTML route manifest"
+  pass=$((pass+1))
 else
-  echo "  FAIL  required site pages MISSING -${missing_pages}"; fail=$((fail+1))
+  echo "  FAIL  exact HTML route manifest"
+  fail=$((fail+1))
 fi
 chk "uncommitted deletions (from the ORIGINAL working tree)" "0" "$DELETIONS"
-if [ -f "$REPO_ROOT/web/scripts/verify-preservation.cjs" ]; then
-  if command -v node >/dev/null 2>&1 && node "$REPO_ROOT/web/scripts/verify-preservation.cjs" >/dev/null 2>&1; then
+if [ -f "web/scripts/verify-preservation.cjs" ]; then
+  if command -v node >/dev/null 2>&1 && node "web/scripts/verify-preservation.cjs" >/dev/null 2>&1; then
     echo "  PASS  preservation verifier"; pass=$((pass+1))
   else
     echo "  FAIL  preservation verifier"; fail=$((fail+1))
@@ -189,12 +233,27 @@ verdict_line="$("$PYTHON" "$SCRIPT_DIR/classify_suite_log.py" "$SUITE_LOG" "$sui
 verdict_rc=$?
 echo "$verdict_line" | sed 's/^/  /'
 n="$(grep -aoE 'Ran [0-9]+ test' "$SUITE_LOG" 2>/dev/null | tail -1 | grep -oE '[0-9]+' || true)"
-echo "  test count  : ${n:-<none captured>}  (must not drop from the last known-good count)"
+# This file is the one deliberate ratchet value. Raising it requires a
+# committed diff, while the actual count remains derived from this run's
+# unittest discovery output; there is no second hardcoded floor.
+TEST_COUNT_BASELINE_FILE="scripts/test-count-baseline.txt"
+test_count_baseline="$(tr -d '[:space:]' < "$TEST_COUNT_BASELINE_FILE" 2>/dev/null || true)"
+if [[ "$test_count_baseline" =~ ^[1-9][0-9]*$ ]]; then
+  echo "  last-known-good test count: $test_count_baseline (from $TEST_COUNT_BASELINE_FILE)"
+  test_count_baseline_valid=1
+else
+  echo "  FAIL  test-count baseline missing or invalid: $TEST_COUNT_BASELINE_FILE"
+  fail=$((fail+1))
+  test_count_baseline_valid=0
+fi
+echo "  test count  : ${n:-<none captured>}  (must not drop below the committed ratchet)"
 
 case "$verdict_rc" in
   0)
     echo "  PASS  suite result"; pass=$((pass+1))
-    chk_ge "test count" 525 "${n:-0}"
+    if [ "$test_count_baseline_valid" -eq 1 ]; then
+      chk_ge "test count (committed ratchet)" "$test_count_baseline" "${n:-0}"
+    fi
     ;;
   2)
     echo "  INCONCLUSIVE  suite result — harness problem, not a code verdict. See $SUITE_LOG"
@@ -217,6 +276,8 @@ env = dict(os.environ)
 env["PYTHONPATH"] = "src"
 
 try:
+    from scripts.probe_hosted_mcp_surface import EXPECTED_TOOL_NAMES
+
     proc = subprocess.Popen(
         [sys.executable, "-B", "-m", f"{pkg_prefix}_mcp", "--transport", "stdio", "--team-id", "v"],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, env=env,
@@ -234,24 +295,27 @@ try:
     line = proc.stdout.readline()
     tools = json.loads(line)["result"]["tools"]
     proc.kill()
-    bad = [
-        t["name"] for t in tools
-        if any(t["name"].startswith(op + "_") for op in other_prefixes)
-        or f"{pkg_prefix}_{pkg_prefix}" in t["name"]
+    actual_names = [
+        tool.get("name") for tool in tools
+        if isinstance(tool, dict) and isinstance(tool.get("name"), str)
     ]
-    print(len(tools), len(bad))
+    expected_names = set(EXPECTED_TOOL_NAMES)
+    actual_set = set(actual_names)
+    missing = expected_names - actual_set
+    unexpected = actual_set - expected_names
+    duplicate = len(actual_names) != len(actual_set)
+    bad = len(missing) + len(unexpected) + (1 if duplicate else 0)
+    print(len(actual_names), len(expected_names), bad)
 except Exception:
-    print(0, 0)
+    print(0, 0, 1)
 PYEOF
 )"
-tool_probe="${tool_probe:-0 0}"
-tool_count="$(echo "$tool_probe" | cut -d' ' -f1)"
-bad_count="$(echo "$tool_probe" | cut -d' ' -f2)"
-# Floor, not exact match (baseline 58 measured at authoring time against this
-# tree) — an exact-equality check here would fail the gate every time a tool
-# is legitimately added, which trains people to ignore it.
-chk_ge "tool count (baseline 58)"         58 "${tool_count:-0}"
-chk "tools with stale/doubled prefix"     "0"  "${bad_count:-0}"
+tool_probe="${tool_probe:-0 0 1}"
+read -r tool_count expected_tool_count bad_count <<< "$tool_probe"
+echo "  INFO  tool surface: ${tool_count:-0} actual, ${expected_tool_count:-0} expected names"
+# The exact expected set is imported from probe_hosted_mcp_surface.py so this
+# and the post-deploy probe cannot drift into two tool lists.
+chk "tool surface matches EXPECTED_TOOL_NAMES" "0" "${bad_count:-1}"
 
 echo
 echo "  ---- $pass passed, $fail failed ----"

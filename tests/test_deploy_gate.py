@@ -362,6 +362,18 @@ class ShippedScriptSanityTests(unittest.TestCase):
         for name in ("push-code-to-vm.sh", "redeploy-weft.sh", "rollback-weft.sh", "install-weft-ops.sh", "final-verify.sh", "suite-check.sh"):
             self.assertTrue((SCRIPTS_DIR / name).is_file(), f"missing scripts/{name}")
 
+        final_verify = (SCRIPTS_DIR / "final-verify.sh").read_text(encoding="utf-8")
+        preservation = (REPO_ROOT / "web" / "scripts" / "verify-preservation.cjs").read_text(encoding="utf-8")
+        baseline = SCRIPTS_DIR / "test-count-baseline.txt"
+        self.assertTrue(baseline.is_file(), "test-count baseline must be committed")
+        self.assertRegex(baseline.read_text(encoding="utf-8").strip(), r"[1-9][0-9]*")
+        self.assertNotIn('chk_ge "test count" 525', final_verify)
+        self.assertIn("test-count-baseline.txt", final_verify)
+        self.assertIn("from scripts.probe_hosted_mcp_surface import EXPECTED_TOOL_NAMES", final_verify)
+        self.assertIn("site-page-manifest.txt", final_verify)
+        self.assertIn("site-page-manifest.txt", preservation)
+        self.assertNotIn("blog.length >= 4", preservation)
+
     def test_operational_timer_installer_is_shipped_and_fail_closed(self):
         installer = (SCRIPTS_DIR / "install-weft-ops.sh").read_text(encoding="utf-8")
         push = (SCRIPTS_DIR / "push-code-to-vm.sh").read_text(encoding="utf-8")

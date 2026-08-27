@@ -3,8 +3,9 @@
  * verify-preservation.cjs
  *
  * After the Astro build + restore, assert that every preserved file exists in
- * site/, the media assets have correct dimensions/headers, docs/blog counts are
- * met, and the test-critical strings are present in the built index.html.
+ * site/, the media assets have correct dimensions/headers, and the exact
+ * committed HTML route manifest is present. The test-critical strings are
+ * also present in the built index.html.
  *
  * Exits non-zero on any failure.
  */
@@ -27,6 +28,48 @@ function check(cond, msg) {
 
 function read(rel) {
   return fs.readFileSync(path.join(SITE, rel));
+}
+
+const PAGE_MANIFEST = path.resolve(ROOT, '..', 'scripts', 'site-page-manifest.txt');
+
+function readPageManifest() {
+  if (!fs.existsSync(PAGE_MANIFEST)) return [];
+  const expected = [];
+  const seen = new Set();
+  const lines = fs.readFileSync(PAGE_MANIFEST, 'utf-8').split(/\r?\n/);
+  // inv: seen contains every valid, unique manifest path read so far; term:
+  // the line iterator advances monotonically to EOF.
+  for (const raw of lines) {
+    const value = raw.trim();
+    if (!value || value.startsWith('#')) continue;
+    if (path.isAbsolute(value) || value.split('/').includes('..') || !value.endsWith('.html')) {
+      return [];
+    }
+    if (seen.has(value)) return [];
+    seen.add(value);
+    expected.push(value);
+  }
+  return expected;
+}
+
+function listHtml(root, prefix = '') {
+  const directory = path.join(root, prefix);
+  if (!fs.existsSync(directory)) return [];
+  const found = [];
+  const entries = fs.readdirSync(directory, { withFileTypes: true });
+  // inv: found contains every HTML path from entries visited so far; term:
+  // the finite directory-entry iterator advances to exhaustion.
+  for (const entry of entries) {
+    const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) {
+      // base: a file or empty directory returns without recursion; measure:
+      // each recursive call descends one finite filesystem directory.
+      found.push(...listHtml(root, relative));
+    } else if (entry.isFile() && entry.name.endsWith('.html')) {
+      found.push(relative);
+    }
+  }
+  return found;
 }
 
 console.log('[verify-preservation] checking required root files...');
@@ -73,17 +116,29 @@ check(webm.slice(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3])), 'weft-demo
 const vtt = fs.readFileSync(path.join(SITE, 'assets', 'weft-demo.vtt'), 'utf-8');
 check(vtt.startsWith('WEBVTT\n') || vtt.startsWith('WEBVTT\r\n'), 'weft-demo.vtt starts with WEBVTT');
 
-console.log('[verify-preservation] checking docs/...');
-const docs = fs.readdirSync(path.join(SITE, 'docs')).filter((f) => f.endsWith('.html'));
-check(docs.length === 7, `site/docs/ has exactly 7 html files (found ${docs.length})`);
-const requiredDocs = ['index.html', 'quickstart.html', 'protocol.html', 'security.html', 'compatibility.html', 'pairing-ux.html', 'pilot.html'];
-for (const d of requiredDocs) {
-  check(docs.includes(d), `site/docs/${d} present`);
+console.log('[verify-preservation] checking exact HTML route manifest...');
+const expectedPages = readPageManifest();
+const actualPages = listHtml(SITE).sort();
+const expectedPageSet = new Set(expectedPages);
+const actualPageSet = new Set(actualPages);
+const missingPages = expectedPages.filter((relative) => !actualPageSet.has(relative));
+const unlistedPages = actualPages.filter((relative) => !expectedPageSet.has(relative));
+check(
+  expectedPages.length > 0
+    && expectedPageSet.size === expectedPages.length
+    && missingPages.length === 0
+    && unlistedPages.length === 0,
+  `site HTML paths exactly match ${PAGE_MANIFEST}`,
+);
+for (const relative of expectedPages) {
+  check(actualPageSet.has(relative), `site/${relative} present`);
 }
-
-console.log('[verify-preservation] checking blog/...');
-const blog = fs.readdirSync(path.join(SITE, 'blog')).filter((f) => f.endsWith('.html'));
-check(blog.length >= 4, `site/blog/ has >= 4 articles (found ${blog.length})`);
+if (missingPages.length > 0) {
+  console.error(`  missing manifest paths: ${missingPages.join(', ')}`);
+}
+if (unlistedPages.length > 0) {
+  console.error(`  unlisted HTML paths: ${unlistedPages.join(', ')}`);
+}
 
 console.log('[verify-preservation] checking built index.html test strings...');
 const html = fs.readFileSync(path.join(SITE, 'index.html'), 'utf-8');

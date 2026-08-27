@@ -1120,6 +1120,18 @@ class DeployproofReleaseContentTests(unittest.TestCase):
             "User-agent: *\nAllow: /",
             "robots.txt must be a real policy, not only Allow: /",
         )
+        manifest = ROOT / "scripts" / "site-page-manifest.txt"
+        self.assertTrue(manifest.is_file(), "the shipped HTML route manifest must be committed")
+        expected_paths = {
+            line.strip()
+            for line in manifest.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        }
+        actual_paths = {
+            page.relative_to(SITE).as_posix()
+            for page in SITE.rglob("*.html")
+        }
+        self.assertEqual(actual_paths, expected_paths)
 
     @unittest.skip("Retired 2026-08-25: asserts the previous marketing site, replaced from scratch. Owner's call: the site is not gated by this suite. API and product tests untouched. The contact-form guard encoded a real audit finding (a form with NAMED inputs, no action and no method GET-submits typed values into the URL, history and referrer with JS off) - verified before retiring that the new AuthForm inputs carry id= but no name=, so a native submit serialises nothing. If name= is ever added, restore it.")
     def test_indexable_source_pages_carry_canonical_and_og_url(self) -> None:
