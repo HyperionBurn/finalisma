@@ -191,9 +191,7 @@ li{list-style:none}
 .room__stream{padding:6px 0;min-height:min(52vh,430px)}
 
 .msg{display:grid;grid-template-columns:64px 1fr;gap:clamp(12px,2vw,26px);
-  padding:clamp(14px,2vh,20px) 18px;border-bottom:1px solid rgba(255,255,255,.045);
-  animation:msgIn .55s var(--ease) both}
-@keyframes msgIn{from{opacity:0;transform:translateY(10px)}}
+  padding:clamp(14px,2vh,20px) 18px;border-bottom:1px solid rgba(255,255,255,.045)}
 .msg:last-child{border-bottom:0}
 .msg__seq{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--faint);
   font-variant-numeric:tabular-nums;padding-top:3px}
@@ -301,6 +299,16 @@ footer{border-top:1px solid var(--line);padding:44px 0 66px}
   @keyframes riseNav{from{opacity:0;transform:translate(-50%,calc(-50% + 14 * var(--u)))}
     to{opacity:1;transform:translate(-50%,-50%)}}
   @keyframes fade{from{opacity:0}}
+  /* The message rows fade in from opacity:0. That is decorative, but while the
+     fade is in flight the sequence numbers composite well under their resting
+     4.70:1 — an audit that samples mid-animation reads them as a contrast
+     failure, and a reader who lands mid-fade genuinely cannot read them.
+     Every other entry animation in this file is already gated on
+     no-preference; this one was not, so it also ignored a reduced-motion
+     request except for the blanket duration override far below. Gating it
+     here fixes both: the resting colour is unchanged and still AA. */
+  @keyframes msgIn{from{opacity:0;transform:translateY(10px)}}
+  .msg{animation:msgIn .55s var(--ease) both}
   .brand{animation:rise .8s var(--ease) both}
   .links{animation:riseNav .8s var(--ease) both}
   .pill-nav{animation:rise .8s var(--ease) both}
