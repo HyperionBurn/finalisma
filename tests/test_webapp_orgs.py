@@ -709,3 +709,73 @@ class TestRoleNamesRender(unittest.TestCase):
         # The other role names are present in the page (as labels/options).
         self.assertIn("admin", body)
         self.assertIn("member", body)
+
+
+class TestOrgSafetyAndMemberPickers(unittest.TestCase):
+    """MPAI-54: safe destructive actions on /org (pickers, confirmation, sole owner guard)."""
+
+    def setUp(self):
+        self.driver = WebAppDriver()
+        self.owner_email = f"owner{time.time_ns()}@example.com"
+        self.owner_password = "owner-password-ok"
+        self.driver.login(self.owner_email, self.owner_password)
+        self.tenant_id = self.driver.tenant_for_email(self.owner_email)
+        self.member_email = f"member{time.time_ns()}@example.com"
+        self.member_password = "member-password-ok"
+        csrf = self.driver.csrf()
+        self.driver.post(
+            "/org/invite",
+            {"email": self.member_email, "role": "member", "_csrf": csrf},
+        )
+        token = re.search(
+            r"(fiv_[A-Za-z0-9_-]+)", self.driver.last_outbox_body(self.member_email)
+        ).group(1)
+        self.driver.accept_invite(token, self.member_email, self.member_password)
+        self.member_acct = self.driver.account_id_for_email(self.tenant_id, self.member_email)
+        self.driver.cookies.clear()
+        self.driver.post("/login", {"email": self.owner_email, "password": self.owner_password})
+
+    def tearDown(self):
+        self.driver.close()
+
+    def test_org_renders_member_pickers_with_roles_and_disabled_owner_in_remove(self):
+        status, body, _ = self.driver.get("/org")
+        self.assertEqual(status, 200)
+        # Both Role and Remove forms use select pickers instead of free-text inputs
+        self.assertIn('<label>Member <select name="account_id" required="required">', body)
+        # Options include member email and role
+        self.assertIn(self.member_email, body)
+        self.assertIn(f'value="{self.member_acct}"', body)
+        # In Remove picker, the owner option is disabled
+        self.assertIn('disabled', body)
+        self.assertIn('(owner — cannot remove)', body)
+        # Javascript confirmation helpers are included in head
+        self.assertIn('confirmOrgRole', body)
+        self.assertIn('confirmOrgRemove', body)
+
+    def test_org_sole_owner_leave_safety_warning_and_refusal(self):
+        status, body, _ = self.driver.get("/org")
+        self.assertEqual(status, 200)
+        # Clear warning explaining sole owner cannot leave without orphaning the org
+        self.assertIn("sole owner of", body)
+        self.assertIn("orphaned", body)
+        self.assertIn("Transfer ownership", body)
+        # Confirmation attribute present on button
+        self.assertIn("Transfer ownership to another member before leaving", body)
+        # POST /org/leave returns 400 Bad Request
+        csrf = self.driver.csrf()
+        status, body, _ = self.driver.post("/org/leave", {"_csrf": csrf})
+        self.assertEqual(status, 400)
+        self.assertIn("Owners cannot leave", body)
+
+    def test_org_member_leave_warning_and_confirmation(self):
+        # Log in as regular member
+        self.driver.cookies.clear()
+        self.driver.post("/login", {"email": self.member_email, "password": self.member_password})
+        status, body, _ = self.driver.get("/org")
+        self.assertEqual(status, 200)
+        # Non-owner gets warning that membership and keys will be revoked
+        self.assertIn("remove your membership", body)
+        self.assertIn("revoke your active session and all agent keys", body)
+        self.assertIn("Leave organization", body)
+
