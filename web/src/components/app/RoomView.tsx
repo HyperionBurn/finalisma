@@ -206,7 +206,14 @@ export default function RoomView({ roomId }: Props) {
   return (
     <div className="room">
       <section className="feed" aria-label="Room log">
-        <div className="feed__scroll" ref={scroller} onScroll={onScroll}>
+        <div
+          className="feed__scroll"
+          ref={scroller}
+          onScroll={onScroll}
+          tabIndex={0}
+          role="region"
+          aria-label="Room messages, scrollable"
+        >
           {loading && (
             <div aria-busy="true">
               {[0, 1, 2].map((i) => (
@@ -311,7 +318,7 @@ export default function RoomView({ roomId }: Props) {
         </div>
       </section>
 
-      <aside className="insp" aria-label="Room details">
+      <aside className="insp" aria-label="Room details" tabIndex={0} role="region">
         <div className="insp__sec">
           <p className="insp__l">Who is here · {members.length}</p>
           {members.length === 0 && !loading && (

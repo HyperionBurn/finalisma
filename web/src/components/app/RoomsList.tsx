@@ -83,7 +83,7 @@ export default function RoomsList() {
           </p>
         </div>
       ) : (
-        <div className="list" role="table" aria-label="Your rooms">
+        <div className="list">
           <div className="row row--room" style={{ borderBottomColor: 'var(--line-2)', paddingBottom: 9 }}>
             <span />
             <span className="metric__l">Room</span>
@@ -93,27 +93,31 @@ export default function RoomsList() {
             <span />
           </div>
 
-          {rooms.map((r) => {
-            const live = (r.state ?? 'open') !== 'closed';
-            return (
-              <a className="row row--room" key={r.room_id}
-                 href={`/app/room?id=${encodeURIComponent(r.room_id)}`}>
-                <span className={`dot dot--${live ? 'live' : 'off'}`} aria-hidden="true" />
-                <span>
-                  <span className="row__n">{r.name || r.room_id}</span>
-                  <span className="row__sub">{r.room_id}</span>
-                </span>
-                <span className="row__m row__hide">
-                  <b>{r.member_count ?? '—'}</b>{r.cap ? ` / ${r.cap}` : ''}
-                </span>
-                <span className="row__t row__hide">{fmt(r.created_at)}</span>
-                <span className="row__hide">
-                  <span className={`tag ${live ? 'tag--live' : 'tag--off'}`}>{live ? 'open' : 'closed'}</span>
-                </span>
-                <span className="row__t" aria-hidden="true">→</span>
-              </a>
-            );
-          })}
+          <ul aria-label="Your rooms">
+            {rooms.map((r) => {
+              const live = (r.state ?? 'open') !== 'closed';
+              return (
+                <li key={r.room_id}>
+                  <a className="row row--room"
+                     href={`/app/room?id=${encodeURIComponent(r.room_id)}`}>
+                    <span className={`dot dot--${live ? 'live' : 'off'}`} aria-hidden="true" />
+                    <span>
+                      <span className="row__n">{r.name || r.room_id}</span>
+                      <span className="row__sub">{r.room_id}</span>
+                    </span>
+                    <span className="row__m row__hide">
+                      <b>{r.member_count ?? '—'}</b>{r.cap ? ` / ${r.cap}` : ''}
+                    </span>
+                    <span className="row__t row__hide">{fmt(r.created_at)}</span>
+                    <span className="row__hide">
+                      <span className={`tag ${live ? 'tag--live' : 'tag--off'}`}>{live ? 'open' : 'closed'}</span>
+                    </span>
+                    <span className="row__t" aria-hidden="true">→</span>
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
         </div>
       )}
     </>
