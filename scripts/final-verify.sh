@@ -138,6 +138,24 @@ site_html="$(find site -name '*.html' 2>/dev/null | wc -l | tr -d ' ')"
 docs_html="$(find site/docs -name '*.html' 2>/dev/null | wc -l | tr -d ' ')"
 chk_ge "site html files"      18 "${site_html:-0}"
 chk_ge "site/docs html files" 7  "${docs_html:-0}"
+
+# A COUNT CANNOT DETECT A DELETION. On 2026-08-25 a deploy removed nine pages
+# from site/ - signup, login and the whole app/ shell - and this section passed,
+# because the 18 survivors landed exactly on the floor of 18. A floor answers
+# "are there enough files", never "are the RIGHT files still here", which is the
+# only question a tree that has been destroyed before actually needs answered.
+# So name the pages that must exist. If a page is deliberately retired, delete
+# its line here in the same commit and the reviewer sees the intent.
+missing_pages=""
+for required in   index.html 404.html   signup/index.html login/index.html   app/index.html app/room/index.html app/keys/index.html app/connect/index.html   app/new/index.html app/settings/index.html app/usage/index.html   docs/index.html docs/quickstart.html docs/protocol.html docs/security.html   docs/pilot.html docs/compatibility.html   blog/index.html   privacy.html terms.html license.html
+do
+  [ -f "site/$required" ] || missing_pages="${missing_pages} ${required}"
+done
+if [ -z "$missing_pages" ]; then
+  echo "  PASS  required site pages present"; pass=$((pass+1))
+else
+  echo "  FAIL  required site pages MISSING -${missing_pages}"; fail=$((fail+1))
+fi
 chk "uncommitted deletions (from the ORIGINAL working tree)" "0" "$DELETIONS"
 if [ -f "$REPO_ROOT/web/scripts/verify-preservation.cjs" ]; then
   if command -v node >/dev/null 2>&1 && node "$REPO_ROOT/web/scripts/verify-preservation.cjs" >/dev/null 2>&1; then
