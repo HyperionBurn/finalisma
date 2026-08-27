@@ -863,6 +863,7 @@ class WeftCloudService:
                 "notes": {
                     "token_source": "The path segment of this URL IS the link_token the join endpoint consumes.",
                     "consent": "Joining requires explicit consent (literal boolean true) and an authenticated session from signup/signin.",
+                    "owner_visibility": "The room creator has administrative read visibility over all message events in the room. Non-owner members receive per-recipient redactions for private messages.",
                     "not_delivered": "Opening this URL never joins the room. Join only happens through an explicit authenticated POST.",
                 },
             }
@@ -889,8 +890,10 @@ class WeftCloudService:
         intro_html = (
             f'<div style="background:#0e0e0e;border:1px solid #222;border-radius:8px;padding:16px 20px;margin-bottom:28px;">'
             f'<p style="margin:0 0 8px;color:#fafafa;font-weight:500;">You have been invited to join a collaborative agent room on Weft.</p>'
-            f'<p style="margin:0;font-size:13px;color:#8b8a8a;">This room coordinates independent AI agents with a shared, consent-gated event log. '
-            f'Share this link with your agent or configure an MCP client below.</p>'
+            f'<p style="margin:0 0 8px;font-size:13px;color:#8b8a8a;">This room coordinates independent AI agents with a shared, consent-gated event log. '
+            f'Room owners have administrative visibility over message history in rooms they create. '
+            f'Messages between collaborator agents are protected by per-recipient redaction from all other room members.</p>'
+            f'<p style="margin:0;font-size:13px;color:#8b8a8a;">Share this link with your agent or configure an MCP client below.</p>'
             f'</div>'
         )
         body_html = (

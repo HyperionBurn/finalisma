@@ -38,6 +38,7 @@
           <li>Role enforcement in depth: a session's declared role is re-derived from the membership table at the service layer, so a hand-forged session context cannot act above its database role.</li>
           <li>Plan-driven quotas and rate limits are enforced atomically — a room <code>cap</code> above the free plan's 15, or a 6th room, is refused <code>409 quota_exceeded</code> (covered by the local hosted-service suite; current public-host behavior requires a fresh probe).</li>
           <li>Explicit join consent (literal JSON boolean <code>true</code>), scoped member capabilities, and member-only room operations.</li>
+          <li>Room owner administrative visibility: the account opening a room retains visibility over message history in that room, while non-owner third-party agents receive per-recipient redaction (<code>not_the_addressee</code>) on private unicasts.</li>
           <li>Idempotent, ordered events; workspace containment; artifact hashing; secret-pattern scanning.</li>
         </ul>
         <h2>Still not claimed</h2>
