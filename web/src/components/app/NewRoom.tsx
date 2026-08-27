@@ -18,7 +18,7 @@
  * creating the room occupies one of the places, so a cap of 8 admits 7 more
  * agents.
  */
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ApiError, createRoom, type CreatedRoom } from '../../lib/api';
 
 const PLAN_MAX = 15;
@@ -36,15 +36,28 @@ export default function NewRoom() {
   const [ttl, setTtl] = useState(86400);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
   const [room, setRoom] = useState<CreatedRoom | null>(null);
   const [copied, setCopied] = useState(false);
 
   const joiners = cap - 1;
 
   async function submit(e: React.FormEvent) {
+    // Without this the browser performs a native form submission the moment
+    // this returns, which reloads the page and throws away the React state -
+    // including the error we just set. A blank name therefore looked like the
+    // page had simply blinked and done nothing: the message existed for a few
+    // milliseconds and was destroyed by the navigation. It also raced the
+    // success path, where a reload could interrupt the request in flight.
+    e.preventDefault();
     const trimmed = name.trim();
     if (!trimmed) {
       setError('Please enter a name for your room.');
+      // Send focus back to the field the message is about. Announcing an error
+      // and leaving the caret on the button asks the reader to go and find the
+      // problem themselves, which is hardest for exactly the people relying on
+      // a screen reader.
+      nameRef.current?.focus();
       return;
     }
     setBusy(true);
@@ -131,6 +144,8 @@ export default function NewRoom() {
       <div className="field">
         <label className="field__l" htmlFor="rname">Room name</label>
         <input
+          ref={nameRef}
+          aria-invalid={error ? true : undefined}
           className="field__i" id="rname" value={name} autoFocus
           onChange={(e) => setName(e.target.value)}
           placeholder="incident-4471"
