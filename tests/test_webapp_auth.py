@@ -34,7 +34,7 @@ class WebAppDriver:
     ("127.0.0.1", 0) with finally teardown.
     """
 
-    def __init__(self, smtp_configured: bool | None = None, auth_rate_limits=None):
+    def __init__(self, smtp_configured: bool | None = None, auth_rate_limits=None, contact_url: str | None = None):
         import http.server
 
         self._tmp = tempfile.TemporaryDirectory()
@@ -46,6 +46,7 @@ class WebAppDriver:
             static_dir=SITE_DIR,
             state_dir=str(Path(self._tmp.name) / "state"),
             smtp_configured=smtp_configured,
+            contact_url=contact_url,
             auth_rate_limits=auth_rate_limits,
         )
         self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), self.app.handler)
@@ -686,6 +687,9 @@ class TestEmailMessaging(unittest.TestCase):
             email = f"resetmsg{time.time_ns()}@example.com"
             driver.backend.create_tenant("tenant-rm", email, "free")
             provision_verified_member(driver, "tenant-rm", email, "old-password-ok")
+            status, body, _ = driver.get("/reset-request")
+            self.assertEqual(status, 200)
+            self.assertIn("Contact the operator", body)
             status, _, headers = driver.post("/reset-request", {"email": email})
             self.assertEqual(status, 303)
             self.assertTrue(headers["Location"].startswith("/login?reset_sent=1"))
@@ -694,6 +698,30 @@ class TestEmailMessaging(unittest.TestCase):
             self.assertIn("Email delivery is not enabled", body)
             self.assertIn("Contact the operator", body)
             self.assertNotIn("Check your email", body)
+        finally:
+            driver.close()
+
+    def test_reset_request_surfaces_configured_operator_contact(self):
+        driver = WebAppDriver(smtp_configured=False, contact_url="mailto:ops@example.com")
+        try:
+            email = f"resetcontact{time.time_ns()}@example.com"
+            driver.backend.create_tenant("tenant-contact", email, "free")
+            provision_verified_member(driver, "tenant-contact", email, "old-password-ok")
+
+            # GET /reset-request surfaces the operator email
+            status, body, _ = driver.get("/reset-request")
+            self.assertEqual(status, 200)
+            self.assertIn('href="mailto:ops@example.com"', body)
+            self.assertIn("ops@example.com", body)
+
+            # POST /reset-request redirect to /login?reset_sent=1 surfaces the operator link
+            status, _, headers = driver.post("/reset-request", {"email": email})
+            self.assertEqual(status, 303)
+            status, body, _ = driver.get(headers["Location"])
+            self.assertEqual(status, 200)
+            self.assertIn('href="mailto:ops@example.com"', body)
+            self.assertIn("ops@example.com", body)
+            self.assertIn("Contact the operator at", body)
         finally:
             driver.close()
 

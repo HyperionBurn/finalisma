@@ -254,6 +254,35 @@ def _request_is_secure(handler: BaseHTTPRequestHandler) -> bool:
     return isinstance(sock, ssl.SSLSocket)
 
 
+def _resolve_contact_url(contact_url: str | None = None) -> str:
+    """Resolve the operator contact URL from argument, env, or vercel.json.
+
+    Falls back cleanly to the repo-level vercel.json build.env configuration
+    so the web app shares the single source of truth without duplicating the
+    address in code.
+    """
+    if contact_url is not None and contact_url.strip():
+        return contact_url.strip()
+    env_val = os.environ.get("WEFT_CONTACT_URL", "").strip()
+    if env_val:
+        return env_val
+    try:
+        root_candidates = [
+            Path.cwd(),
+            Path(__file__).resolve().parents[3],
+        ]
+        for root in root_candidates:
+            v_json = root / "vercel.json"
+            if v_json.is_file():
+                data = json.loads(v_json.read_text(encoding="utf-8"))
+                v_contact = data.get("build", {}).get("env", {}).get("WEFT_CONTACT_URL", "")
+                if v_contact and isinstance(v_contact, str) and v_contact.strip():
+                    return v_contact.strip()
+    except Exception:
+        pass
+    return ""
+
+
 # ---------------------------------------------------------------------------
 # HTML helpers — all use double-quoted HTML attributes (the contract tests
 # assert on `name="email"` etc.). Python strings are single-quoted so the
@@ -303,11 +332,13 @@ class WeftWebApp:
 
     def __init__(self, backend: StorageBackend, static_dir: str = "", state_dir: str = "",
                  *, smtp_configured: bool | None = None,
+                 contact_url: str | None = None,
                  auth_rate_limits: dict | None = None) -> None:
         self.backend = backend
         self.static_dir = static_dir
         self.state_dir = state_dir
         self.auth_rate_limits = auth_rate_limits
+        self.contact_url = _resolve_contact_url(contact_url)
         # "Email can actually be delivered" is a deployment property read from
         # the same environment the outbox worker uses. When unset we derive it
         # here so the web app self-corrects as soon as SMTP credentials land;
@@ -1086,10 +1117,20 @@ class WeftWebApp:
         if "reset_sent" in params:
             if self.smtp_configured:
                 text = "Check your email — a password reset link was sent."
+                return f'<div class="flash">{_esc(text)}</div>'
             else:
-                text = ("Email delivery is not enabled yet, so a password-reset message cannot be sent. "
-                        "Contact the operator to reset your password.")
-            return f'<div class="flash">{_esc(text)}</div>'
+                contact = self.contact_url
+                if contact:
+                    display = contact[len("mailto:"):].strip() if contact.startswith("mailto:") else contact
+                    contact_link = f'<a href="{_esc(contact)}">{_esc(display)}</a>'
+                    return (
+                        f'<div class="flash">Email delivery is not enabled yet, so a password-reset message cannot be sent. '
+                        f'Contact the operator at {contact_link} to reset your password.</div>'
+                    )
+                else:
+                    text = ("Email delivery is not enabled yet, so a password-reset message cannot be sent. "
+                            "Contact the operator to reset your password.")
+                    return f'<div class="flash">{_esc(text)}</div>'
         if "verified" in params:
             return '<div class="flash">Your account is verified — you can log in now.</div>'
         if "reset_done" in params:
@@ -1247,8 +1288,19 @@ class WeftWebApp:
 
     def handle_get_reset_request(self, handler: BaseHTTPRequestHandler) -> None:
         token = _new_csrf()
+        contact_html = ""
+        if not self.smtp_configured and self.contact_url:
+            contact = self.contact_url
+            display = contact[len("mailto:"):].strip() if contact.startswith("mailto:") else contact
+            contact_html = (
+                '<p class="hint">'
+                'Email delivery is not enabled yet. '
+                f'Contact the operator at <a href="{_esc(contact)}">{_esc(display)}</a> to reset your password.'
+                '</p>'
+            )
         form = (
             '<h1>Reset password</h1>'
+            f'{contact_html}'
             '<form method="post" action="/reset-request">'
             f'{_csrf_input(token)}'
             f'{_label("Email", _input("email", "email", required="required"))}'
