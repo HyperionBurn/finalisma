@@ -160,6 +160,27 @@ def _format_iso(ts: Any) -> str:
             return text
 
 
+def _format_event_payload_html(event: dict) -> str:
+    """Render readable payload content or redaction notice for room event logs."""
+    if event.get("kind") != "room.message":
+        return ""
+    payload = event.get("payload")
+    if not isinstance(payload, dict):
+        return ""
+    if payload.get("redacted"):
+        return ' <span class="muted">[redacted]</span>'
+    inner = payload.get("payload")
+    if isinstance(inner, dict):
+        if "text" in inner:
+            return f' — <code>{_esc(str(inner["text"]))}</code>'
+        return f' — <code>{_esc(json.dumps(inner))}</code>'
+    if inner is not None:
+        return f' — <code>{_esc(str(inner))}</code>'
+    if "text" in payload:
+        return f' — <code>{_esc(str(payload["text"]))}</code>'
+    return ""
+
+
 def _new_csrf() -> str:
     return secrets.token_urlsafe(32)
 
@@ -780,7 +801,10 @@ class WeftWebApp:
                     "origin_agent": r["origin_agent"],
                     "kind": r["kind"],
                     "payload": (
-                        self.rooms._filter_payload_for_agent(raw_payload, agent_id, r["origin_agent"])
+                        self.rooms._filter_payload_for_agent(
+                            raw_payload, agent_id, r["origin_agent"],
+                            owner_agent_id=room["owner_agent_id"],
+                        )
                         if r["kind"] == "room.message"
                         else raw_payload
                     ),
@@ -860,11 +884,12 @@ class WeftWebApp:
         """
         with self.backend.transaction() as tx:
             room = tx.execute(
-                "SELECT 1 FROM cloud_rooms WHERE tenant_id = ? AND room_id = ?",
+                "SELECT owner_agent_id FROM cloud_rooms WHERE tenant_id = ? AND room_id = ?",
                 (tenant_id, room_id),
             ).fetchone()
             if room is None:
                 raise RoomError("room_not_found", "Room not found", 404)
+            owner_agent_id = room["owner_agent_id"]
             rows = tx.execute(
                 "SELECT * FROM cloud_room_event_log WHERE tenant_id = ? AND room_id = ? ORDER BY seq",
                 (tenant_id, room_id),
@@ -878,7 +903,10 @@ class WeftWebApp:
                 "origin_agent": r["origin_agent"],
                 "kind": r["kind"],
                 "payload": (
-                    self.rooms._filter_payload_for_agent(raw_payload, agent_id, r["origin_agent"])
+                    self.rooms._filter_payload_for_agent(
+                        raw_payload, agent_id, r["origin_agent"],
+                        owner_agent_id=owner_agent_id,
+                    )
                     if r["kind"] == "room.message"
                     else raw_payload
                 ),
@@ -2169,11 +2197,13 @@ class WeftWebApp:
 
         events_html = ""
         for e in events[-50:]:
+            payload_html = _format_event_payload_html(e)
             events_html += (
                 f'<li><span class="seq">#{_esc(e["seq"])}</span> '
                 f'{_esc(e["kind"])} <span class="muted">from '
                 f'{_esc(e["origin_agent"])} at '
-                f'{_esc(_format_iso(e.get("created_at")))}</span></li>'
+                f'{_esc(_format_iso(e.get("created_at")))}</span>'
+                f'{payload_html}</li>'
             )
         if not events_html:
             events_html = '<li class="muted">No events yet.</li>'
@@ -2380,10 +2410,12 @@ class WeftWebApp:
             return
         items_html = ""
         for e in events:
+            payload_html = _format_event_payload_html(e)
             items_html += (
                 f'<li><span class="seq">#{_esc(e["seq"])}</span> '
                 f'{_esc(e["kind"])} <span class="muted">from '
-                f'{_esc(e["origin_agent"])}</span></li>'
+                f'{_esc(e["origin_agent"])}</span>'
+                f'{payload_html}</li>'
             )
         body_html = (
             '<h1>Audit log</h1>'

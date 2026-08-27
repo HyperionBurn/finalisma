@@ -519,6 +519,76 @@ class TestEventPoll(unittest.TestCase):
             [e["payload"] for e in lifecycle],
         )
 
+    def test_account_views_broadcast_and_unicast_while_non_addressee_agent_is_redacted(self):
+        from weft_cloud.storage import utc_now_iso
+
+        # 1. Join three agents to the room
+        with self.driver.backend.transaction() as tx:
+            room = tx.execute(
+                "SELECT tenant_id, owner_agent_id FROM cloud_rooms WHERE room_id = ?",
+                (self.room_id,),
+            ).fetchone()
+            tenant_id = room["tenant_id"]
+            now_iso = utc_now_iso()
+            now_ts = time.time()
+            for agent_id in ("ag_sender", "ag_receiver", "ag_other"):
+                tx.execute(
+                    "INSERT INTO cloud_room_members(tenant_id, room_id, agent_id, joined_at, last_seen, status, actor_token_hash) "
+                    "VALUES (?, ?, ?, ?, ?, 'active', ?)",
+                    (tenant_id, self.room_id, agent_id, now_iso, now_ts, f"hash_{agent_id}"),
+                )
+            tx.commit()
+
+        # 2. Agent sender sends a broadcast and a unicast to receiver
+        self.driver.app.rooms.room_send(
+            tenant_id=tenant_id,
+            room_id=self.room_id,
+            sender_agent_id="ag_sender",
+            target_spec="*",
+            payload={"text": "Broadcast notice to all"},
+        )
+        self.driver.app.rooms.room_send(
+            tenant_id=tenant_id,
+            room_id=self.room_id,
+            sender_agent_id="ag_sender",
+            target_spec="ag_receiver",
+            payload={"text": "Secret unicast for receiver only"},
+        )
+
+        # 3. Account (room owner) polls JSON events: both broadcast & unicast are visible
+        status, body, _ = self.driver.get(f"/room/{self.room_id}/events?after_seq=0")
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        messages = [e for e in data["events"] if e["kind"] == "room.message"]
+        self.assertEqual(len(messages), 2)
+        self.assertEqual(messages[0]["payload"]["payload"]["text"], "Broadcast notice to all")
+        self.assertEqual(messages[1]["payload"]["payload"]["text"], "Secret unicast for receiver only")
+
+        # 4. Account views room detail page and audit log: message text is rendered in HTML
+        status, detail_body, _ = self.driver.get(f"/room/{self.room_id}")
+        self.assertEqual(status, 200)
+        self.assertIn("Broadcast notice to all", detail_body)
+        self.assertIn("Secret unicast for receiver only", detail_body)
+
+        status, audit_body, _ = self.driver.get(f"/room/{self.room_id}/audit")
+        self.assertEqual(status, 200)
+        self.assertIn("Broadcast notice to all", audit_body)
+        self.assertIn("Secret unicast for receiver only", audit_body)
+
+        # 5. Non-addressee AGENT polls via API: unicast is REDACTED, broadcast is visible
+        agent_poll = self.driver.app.rooms.poll(tenant_id, self.room_id, after_seq=0, agent_id="ag_other")
+        agent_msgs = [e for e in agent_poll["events"] if e["kind"] == "room.message"]
+        self.assertEqual(len(agent_msgs), 2)
+        # Broadcast is visible to ag_other
+        self.assertEqual(agent_msgs[0]["payload"]["payload"]["text"], "Broadcast notice to all")
+        # Unicast is redacted for ag_other
+        self.assertEqual(agent_msgs[1]["payload"], {"redacted": True, "reason": "not_the_addressee"})
+
+        # 6. Addressee agent sees the unicast unredacted
+        receiver_poll = self.driver.app.rooms.poll(tenant_id, self.room_id, after_seq=0, agent_id="ag_receiver")
+        recv_msgs = [e for e in receiver_poll["events"] if e["kind"] == "room.message"]
+        self.assertEqual(recv_msgs[1]["payload"]["payload"]["text"], "Secret unicast for receiver only")
+
 
 class TestAuditLog(unittest.TestCase):
     """§3.3 + §6.5: GET /room/{room_id}/audit renders the audit log."""
