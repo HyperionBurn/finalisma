@@ -1237,7 +1237,8 @@ class WeftWebApp:
             tx.commit()
         self._redirect(handler, "/login?verify_sent=1")
 
-    def handle_get_login(self, handler: BaseHTTPRequestHandler, *, error: str | None = None) -> None:
+    def handle_get_login(self, handler: BaseHTTPRequestHandler, *, error: str | None = None,
+                         clear_session: bool = False) -> None:
         token = _new_csrf()
         error_html = ""
         if error:
@@ -1256,6 +1257,10 @@ class WeftWebApp:
         )
         body = _page("Log in", form, csrf_token=token)
         handler.send_response(HTTPStatus.OK)
+        if clear_session:
+            # An invalid legacy cookie must not linger while the user signs in
+            # again; retain the old auth-gate invariant on this 200 form path.
+            self._clear_session_cookie(handler)
         self._set_csrf_cookie(handler, token)
         handler.send_header("Content-Type", "text/html; charset=utf-8")
         handler.send_header("Content-Length", str(len(body)))
@@ -2913,6 +2918,17 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
             if method == "GET" and path == "/readyz":
                 app.handle_get_ready(self)
                 return
+
+            # Keep the cookie-backed dashboard's sign-in reachable while the
+            # product shell migrates to bearer auth.  `/login` is the new
+            # React form; anonymous `/legacy` must therefore render the old
+            # server-side CSRF form so a browser can still POST `/login` and
+            # land on the cookie dashboard.
+            if method == "GET" and path in {"/legacy", "/legacy/"}:
+                legacy_raw = app._read_cookie(self, SESSION_COOKIE)
+                if app._session_context(self) is None:
+                    app.handle_get_login(self, clear_session=legacy_raw is not None)
+                    return
 
             # --- Public pre-auth routes (POST) ---
             if method == "POST" and path == "/signup":

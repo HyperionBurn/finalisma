@@ -170,9 +170,11 @@ class TestAuthRefusals(unittest.TestCase):
         # the old dashboard must still be absent from this front door.
         self.assertNotIn("dashboard", body.lower())
 
-        legacy_status, _, legacy_headers = self.d.get("/legacy")
-        self.assertEqual(legacy_status, 303)
-        self.assertTrue(legacy_headers.get("Location", "").startswith("/login"))
+        legacy_status, legacy_body, legacy_headers = self.d.get("/legacy")
+        self.assertEqual(legacy_status, 200)
+        self.assertIn('name="email"', legacy_body)
+        self.assertIsNotNone(self.d.extract_csrf(legacy_body))
+        self.assertNotIn("Location", legacy_headers)
 
     def test_02_get_room_no_cookie_redirects_to_login(self):
         status, body, hdrs = self.d.get("/room/room_A_1")
@@ -189,7 +191,7 @@ class TestAuthRefusals(unittest.TestCase):
         self.assertEqual(status, 303)
         self.assertTrue(hdrs.get("Location", "").startswith("/login"))
 
-    def test_05_get_root_revoked_session_redirects_and_clears_cookie(self):
+    def test_05_get_legacy_revoked_session_renders_login_and_clears_cookie(self):
         self.assertTrue(self.d.signup_verify_login("revoked@example.com", "Password123!"))
         raw_cookie = self.d.cookies["fss_session"]
         # Look up session_id via token_hash, then revoke
@@ -204,13 +206,13 @@ class TestAuthRefusals(unittest.TestCase):
         id_sessions.revoke(self.d.backend, row["session_id"])
         # Now send the old raw cookie
         status, body, hdrs = self.d.get("/legacy", extra_cookie=f"fss_session={raw_cookie}")
-        self.assertEqual(status, 303)
-        self.assertTrue(hdrs.get("Location", "").startswith("/login"))
+        self.assertEqual(status, 200)
+        self.assertIn('name="email"', body)
+        self.assertIsNotNone(self.d.extract_csrf(body))
         # Cookie must be cleared
-        sc = hdrs.get("Set-Cookie", "")
-        self.assertIn("Max-Age=0", sc)
+        self.assertNotIn("fss_session", self.d.cookies)
 
-    def test_06_get_root_expired_session_redirects_to_login(self):
+    def test_06_get_legacy_expired_session_renders_login(self):
         # Create a session directly with ttl=1
         from weft_cloud.identity import sessions as id_sessions
         from weft_cloud.identity import accounts
@@ -227,10 +229,12 @@ class TestAuthRefusals(unittest.TestCase):
         sid, raw = id_sessions.create(self.d.backend, tenant, acct, "owner", ttl_seconds=1)
         time.sleep(1.2)
         status, body, hdrs = self.d.get("/legacy", extra_cookie=f"fss_session={raw}")
-        self.assertEqual(status, 303)
-        self.assertTrue(hdrs.get("Location", "").startswith("/login"))
+        self.assertEqual(status, 200)
+        self.assertIn('name="email"', body)
+        self.assertIsNotNone(self.d.extract_csrf(body))
+        self.assertNotIn("fss_session", self.d.cookies)
 
-    def test_07_get_root_tampered_cookie_redirects_to_login(self):
+    def test_07_get_legacy_tampered_cookie_renders_login(self):
         # A valid-looking token with last char changed
         tampered = "fss_" + "a" * 42
         if tampered[-1] == "a":
@@ -238,8 +242,10 @@ class TestAuthRefusals(unittest.TestCase):
         else:
             tampered = tampered[:-1] + "a"
         status, body, hdrs = self.d.get("/legacy", extra_cookie=f"fss_session={tampered}")
-        self.assertEqual(status, 303)
-        self.assertTrue(hdrs.get("Location", "").startswith("/login"))
+        self.assertEqual(status, 200)
+        self.assertIn('name="email"', body)
+        self.assertIsNotNone(self.d.extract_csrf(body))
+        self.assertNotIn("fss_session", self.d.cookies)
 
     def test_08_post_logout_no_cookie_redirects_no_crash(self):
         status, body, hdrs = self.d.post("/logout", {})

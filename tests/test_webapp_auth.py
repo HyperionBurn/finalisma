@@ -342,9 +342,11 @@ class TestLogin(unittest.TestCase):
         old_cookie = "fss_bogus_pre_login_value"
         saved = self.driver.cookies.copy()
         self.driver.cookies = {"fss_session": old_cookie}
-        status2, _, headers2 = self.driver.get("/legacy")
-        self.assertEqual(status2, 303)
-        self.assertEqual(headers2["Location"], "/login")
+        status2, body2, headers2 = self.driver.get("/legacy")
+        self.assertEqual(status2, 200)
+        self.assertIn('name="email"', body2)
+        self.assertIsNotNone(self.driver.extract_csrf(body2))
+        self.assertNotIn("fss_session", self.driver.cookies)
         self.driver.cookies = saved
 
     def test_refresh_rotates_browser_cookie_with_csrf(self):
@@ -365,9 +367,11 @@ class TestLogin(unittest.TestCase):
         self.assertNotEqual(new_cookie, old_cookie)
 
         self.driver.cookies = {"fss_session": old_cookie}
-        old_status, _, old_headers = self.driver.get("/legacy")
-        self.assertEqual(old_status, 303)
-        self.assertEqual(old_headers["Location"], "/login")
+        old_status, old_body, old_headers = self.driver.get("/legacy")
+        self.assertEqual(old_status, 200)
+        self.assertIn('name="email"', old_body)
+        self.assertIsNotNone(self.driver.extract_csrf(old_body))
+        self.assertNotIn("fss_session", self.driver.cookies)
         self.driver.cookies = {"fss_session": new_cookie}
         new_status, _, _ = self.driver.get("/legacy")
         self.assertEqual(new_status, 200)
@@ -593,9 +597,11 @@ class TestResetPassword(unittest.TestCase):
         # Pre-reset cookie must no longer work.
         saved = self.driver.cookies.copy()
         self.driver.cookies = {"fss_session": pre_reset_cookie}
-        status, _, headers = self.driver.get("/legacy")
-        self.assertEqual(status, 303)
-        self.assertEqual(headers["Location"], "/login")
+        status, body, headers = self.driver.get("/legacy")
+        self.assertEqual(status, 200)
+        self.assertIn('name="email"', body)
+        self.assertIsNotNone(self.driver.extract_csrf(body))
+        self.assertNotIn("fss_session", self.driver.cookies)
         self.driver.cookies = saved
 
 
@@ -627,9 +633,11 @@ class TestLogout(unittest.TestCase):
         # still requires a session.
         status2, _, _ = self.driver.get("/")
         self.assertEqual(status2, 200)
-        legacy_status, _, legacy_headers = self.driver.get("/legacy")
-        self.assertEqual(legacy_status, 303)
-        self.assertEqual(legacy_headers["Location"], "/login")
+        legacy_status, legacy_body, legacy_headers = self.driver.get("/legacy")
+        self.assertEqual(legacy_status, 200)
+        self.assertIn('name="email"', legacy_body)
+        self.assertIsNotNone(self.driver.extract_csrf(legacy_body))
+        self.assertNotIn("fss_session", legacy_headers.get("Set-Cookie", ""))
         _ = saved_cookie  # referenced for clarity
 
     def test_logout_missing_csrf_403_and_preserves_session(self):
@@ -657,15 +665,40 @@ class TestGatedRoutes(unittest.TestCase):
         self.driver.close()
 
     def test_unauthenticated_gated_routes_redirect_to_login(self):
-        for path in ("/legacy", "/org", "/rooms", "/room/nope"):
+        for path in ("/org", "/rooms", "/room/nope"):
             with self.subTest(path=path):
                 status, body, headers = self.driver.get(path)
                 self.assertEqual(status, 303, f"{path} should redirect")
                 self.assertEqual(headers["Location"], "/login")
                 # No dashboard content leaked.
                 self.assertNotIn("Rooms", body)
+
+        # The old cookie-backed lane remains reachable during the transition:
+        # an anonymous visitor gets the server-rendered CSRF form at /legacy,
+        # and can establish the cookie session with POST /login.
+        email = f"legacy{time.time_ns()}@example.com"
+        password = "legacy-password-good"
+        self.driver.backend.create_tenant("tenant-legacy", email, "free")
+        provision_verified_member(self.driver, "tenant-legacy", email, password)
+        status, body, headers = self.driver.get("/legacy")
+        self.assertEqual(status, 200)
+        self.assertIn('name="email"', body)
+        self.assertIsNotNone(self.driver.extract_csrf(body))
+        self.assertNotIn("weft_legacy_session=1", headers.get("Set-Cookie", ""))
+        csrf = self.driver.extract_csrf(body)
+        status, _, headers = self.driver.post(
+            "/login", {"email": email, "password": password, "_csrf": csrf}
+        )
+        self.assertEqual(status, 303)
+        self.assertEqual(headers["Location"], "/legacy")
+        self.assertIn("fss_session", self.driver.cookies)
+        status, body, _ = self.driver.get("/legacy")
+        self.assertEqual(status, 200)
+        self.assertIn("Dashboard", body)
+
         # The app shell stays public, but the migration marker is emitted only
         # when the server actually validates a legacy session cookie.
+        self.driver.cookies.clear()
         status, body, headers = self.driver.get("/app")
         self.assertEqual(status, 200)
         self.assertNotIn('<meta name="weft-legacy-session" content="1">', body)
