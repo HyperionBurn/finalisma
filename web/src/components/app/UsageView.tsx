@@ -4,7 +4,7 @@
  * Every figure here is measured from the live service:
  *   rooms      counted from room_list
  *   members    each room's own member_count against its cap
- *   keys       counted from GET /v1/agent-keys
+ *   keys       counted from GET /v1/agent-keys, excluding revoked rows
  *
  * There is deliberately NO "messages this month" tile. The service exposes no
  * usage endpoint, and the monthly event counter is not readable from any API
@@ -18,9 +18,7 @@
  * than an invented denominator.
  */
 import { useEffect, useState } from 'react';
-import { ApiError, listRooms, roomInfo, type Room } from '../../lib/api';
-
-interface KeyRow { key_id: string }
+import { ApiError, listAgentKeys, listRooms, roomInfo, type Room } from '../../lib/api';
 
 const MEMBER_CAP_FREE = 15; // measured: quota refusal reports value 15, plan "free"
 
@@ -50,12 +48,8 @@ export default function UsageView() {
         });
         setLargest(best);
 
-        const token = localStorage.getItem('weft.session');
-        const kr = await fetch('/v1/agent-keys', { headers: { Authorization: `Bearer ${token}` } });
-        if (kr.ok) {
-          const kd: { keys?: KeyRow[] } = await kr.json();
-          setKeys((kd.keys ?? []).length);
-        }
+        const kd = await listAgentKeys();
+        setKeys((kd.keys ?? []).filter((key) => !key.revoked_at).length);
       } catch (err) {
         const e = err as ApiError;
         if (e.code !== 'unauthenticated') setError(e.message);
