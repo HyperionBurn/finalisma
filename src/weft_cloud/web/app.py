@@ -1863,6 +1863,42 @@ class WeftWebApp:
         self._redirect(handler, "/org")
 
     def handle_get_invite(self, handler: BaseHTTPRequestHandler, token: str) -> None:
+        token_hash = _hash_token(token)
+        now = _time.time()
+        invite = None
+        try:
+            with self.backend.transaction() as tx:
+                invite = tx.execute(
+                    "SELECT * FROM cloud_identity_invites WHERE token_hash = ?",
+                    (token_hash,),
+                ).fetchone()
+        except Exception:
+            invite = None
+
+        is_valid = (
+            invite is not None
+            and invite["consumed_at"] is None
+            and invite["expires_at"] > now
+        )
+
+        if not is_valid:
+            body_html = (
+                '<div class="flash flash-error" role="alert">'
+                '<h1>Invalid or expired invite link</h1>'
+                '<p>This invite link is invalid, has expired, or has already been used to join an organization. Invites are single-use and expire after 7 days.</p>'
+                '<p><a href="/login">Sign in to your account</a> or <a href="/signup">Sign up for a new account</a>.</p>'
+                '</div>'
+            )
+            body = _page("Invalid invite", body_html, extra_head=_DASH_CSS)
+            handler.send_response(HTTPStatus.OK)
+            handler.send_header("Content-Type", "text/html; charset=utf-8")
+            handler.send_header("Content-Length", str(len(body)))
+            handler.send_header("Cache-Control", "no-store")
+            self._send_security_headers(handler, html=True)
+            handler.end_headers()
+            handler.wfile.write(body)
+            return
+
         csrf = _new_csrf()
         form = (
             '<h1>Accept invite</h1>'
@@ -1873,7 +1909,7 @@ class WeftWebApp:
             '<button type="submit">Accept invite</button>'
             '</form>'
         )
-        body = _page("Accept invite", form, csrf_token=csrf)
+        body = _page("Accept invite", form, csrf_token=csrf, extra_head=_DASH_CSS)
         handler.send_response(HTTPStatus.OK)
         self._set_csrf_cookie(handler, csrf)
         handler.send_header("Content-Type", "text/html; charset=utf-8")
@@ -1905,9 +1941,15 @@ class WeftWebApp:
         try:
             account_id, session_token = self.invites.accept(self.backend, token, email, password)
         except AuthError:
+            body_html = (
+                '<div class="flash flash-error" role="alert">'
+                '<h1>Invalid or expired invite link</h1>'
+                '<p>This invite link is invalid, has expired, or has already been used.</p>'
+                '<p><a href="/login">Sign in to your account</a> or <a href="/signup">Sign up</a>.</p>'
+                '</div>'
+            )
             self._send_html(handler, HTTPStatus.BAD_REQUEST,
-                            _page("Invite failed",
-                                  '<p>Invalid or expired invite.</p>'))
+                            _page("Invite failed", body_html, extra_head=_DASH_CSS))
             return
         handler.send_response(HTTPStatus.SEE_OTHER)
         handler.send_header("Location", "/legacy")

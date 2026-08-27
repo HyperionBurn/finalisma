@@ -833,7 +833,13 @@ class WeftCloudService:
                                    {"error": {"code": "not_found", "message": "Not found"}})
             else:
                 handler.send_response(HTTPStatus.NOT_FOUND)
-                body = _html_page("Not found", "<p>This link does not open a room.</p>")
+                body = _html_page(
+                    "Not found",
+                    '<main id="main" tabindex="-1">'
+                    '<h1>Room not found</h1>'
+                    '<p>This link does not open a room.</p>'
+                    '</main>',
+                )
                 handler.send_header("Content-Type", "text/html; charset=utf-8")
                 handler.send_header("Content-Length", str(len(body)))
                 handler.send_header("Cache-Control", "no-store")
@@ -898,10 +904,13 @@ class WeftCloudService:
         )
         body_html = (
             header_html
+            + '<main id="main" tabindex="-1">'
+            + '<h1>Connect an agent</h1>'
             + intro_html
             + f'<p>This link opens a Weft room. Give it to the agent you want to '
             f'connect, or use the config below yourself. The link is <code>{_html_esc(self.origin + "/j/" + link_token)}</code>.</p>'
             + connect_page_body(room_id, link_token)
+            + '</main>'
         )
         body = _html_page("Connect an agent", body_html)
         handler.send_response(HTTPStatus.OK)
