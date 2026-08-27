@@ -41,5 +41,27 @@
     "env": {
       "WEFT_CONTACT_URL": "mailto:wasif@wasifwaseem.tech"
     }
-  }
+  },
+  "redirects": [
+    {
+      "source": "/signup",
+      "destination": "https://weft.switzerlandnorth.cloudapp.azure.com/signup",
+      "permanent": false
+    },
+    {
+      "source": "/login",
+      "destination": "https://weft.switzerlandnorth.cloudapp.azure.com/login",
+      "permanent": false
+    },
+    {
+      "source": "/app",
+      "destination": "https://weft.switzerlandnorth.cloudapp.azure.com/app",
+      "permanent": false
+    },
+    {
+      "source": "/app/:path*",
+      "destination": "https://weft.switzerlandnorth.cloudapp.azure.com/app/:path*",
+      "permanent": false
+    }
+  ]
 }
