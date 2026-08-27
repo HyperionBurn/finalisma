@@ -39,7 +39,8 @@
   ],
   "build": {
     "env": {
-      "WEFT_CONTACT_URL": "mailto:wasif@wasifwaseem.tech"
+      "WEFT_CONTACT_URL": "mailto:wasif@wasifwaseem.tech",
+      "PUBLIC_APP_ORIGIN": "https://weft.switzerlandnorth.cloudapp.azure.com"
     }
   }
 }

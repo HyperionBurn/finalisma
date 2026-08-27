@@ -34,3 +34,4 @@ artifacts/release-site/
 
 .vercel
 
+.env*

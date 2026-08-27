@@ -93,7 +93,13 @@ const requiredStrings = [
   // The cohort form was removed when the landing page was rebuilt from
   // scratch. It is NOT replaced — see the note in the rebuild commit. If a
   // lead-capture form returns, restore a check for it here.
-  'href="/signup"',
+  // The signup CTA deliberately no longer points at a same-origin /signup.
+  // This host is the marketing site; the app lives on its own origin, and
+  // /signup here returned 404 in production — so this assertion was pinning
+  // the very defect it looked like it was guarding. What must not regress is
+  // that the CTA exists and LEADS SOMEWHERE REAL, so assert on the label and
+  // let the href resolve through APP_SIGNUP_URL.
+  'Open a room',
   '$39',
   'See how it works',
   // The "how it works" section is now the pinned room walkthrough at #room.
