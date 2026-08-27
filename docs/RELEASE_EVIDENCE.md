@@ -10,7 +10,7 @@ Measured locally on the current source/test stack (merged base `main` at
 `873796f`; PR114 candidate branch `codex/ops-timer-enforcement-2026-08-23`):
 
 - Command: `python -B -m unittest discover -s tests`
-- Result: **1313 tests discovered; 1312 passed; 1 skipped**
+- Result: **1317 tests discovered; 1301 passed; 16 skipped**
 - Duration: 621.487 seconds on the local Windows runner
 - Focused API-readiness routing/identity suite: 69 tests passed locally
   (`tests.test_probe_live_release`, `tests.test_probe_live_release_contract`,
