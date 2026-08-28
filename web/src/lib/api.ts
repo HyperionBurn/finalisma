@@ -29,6 +29,8 @@
 
 const API_ORIGIN = '';
 const TOKEN_KEY = 'weft.session';
+/** One-tab handoff for a freshly revealed agent key; never put secrets in URLs. */
+export const CONNECT_KEY_HANDOFF = 'weft.connect.key';
 const LEGACY_SESSION_MARKER_COOKIE = 'weft_legacy_session';
 const LEGACY_SESSION_MARKER_META = 'weft-legacy-session';
 

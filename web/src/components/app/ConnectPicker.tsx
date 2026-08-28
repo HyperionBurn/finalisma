@@ -19,7 +19,7 @@
  * config no customer could run.
  */
 import { useEffect, useState } from 'react';
-import { ApiError, createAgentKey } from '../../lib/api';
+import { ApiError, CONNECT_KEY_HANDOFF, createAgentKey } from '../../lib/api';
 import { APP_ORIGIN_EXAMPLE } from '../../lib/app';
 
 type Client = 'claude' | 'cursor' | 'windsurf' | 'codex';
@@ -61,6 +61,17 @@ export default function ConnectPicker() {
   const [minting, setMinting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+
+  // KeysManager offers an explicit one-tab handoff after revealing a key.
+  // Consume it once so a refresh never silently re-displays a credential and
+  // so the secret never has to travel through the URL.
+  useEffect(() => {
+    try {
+      const handoff = sessionStorage.getItem(CONNECT_KEY_HANDOFF);
+      sessionStorage.removeItem(CONNECT_KEY_HANDOFF);
+      if (handoff?.startsWith('agk_')) setKey(handoff);
+    } catch {}
+  }, []);
 
   // `location` is undefined while this page is prerendered, so the fallback is what
   // ships in the static HTML and is what a reader copies before React hydrates.

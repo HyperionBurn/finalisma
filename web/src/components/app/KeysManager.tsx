@@ -15,7 +15,10 @@
  * arms first, and only the second click sends.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { ApiError, createAgentKey, listAgentKeys, revokeAgentKey, type AgentKey } from '../../lib/api';
+import {
+  ApiError, CONNECT_KEY_HANDOFF, createAgentKey, listAgentKeys, revokeAgentKey,
+  type AgentKey,
+} from '../../lib/api';
 
 export default function KeysManager() {
   const [keys, setKeys] = useState<AgentKey[] | null>(null);
@@ -85,6 +88,14 @@ export default function KeysManager() {
     window.setTimeout(() => setCopied(false), 2000);
   };
 
+  // Keep the freshly revealed credential in this tab only when the person
+  // explicitly chooses the connect flow. It never travels in a URL, where
+  // browser history, server logs, and referrers could retain it.
+  const handoffToConnect = () => {
+    if (!fresh?.agent_key) return;
+    try { sessionStorage.setItem(CONNECT_KEY_HANDOFF, fresh.agent_key); } catch {}
+  };
+
   return (
     <>
       {/* the one-time reveal — the only moment this value exists in the UI */}
@@ -97,8 +108,9 @@ export default function KeysManager() {
           </div>
           <p className="warnline">
             We store only a hash of this key, so it cannot be recovered. Paste it into your
-            agent's config now — <a href="/app/connect" style={{ color: 'var(--ink)' }}>the connect page</a> will
-            build the whole config around it.
+            agent's config now — or <a href="/app/connect" onClick={handoffToConnect}
+            style={{ color: 'var(--ink)' }}>use this key on the connect page</a>, which will build
+            the whole config around it.
           </p>
           <button className="btn btn--bare" style={{ marginTop: 10, paddingLeft: 0 }}
                   onClick={() => setFresh(null)}>

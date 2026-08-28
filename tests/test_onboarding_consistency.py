@@ -9,6 +9,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from weft_cloud.web.copy import connect_page_body
 CONNECT_PICKER = ROOT / "web" / "src" / "components" / "app" / "ConnectPicker.tsx"
+KEYS_MANAGER = ROOT / "web" / "src" / "components" / "app" / "KeysManager.tsx"
 AGENT_KEYS = ROOT / "docs" / "AGENT_KEYS.md"
 SDK = ROOT / "docs" / "SDK.md"
 
@@ -20,12 +21,17 @@ def _read(path: Path) -> str:
 class OnboardingConsistencyTests(unittest.TestCase):
     def test_connect_picker_uses_downloaded_bridge_and_utf8_environment(self) -> None:
         copy = _read(CONNECT_PICKER)
+        keys = _read(KEYS_MANAGER)
 
         self.assertIn("PATH = '<path-to-the-file-you-downloaded>'", copy)
         self.assertIn('weft-mcp-bridge.py', copy)
         self.assertIn("'--token-env', 'WEFT_TOKEN'", copy)
         self.assertIn("PYTHONUTF8 = \"1\"", copy)
         self.assertNotIn('actor_token=', copy)
+        self.assertIn("sessionStorage.setItem", keys)
+        self.assertIn("sessionStorage.getItem", copy)
+        self.assertIn("sessionStorage.removeItem", copy)
+        self.assertNotIn("?key=", keys)
 
 
     def test_connect_picker_keeps_host_origin_outside_the_downloaded_path(self) -> None:
