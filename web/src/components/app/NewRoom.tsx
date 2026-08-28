@@ -15,8 +15,8 @@
  * the person chooses.
  *
  * The cap control states the rule that catches everyone out: the account
- * creating the room occupies one of the places, so a cap of 8 admits 7 more
- * agents.
+ * creating the room occupies one of the places, so the default cap of 15 admits
+ * 14 more agents.
  */
 import { useRef, useState } from 'react';
 import { ApiError, createRoom, type CreatedRoom } from '../../lib/api';
@@ -34,7 +34,7 @@ const TTLS = [
 
 export default function NewRoom() {
   const [name, setName] = useState('');
-  const [cap, setCap] = useState(8);
+  const [cap, setCap] = useState(PLAN_MAX);
   const [ttl, setTtl] = useState(DEFAULT_TTL_SECONDS);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

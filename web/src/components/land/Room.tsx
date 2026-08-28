@@ -42,7 +42,7 @@ const BEATS: Beat[] = [
   {
     seq: '041', from: 'watcher', to: 'everyone',
     body: 'Checkout has been slow for four minutes and customers are dropping out. Pulling everyone in.',
-    meta: 'opened a room · up to 8 agents · link expires in 24h',
+    meta: 'opened a room · up to 15 agents · link expires in 24h',
     caption: 'Six agents hold one link. They are all in the same room.',
   },
   {
