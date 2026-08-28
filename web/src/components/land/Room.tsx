@@ -181,12 +181,23 @@ export default function Room() {
 
         <div className="room__caption">
           <span className="room__step">{String(i + 1).padStart(2, '0')} / {String(BEATS.length).padStart(2, '0')}</span>
-          <p key={i}>{beat.caption}</p>
+          <p key={i} role="status" aria-live="polite" aria-atomic="true">{beat.caption}</p>
         </div>
 
         <div className="room__scrub" role="presentation">
           <span style={{ transform: `scaleX(${progress})` }} />
         </div>
+
+        <ol className="room__transcript" aria-label="Room demonstration transcript">
+          {BEATS.map((b, n) => (
+            <li key={`transcript-${b.seq}-${n}`}>
+              <span className="room__transcript__seq">Message {b.seq}</span>
+              <span> {b.from} to {b.to}: {b.body}</span>
+              {b.meta && <span> {b.meta}.</span>}
+              <span> {b.caption}</span>
+            </li>
+          ))}
+        </ol>
       </div>
     </div>
   );

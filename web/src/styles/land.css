@@ -63,6 +63,9 @@ li{list-style:none}
 :focus-visible{outline:2px solid #fff;outline-offset:4px;border-radius:4px}
 .wrap{width:100%;max-width:var(--max);margin:0 auto;padding:0 var(--gut)}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.sr:focus-visible{position:fixed;top:1rem;left:1rem;z-index:100;width:auto;height:auto;
+  overflow:visible;clip:auto;padding:.65rem 1rem;background:var(--pill);color:var(--pill-ink);
+  white-space:normal}
 
 /* word-mask reveal */
 .w__o{display:inline-block;overflow:hidden;vertical-align:top}
@@ -236,11 +239,15 @@ li{list-style:none}
   display:flex;align-items:baseline;gap:18px;min-height:30px}
 .room__step{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--faint);
   letter-spacing:.12em;flex:none}
-.room__caption p{font-size:clamp(15px,1.5vw,20px);color:var(--muted);line-height:1.5;
-  animation:capIn .5s var(--ease) both}
-@keyframes capIn{from{opacity:0;transform:translateY(7px)}}
+.room__caption p{font-size:clamp(15px,1.5vw,20px);color:var(--muted);line-height:1.5}
 .room__scrub{max-width:var(--max);margin:22px auto 0;height:1px;background:var(--line);overflow:hidden}
 .room__scrub span{display:block;height:100%;background:#fff;transform-origin:left center;opacity:.5}
+.room__transcript{max-width:var(--max);margin:24px auto 0;padding:0 var(--gut);
+  color:var(--muted);font-size:15px;line-height:1.6}
+.room__transcript li{list-style:decimal;margin-left:1.4em;padding:7px 0}
+.room__transcript__seq{font-family:'JetBrains Mono',monospace;color:var(--faint)}
+.js .room__transcript{position:absolute;width:1px;height:1px;overflow:hidden;
+  clip:rect(0 0 0 0);white-space:normal}
 
 /* ── figures ─────────────────────────────────────────── */
 .figures{display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));
@@ -308,7 +315,9 @@ footer{border-top:1px solid var(--line);padding:44px 0 66px}
      request except for the blanket duration override far below. Gating it
      here fixes both: the resting colour is unchanged and still AA. */
   @keyframes msgIn{from{opacity:0;transform:translateY(10px)}}
+  @keyframes capIn{from{opacity:0;transform:translateY(7px)}}
   .msg{animation:msgIn .55s var(--ease) both}
+  .room__caption p{animation:capIn .5s var(--ease) both}
   .brand{animation:rise .8s var(--ease) both}
   .links{animation:riseNav .8s var(--ease) both}
   .pill-nav{animation:rise .8s var(--ease) both}

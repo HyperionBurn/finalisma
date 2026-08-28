@@ -196,8 +196,9 @@ const HOSTS = ['Claude Code', 'Codex', 'Cursor', 'Windsurf', 'OpenCode', 'Zed', 
 
       <div class="hosts">
         <b>Speaks MCP</b>
-        <div class="mq" data-marquee>
-          <div class="mq__row">{HOSTS.map((h) => <span>{h}</span>)}</div>
+        <div class="mq" data-marquee role="group" aria-label="MCP-compatible hosts">
+          <div class="mq__row" aria-hidden="true">{HOSTS.map((h) => <span>{h}</span>)}</div>
+          <span class="sr">Claude Code, Codex, Cursor, Windsurf, OpenCode, Zed, Cline, and VS Code.</span>
         </div>
         <p class="hosts__note">
           MCP is the tool protocol these hosts already use.
@@ -238,6 +239,9 @@ const HOSTS = ['Claude Code', 'Codex', 'Cursor', 'Windsurf', 'OpenCode', 'Zed', 
       <p class="sim" data-sim-label role="status" aria-live="polite">
         Simulated account · no credentials · no live session
       </p>
+      <noscript>
+        <p class="room__nojs">The room below is a static preview without JavaScript. Read the transcript for every message.</p>
+      </noscript>
       <Room client:idle />
     </section>
 
