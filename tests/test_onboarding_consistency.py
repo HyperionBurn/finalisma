@@ -32,6 +32,7 @@ class OnboardingConsistencyTests(unittest.TestCase):
         self.assertIn("sessionStorage.getItem", copy)
         self.assertIn("sessionStorage.removeItem", copy)
         self.assertNotIn("?key=", keys)
+        self.assertIn("Headless or CI Codex runs must permit MCP tool calls", copy)
 
 
     def test_connect_picker_keeps_host_origin_outside_the_downloaded_path(self) -> None:
