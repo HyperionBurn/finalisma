@@ -110,6 +110,19 @@ class TestLandingAccessibility(unittest.TestCase):
         self.assertIn("scroll", source)
         self.assertIn("v.load()", source)
 
+    def test_hero_poster_preload_replaces_dead_video_hint(self) -> None:
+        source = INDEX_ASTRO.read_text(encoding="utf-8")
+        self.assertIn(
+            '<link rel="preload" as="image" href={VIDEO_POSTER} />',
+            source,
+            "the poster is the first-view LCP candidate and needs an explicit preload",
+        )
+        self.assertNotIn(
+            '<link rel="preload" as="video">',
+            source,
+            "an empty video preload hint is dead markup and risks restoring eager video fetches",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
