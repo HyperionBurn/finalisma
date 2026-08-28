@@ -971,7 +971,7 @@ class WeftClient:
         return RoomSendResult(
             room_id=result["room_id"],
             seq=result["seq"],
-            envelope=result["envelope"],
+            envelope=result.get("envelope", {}),
             receipts=result["receipts"],
         )
 
