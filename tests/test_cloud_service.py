@@ -27,6 +27,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from weft_cloud.service import WeftCloudService, _CloudHTTPHandler
+from weft_cloud.rooms import DEFAULT_ROOM_TTL_SECONDS
 from weft_cloud.storage import SqliteWalBackend
 
 
@@ -458,6 +459,14 @@ class TestRoomLifecycle(CloudServiceTestBase):
 
     def test_create_room_returns_shareable_link(self) -> None:
         signup = self._signup("owner@example.com", "CorrectHorse!1")
+        before = time.time()
+        domain_room = self.service.rooms.create_room(
+            signup["tenant_id"], signup["account_id"], signup["session_token"],
+            cap=2, name="domain-default", origin=self.base,
+        )
+        self.assertAlmostEqual(
+            domain_room["expires_at"], before + DEFAULT_ROOM_TTL_SECONDS, delta=10,
+        )
         room = self._create_room(signup["session_token"], cap=6, name="test-room")
         self.assertIn("room_id", room)
         self.assertIn("link_token", room)

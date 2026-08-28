@@ -88,6 +88,11 @@ ROOM_STALE_AFTER_SECONDS = 1800.0
 # stays <= window, a tiny fraction of ROOM_STALE_AFTER_SECONDS.
 ROOM_LIVENESS_TOUCH_INTERVAL = 5.0
 
+# A room is collaborative work, so the default lifetime should not expire
+# before a first-time user expects it to. Shorter lifetimes remain available
+# as an explicit choice in the create-room UI and API.
+DEFAULT_ROOM_TTL_SECONDS = 7 * 24 * 60 * 60
+
 
 def _validate_link_id(link_id: Any) -> None:
     """Validate a ``link_id`` is a well-formed control-plane identifier.
@@ -974,7 +979,8 @@ class CloudRoomService:
     # ------------------------------------------------------------------
 
     def create_room(self, tenant_id: str, owner_agent_id: str, actor_token: str,
-                    cap: int = DEFAULT_ROOM_CAP, name: str | None = None, ttl_seconds: int = 86400,
+                    cap: int = DEFAULT_ROOM_CAP, name: str | None = None,
+                    ttl_seconds: int = DEFAULT_ROOM_TTL_SECONDS,
                     origin: str | None = None,
                     actor_account_id: str | None = None) -> dict:
         """Create a room and return its shareable link.

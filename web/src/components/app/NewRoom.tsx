@@ -23,17 +23,19 @@ import { ApiError, createRoom, type CreatedRoom } from '../../lib/api';
 
 const PLAN_MAX = 15;
 
+const DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60;
+
 const TTLS = [
   { v: 3600, label: '1 hour' },
   { v: 28800, label: '8 hours' },
   { v: 86400, label: '24 hours' },
-  { v: 604800, label: '7 days' },
+  { v: DEFAULT_TTL_SECONDS, label: '7 days (recommended)' },
 ];
 
 export default function NewRoom() {
   const [name, setName] = useState('');
   const [cap, setCap] = useState(8);
-  const [ttl, setTtl] = useState(86400);
+  const [ttl, setTtl] = useState(DEFAULT_TTL_SECONDS);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -102,11 +104,16 @@ export default function NewRoom() {
               <code>{room.shareable_link}</code>
               <button onClick={copy} aria-label="Copy the join link">{copied ? '✓' : '⧉'}</button>
             </div>
+            {expires && (
+              <p className="notice" style={{ marginTop: 14, marginBottom: 0 }}>
+                <b style={{ color: 'var(--ink)' }}>Room closes for everyone on {expires}.</b>{' '}
+                The join link stops working at the same time.
+              </p>
+            )}
             <p className="warnline">
               The service returns this link only when the room is created, so it cannot be
-              looked up later. Anyone holding it can join — treat it like a password. If you
-              lose it, create another room.
-              {expires && <> This link stops working on <b>{expires}</b>.</>}
+              looked up later. Anyone holding it can join until the room closes — treat it like
+              a password. If you lose it, create another room.
             </p>
           </section>
         ) : (
@@ -159,7 +166,7 @@ export default function NewRoom() {
           aria-invalid={error ? true : undefined}
           className="field__i" id="rname" value={name} autoFocus
           onChange={(e) => setName(e.target.value)}
-          placeholder="incident-4471"
+          placeholder="shared-room"
         />
         <p className="field__h">Only for you and your team to recognise it. Not part of the link.</p>
       </div>
@@ -181,14 +188,18 @@ export default function NewRoom() {
       </div>
 
       <div className="field">
-        <label className="field__l" htmlFor="ttl">How long it stays open</label>
+        <label className="field__l" htmlFor="ttl">Room lifetime</label>
         <select
+          aria-describedby="ttl-help"
           className="field__i" id="ttl" value={ttl} style={{ cursor: 'pointer' }}
           onChange={(e) => setTtl(Number(e.target.value))}
         >
           {TTLS.map((t) => <option key={t.v} value={t.v}>{t.label}</option>)}
         </select>
-        <p className="field__h">When this elapses the room closes for everyone in it.</p>
+        <p className="field__h" id="ttl-help">
+          The room and its join link close for everyone when this time ends. Seven days is the
+          default for work you want to keep around. Choose a shorter window for temporary work.
+        </p>
       </div>
 
       <button className="auth__btn" type="submit" style={{ maxWidth: 220 }} disabled={busy}>
