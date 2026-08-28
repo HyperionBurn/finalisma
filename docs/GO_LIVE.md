@@ -1,5 +1,13 @@
 # Weft go-live checklist
 
+> [!NOTE]
+> ### SUPERSEDED DOCUMENT — HISTORICAL PRE-LAUNCH CHECKLIST
+> **This document is an early pre-launch checklist with obsolete local preview and deploy instructions:**
+> - **Authoritative Runbooks:** For live VM deployment and operations, see [`docs/VM_OPERATIONS.md`](./VM_OPERATIONS.md) and [`docs/LIVE_DEPLOYMENT.md`](./LIVE_DEPLOYMENT.md).
+> - **Local Execution:** For local development and testing, refer to [`AGENTS.md`](../AGENTS.md) and [`README.md`](../README.md).
+
+---
+
 This is the launch plan for a truthful design-partner release. The current
 product has three real surfaces: the dependency-free single-node coordinator
 (`weft_mcp`, local), the hosted cloud service (`weft_cloud` — accounts,
