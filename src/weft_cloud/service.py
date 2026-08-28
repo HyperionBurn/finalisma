@@ -63,7 +63,12 @@ from weft_cloud.mcp import (
 )
 from weft_cloud.quotas import DEFAULT_ROOM_CAP, QuotaError
 from weft_cloud.rate_limit import RateLimitedError, enforce_auth_rate_limit
-from weft_cloud.rooms import CloudRoomService, RoomError, public_origin
+from weft_cloud.rooms import (
+    DEFAULT_ROOM_TTL_SECONDS,
+    CloudRoomService,
+    RoomError,
+    public_origin,
+)
 from weft_cloud.storage import SqliteWalBackend, StorageBackend
 from weft_cloud.web.security_headers import security_headers
 
@@ -781,7 +786,7 @@ class WeftCloudService:
             )
         cap = body.get("cap", DEFAULT_ROOM_CAP)
         name = body.get("name")
-        ttl_seconds = body.get("ttl_seconds", 86400)
+        ttl_seconds = body.get("ttl_seconds", DEFAULT_ROOM_TTL_SECONDS)
         # The actor token is derived from the session — recorded as an
         # informational hash only; room authorization is bound to the account.
         actor_token = _bearer_token(handler)
@@ -827,7 +832,7 @@ class WeftCloudService:
             )
         cap = body.get("cap", DEFAULT_ROOM_CAP)
         name = body.get("name")
-        ttl_seconds = body.get("ttl_seconds", 86400)
+        ttl_seconds = body.get("ttl_seconds", DEFAULT_ROOM_TTL_SECONDS)
         actor_token = _bearer_token(handler)
         result = self.rooms.create_room(
             ctx.tenant_id, owner_agent_id, actor_token, cap=cap,
@@ -1439,7 +1444,7 @@ class WeftCloudService:
         """List rooms for a member across all tenants (cross-tenant support)."""
         with self.backend.transaction() as tx:
             rows = tx.execute(
-                "SELECT r.room_id, r.tenant_id, r.name, r.state, r.cap, r.owner_agent_id, r.created_at "
+                "SELECT r.room_id, r.tenant_id, r.name, r.state, r.cap, r.owner_agent_id, r.created_at, r.expires_at "
                 "FROM cloud_rooms r "
                 "JOIN cloud_room_members m ON m.room_id = r.room_id AND m.tenant_id = r.tenant_id "
                 "WHERE m.agent_id = ? AND m.status = 'active' "

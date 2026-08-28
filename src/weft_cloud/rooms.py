@@ -1380,6 +1380,7 @@ class CloudRoomService:
                 "name": room["name"],
                 "state": room["state"],
                 "cap": room["cap"],
+                "expires_at": float(room["expires_at"]),
                 "member_count": len(member_list),
                 "members": member_list,
                 "owner_agent_id": room["owner_agent_id"],
@@ -1622,7 +1623,7 @@ class CloudRoomService:
         """List all rooms where the agent is an active member."""
         with self.backend.transaction() as tx:
             rows = tx.execute(
-                "SELECT r.room_id, r.name, r.state, r.cap, r.owner_agent_id, r.created_at "
+                "SELECT r.room_id, r.name, r.state, r.cap, r.owner_agent_id, r.created_at, r.expires_at "
                 "FROM cloud_rooms r "
                 "JOIN cloud_room_members m ON m.room_id = r.room_id AND m.tenant_id = r.tenant_id "
                 "WHERE r.tenant_id = ? AND m.agent_id = ? AND m.status = 'active' "
@@ -1635,7 +1636,7 @@ class CloudRoomService:
         """List all rooms where the agent is an active member, across all tenants."""
         with self.backend.transaction() as tx:
             rows = tx.execute(
-                "SELECT r.room_id, r.tenant_id, r.name, r.state, r.cap, r.owner_agent_id, r.created_at "
+                "SELECT r.room_id, r.tenant_id, r.name, r.state, r.cap, r.owner_agent_id, r.created_at, r.expires_at "
                 "FROM cloud_rooms r "
                 "JOIN cloud_room_members m ON m.room_id = r.room_id AND m.tenant_id = r.tenant_id "
                 "WHERE m.agent_id = ? AND m.status = 'active' "

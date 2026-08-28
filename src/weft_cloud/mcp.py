@@ -58,7 +58,7 @@ from typing import Any, Callable
 from weft_cloud.identity import AuthError, RoleError, SessionContext
 from weft_cloud.quotas import DEFAULT_ROOM_CAP, QuotaError
 from weft_cloud.rate_limit import RateLimitedError
-from weft_cloud.rooms import CloudRoomService, RoomError
+from weft_cloud.rooms import DEFAULT_ROOM_TTL_SECONDS, CloudRoomService, RoomError
 from weft_mcp.core import MCP_PROTOCOL_VERSION, SUPPORTED_MCP_VERSIONS, WeftError
 
 SERVER_NAME = "weft-cloud"
@@ -243,11 +243,11 @@ _ROOM_NAME = {
 _TTL_SECONDS = {
     "type": "integer",
     "description": (
-        "How long the room stays open, in seconds. Defaults to 86400 (24 "
-        "hours). A room-lifetime promise, not merely a link expiry: when it "
+        "How long the room stays open, in seconds. Defaults to 604800 (7 "
+        "days). A room-lifetime promise, not merely a link expiry: when it "
         "elapses the room closes for everyone."
     ),
-    "examples": [3600, 86400],
+    "examples": [3600, DEFAULT_ROOM_TTL_SECONDS],
 }
 _TIMEOUT_SECONDS = {
     "type": "integer",
@@ -785,7 +785,7 @@ class HostedMCPDispatcher:
             actor_token=bearer_token,
             cap=cap,
             name=args.get("name"),
-            ttl_seconds=args.get("ttl_seconds", 86400),
+            ttl_seconds=args.get("ttl_seconds", DEFAULT_ROOM_TTL_SECONDS),
             actor_account_id=ctx.account_id,
         ))
 
@@ -794,7 +794,7 @@ class HostedMCPDispatcher:
         # Cross-tenant memberships are valid, but the connector does not need
         # to expose tenant identifiers to close a room. Room operations resolve
         # the effective tenant from the caller's membership instead.
-        fields = ("room_id", "name", "state", "cap", "owner_agent_id", "created_at")
+        fields = ("room_id", "name", "state", "cap", "owner_agent_id", "created_at", "expires_at")
         return {"rooms": [{field: room[field] for field in fields} for room in rooms]}
 
     def _tool_room_join(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:

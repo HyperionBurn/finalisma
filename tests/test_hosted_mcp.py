@@ -36,6 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from weft_cloud.identity.tokens import AuthError, hash_token
 from weft_cloud.mcp import MAX_JSON_RPC_BYTES
+from weft_cloud.rooms import DEFAULT_ROOM_TTL_SECONDS
 from weft_cloud.service import WeftCloudService, _CloudHTTPHandler
 from weft_cloud.storage import SqliteWalBackend
 
@@ -670,11 +671,16 @@ class HostedMCPRoomFlowTests(HostedMCPTestBase):
             tool for tool in listing["result"]["tools"] if tool["name"] == "room_create"
         )
         self.assertNotIn("cap", room_create["inputSchema"].get("required", []))
+        self.assertIn("604800 (7 days)", room_create["inputSchema"]["properties"]["ttl_seconds"]["description"])
 
+        before = time.time()
         created = self._assert_ok(
             account["session_token"], "room_create", {"name": "default-cap"}, request_id=77,
         )
         self.assertEqual(created["cap"], 15)
+        self.assertAlmostEqual(
+            created["expires_at"], before + DEFAULT_ROOM_TTL_SECONDS, delta=10,
+        )
 
     def test_member_cannot_create_room_through_hosted_mcp(self) -> None:
         """MCP room creation must enforce the same admin boundary as REST."""
@@ -748,6 +754,7 @@ class HostedMCPRoomFlowTests(HostedMCPTestBase):
             "room_id": created["room_id"],
         }, request_id=6)
         self.assertEqual(info["member_count"], 2)
+        self.assertEqual(info["expires_at"], created["expires_at"])
 
     def test_owner_can_list_old_rooms_close_one_and_reclaim_quota(self) -> None:
         """The hosted connector can discover and retire stale rooms.
@@ -767,6 +774,7 @@ class HostedMCPRoomFlowTests(HostedMCPTestBase):
                          {room["room_id"] for room in rooms})
         self.assertNotIn("tenant_id", listed["rooms"][0])
         self.assertTrue(all(room["state"] == "forming" for room in listed["rooms"]))
+        self.assertTrue(all(isinstance(room["expires_at"], (int, float)) for room in listed["rooms"]))
 
         closed = self._assert_ok(owner["session_token"], "room_close",
                                  {"room_id": rooms[0]["room_id"]}, request_id=11)

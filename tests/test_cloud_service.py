@@ -368,17 +368,31 @@ class TestRoomLifecycle(CloudServiceTestBase):
     def test_create_and_connect_default_to_base_room_capacity(self) -> None:
         owner = self._signup("default-cap-owner@example.com", "CorrectHorse!1")
 
+        before_create = time.time()
         status, created = _post(
             self.base, "/v1/rooms/create", {}, owner["session_token"],
         )
         self.assertEqual(status, 201, created)
         self.assertEqual(created["cap"], 15)
+        self.assertAlmostEqual(
+            created["expires_at"], before_create + DEFAULT_ROOM_TTL_SECONDS, delta=10,
+        )
 
+        before_connect = time.time()
         status, connected = _post(
             self.base, "/v1/rooms/connect", {}, owner["session_token"],
         )
         self.assertEqual(status, 201, connected)
         self.assertEqual(connected["cap"], 15)
+        self.assertAlmostEqual(
+            connected["expires_at"], before_connect + DEFAULT_ROOM_TTL_SECONDS, delta=10,
+        )
+
+        status, listed = _get(self.base, "/v1/rooms", owner["session_token"])
+        self.assertEqual(status, 200, listed)
+        listed_room = next(room for room in listed["rooms"]
+                           if room["room_id"] == created["room_id"])
+        self.assertEqual(listed_room["expires_at"], created["expires_at"])
 
     def test_member_cannot_create_room_and_leaves_no_rows(self) -> None:
         owner = self._signup("room-role-owner@example.com", "CorrectHorse!1")
@@ -467,6 +481,7 @@ class TestRoomLifecycle(CloudServiceTestBase):
         self.assertAlmostEqual(
             domain_room["expires_at"], before + DEFAULT_ROOM_TTL_SECONDS, delta=10,
         )
+        before_http = time.time()
         room = self._create_room(signup["session_token"], cap=6, name="test-room")
         self.assertIn("room_id", room)
         self.assertIn("link_token", room)
@@ -474,6 +489,9 @@ class TestRoomLifecycle(CloudServiceTestBase):
         self.assertEqual(room["cap"], 6)
         self.assertEqual(room["state"], "forming")
         self.assertTrue(room["link_token"].startswith("rm_"))
+        self.assertAlmostEqual(
+            room["expires_at"], before_http + DEFAULT_ROOM_TTL_SECONDS, delta=10,
+        )
 
     def test_owner_auto_joined(self) -> None:
         signup = self._signup("owner2@example.com", "CorrectHorse!1")
@@ -760,6 +778,7 @@ class TestRoomLifecycle(CloudServiceTestBase):
         )
         self.assertEqual(status, 200, info)
         self.assertEqual(info["member_count"], 2)
+        self.assertEqual(info["expires_at"], room["expires_at"])
 
     def test_revoke_link_rejects_unknown_cross_room_and_repeated_ids(self) -> None:
         owner = self._signup("revoke-errors-owner@example.com", "CorrectHorse!1")
