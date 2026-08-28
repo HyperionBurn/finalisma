@@ -97,6 +97,19 @@ class TestLandingAccessibility(unittest.TestCase):
         self.assertIn("'Create a free account'", guard)
         self.assertNotIn("'Open a room'", guard)
 
+    def test_hero_video_waits_for_engagement_after_poster_paint(self) -> None:
+        source = INDEX_ASTRO.read_text(encoding="utf-8")
+        video = re.search(r'<video class="plate-video"(?P<body>.*?)</video>', source, re.S)
+        self.assertIsNotNone(video, "the landing hero needs its poster-backed video element")
+        body = video.group("body")
+        self.assertIn('preload="none"', body)
+        self.assertIn('poster={VIDEO_POSTER}', body)
+        self.assertIn('data-video-src={VIDEO}', body)
+        self.assertNotIn('<source src={VIDEO}', body)
+        self.assertIn("pointerdown", source)
+        self.assertIn("scroll", source)
+        self.assertIn("v.load()", source)
+
 
 if __name__ == "__main__":
     unittest.main()
