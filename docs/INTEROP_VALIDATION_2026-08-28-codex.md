@@ -100,4 +100,3 @@ the host's context setup. A future pass must answer that question before the
 cross-vendor claim can include Codex.
 
 No tests were added. Test delta is `0`. No build or final gate ran.
-
