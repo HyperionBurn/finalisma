@@ -35,7 +35,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from http import HTTPStatus
 from typing import Any, Callable, Mapping
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from weft_cloud.identity import (
     AccountStore,
@@ -988,24 +988,67 @@ class WeftCloudService:
                 f'</div>'
             )
 
-        intro_html = (
-            f'<div style="background:#0e0e0e;border:1px solid #222;border-radius:8px;padding:16px 20px;margin-bottom:28px;">'
-            f'<p style="margin:0 0 8px;color:#fafafa;font-weight:500;">Connect an agent to this room</p>'
-            f'<p style="margin:0 0 8px;font-size:13px;color:#8b8a8a;">This room coordinates independent AI agents with a shared, consent-gated event log. '
-            f'Room owners have administrative visibility over message history in rooms they create. '
-            f'Messages between collaborator agents are protected by per-recipient redaction from all other room members.</p>'
-            f'<p style="margin:0;font-size:13px;color:#8b8a8a;">Share this link with your agent or configure an MCP client below.</p>'
-            f'</div>'
+        if ctx is None:
+            next_step = (
+                "Sign in or create an account above. After that, you will return "
+                "here and can join the room."
+            )
+        elif is_member:
+            next_step = (
+                "You already belong to this room. Use the dashboard link above "
+                "to open it."
+            )
+        else:
+            next_step = (
+                "Choose Join this room above. Once you join, Weft will take you "
+                "straight to the room you were invited to."
+            )
+
+        invitation_html = (
+            f'<section aria-labelledby="invitation-heading" style="background:#0e0e0e;border:1px solid #222;border-radius:8px;padding:16px 20px;margin-bottom:28px;">'
+            f'<h2 id="invitation-heading" style="font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#8b8a8a;margin:0 0 12px;">Your invitation</h2>'
+            f'<p style="margin:0 0 10px;color:#fafafa;">{_html_esc(next_step)}</p>'
+            f'<p style="margin:0 0 10px;font-size:13px;color:#a7a6a6;">'
+            f'This invite works with your Weft account, even if you use a different organisation '
+            f'(joining is cross-tenant). The link IS the authorization for this invitation, '
+            f'so anyone who gets it can join.</p>'
+            f'<p style="margin:0 0 10px;font-size:13px;color:#a7a6a6;">'
+            f'<strong>Keep this link private.</strong> Treat this URL like a password. '
+            f'Share it only with the intended person and ask the room owner to revoke the link '
+            f'if it is exposed.</p>'
+            f'<p style="margin:0;font-size:13px;color:#8b8a8a;">'
+            f'Room owners can see the shared room history. Private messages are redacted for '
+            f'members who were not included.</p>'
+            f'</section>'
+        )
+
+        # ``connect_page_body`` is the canonical machine-client guide, but its
+        # opening paragraphs are written for integrators and repeat the link
+        # safety warning. Keep those facts in the visitor-facing section above
+        # and start the collapsed guide at the actionable setup steps so the
+        # page does not lead with protocol jargon.
+        technical_body = connect_page_body(room_id, link_token)
+        technical_start = technical_body.find("<h2>Step 1")
+        if technical_start >= 0:
+            technical_body = technical_body[technical_start:]
+        technical_html = (
+            '<details style="background:#0e0e0e;border:1px solid #222;border-radius:8px;padding:16px 20px;margin-bottom:28px;">'
+            '<summary style="cursor:pointer;color:#fafafa;font-weight:600;">Technical setup for connecting an agent</summary>'
+            '<div style="padding-top:18px;">'
+            '<h2 style="font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#8b8a8a;margin:0 0 12px;">Connect an agent</h2>'
+            '<p style="color:#a7a6a6;margin:0 0 14px;">If you are setting up an AI agent yourself, follow the steps below.</p>'
+            + technical_body
+            + '</div></details>'
         )
         body_html = (
             header_html
             + '<main id="main" tabindex="-1">'
             + f'<h1>{_html_esc(room_name)}</h1>'
             + join_card_html
-            + intro_html
+            + invitation_html
+            + technical_html
             + f'<p>This link opens a Weft room. Give it to the agent you want to '
             f'connect, or use the config below yourself. The link is <code>{_html_esc(self.origin + "/j/" + link_token)}</code>.</p>'
-            + connect_page_body(room_id, link_token)
             + '</main>'
         )
         body = _html_page(f"Join {room_name}", body_html)
@@ -1078,7 +1121,7 @@ class WeftCloudService:
             pass
 
         handler.send_response(HTTPStatus.SEE_OTHER)
-        handler.send_header("Location", "/app")
+        handler.send_header("Location", f"/app/room?id={quote(room_id, safe='')}")
         handler.send_header("Content-Length", "0")
         handler.send_header("Cache-Control", "no-store")
         handler._send_security_headers()

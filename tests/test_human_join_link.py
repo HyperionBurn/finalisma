@@ -139,6 +139,17 @@ class TestHumanJoinLinkMPAI64(unittest.TestCase):
         self.assertIn("Alpha Collab Room", body)
         self.assertIn('href="/login', body)
         self.assertIn('href="/signup', body)
+        self.assertIn("Your invitation", body)
+        self.assertIn("Keep this link private", body)
+        self.assertIn("Technical setup", body)
+        self.assertLess(
+            body.index("Join Alpha Collab Room"),
+            body.index("Your invitation"),
+        )
+        self.assertLess(
+            body.index("Your invitation"),
+            body.index("Technical setup"),
+        )
         # API documentation is still present
         self.assertIn("Connect an agent", body)
 
@@ -153,7 +164,11 @@ class TestHumanJoinLinkMPAI64(unittest.TestCase):
         # 2. POST to join
         post_status, _, headers = self._post(f"/j/{self.link_token}", cookie=self.guest_session)
         self.assertEqual(post_status, 303)
-        self.assertIn("Location", headers)
+        self.assertEqual(
+            headers.get("Location"),
+            f"/app/room?id={self.room_id}",
+            "a newly joined visitor must land in the room they accepted",
+        )
 
         # 3. Verify guest is now an active member of the room
         with self.backend.transaction() as tx:
@@ -200,8 +215,15 @@ class TestHumanJoinLinkMPAI64(unittest.TestCase):
         self.assertIn("Join this room", get_body)
 
         # POST /j/<link_token> to join room
-        post_status, _, _ = self._post(f"/j/{self.link_token}", cookie=raw_cookie)
+        post_status, _, post_headers = self._post(
+            f"/j/{self.link_token}", cookie=raw_cookie,
+        )
         self.assertEqual(post_status, 303)
+        self.assertEqual(
+            post_headers.get("Location"),
+            f"/app/room?id={self.room_id}",
+            "signup followed by Join must open the invited room",
+        )
 
     def test_real_browser_signin_sets_cookie_and_enables_join_button(self):
         """POST /v1/auth/signin issues Set-Cookie fss_session, and GET /j/<token> sees it (MPAI-66)."""
