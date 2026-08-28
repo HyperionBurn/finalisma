@@ -1,5 +1,15 @@
 # Orchestration workflow
 
+> [!CAUTION]
+> ### STALE / OBSOLETE DOCUMENT — DO NOT FOLLOW WORKFLOW OR MERGE INSTRUCTIONS
+> **This document describes an obsolete pre-hive orchestration model and contains instructions that are STRICTLY FORBIDDEN in this repository:**
+> 1. **`git merge` is FORBIDDEN.** `workflow.md` mentions merging branches when they land. In this repo, `git merge` has repeatedly and quietly reverted critical security fixes, test suites, and build guards. You must **NEVER run `git merge`**. Always cherry-pick or check out specific paths instead.
+> 2. **Obsolete Runner & Scripts:** Instructions referencing `opencode run`, `LongCat-2.0`, `scripts/check_branch.sh`, or Waves A–G are historical artifacts.
+> 
+> **Authoritative Contract:** All active agents MUST follow [`AGENTS.md`](./AGENTS.md) and the Hive protocol.
+
+---
+
 How this project is built. CEO (Claude Code) directs; opencode orchestrators execute; LongCat-2.0
 lanes fan out. This file is **self-improving** — §8 defines how it updates. Read §7 before
 debugging anything; most of it has already been hit and diagnosed.
