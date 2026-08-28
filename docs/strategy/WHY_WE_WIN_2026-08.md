@@ -1,6 +1,6 @@
 # Why Weft wins — August 2026
 
-**Status:** evidence-backed strategy report  
+**Status:** evidence-backed strategy report
 **Scope:** the job Weft can demonstrate today: putting independent agent clients and a human owner into one shared, ordered room.
 
 This is a case for one coordination primitive, not a claim that Weft replaces an agent framework, A2A, Slack, or MCP. The useful question is narrower:
