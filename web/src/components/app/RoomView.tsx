@@ -20,7 +20,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ApiError, closeRoom, joinRoom, listOrgMembers, me, pollRoom, roomInfo, sendMessage,
+  ApiError, closeRoom, joinRoom, listOrgMembers, me, pollRoom, roomInfo, roomLink, sendMessage,
   type Member, type Me, type OrgMember, type RoomEvent,
 } from '../../lib/api';
 
@@ -35,6 +35,7 @@ export default function RoomView({ roomId }: Props) {
   const [identityDirectory, setIdentityDirectory] = useState<Record<string, string>>({});
   const [roomName, setRoomName] = useState<string | null>(null);
   const [link, setLink] = useState<string | null>(null);
+  const [shareableLink, setShareableLink] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -81,10 +82,19 @@ export default function RoomView({ roomId }: Props) {
         (who && (info?.owner_agent_id === who.account_id || info?.owner_agent_id === who.agent_id))
       );
       setIsOwner(ownerCheck);
-      // NOT: info.room.link_token. room_info has no nested `room` object and
-      // never returns the token - only link_id and link_revoked. That read
-      // was always undefined, so `link` stays null and the panel below
-      // correctly says the link cannot be looked up again.
+      if (ownerCheck) {
+        try {
+          const recovered = await roomLink(roomId);
+          setLink(recovered.link_token);
+          setShareableLink(recovered.shareable_link);
+        } catch {
+          setLink(null);
+          setShareableLink(null);
+        }
+      } else {
+        setLink(null);
+        setShareableLink(null);
+      }
       const evs = page.events ?? [];
       setEvents(evs);
       cursor.current = evs.length ? evs[evs.length - 1].seq : 0;
@@ -221,8 +231,8 @@ export default function RoomView({ roomId }: Props) {
   }
 
   const copyLink = async () => {
-    if (!link) return;
-    try { await navigator.clipboard.writeText(`${location.origin}/j/${link}`); } catch {}
+    if (!shareableLink) return;
+    try { await navigator.clipboard.writeText(shareableLink); } catch {}
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1800);
   };
@@ -291,9 +301,7 @@ export default function RoomView({ roomId }: Props) {
 
           {events.map((e) => {
             const isRedacted = Boolean(e.payload?.redacted);
-            const text = isRedacted
-              ? '[private message]'
-              : (e.payload?.text ?? e.payload?.payload?.text ?? summarise(e, viewer, identityDirectory));
+            const text = extractEventText(e, viewer, identityDirectory);
             const pending = e.event_id.startsWith('pending-');
             const system = e.kind !== 'room.message';
             return (
@@ -308,7 +316,7 @@ export default function RoomView({ roomId }: Props) {
                     {system && <span className="tag">{e.kind.replace('room.', '')}</span>}
                     {isRedacted && <span className="tag tag--muted">private</span>}
                   </p>
-                  <p className={`ev__body${isRedacted ? ' ev__body--muted' : ''}`}>
+                  <p className={`ev__body${isRedacted ? ' ev__body--muted' : ''}`} style={{ whiteSpace: 'pre-wrap' }}>
                     {system ? summarise(e, viewer, identityDirectory) : text}
                   </p>
                 </div>
@@ -434,21 +442,26 @@ export default function RoomView({ roomId }: Props) {
 
         <div className="insp__sec">
           <p className="insp__l">Join link</p>
-          {link ? (
+          {isOwner && link && shareableLink ? (
             <>
               <div className="token">
-                <code>{link}</code>
+                <code>{shareableLink}</code>
                 <button onClick={copyLink} aria-label="Copy join link">{copied ? '✓' : '⧉'}</button>
               </div>
               <p className="warnline">
-                Anyone holding this link can join, from any account. Treat it like a password.
+                This is the same link created for this room and remains valid until the room
+                closes. Anyone holding it can join, from any account, so treat it like a password.
               </p>
             </>
+          ) : isOwner ? (
+            <p className="warnline" style={{ marginTop: 0 }}>
+              The existing join link could not be loaded. Try again shortly; no replacement was
+              generated and any link already shared remains valid.
+            </p>
           ) : (
             <p className="warnline" style={{ marginTop: 0 }}>
-              The join link is returned once, when the room is created, and the service does
-              not hand it back afterwards — it is a credential, not a property of the room.
-              If you no longer have it, create a new room and keep the link this time.
+              Only the room owner can view or copy this room's join link. Ask the owner to share
+              it with the agents you want to admit.
             </p>
           )}
         </div>
@@ -622,4 +635,26 @@ function summarise(
   if (kind === 'closed') return 'room closed';
   if (e.payload?.redacted) return '[private message]';
   return kind;
+}
+
+function extractEventText(
+  e: RoomEvent,
+  viewer: Me | null = null,
+  directory: Record<string, string> = {},
+): string {
+  if (e.payload?.redacted) return '[private message]';
+  const inner = e.payload?.payload !== undefined ? e.payload.payload : e.payload;
+  if (typeof inner === 'string') return inner;
+  if (typeof inner === 'object' && inner !== null) {
+    if (typeof inner.text === 'string') return inner.text;
+    if (typeof inner.message === 'string') {
+      return inner.title ? `${inner.title}\n\n${inner.message}` : inner.message;
+    }
+    if (typeof inner.body === 'string') {
+      return inner.subject ? `${inner.subject}\n\n${inner.body}` : inner.body;
+    }
+    if (typeof inner.announcement === 'string') return inner.announcement;
+    return JSON.stringify(inner, null, 2);
+  }
+  return summarise(e, viewer, directory);
 }

@@ -20,9 +20,12 @@ the cloud storage interface.
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import hmac
 import json
 import os
+from pathlib import Path
 import re
 import secrets
 import threading
@@ -66,6 +69,109 @@ def _token_hash(token: str) -> str:
     if not isinstance(token, str) or len(token) < 16 or len(token) > 512:
         raise ValueError("token must be a non-empty opaque capability")
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+_ROOM_LINK_KEY_BYTES = 32
+_ROOM_LINK_KEY_ENV = "WEFT_ROOM_LINK_KEY"
+_ROOM_LINK_KEY_SUFFIX = ".room-link-key"
+_ROOM_LINK_CIPHER_PREFIX = b"weft-room-link/v1"
+_EPHEMERAL_ROOM_LINK_KEY = secrets.token_bytes(_ROOM_LINK_KEY_BYTES)
+
+
+def _load_room_link_key(backend: StorageBackend) -> bytes:
+    """Load the key used to seal recoverable room-link capabilities.
+
+    Room links remain hashed for lookup. Recovery needs a reversible copy, so
+    the token is sealed with an operator-provided key when
+    ``WEFT_ROOM_LINK_KEY`` is configured. Local/dev installs get a private,
+    mode-0600 sidecar next to the SQLite database; this keeps two services
+    sharing the database on the same host in sync without putting the bearer
+    capability or its key in SQLite. Backends without a stable path use a
+    process key (suitable only for ephemeral test stores).
+    """
+    configured = os.environ.get(_ROOM_LINK_KEY_ENV, "").strip()
+    if configured:
+        return hashlib.sha256(configured.encode("utf-8")).digest()
+
+    state_path = getattr(backend, "state_path", None)
+    if (
+        not state_path
+        or str(state_path) == ":memory:"
+        or Path(str(state_path)).name == ":memory:"
+    ):
+        return _EPHEMERAL_ROOM_LINK_KEY
+    key_path = Path(str(state_path)).expanduser().resolve()
+    key_path = key_path.with_name(key_path.name + _ROOM_LINK_KEY_SUFFIX)
+    try:
+        key = key_path.read_bytes()
+    except FileNotFoundError:
+        key = secrets.token_bytes(_ROOM_LINK_KEY_BYTES)
+        try:
+            fd = os.open(str(key_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            key = key_path.read_bytes()
+        else:
+            try:
+                os.write(fd, key)
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+    if len(key) != _ROOM_LINK_KEY_BYTES:
+        raise RuntimeError("room-link key has invalid length")
+    try:
+        os.chmod(key_path, 0o600)
+    except OSError:
+        pass
+    return key
+
+
+def _room_link_keystream(key: bytes, nonce: bytes, length: int) -> bytes:
+    chunks: list[bytes] = []
+    counter = 0
+    generated = 0
+    while generated < length:
+        chunks.append(hmac.new(
+            key,
+            _ROOM_LINK_CIPHER_PREFIX + nonce + counter.to_bytes(4, "big"),
+            hashlib.sha256,
+        ).digest())
+        generated += hashlib.sha256().digest_size
+        counter += 1
+    return b"".join(chunks)[:length]
+
+
+def _seal_room_link_token(token: str, key: bytes) -> str:
+    plaintext = token.encode("utf-8")
+    nonce = secrets.token_bytes(16)
+    stream = _room_link_keystream(key, nonce, len(plaintext))
+    ciphertext = bytes(left ^ right for left, right in zip(plaintext, stream))
+    tag = hmac.new(
+        key, _ROOM_LINK_CIPHER_PREFIX + nonce + ciphertext, hashlib.sha256
+    ).digest()
+    encoded = base64.urlsafe_b64encode(nonce + ciphertext + tag).decode("ascii")
+    return "v1." + encoded
+
+
+def _open_room_link_token(sealed: str | None, key: bytes) -> str | None:
+    if not isinstance(sealed, str) or not sealed.startswith("v1."):
+        return None
+    try:
+        payload = base64.urlsafe_b64decode(sealed[3:].encode("ascii"))
+    except (ValueError, TypeError):
+        return None
+    if len(payload) < 16 + 32:
+        return None
+    nonce, ciphertext, tag = payload[:16], payload[16:-32], payload[-32:]
+    expected = hmac.new(
+        key, _ROOM_LINK_CIPHER_PREFIX + nonce + ciphertext, hashlib.sha256
+    ).digest()
+    if not hmac.compare_digest(tag, expected):
+        return None
+    stream = _room_link_keystream(key, nonce, len(ciphertext))
+    try:
+        return bytes(left ^ right for left, right in zip(ciphertext, stream)).decode("utf-8")
+    except UnicodeDecodeError:
+        return None
 
 
 _MESSAGE_KIND_RE = re.compile(r"^[a-z0-9_-]{1,32}$")
@@ -587,6 +693,7 @@ CREATE TABLE IF NOT EXISTS cloud_room_links (
     room_id TEXT NOT NULL,
     tenant_id TEXT NOT NULL,
     token_hash TEXT NOT NULL UNIQUE,
+    token_ciphertext TEXT,
     created_by TEXT NOT NULL,
     created_at TEXT NOT NULL,
     expires_at REAL NOT NULL,
@@ -647,6 +754,9 @@ class CloudRoomService:
 
     def __init__(self, backend: StorageBackend) -> None:
         self.backend = backend
+        self._room_link_key = _load_room_link_key(backend)
+        self._room_link_tokens: dict[tuple[str, str, str], str] = {}
+        self._room_link_token_lock = threading.RLock()
         # SQLite serializes writers, but the rate window is checked in a
         # separate transaction from the event append. Serialize keyed sends
         # in-process so two same-key retries cannot both consume the budget
@@ -668,9 +778,18 @@ class CloudRoomService:
         """
         with self.backend.transaction() as tx:
             tx.executescript(_ROOM_SCHEMA_SQL)
+            self._ensure_link_ciphertext_column(tx)
             self._ensure_message_kind_column(tx)
             self._ensure_resume_marker_column(tx)
             tx.commit()
+
+    def _ensure_link_ciphertext_column(self, tx: Any) -> None:
+        """Add recoverable-link ciphertext to databases created pre-MPAI-22."""
+        row = tx.execute(
+            "SELECT 1 FROM pragma_table_info('cloud_room_links') WHERE name = 'token_ciphertext'"
+        ).fetchone()
+        if row is None:
+            tx.execute("ALTER TABLE cloud_room_links ADD COLUMN token_ciphertext TEXT")
 
     def _ensure_message_kind_column(self, tx: Any) -> None:
         """Add the ``message_kind`` column to an existing event log if missing."""
@@ -1054,9 +1173,11 @@ class CloudRoomService:
                 (room_id, tenant_id, owner_agent_id, name, cap, link_id, now, expires_at),
             )
             tx.execute(
-                "INSERT INTO cloud_room_links(link_id, room_id, tenant_id, token_hash, created_by, created_at, expires_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (link_id, room_id, tenant_id, _token_hash(raw_token), owner_agent_id, now, expires_at),
+                "INSERT INTO cloud_room_links(link_id, room_id, tenant_id, token_hash, token_ciphertext, created_by, created_at, expires_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (link_id, room_id, tenant_id, _token_hash(raw_token),
+                 _seal_room_link_token(raw_token, self._room_link_key),
+                 owner_agent_id, now, expires_at),
             )
             # Owner auto-joins.
             tx.execute(
@@ -1074,6 +1195,9 @@ class CloudRoomService:
             self._append_event(tx, tenant_id, room_id, owner_agent_id, "room.joined",
                                {"agent_id": owner_agent_id, "status": "active"})
             tx.commit()
+
+        with self._room_link_token_lock:
+            self._room_link_tokens[(tenant_id, room_id, link_id)] = raw_token
 
         return {
             "room_id": room_id,
@@ -1368,13 +1492,30 @@ class CloudRoomService:
             member_list = []
             for m in members:
                 age = max(0.0, _time.time() - float(m["last_seen"]))
-                member_list.append({
+                display_name = None
+                key_row = tx.execute(
+                    "SELECT label FROM cloud_identity_agent_keys WHERE tenant_id = ? AND key_id = ?",
+                    (tenant_id, m["agent_id"]),
+                ).fetchone()
+                if key_row is not None:
+                    display_name = key_row["label"]
+                else:
+                    acct_row = tx.execute(
+                        "SELECT email FROM cloud_identity_accounts WHERE tenant_id = ? AND account_id = ?",
+                        (tenant_id, m["agent_id"]),
+                    ).fetchone()
+                    if acct_row is not None:
+                        display_name = acct_row["email"]
+                mem_item = {
                     "agent_id": m["agent_id"],
                     "status": "stale" if age > ROOM_STALE_AFTER_SECONDS else "active",
                     "capabilities": _parse_json(m["capabilities_json"], []),
                     "last_seen": float(m["last_seen"]),
                     "joined_at": m["joined_at"],
-                })
+                }
+                if display_name:
+                    mem_item["display_name"] = display_name
+                member_list.append(mem_item)
             result = {
                 "room_id": room_id,
                 "name": room["name"],
@@ -1400,6 +1541,89 @@ class CloudRoomService:
                     result["link_id"] = link["link_id"]
                     result["link_revoked"] = bool(link["revoked"])
             return result
+
+    def room_link(
+        self,
+        tenant_id: str,
+        room_id: str,
+        agent_id: str,
+        owner_agent_id: str | None = None,
+    ) -> dict:
+        """Return the existing room link to its owner, without rotating it.
+
+        ``room_info`` remains safe for ordinary members and intentionally does
+        not carry a bearer capability. This separate surface performs the
+        stricter owner check before opening the sealed token and returns the
+        same token that was minted at room creation. A legacy row with no
+        ciphertext can be upgraded in place when this process still has the
+        token in its short-lived cache; otherwise recovery fails closed rather
+        than inventing a replacement or exposing a hash as a link.
+        """
+        with self.backend.transaction() as tx:
+            room = self._require_room(tx, tenant_id, room_id)
+            self._require_member(tx, tenant_id, room_id, agent_id)
+            owner_identity = owner_agent_id or agent_id
+            if room["owner_agent_id"] != owner_identity:
+                raise RoomError("owner_required", "Only the room owner can view the join link", 403)
+            if owner_identity != agent_id:
+                self._require_member(tx, tenant_id, room_id, owner_identity)
+            link = tx.execute(
+                "SELECT link_id, token_hash, token_ciphertext, expires_at, revoked "
+                "FROM cloud_room_links WHERE tenant_id = ? AND room_id = ? LIMIT 1",
+                (tenant_id, room_id),
+            ).fetchone()
+            if link is None:
+                raise RoomError("link_not_found", "Link not found for this room", 404)
+            if link["revoked"]:
+                raise RoomError("link_revoked", "Link has been permanently revoked", 410)
+            if room["state"] == "closed":
+                raise RoomError("room_closed", "Room is closed", 409)
+            if float(link["expires_at"]) <= _time.time():
+                raise RoomError("link_expired", "Link has expired", 410)
+
+            raw_token = _open_room_link_token(link["token_ciphertext"], self._room_link_key)
+            if raw_token is None:
+                with self._room_link_token_lock:
+                    cached = self._room_link_tokens.get(
+                        (tenant_id, room_id, link["link_id"])
+                    )
+                if cached is not None:
+                    try:
+                        if _token_hash(cached) == link["token_hash"]:
+                            raw_token = cached
+                            tx.execute(
+                                "UPDATE cloud_room_links SET token_ciphertext = ? "
+                                "WHERE link_id = ? AND tenant_id = ? AND room_id = ?",
+                                (_seal_room_link_token(cached, self._room_link_key),
+                                 link["link_id"], tenant_id, room_id),
+                            )
+                    except ValueError:
+                        raw_token = None
+            if raw_token is None:
+                raise RoomError(
+                    "link_unavailable",
+                    "The existing join link is unavailable; contact support",
+                    503,
+                )
+            try:
+                matches = _token_hash(raw_token) == link["token_hash"]
+            except ValueError:
+                matches = False
+            if not matches:
+                raise RoomError(
+                    "link_unavailable",
+                    "The existing join link is unavailable; contact support",
+                    503,
+                )
+            tx.commit()
+        with self._room_link_token_lock:
+            self._room_link_tokens[(tenant_id, room_id, link["link_id"])] = raw_token
+        return {
+            "room_id": room_id,
+            "link_id": link["link_id"],
+            "link_token": raw_token,
+            "expires_at": float(link["expires_at"]),
+        }
 
     def leave_room(self, tenant_id: str, room_id: str, agent_id: str) -> dict:
         with self.backend.transaction() as tx:
@@ -1573,11 +1797,10 @@ class CloudRoomService:
     def regenerate_link(self, tenant_id: str, room_id: str, owner_agent_id: str) -> dict:
         """Replace a room's raw link after the web process lost its cache.
 
-        The database stores only the hash, so regeneration is deliberately an
-        owner-only action that returns one fresh raw token to the current web
-        process. Updating the single link row atomically invalidates the old
-        token without persisting a bearer secret. A revoked, closed, or expired
-        link cannot be silently re-enabled by this recovery path.
+        This legacy internal method remains owner-only for callers that still
+        need explicit rotation. It atomically invalidates the old token and
+        updates its sealed copy; the normal owner recovery path is
+        :meth:`room_link`, which never rotates or invalidates a live link.
         """
         now = utc_now_iso()
         now_epoch = _time.time()
@@ -1601,9 +1824,10 @@ class CloudRoomService:
             if float(link["expires_at"]) < now_epoch:
                 raise RoomError("link_expired", "Link has expired", 410)
             cursor = tx.execute(
-                "UPDATE cloud_room_links SET token_hash = ?, created_at = ? "
+                "UPDATE cloud_room_links SET token_hash = ?, token_ciphertext = ?, created_at = ? "
                 "WHERE link_id = ? AND tenant_id = ? AND room_id = ? AND revoked = 0",
-                (_token_hash(raw_token), now, link["link_id"], tenant_id, room_id),
+                (_token_hash(raw_token), _seal_room_link_token(raw_token, self._room_link_key),
+                 now, link["link_id"], tenant_id, room_id),
             )
             if cursor.rowcount != 1:
                 raise RoomError("link_not_found", "Link not found for this room", 404)
@@ -1612,6 +1836,8 @@ class CloudRoomService:
                 {"link_id": link["link_id"]},
             )
             tx.commit()
+        with self._room_link_token_lock:
+            self._room_link_tokens[(tenant_id, room_id, link["link_id"])] = raw_token
         return {
             "room_id": room_id,
             "link_id": link["link_id"],
