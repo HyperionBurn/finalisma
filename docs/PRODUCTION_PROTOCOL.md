@@ -1,5 +1,12 @@
 # Weft Link and Session Protocol
 
+> [!NOTE]
+> ### SUPERSEDED DOCUMENT — MERGED INTO PROTOCOL_V2
+> **This interim protocol draft is superseded:**
+> - **Authoritative Protocol Spec:** All link-pairing, event ordering, and capability invariants described here are fully incorporated into [`docs/PROTOCOL_V2.md`](./PROTOCOL_V2.md) and [`docs/ROOMS_DESIGN.md`](./ROOMS_DESIGN.md).
+
+---
+
 This is the production-oriented pairing layer added to the Weft MVP. It
 turns a user-shareable link or prompt into a governed, resumable channel
 between two independent agent hosts. The browser simulation on the launch site
