@@ -137,7 +137,7 @@ class LaunchSurfaceTests(unittest.TestCase):
             SITE / "docs" / "protocol.html",
             SITE / "docs" / "index.html",
             ROOT / "web" / "src" / "lib" / "app.ts",
-            ROOT / "web" / "src" / "components" / "ConnectTiers.astro",
+            ROOT / "web" / "src" / "components" / "app" / "ConnectPicker.tsx",
         ]
         stale_origin = "weft.switzerlandnorth.cloudapp.azure.com"
         for path in public_surfaces:

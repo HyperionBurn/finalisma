@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from weft_cloud.web.copy import connect_page_body
-CONNECT_TIERS = ROOT / "web" / "src" / "components" / "ConnectTiers.astro"
+CONNECT_PICKER = ROOT / "web" / "src" / "components" / "app" / "ConnectPicker.tsx"
 AGENT_KEYS = ROOT / "docs" / "AGENT_KEYS.md"
 SDK = ROOT / "docs" / "SDK.md"
 
@@ -18,25 +18,23 @@ def _read(path: Path) -> str:
 
 
 class OnboardingConsistencyTests(unittest.TestCase):
-    def test_connect_tiers_prefers_agent_keys_for_hosted_copy(self) -> None:
-        copy = _read(CONNECT_TIERS)
+    def test_connect_picker_uses_downloaded_bridge_and_utf8_environment(self) -> None:
+        copy = _read(CONNECT_PICKER)
 
-        self.assertIn('<agk_ agent key>', copy)
-        self.assertNotIn('<fss_ session token>', copy)
-        self.assertIn('via an MCP stdio\n        bridge configured for remote mode', copy)
+        self.assertIn("PATH = '<path-to-the-file-you-downloaded>'", copy)
+        self.assertIn('weft-mcp-bridge.py', copy)
+        self.assertIn("'--token-env', 'WEFT_TOKEN'", copy)
+        self.assertIn("PYTHONUTF8 = \"1\"", copy)
+        self.assertNotIn('actor_token=', copy)
 
 
-    def test_connect_tiers_sdk_example_uses_hosted_bearer_mode(self) -> None:
-        copy = _read(CONNECT_TIERS)
+    def test_connect_picker_keeps_host_origin_outside_the_downloaded_path(self) -> None:
+        copy = _read(CONNECT_PICKER)
 
-        self.assertIn('result = client.join_room(', copy)
-        self.assertIn('link_token="rm_..."', copy)
-        self.assertIn('consent=True', copy)
-        self.assertIn('const SDK_CODE = HOSTED_SDK_CODE', copy)
-        self.assertIn('coordinator_url="${HOSTED_ORIGIN}/mcp"', copy)
-        self.assertIn('bearer_token=os.environ["WEFT_TOKEN"]', copy)
-        self.assertNotIn('SELF_HOSTED_SDK_CODE', copy)
-        self.assertNotIn('client._call("room_join", {', copy)
+        self.assertIn('APP_ORIGIN_EXAMPLE', copy)
+        self.assertIn('useState(APP_ORIGIN_EXAMPLE)', copy)
+        self.assertIn("'--remote', origin", copy)
+        self.assertIn('const [origin, setOrigin]', copy)
 
 
     def test_cloud_connect_page_keeps_hosted_and_self_hosted_boundaries_clear(self) -> None:

@@ -96,37 +96,38 @@ test('mobile navigation exposes state and focuses inside the dialog', () => {
   assert.match(source, /focusFirstControl/);
 });
 
-test('connection tabs use a roving tabindex', () => {
-  const source = read('web/src/components/ConnectTiers.astro');
-  assert.match(source, /tabindex=\{i === 0 \? 0 : -1\}/);
-  assert.match(source, /setAttribute\(['"]tabindex['"], active \? ['"]0['"] : ['"]-1['"]\)/);
+test('agent configuration tabs name their panel', () => {
+  const source = read('web/src/components/app/ConnectPicker.tsx');
+  assert.match(source, /role="tablist"/);
+  assert.match(source, /role="tab"/);
+  assert.match(source, /aria-controls="config-tabpanel"/);
+  assert.match(source, /role="tabpanel"/);
 });
 
-test('cohort brief validates the email control before copying', () => {
-  const source = read('web/src/components/Pricing.astro');
-  assert.match(source, /contactControl\.checkValidity\(\)/);
-  assert.match(source, /Enter a valid contact email/);
+test('landing pricing exposes a free plan and signup path', () => {
+  const source = read('web/src/pages/index.astro');
+  assert.match(source, /<section class="band" id="pricing">/);
+  assert.match(source, /<div class="plans">/);
+  assert.match(source, /<p class="plan__n">Free<\/p>/);
+  assert.match(source, /href=\{APP_SIGNUP_URL\}/);
 });
 
-test('cohort brief keeps a selectable fallback when clipboard access is blocked', () => {
-  const source = read('web/src/components/Pricing.astro');
-  assert.match(source, /data-cohort-brief/);
-  assert.match(source, /readonly hidden/);
-  assert.match(source, /showManualCopy\(text\)/);
-  assert.match(source, /briefEl\.hidden = false/);
-  assert.match(source, /briefEl\.focus\(\)/);
-  assert.match(source, /Copy was blocked — review the brief below/);
+test('landing pricing distinguishes free and paid plans', () => {
+  const source = read('web/src/pages/index.astro');
+  assert.match(source, /<p class="plan__p">\$0<\/p>/);
+  assert.match(source, /\$39 <small>per seat, per month<\/small>/);
+  assert.match(source, /<p class="plan__n">Team<\/p>/);
+  assert.match(source, /Talk to us/);
 });
 
-test('marketing copy distinguishes the simulated demo from a live session', () => {
-  const liveDemo = read('web/src/components/LiveDemo.astro');
-  const pricing = read('web/src/components/Pricing.astro');
-  assert.match(liveDemo, /A simulated coordinator run/);
-  assert.match(pricing, /simulated demo depicts two agents/);
-  assert.doesNotMatch(pricing, /the demo on this page runs two agents/);
+test('landing room copy distinguishes the simulation from a live session', () => {
+  const source = read('web/src/pages/index.astro');
+  assert.match(source, /Simulated account[^\n]*no credentials[^\n]*no live session/);
+  assert.match(source, /static preview without JavaScript/);
+  assert.doesNotMatch(source, /\bLive demo\b/i);
 });
 
-test('skip targets are keyboard-focusable and connection tabs are named', () => {
+test('skip targets are keyboard-focusable and the host marquee is named', () => {
   for (const file of ['site/docs/index.html', 'site/docs/compatibility.html', 'site/404.html']) {
     assert.match(
       read(file),
@@ -134,9 +135,15 @@ test('skip targets are keyboard-focusable and connection tabs are named', () => 
       `${file} main target must accept focus after skip-link activation`
     );
   }
+  const source = read('web/src/pages/index.astro');
+  assert.match(
+    source,
+    /<div class="mq"[^>]*data-marquee[^>]*role="group"[^>]*aria-label="MCP-compatible hosts">/,
+    'the active landing host marquee must expose a useful group name'
+  );
   assert.match(
     read('site/index.html'),
-    /role="tablist"[^>]*aria-labelledby="connect-title"/,
-    'the connection tablist must expose its section heading as its accessible name'
+    /<div class="mq"[^>]*data-marquee[^>]*role="group"[^>]*aria-label="MCP-compatible hosts">/,
+    'the generated landing host marquee must preserve its accessible name'
   );
 });

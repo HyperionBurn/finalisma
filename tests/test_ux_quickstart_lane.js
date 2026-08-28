@@ -41,42 +41,18 @@ test('quickstart states the hosted/self-hosted tool boundary and bridge prerequi
   );
   assert.match(read('site/index.html'), /PYTHONUTF8/);
 
-  const connectSource = read('web/src/components/ConnectTiers.astro');
-  const renderedBridge = read('site/index.html')
+  const connectSource = read('web/src/components/app/ConnectPicker.tsx');
+  const renderedConnect = read('site/app/connect/index.html')
     .replaceAll('&#34;', '"')
     .replaceAll('&quot;', '"');
-  for (const document of [connectSource, renderedBridge]) {
-    assert.match(document, /ClipboardBridge\(store\)/);
-    assert.match(document, /team_id=["']demo["']/);
-    assert.match(document, /agent_id=["']agent-a["']/);
-    assert.match(document, /endpoint=["']http:\/\/127\.0\.0\.1:8787["']/);
-    assert.match(document, /pairing\[?["']pairing_id["']\]?/);
-    assert.match(document, /pairing\[?["']join_token["']\]?/);
-    assert.doesNotMatch(document, /coordinator_db=|nonce=/);
-  }
-
-  assert.match(
-    connectSource,
-    /coordinator_url="\$\{HOSTED_ORIGIN\}\/mcp"/,
-    'the SDK source must target the hosted origin'
-  );
-  assert.match(
-    renderedBridge,
-    /coordinator_url="https:\/\/YOUR-VERIFIED-WEFT-ORIGIN\/mcp"/,
-    'the checked-in site must keep the hosted origin explicit until verified'
-  );
-  assert.match(connectSource, /bearer_token=os\.environ\["WEFT_TOKEN"\]/);
-  assert.match(renderedBridge, /bearer_token=os\.environ\["WEFT_TOKEN"\]/);
-  assert.doesNotMatch(connectSource, /SELF_HOSTED_SDK_CODE/);
-  assert.doesNotMatch(renderedBridge, /coordinator_url="http:\/\/127\.0\.0\.1:8787\/mcp"/);
-  const sdkPanelStart = renderedBridge.indexOf('id="tier-panel-sdk"');
-  const sdkCopyStart = renderedBridge.indexOf('data-copy="sdk"', sdkPanelStart);
-  assert.ok(sdkPanelStart >= 0 && sdkCopyStart > sdkPanelStart, 'the generated SDK panel must exist');
-  assert.doesNotMatch(
-    renderedBridge.slice(sdkPanelStart, sdkCopyStart),
-    /actor_token=/,
-    'the generated SDK panel must not teach self-hosted actor credentials'
-  );
+  assert.match(connectSource, /weft-mcp-bridge\.py/);
+  assert.match(connectSource, /--token-env/);
+  assert.match(connectSource, /PYTHONUTF8/);
+  assert.match(connectSource, /PATH = '<path-to-the-file-you-downloaded>'/);
+  assert.match(connectSource, /args: \['-B', PATH, '--remote', origin, '--token-env', 'WEFT_TOKEN'\]/);
+  assert.match(renderedConnect, /weft-mcp-bridge\.py/);
+  assert.match(renderedConnect, /PYTHONUTF8/);
+  assert.match(renderedConnect, /Create a key for this agent/);
 
   const hostedTools = [
     'room_create', 'room_join', 'room_send', 'room_receipts', 'room_poll',
