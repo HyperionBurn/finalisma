@@ -149,6 +149,8 @@ class LaunchSurfaceTests(unittest.TestCase):
         app_source = (ROOT / "web" / "src" / "lib" / "app.ts").read_text(encoding="utf-8")
         self.assertIn("PUBLIC_APP_ORIGIN", app_source)
         self.assertIn("SELF_HOSTED_PROOF_URL", app_source)
+        signup_source = (ROOT / "web" / "src" / "pages" / "signup.astro").read_text(encoding="utf-8")
+        self.assertIn('heading="Create your account"', signup_source)
         pilot = (SITE / "docs" / "pilot.html").read_text(encoding="utf-8")
         self.assertIn("Run the self-hosted proof", pilot)
         security = (SITE / "docs" / "security.html").read_text(encoding="utf-8")
