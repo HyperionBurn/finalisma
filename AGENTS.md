@@ -181,6 +181,20 @@ Several agents commit to `hive/land` at once. Assume someone else is editing rig
 - **HEAD moves under you.** Do not assume the commit you started from is still current.
 - Pull before you start; expect generated bundle hashes to move.
 
+**Some suite failures in the working tree are not real.** `python -m unittest discover` run in
+the shared checkout will report failures that the gate does not see, because the gate reads the
+`git archive`, not your tree. Two known-innocent ones:
+
+- **CRLF assertions on deploy scripts.** `core.autocrlf=true` gives you CRLF on disk while
+  `.gitattributes` (`*.sh text eol=lf`) forces LF into the commit. `scripts/final-verify.sh`
+  currently carries 429 CR bytes in the worktree and **zero** in the committed blob. Check the
+  blob before reporting it: `git show HEAD:<path> | tr -dc '\r' | wc -c`.
+- **The published test-count sync.** It compares live discovery against the committed ratchet, so
+  it reads as failing for everyone between someone adding a test and the orchestrator raising the
+  baseline with the build. That reconciliation is the orchestrator's, not yours.
+
+Report what the *archive* says, not what your tree says.
+
 ---
 
 ## 9. Failure modes already seen in this project
