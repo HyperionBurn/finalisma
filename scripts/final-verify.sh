@@ -387,6 +387,35 @@ echo "  INFO  tool surface: ${tool_count:-0} actual, ${expected_tool_count:-0} e
 chk "tool surface matches EXPECTED_TOOL_NAMES" "0" "${bad_count:-1}"
 
 echo
+echo "=== NODE TESTS ==="
+# These files existed for weeks and this gate never executed them. On 2026-08-28
+# tests/test_ux_a11y.js was found sitting at 8/9 - one assertion had been failing
+# against a landing section the redesign removed, and nothing reported it, because
+# the gate only ever ran the Python suite. A test the gate does not run is not a
+# test, it is a comment.
+node_test_files="$(ls tests/*.js 2>/dev/null | tr '
+' ' ')"
+if [ -z "$node_test_files" ]; then
+  echo "  INFO  no node test files under tests/"
+elif ! command -v node >/dev/null 2>&1; then
+  # Deliberately a failure rather than a skip. Silently passing because the
+  # runner is absent is the exact hole this section exists to close.
+  echo "  FAIL  node test files exist but node is not on PATH - cannot verify them"
+  fail=$((fail+1))
+else
+  NODE_LOG="${TMPDIR:-/tmp}/weft-final-node-$$.log"
+  if node --test $node_test_files > "$NODE_LOG" 2>&1; then
+    echo "  PASS  node --test  $(grep -aoE 'pass [0-9]+' "$NODE_LOG" | head -1)"
+    pass=$((pass+1))
+  else
+    echo "  FAIL  node --test - real failures"
+    grep -aE '^(not ok|# fail|fail [0-9]+)' "$NODE_LOG" 2>/dev/null | head -8 | sed 's/^/           /'
+    fail=$((fail+1))
+  fi
+  rm -f "$NODE_LOG"
+fi
+
+echo
 echo "  ---- $pass passed, $fail failed ----"
 if [ "$fail" -eq 0 ] && [ "$verdict_rc" -eq 0 ]; then
   echo "  READY TO DEPLOY"
