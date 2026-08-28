@@ -1,5 +1,13 @@
 # Weft Coordination Protocol Preview 0.1
 
+> [!NOTE]
+> ### SUPERSEDED PROTOCOL SPECIFICATION (weft.a2a/1.0)
+> **This document describes the initial 1.0 unicast task-coordination protocol preview:**
+> - **Authoritative Protocol Spec:** The current multi-agent coordination protocol is `weft.a2a/2.0`, documented authoritatively in [`docs/PROTOCOL_V2.md`](./PROTOCOL_V2.md) and [`docs/ROOMS_DESIGN.md`](./ROOMS_DESIGN.md).
+> - `weft.a2a/2.0` introduces multi-agent rooms, monotonic sequence numbers, broadcast addressing (`*`), addressee filtering/redaction, and delivery receipts.
+
+---
+
 Weft is a coordination protocol carried by MCP tools. MCP provides the
 host-neutral discovery and call boundary; Weft defines the durable team
 semantics behind those calls.
