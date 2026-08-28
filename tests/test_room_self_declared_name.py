@@ -209,23 +209,30 @@ class SelfDeclaredNameTests(unittest.TestCase):
 
     # ---- T5  impersonation ---------------------------------------
     def test_impersonation_name_is_flagged_not_identical(self):
-        # A same-tenant member the service can actually resolve.
-        insider = self._signup("dana@acme.test", tenant_id=self.owner["tenant_id"])
-        self._join(insider)
-        # Stranger claims the insider's resolved name verbatim.
-        self._join(self.stranger, display_name="dana@acme.test")
+        # The owner always resolves within their own tenant, so use them as the
+        # member being impersonated. The cross-tenant stranger claims that exact
+        # name.
+        owner_name = "owner@acme.test"
+        self._join(self.stranger, display_name=owner_name)
 
         members = self._members()
-        insider_m = members[insider["account_id"]]
+        owner_m = members[self.owner["account_id"]]
         faker_m = members[self.stranger["account_id"]]
 
-        self.assertEqual(insider_m.get("display_name_source"), "resolved")
+        # Same visible string...
+        self.assertEqual(owner_m["display_name"], owner_name)
+        self.assertEqual(faker_m["display_name"], owner_name)
+        # ...but the source field is what stops them rendering identically: the
+        # client marks a self_declared name as unverified.
+        self.assertEqual(owner_m["display_name_source"], "resolved")
         self.assertEqual(faker_m["display_name_source"], "self_declared")
-        # Same string, but the source field lets the client mark one unverified.
-        self.assertEqual(faker_m["display_name"], "dana@acme.test")
-        # NOTE: the "must not render identically" assertion lives in the RoomView
-        # component test (quotes + collision disambiguation). This test pins the
-        # server contract the client relies on.
+        self.assertNotEqual(
+            faker_m["display_name_source"], owner_m["display_name_source"],
+            "a claimed name is indistinguishable from a verified one",
+        )
+        # NOTE: the "must not render identical text" assertion also lives in the
+        # RoomView component test (quotes + collision disambiguation). This pins
+        # the server contract that test relies on.
 
     # ---- T6  injection ----------------------------------------
     def test_markup_in_name_is_stored_verbatim_and_flagged(self):
