@@ -52,9 +52,18 @@ Three things it enforces that regularly catch people:
 
 **The test-count ratchet.** `scripts/test-count-baseline.txt`, `docs/RELEASE_EVIDENCE.md`
 (`"N tests discovered; P passed; S skipped"`, where P+S must equal N) and `docs/YC_APPLICATION.md`
-(`"N passing"`) must agree with live discovery. If your change moves the test count, **all of
-them must land in the SAME commit as the tests.** A split ratchet commit blocks the next deploy
-for whoever comes after you.
+(`"N passing"`) must agree with live discovery.
+
+**Who reconciles it: the orchestrator, in the build commit — not you.** The evidence line needs a
+measured *passed* and *skipped* split, which only a full suite run produces, and that run takes
+~10 minutes. When several agents land tests in the same window, per-agent reconciliation forces
+either a fabricated number or N serialised suite runs racing each other to a value that is stale
+before it is written. So: **commit your tests alone.** State the delta in your report ("adds 2
+cases"). The orchestrator runs the suite once, reconciles all three files, and commits them
+alongside the authoritative build immediately before gating.
+
+Never write a pass total you did not measure this session, and never start a second `discover`
+run to get one while another is already in flight — ask instead.
 
 **Site freshness.** `site/.web-src-hash` must match `scripts/web-src-hash.cjs` run over
 `web/src`. This is what stops a source change shipping with stale bundles — the worst failure
