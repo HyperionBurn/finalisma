@@ -13,6 +13,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -69,9 +70,10 @@ class TestFallbackPagesMPAI63(unittest.TestCase):
         self.backend.close()
         self._tmp.cleanup()
 
-    def _get_app(self, path: str):
+    def _get_app(self, path: str, cookie: str | None = None):
         conn = http.client.HTTPConnection(self.app_host, self.app_port, timeout=10)
-        conn.request("GET", path)
+        headers = {"Cookie": f"fss_session={cookie}"} if cookie else {}
+        conn.request("GET", path, headers=headers)
         resp = conn.getresponse()
         body = resp.read().decode("utf-8", errors="replace")
         conn.close()
@@ -164,6 +166,48 @@ class TestFallbackPagesMPAI63(unittest.TestCase):
         self.assertIn("<h1>", body)
         self.assertIn("</h1>", body)
         self.assertIn("Connect an agent", body)
+
+    def test_invite_storage_error_renders_actionable_html(self):
+        """A database failure is not misreported as an invalid invite."""
+        with mock.patch.object(
+            self.backend,
+            "transaction",
+            side_effect=RuntimeError("database internals"),
+        ):
+            status, body = self._get_app("/invite/fiv_server_error_test_token")
+        self.assertEqual(status, 500)
+        self.assertIn("<h1>Something went wrong</h1>", body)
+        self.assertIn("Try again", body)
+        self.assertIn('href="/login"', body)
+        self.assertIn('href="/signup"', body)
+        self.assertNotIn("Invalid or expired invite", body)
+        self.assertNotIn("database internals", body)
+        self.assertNotIn("Traceback", body)
+
+    def test_legacy_storage_error_renders_actionable_html(self):
+        """A signed-in dashboard failure gets a useful HTML recovery page."""
+        from weft_cloud.identity.accounts import signup
+
+        email = f"legacy_error_{time.time_ns()}@example.com"
+        account_id, _ = signup(
+            self.backend, "tenant_legacy_error", email, "Password123!",
+        )
+        _, session_token = self.app.sessions.create(
+            self.backend, "tenant_legacy_error", account_id, "owner",
+        )
+        with mock.patch.object(
+            self.app,
+            "_list_rooms_for_account",
+            side_effect=RuntimeError("dashboard internals"),
+        ):
+            status, body = self._get_app("/legacy", cookie=session_token)
+        self.assertEqual(status, 500)
+        self.assertIn("<h1>Something went wrong</h1>", body)
+        self.assertIn("Try again", body)
+        self.assertIn('href="/legacy"', body)
+        self.assertIn('href="/login"', body)
+        self.assertNotIn("dashboard internals", body)
+        self.assertNotIn("Traceback", body)
 
 
 if __name__ == "__main__":

@@ -17,6 +17,7 @@ import time
 import tempfile
 import threading
 import unittest
+from unittest import mock
 from pathlib import Path
 import sys
 
@@ -26,6 +27,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from weft_cloud.storage import SqliteWalBackend
 from weft_cloud.identity.schema import ensure_schema
 from weft_cloud.identity.accounts import signup
+from weft_cloud.rooms import RoomError
 from weft_cloud.service import WeftCloudService, _CloudHTTPHandler
 
 
@@ -196,6 +198,72 @@ class TestHumanJoinLinkMPAI64(unittest.TestCase):
         data = json.loads(body)
         self.assertEqual(data["service"], "weft")
         self.assertEqual(data["room_id"], self.room_id)
+
+    def test_expired_join_link_renders_actionable_gone_page(self):
+        """An expired link explains why it cannot be used and offers a way forward."""
+        with self.backend.transaction() as tx:
+            tx.execute(
+                "UPDATE cloud_room_links SET expires_at = ? WHERE link_id = ?",
+                (time.time() - 1, self.room["link_id"]),
+            )
+            tx.commit()
+
+        status, body, headers = self._get(f"/j/{self.link_token}")
+        self.assertEqual(status, 410)
+        self.assertEqual(headers.get("Content-Type"), "text/html; charset=utf-8")
+        self.assertIn("<h1>Join link expired</h1>", body)
+        self.assertIn("Ask the room owner for a new link", body)
+        self.assertIn('href="/login"', body)
+        self.assertIn('href="/signup"', body)
+        self.assertNotIn("Traceback", body)
+
+    def test_closed_room_link_renders_actionable_gone_page(self):
+        """A link for a closed room tells the visitor the room is closed."""
+        with self.backend.transaction() as tx:
+            tx.execute(
+                "UPDATE cloud_rooms SET state = 'closed' WHERE room_id = ?",
+                (self.room_id,),
+            )
+            tx.commit()
+
+        status, body, _ = self._get(f"/j/{self.link_token}")
+        self.assertEqual(status, 410)
+        self.assertIn("<h1>Room is closed</h1>", body)
+        self.assertIn("Ask the room owner to create a new room", body)
+        self.assertIn('href="/"', body)
+
+    def test_join_failure_does_not_redirect_into_a_dead_end(self):
+        """A room closing between GET and POST renders the reason instead of redirecting anyway."""
+        with mock.patch.object(
+            self.service.rooms,
+            "join_room",
+            side_effect=RoomError("room_closed", "Room is closed", 409),
+        ):
+            status, body, headers = self._post(
+                f"/j/{self.link_token}", cookie=self.guest_session,
+            )
+        self.assertEqual(status, 409)
+        self.assertNotIn("Location", headers)
+        self.assertIn("<h1>Room is closed</h1>", body)
+        self.assertIn("Ask the room owner to create a new room", body)
+
+    def test_join_route_server_error_renders_actionable_html(self):
+        """A descriptor storage failure must not disconnect the browser or expose a traceback."""
+        with mock.patch.object(
+            self.service.rooms,
+            "resolve_room_by_link_token",
+            side_effect=RuntimeError("database internals"),
+        ):
+            status, body, headers = self._get(f"/j/{self.link_token}")
+        self.assertEqual(status, 500)
+        self.assertEqual(headers.get("Content-Type"), "text/html; charset=utf-8")
+        self.assertIn("<h1>We couldn", body)
+        self.assertIn("load this room link</h1>", body)
+        self.assertIn("Try again", body)
+        self.assertIn('href="/login"', body)
+        self.assertIn('href="/signup"', body)
+        self.assertNotIn("database internals", body)
+        self.assertNotIn("Traceback", body)
 
     def test_real_browser_signup_sets_cookie_and_enables_join_button(self):
         """POST /v1/auth/signup issues Set-Cookie fss_session, and GET /j/<token> sees it (MPAI-66)."""
