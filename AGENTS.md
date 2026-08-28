@@ -15,9 +15,13 @@ orchestrator and is authoritative over any older document that disagrees with it
 build guard. Check out or cherry-pick specific paths instead. This is a standing instruction from
 the repo owner, not a preference.
 
-**Never `git add -A`.** Stage explicit paths. `git add -A` against a mid-edit tree is what
-produced the broken `b4f3026` snapshot. With several agents sharing this checkout, `-A` will now
-also sweep up other people's half-finished work and commit it under your message.
+**Never `git add -A`, and commit by path: `git commit -- <paths>`.** `git add -A` against a
+mid-edit tree is what produced the broken `b4f3026` snapshot. But in a shared checkout, staging
+explicit paths is *not enough on its own* — `git commit` commits the **index**, not the paths you
+just added, so anything another agent has already staged rides along under your subject line.
+This happened on 2026-08-28: a one-path `git add AGENTS.md` followed by `git commit` shipped 41
+files, absorbing another agent's entire in-flight fix into a docs commit. Name the paths on the
+commit itself.
 
 **Commit source only. Do not run `npm run build`. Do not commit anything under `site/`.**
 Astro deletes `site/` before it regenerates, so a build that fails midway leaves the generated
@@ -192,6 +196,17 @@ Several agents commit to `hive/land` at once. Assume someone else is editing rig
    compared two encodings of identical content. Failing closed is the right direction, but prove
    your guard green on a known-good input before you commit it.
 7. **Attributing a commit by its subject line** — read `git show --stat`, not the message.
+8. **A shared git index** — §1. One agent's `git commit` absorbed another's staged fix and
+   shipped it under an unrelated subject. The history is now wrong even though the code is right,
+   and it was not worth rewriting a shared branch to correct.
+9. **A dev-mode environment variable leaking into a production build** — the launching shell
+   exported `NODE_ENV=development`, and `astro build` only sets `NODE_ENV` with `||=`, so it never
+   overrode it. Production shipped a development React for an unknown period: 334 KB instead of
+   178 KB, dev warning paths live for every visitor. It also crashed static route generation with
+   `dispatcher.getOwner is not a function`, because ES `import` statements are hoisted — any
+   inline guard in `astro.config.mjs` runs *after* `@astrojs/react` has already cached the dev
+   copy. The guard has to be its own first import (`web/build-env.mjs`). Do not assume the build
+   environment is clean because the config is.
 
 ---
 
