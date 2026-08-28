@@ -30,13 +30,17 @@ export default function RoomsList() {
       // of rendering a guessed count in the list.
       const roomsWithCounts = await Promise.all(
         listedRooms.map(async (room) => {
-          if (typeof room.member_count === 'number') return room;
+          if (typeof room.member_count === 'number' && typeof room.expires_at === 'number') {
+            return room;
+          }
           try {
             const info = await roomInfo(room.room_id);
             const memberCount = info.member_count ?? info.members?.length;
-            return memberCount === undefined
-              ? room
-              : { ...room, member_count: memberCount };
+            return {
+              ...room,
+              ...(memberCount === undefined ? {} : { member_count: memberCount }),
+              ...(typeof info.expires_at === 'number' ? { expires_at: info.expires_at } : {}),
+            };
           } catch {
             return room;
           }
@@ -130,6 +134,7 @@ export default function RoomsList() {
           <ul aria-label="Your rooms">
             {(rooms ?? []).map((r) => {
               const live = (r.state ?? 'open') !== 'closed';
+              const expiryLabel = fmtExpiry(r.expires_at);
               return (
                 <li key={r.room_id}>
                   <a className="row row--room"
@@ -137,7 +142,12 @@ export default function RoomsList() {
                     <span className={`dot dot--${live ? 'live' : 'off'}`} aria-hidden="true" />
                     <span>
                       <span className="row__n">{r.name || r.room_id}</span>
-                      <span className="row__sub">{r.room_id}</span>
+                      <span className="row__sub" style={{ display: 'block' }}>{r.room_id}</span>
+                      {expiryLabel && (
+                        <span className="row__sub" style={{ display: 'block' }}>
+                          Closes {expiryLabel}
+                        </span>
+                      )}
                     </span>
                     <span className="row__m row__hide">
                       {typeof r.member_count === 'number' ? (
@@ -173,4 +183,11 @@ function fmt(iso?: string) {
   if (hrs < 24) return `${hrs} hour${hrs === 1 ? '' : 's'} ago`;
   const days = Math.round(hrs / 24);
   return `${days} day${days === 1 ? '' : 's'} ago`;
+}
+
+function fmtExpiry(epoch?: number) {
+  if (typeof epoch !== 'number' || !Number.isFinite(epoch)) return null;
+  const date = new Date(epoch * 1000);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 }

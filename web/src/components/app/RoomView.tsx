@@ -44,6 +44,7 @@ export default function RoomView({ roomId }: Props) {
   const [copied, setCopied] = useState(false);
   const [isOwner, setIsOwner] = useState(false);
   const [roomState, setRoomState] = useState<string>('open');
+  const [expiresAt, setExpiresAt] = useState<number | null>(null);
   const [armingClose, setArmingClose] = useState(false);
   const [closing, setClosing] = useState(false);
   const [closeError, setCloseError] = useState<string | null>(null);
@@ -74,6 +75,7 @@ export default function RoomView({ roomId }: Props) {
         setRoomName(info.name.trim());
       }
       if (info?.state) setRoomState(info.state);
+      setExpiresAt(typeof info?.expires_at === 'number' ? info.expires_at : null);
       const ownerCheck = Boolean(
         info?.link_id !== undefined ||
         (who && (info?.owner_agent_id === who.account_id || info?.owner_agent_id === who.agent_id))
@@ -119,6 +121,7 @@ export default function RoomView({ roomId }: Props) {
         }
         if (typeof info?.name === 'string' && info.name.trim()) setRoomName(info.name.trim());
         if (info?.state) setRoomState(info.state);
+        if (typeof info?.expires_at === 'number') setExpiresAt(info.expires_at);
       } catch { /* transient: the next tick retries */ }
     };
     const id = window.setInterval(tick, POLL_MS);
@@ -231,6 +234,7 @@ export default function RoomView({ roomId }: Props) {
   // ("is this agent keeping up?") without inventing a number.
   const idle = members.filter((m) => secondsSince(m.last_seen) > 120).length;
   const unresolvedMembers = members.filter((m) => !hasKnownIdentity(m.agent_id, viewer, identityDirectory, m)).length;
+  const expiryLabel = fmtExpiry(expiresAt ?? undefined);
 
   return (
     <div className="room">
@@ -243,6 +247,16 @@ export default function RoomView({ roomId }: Props) {
           role="region"
           aria-label="Room messages, scrollable"
         >
+          {expiryLabel && (
+            <p className="notice" role="status" style={{ marginBottom: 14 }}>
+              <b style={{ color: 'var(--ink)' }}>
+                {roomState === 'closed'
+                  ? `This room is closed. Its scheduled expiry was ${expiryLabel}.`
+                  : `Room closes for everyone on ${expiryLabel}.`}
+              </b>
+              {roomState !== 'closed' && ' The join link stops working at the same time.'}
+            </p>
+          )}
           {loading && (
             <div aria-busy="true">
               {[0, 1, 2].map((i) => (
@@ -358,6 +372,18 @@ export default function RoomView({ roomId }: Props) {
       </section>
 
       <aside className="insp" aria-label="Room details" tabIndex={0} role="region">
+        {expiryLabel && (
+          <div className="insp__sec">
+            <p className="insp__l">Room lifetime</p>
+            <p className="kv">
+              <span>{roomState === 'closed' ? 'scheduled expiry' : 'closes'}</span>
+              <b>{expiryLabel}</b>
+            </p>
+            <p className="warnline" style={{ marginTop: 4 }}>
+              The room and its join link stop working together at this time.
+            </p>
+          </div>
+        )}
         <div className="insp__sec">
           <p className="insp__l">Who is here · {members.length}</p>
           {members.length === 0 && !loading && !error && (
@@ -485,6 +511,13 @@ function lastSeen(secs: number) {
   if (m < 60) return `${m}m`;
   const h = Math.round(m / 60);
   return h < 24 ? `${h}h` : `${Math.round(h / 24)}d`;
+}
+
+function fmtExpiry(epoch?: number) {
+  if (typeof epoch !== 'number' || !Number.isFinite(epoch)) return null;
+  const date = new Date(epoch * 1000);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 }
 
 function cleanIdentity(value: unknown) {

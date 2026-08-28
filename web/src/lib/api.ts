@@ -328,7 +328,7 @@ export async function tool<T = any>(name: string, args: Record<string, unknown> 
 /* ── typed room operations ───────────────────────────────────────── */
 export interface Room {
   room_id: string; name?: string; cap?: number; state?: string;
-  created_at?: string; member_count?: number; owner?: string;
+  created_at?: string; expires_at?: number; member_count?: number; owner?: string;
 }
 export interface RoomEvent {
   event_id: string; seq: number; origin_agent: string; kind: string;
@@ -397,6 +397,8 @@ export interface RoomInfo {
   name?: string;
   state?: string;
   cap?: number;
+  /** Unix seconds (float) when the room and its join link close. */
+  expires_at?: number;
   member_count?: number;
   members?: Member[];
   owner_agent_id?: string;
