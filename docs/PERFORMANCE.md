@@ -9,6 +9,48 @@ functions:
 - authenticated task creation, claim, update, message, evidence verification,
   and completion.
 
+## 2026-08-28 MPAI-102 browser measurement — deferred landing hero video
+
+This dated browser measurement is the before/after evidence for commit `85e953f`
+on the live landing page. It is separate from the single-node coordinator gate
+below. The before run was captured at `2026-08-28T08:36:15.953Z` against the
+then-live page; the after run was captured at `2026-08-28T16:23:27.492Z` after
+deploy `5b463c1`.
+
+| landing capture | transfer | HTTP requests | FCP | LCP | main-thread TaskDuration |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| before, eager video | 1,546,280 B | 13 | 712 ms | 784 ms | 329.0 ms |
+| after, no interaction | 442,231 B | 12 | 1,540 ms | 1,936 ms | 340.8 ms |
+
+The deferred path removes `1,104,049 B` (`71.4%`) and one initial request. The
+before capture fetched `/assets/hero.mp4` at `1,106,210 B`; the after capture
+did not request it before the observation window. The after capture's FCP and
+LCP were `828 ms` and `1,152 ms` slower than the before capture, respectively,
+so this run proves a substantial transfer reduction but does not prove a paint
+time improvement or attribute that slower paint to the video change. The same
+after window also showed slower paints across authenticated app routes, making
+the live-origin timing shift a measured confounder.
+
+Two live behavior checks followed the after sweep. At
+`2026-08-28T16:27:08.810Z`, a fresh reduced-motion (`prefers-reduced-motion:
+reduce`) context made `12` requests totaling `442,231 B`, made zero
+`hero.mp4` requests, and left the video with `preload="none"`, no `src` or
+`currentSrc`, `paused=true`, and `readyState=0`; there were no console errors.
+At `2026-08-28T16:28:26.004Z`, a normal fresh context made zero hero requests
+before a synthetic `pointerdown`, then exactly one request after it; the video
+resolved `currentSrc` to `hero.mp4`, was not paused, and reached `readyState=4`.
+
+Method for all captures: Node Playwright `1.62.1` driving system Chrome at
+`1440x900`; a fresh browser context per route/sample; service workers blocked;
+cache disabled; unique query-string cache buster; three runs per route with
+medians; no network throttling. Transfer used CDP Network
+`loadingFinished.encodedDataLength` (plus received bytes for still-open
+requests), main-thread cost used the CDP Performance `TaskDuration` delta, and
+FCP/latest LCP came from an early buffered `PerformanceObserver` read after a
+fixed `5,000 ms` post-DOM observation window. The no-interaction after run is
+the first-visit measurement; the pointerdown run is a separate preservation
+check. All figures in this section come from those captures.
+
 ## Current verified result (latest local run)
 
 On the Windows development host, the reference file records a seven-trial
