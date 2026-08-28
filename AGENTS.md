@@ -65,6 +65,13 @@ alongside the authoritative build immediately before gating.
 Never write a pass total you did not measure this session, and never start a second `discover`
 run to get one while another is already in flight — ask instead.
 
+**Order matters: build LAST.** The authoritative `site/` build must be the final action before
+gating, after the tree has stopped moving. Building first and then collecting commits ships
+generated output that predates the sources — it happened on 2026-08-28: a build made at 12:03
+was committed with six `web/src` commits that landed by 12:08, so `site/index.html` still
+carried the pre-MPAI-80 landing copy. The freshness hash and the preservation verifier both
+caught it, which is exactly what they are for.
+
 **Site freshness.** `site/.web-src-hash` must match `scripts/web-src-hash.cjs` run over
 `web/src`. This is what stops a source change shipping with stale bundles — the worst failure
 shape available to us, where every signal reports success and the feature is silently absent.
