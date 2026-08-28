@@ -11,6 +11,10 @@ render the Codex marker.
 This is a negative host result. No adapter, bridge, or server special case was
 added to make Codex appear connected.
 
+This result was superseded by the [verified transcript](./INTEROP_VALIDATION_2026-08-28-codex-verified.md):
+the failure was a headless-approval artifact of the test harness, not a Weft
+product defect.
+
 ## Setup that reached the host
 
 - Host: `codex-cli 0.149.1` (OpenAI), a non-Anthropic host product.

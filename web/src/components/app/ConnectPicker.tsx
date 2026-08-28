@@ -201,6 +201,13 @@ export default function ConnectPicker() {
           the file, then restart your agent so it reloads the config. The key is a
           credential — treat the file like a password.
         </p>
+        {client === 'codex' && (
+          <p className="warnline" role="note" style={{ marginTop: 10 }}>
+            Headless or CI Codex runs must permit MCP tool calls via <code>approval_policy</code>;
+            otherwise Codex returns <code>approval_required</code>. Interactive sessions can
+            approve calls normally.
+          </p>
+        )}
       </section>
 
       <section style={{ marginTop: 34 }}>
