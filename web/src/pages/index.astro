@@ -155,28 +155,40 @@ const HOSTS = ['Claude Code', 'Codex', 'Cursor', 'Windsurf', 'OpenCode', 'Zed', 
     <!-- ═══ HERO ═══ -->
     <section class="stage" id="top">
       <div class="plate">
-        <video class="plate-video" autoplay muted loop playsinline preload="metadata"
-               poster={VIDEO_POSTER} aria-hidden="true">
-          <source src={VIDEO} type="video/mp4" />
+        <video class="plate-video" muted loop playsinline preload="none"
+               poster={VIDEO_POSTER} data-video-src={VIDEO} aria-hidden="true">
         </video>
-        <!-- `autoplay` is an HTML attribute, so neither the reduced-motion CSS
-             block nor the reduced-motion short-circuit in site.ts can stop it:
-             both govern OUR animations, and the browser starts this one on its
-             own. Someone who asked their OS to stop motion still got a looping
-             video. This runs synchronously immediately after the element is
-             parsed - before playback begins - and leaves the poster showing, so
-             the frame is still there and nothing moves. Kept inline for the same
-             reason as the reveal failsafe: a guard that can fail to load is not
-             a guard. -->
+        <!-- The poster is the first impression. Keep the decorative film out of
+             the initial critical path, then load and play it once the visitor
+             engages with the page. The source is assigned by this inline guard,
+             so browsers cannot fetch the megabyte clip while parsing the hero.
+             Reduced-motion visitors keep the poster and never load the film. -->
         <script is:inline>
           (function () {
             try {
-              if (!matchMedia('(prefers-reduced-motion: reduce)').matches) return;
               var v = document.currentScript.previousElementSibling;
               if (!v || v.tagName !== 'VIDEO') return;
-              v.removeAttribute('autoplay');
-              v.autoplay = false;
-              v.pause();
+              if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+              var events = ['pointerdown', 'keydown', 'touchstart', 'wheel', 'scroll'];
+              var loadVideo = function () {
+                var sourceUrl = v.getAttribute('data-video-src');
+                if (!sourceUrl || v.getAttribute('data-video-loaded') === 'true') return;
+                v.setAttribute('data-video-loaded', 'true');
+                var source = document.createElement('source');
+                source.src = sourceUrl;
+                source.type = 'video/mp4';
+                v.appendChild(source);
+                v.autoplay = true;
+                v.load();
+                var playback = v.play();
+                if (playback && typeof playback.catch === 'function') playback.catch(function () {});
+                events.forEach(function (eventName) {
+                  window.removeEventListener(eventName, loadVideo);
+                });
+              };
+              events.forEach(function (eventName) {
+                window.addEventListener(eventName, loadVideo, { once: true, passive: true });
+              });
             } catch (e) {}
           })();
         </script>
