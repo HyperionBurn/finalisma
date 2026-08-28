@@ -852,6 +852,117 @@ class WeftCloudService:
             "state": result["state"],
         })
 
+    def _get_join_link_state(self, link_token: str) -> str:
+        """Classify a human join-link failure without mutating or exposing state to machines.
+
+        ``resolve_room_by_link_token`` intentionally collapses malformed,
+        unknown, expired, revoked, and closed links to ``None`` for the JSON
+        descriptor. The browser page can give a visitor a useful next step,
+        however, so inspect the durable row only after that pure resolver has
+        declined the link. Join links are multi-use; they have no redeemed
+        state (that state belongs to organization invites).
+        """
+        try:
+            from weft_cloud.identity.tokens import hash_token
+            token_hash = hash_token(link_token)
+        except (TypeError, ValueError):
+            return "invalid"
+        with self.backend.transaction() as tx:
+            row = tx.execute(
+                "SELECT links.revoked, links.expires_at AS link_expires_at, "
+                "rooms.state, rooms.expires_at AS room_expires_at "
+                "FROM cloud_room_links AS links "
+                "LEFT JOIN cloud_rooms AS rooms "
+                "  ON rooms.tenant_id = links.tenant_id AND rooms.room_id = links.room_id "
+                "WHERE links.token_hash = ? LIMIT 1",
+                (token_hash,),
+            ).fetchone()
+        if row is None or row["state"] is None:
+            return "invalid"
+        if row["state"] == "closed":
+            return "closed"
+        if bool(row["revoked"]):
+            return "revoked"
+        now = time.time()
+        if float(row["room_expires_at"] or 0.0) <= now:
+            return "room_expired"
+        if float(row["link_expires_at"] or 0.0) <= now:
+            return "link_expired"
+        return "valid"
+
+    def _send_join_failure(self, handler: BaseHTTPRequestHandler, state: str,
+                           link_token: str, status: int, *, retry: bool = False) -> None:
+        """Render a human-readable join failure with an actionable exit path."""
+        copy = {
+            "invalid": (
+                "Room link not found",
+                "This link does not open a room. It may be invalid or no longer available.",
+            ),
+            "closed": (
+                "Room is closed",
+                "This room has been closed. Ask the room owner to create a new room or send a different link.",
+            ),
+            "room_expired": (
+                "Room expired",
+                "This room has expired. Ask the room owner to create a new room or send a different link.",
+            ),
+            "link_expired": (
+                "Join link expired",
+                "This join link expired. Ask the room owner for a new link.",
+            ),
+            "revoked": (
+                "Join link revoked",
+                "The room owner revoked this join link. Ask the room owner for a new link.",
+            ),
+            "full": (
+                "Room is full",
+                "This room has no available member seats. Ask the room owner for another room.",
+            ),
+            "join_failed": (
+                "We couldn't join this room",
+                "We couldn't complete the join. Try again or ask the room owner for a new link.",
+            ),
+            "server_error": (
+                "We couldn't load this room link",
+                "We hit a temporary problem loading this link. Try again in a moment, or continue to Weft.",
+            ),
+        }
+        heading, message = copy.get(state, copy["join_failed"])
+        retry_html = ""
+        if retry:
+            retry_html = f'<a href="/j/{_html_esc(link_token)}">Try again</a> · '
+        body = _html_page(
+            heading,
+            '<main id="main" tabindex="-1">'
+            f'<h1>{_html_esc(heading)}</h1>'
+            f'<p>{_html_esc(message)}</p>'
+            f'<p>{retry_html}<a href="/">Back to Weft</a> · '
+            '<a href="/login">Sign in</a> · '
+            '<a href="/signup">Create account</a></p>'
+            '</main>',
+        )
+        handler.send_response(status)
+        handler.send_header("Content-Type", "text/html; charset=utf-8")
+        handler.send_header("Content-Length", str(len(body)))
+        handler.send_header("Cache-Control", "no-store")
+        handler._send_security_headers(html=True)
+        handler.end_headers()
+        handler.wfile.write(body)
+
+    def handle_join_server_error(self, handler: BaseHTTPRequestHandler,
+                                 link_token: str) -> None:
+        """Return a safe browser/JSON response when a public join route fails."""
+        accept = handler.headers.get("Accept", "") or ""
+        if "application/json" in accept or "application/*" in accept:
+            handler._send_json(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                {"error": {"code": "internal_error", "message": "Internal server error"}},
+            )
+            return
+        self._send_join_failure(
+            handler, "server_error", link_token, HTTPStatus.INTERNAL_SERVER_ERROR, retry=True,
+        )
+
     def handle_join_descriptor(self, handler: BaseHTTPRequestHandler, link_token: str) -> None:
         """Unauthenticated description of a shareable link (GET /j/<token>).
 
@@ -867,7 +978,9 @@ class WeftCloudService:
         /v1/rooms/join. It reveals only what a joining agent strictly needs:
         the room_id and the join contract. No org identity, member emails, or
         event log are exposed. Malformed and unknown tokens return the SAME 404
-        shape so the endpoint is not an oracle.
+        JSON shape so the machine endpoint is not an oracle. A human visitor
+        whose link was once valid gets a reason-specific HTML gone page with a
+        next step.
         """
         room_id = self.rooms.resolve_room_by_link_token(link_token)
         accept = handler.headers.get("Accept", "") or ""
@@ -877,20 +990,9 @@ class WeftCloudService:
                 handler._send_json(HTTPStatus.NOT_FOUND,
                                    {"error": {"code": "not_found", "message": "Not found"}})
             else:
-                handler.send_response(HTTPStatus.NOT_FOUND)
-                body = _html_page(
-                    "Not found",
-                    '<main id="main" tabindex="-1">'
-                    '<h1>Room not found</h1>'
-                    '<p>This link does not open a room.</p>'
-                    '</main>',
-                )
-                handler.send_header("Content-Type", "text/html; charset=utf-8")
-                handler.send_header("Content-Length", str(len(body)))
-                handler.send_header("Cache-Control", "no-store")
-                handler._send_security_headers(html=True)
-                handler.end_headers()
-                handler.wfile.write(body)
+                state = self._get_join_link_state(link_token)
+                status = HTTPStatus.NOT_FOUND if state == "invalid" else HTTPStatus.GONE
+                self._send_join_failure(handler, state, link_token, status)
             return
 
         if wants_json:
@@ -950,8 +1052,11 @@ class WeftCloudService:
         if session_token:
             try:
                 ctx = self.sessions.validate(self.backend, session_token)
-            except Exception:
+            except AuthError:
                 ctx = None
+            except Exception:
+                self.handle_join_server_error(handler, link_token)
+                return
 
         is_member = False
         if ctx is not None:
@@ -1069,20 +1174,9 @@ class WeftCloudService:
         """Handle human browser join POST from /j/<link_token>."""
         room_id = self.rooms.resolve_room_by_link_token(link_token)
         if room_id is None:
-            handler.send_response(HTTPStatus.NOT_FOUND)
-            body = _html_page(
-                "Room not found",
-                '<main id="main" tabindex="-1">'
-                '<h1>Room not found</h1>'
-                '<p>This link does not open a room.</p>'
-                '</main>',
-            )
-            handler.send_header("Content-Type", "text/html; charset=utf-8")
-            handler.send_header("Content-Length", str(len(body)))
-            handler.send_header("Cache-Control", "no-store")
-            handler._send_security_headers(html=True)
-            handler.end_headers()
-            handler.wfile.write(body)
+            state = self._get_join_link_state(link_token)
+            status = HTTPStatus.NOT_FOUND if state == "invalid" else HTTPStatus.GONE
+            self._send_join_failure(handler, state, link_token, status)
             return
 
         session_token = _session_token_from_handler(handler)
@@ -1122,8 +1216,22 @@ class WeftCloudService:
                 room_id,
                 json.dumps({"agent_id": ctx.account_id, "via": "human_web_link"}),
             )
+        except RoomError as exc:
+            state = {
+                "room_closed": "closed",
+                "room_expired": "room_expired",
+                "link_expired": "link_expired",
+                "link_revoked": "revoked",
+                "room_full": "full",
+            }.get(exc.code, "join_failed")
+            status = exc.status if exc.status in {
+                HTTPStatus.CONFLICT, HTTPStatus.GONE,
+            } else HTTPStatus.CONFLICT
+            self._send_join_failure(handler, state, link_token, status)
+            return
         except Exception:
-            pass
+            self.handle_join_server_error(handler, link_token)
+            return
 
         handler.send_response(HTTPStatus.SEE_OTHER)
         handler.send_header("Location", f"/app/room?id={quote(room_id, safe='')}")
@@ -1916,7 +2024,10 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
             return
         join_match = _JOIN_LINK_RE.match(path)
         if join_match:
-            self.service.handle_join_descriptor(self, join_match.group(1))
+            try:
+                self.service.handle_join_descriptor(self, join_match.group(1))
+            except Exception:
+                self.service.handle_join_server_error(self, join_match.group(1))
             return
         if path == "/mcp":
             self._send_json(HTTPStatus.METHOD_NOT_ALLOWED,
@@ -1971,7 +2082,10 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
             return
         join_match = _JOIN_LINK_RE.match(path)
         if join_match:
-            self.service.handle_post_join_link(self, join_match.group(1))
+            try:
+                self.service.handle_post_join_link(self, join_match.group(1))
+            except Exception:
+                self.service.handle_join_server_error(self, join_match.group(1))
             return
         routes = {
             "/v1/auth/signup": self.service.handle_signup,

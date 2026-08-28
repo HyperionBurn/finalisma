@@ -551,6 +551,23 @@ class WeftWebApp:
         handler.end_headers()
         handler.wfile.write(body)
 
+    def _send_server_error(self, handler: BaseHTTPRequestHandler,
+                           retry_path: str = "/") -> None:
+        """Render an actionable HTML error without exposing implementation details."""
+        if not retry_path.startswith("/") or retry_path.startswith("//"):
+            retry_path = "/"
+        body = _page(
+            "Something went wrong",
+            '<h1>Something went wrong</h1>'
+            '<p>We could not load this page right now. Try again in a moment, '
+            'or continue to Weft.</p>'
+            f'<p><a href="{_esc(retry_path)}">Try again</a> · '
+            '<a href="/">Back to Weft</a> · '
+            '<a href="/login">Sign in</a> · '
+            '<a href="/signup">Create account</a></p>',
+        )
+        self._send_html(handler, HTTPStatus.INTERNAL_SERVER_ERROR, body)
+
     def _send_json(self, handler: BaseHTTPRequestHandler, status: int, payload: dict) -> None:
         body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         handler.send_response(status)
@@ -1863,17 +1880,17 @@ class WeftWebApp:
         self._redirect(handler, "/org")
 
     def handle_get_invite(self, handler: BaseHTTPRequestHandler, token: str) -> None:
-        token_hash = _hash_token(token)
-        now = _time.time()
-        invite = None
         try:
+            token_hash = _hash_token(token)
+            now = _time.time()
             with self.backend.transaction() as tx:
                 invite = tx.execute(
                     "SELECT * FROM cloud_identity_invites WHERE token_hash = ?",
                     (token_hash,),
                 ).fetchone()
         except Exception:
-            invite = None
+            self._send_server_error(handler, f"/invite/{token}")
+            return
 
         is_valid = (
             invite is not None
@@ -2854,13 +2871,8 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
                     pass
             except Exception:
                 try:
-                    self.send_response(HTTPStatus.INTERNAL_SERVER_ERROR)
-                    self.send_header("Content-Type", "text/plain")
-                    self.send_header("Content-Length", "21")
-                    self.send_header("Cache-Control", "no-store")
-                    app._send_security_headers(self)
-                    self.end_headers()
-                    self.wfile.write(b"Internal server error")
+                    retry_path = urlsplit(self.path).path
+                    app._send_server_error(self, retry_path)
                 except Exception:
                     pass
 
