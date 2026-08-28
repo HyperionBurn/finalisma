@@ -1,5 +1,15 @@
 # Weft — agent handover
 
+> [!CAUTION]
+> ### STALE / OBSOLETE DOCUMENT — DO NOT RESTORE DOUBLE ENTRY OR FIELD NOTES DESIGNS
+> **This document describes obsolete design systems and pre-cloud architectures that MUST NOT be restored:**
+> 1. **Dead Design System:** The 50/50 split-viewport ("DOUBLE ENTRY"), oxblood/paper-stone ("FIELD NOTES"), `#left-pane`, `#right-pane`, Fraunces serif, Big Shoulders font, and `agent-canvas.js` / `proof-engine.js` described in §2 are deleted historical artifacts. Do NOT "fix" or revert any live pages to them.
+> 2. **Current Design System:** The live, authoritative design system is defined in [`docs/DESIGN_SYSTEM_V2.md`](docs/DESIGN_SYSTEM_V2.md) (Astro 5 + R3F + GSAP, Manrope / Archivo / JetBrains Mono, dark aesthetic).
+> 
+> **Authoritative Contract:** All active agents MUST follow [`AGENTS.md`](./AGENTS.md) and [`docs/DESIGN_SYSTEM_V2.md`](docs/DESIGN_SYSTEM_V2.md).
+
+---
+
 > Read this before changing anything. This is the shortest complete explanation of
 > what this repository is, what has already been built, what is verified, and what
 > must not be accidentally broken.
