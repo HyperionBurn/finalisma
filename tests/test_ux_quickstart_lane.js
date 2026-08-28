@@ -16,7 +16,7 @@ test('quickstart states the hosted/self-hosted tool boundary and bridge prerequi
   assert.match(html, /python -m venv \.venv/);
   assert.match(html, /verify-package-install\.py/);
   assert.match(html, /absolute interpreter path/);
-  assert.match(html, /"-B",\s*"-m",\s*"weft_mcp"/);
+  assert.match(html, /"-B",\s*"&lt;path-to-downloaded-weft-mcp-bridge\.py&gt;"/);
   assert.match(html, /"PYTHONUTF8":\s*"1"/);
   assert.match(html, /full <strong>59-tool<\/strong> surface/);
   assert.match(html, /OpenCode has two native config contracts/);
@@ -39,7 +39,7 @@ test('quickstart states the hosted/self-hosted tool boundary and bridge prerequi
     false,
     'the downloadable config must not contain a machine-specific script path'
   );
-  assert.match(read('site/index.html'), /PYTHONUTF8/);
+  assert.match(read('site/app/connect/index.html'), /PYTHONUTF8/);
 
   const connectSource = read('web/src/components/app/ConnectPicker.tsx');
   const renderedConnect = read('site/app/connect/index.html')
