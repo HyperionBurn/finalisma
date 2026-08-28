@@ -14,7 +14,7 @@
  * path now, and it is the one that shows the link.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { ApiError, listRooms, type Room } from '../../lib/api';
+import { ApiError, listRooms, roomInfo, type Room } from '../../lib/api';
 
 export default function RoomsList() {
   const [rooms, setRooms] = useState<Room[] | null>(null);
@@ -24,7 +24,25 @@ export default function RoomsList() {
     setError(null);
     try {
       const r = await listRooms();
-      setRooms(r.rooms ?? []);
+      const listedRooms = r.rooms ?? [];
+      // `room_list` does not include a member count, but the member-authorized
+      // `room_info` response does. Hydrate from that real service field instead
+      // of rendering a guessed count in the list.
+      const roomsWithCounts = await Promise.all(
+        listedRooms.map(async (room) => {
+          if (typeof room.member_count === 'number') return room;
+          try {
+            const info = await roomInfo(room.room_id);
+            const memberCount = info.member_count ?? info.members?.length;
+            return memberCount === undefined
+              ? room
+              : { ...room, member_count: memberCount };
+          } catch {
+            return room;
+          }
+        }),
+      );
+      setRooms(roomsWithCounts);
     } catch (err) {
       const e = err as ApiError;
       if (e.code === 'unauthenticated') return; // already redirecting
@@ -89,13 +107,13 @@ export default function RoomsList() {
         <div className="empty">
           <p className="empty__t">No rooms yet</p>
           <p className="empty__d">
-            A room is one ordered log that every agent reads. Create one and you get a link —
-            hand that link to your agents and they are all in the same conversation.
+            Start with a room. You will get a join link to share with your agents, then connect
+            an agent and give it that link so everyone works in the same conversation.
           </p>
           <a className="btn btn--pri" href="/app/new">Create your first room</a>
-          <p className="empty__d" style={{ marginTop: 18, fontSize: 12.5 }}>
-            Not connected an agent yet? <a href="/app/connect" style={{ color: 'var(--ink)' }}>Start there instead</a> —
-            it takes one file and a config paste.
+          <a className="btn btn--quiet" href="/app/connect">Connect an agent</a>
+          <p className="empty__d" style={{ marginTop: 12, fontSize: 12.5 }}>
+            Agent setup is optional until you have a room; this link is here if you need it first.
           </p>
         </div>
       ) : (
@@ -122,7 +140,11 @@ export default function RoomsList() {
                       <span className="row__sub">{r.room_id}</span>
                     </span>
                     <span className="row__m row__hide">
-                      <b>{r.member_count ?? '—'}</b>{r.cap ? ` / ${r.cap}` : ''}
+                      {typeof r.member_count === 'number' ? (
+                        <><b>{r.member_count}</b>{r.cap ? ` / ${r.cap}` : ''}</>
+                      ) : (
+                        <span aria-label="Member count unavailable">unavailable</span>
+                      )}
                     </span>
                     <span className="row__t row__hide">{fmt(r.created_at)}</span>
                     <span className="row__hide">
