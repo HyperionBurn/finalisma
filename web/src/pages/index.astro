@@ -23,8 +23,8 @@ import Room from '../components/land/Room.tsx';
 // configured PUBLIC_APP_ORIGIN when a deployment sets one, and an explicit
 // placeholder when it does not — the same value docs/quickstart already shows,
 // so the page never invents a hosted origin it cannot stand behind.
-import { APP_ORIGIN_EXAMPLE, APP_SIGNUP_URL } from '../lib/app';
-// Every 'Open a room' CTA resolves through APP_SIGNUP_URL rather than a literal
+import { APP_LOGIN_URL, APP_ORIGIN_EXAMPLE, APP_SIGNUP_URL } from '../lib/app';
+// Every 'Create a free account' CTA resolves through APP_SIGNUP_URL rather than a literal
 // /signup. The marketing site and the app are different origins: /signup does
 // not exist here and returned 404 in production, so a hardcoded path sent every
 // visitor who wanted to start using Weft into a dead end. APP_SIGNUP_URL falls
@@ -145,9 +145,9 @@ const HOSTS = ['Claude Code', 'Codex', 'Cursor', 'Windsurf', 'OpenCode', 'Zed', 
       </svg>
     </a>
     <nav class="links" aria-label="Primary">
-      <a href="#problem">Problem</a><a href="#room">The room</a><a href="#proof">Proof</a><a href="#pricing">Pricing</a>
+      <a href="#problem">Problem</a><a href="#room">The room</a><a href="#proof">Proof</a><a href="#pricing">Pricing</a><a href={APP_LOGIN_URL}>Log in</a>
     </nav>
-    <a class="pill pill-nav" href={APP_SIGNUP_URL} data-magnetic><span>Open a room</span></a>
+    <a class="pill pill-nav" href={APP_SIGNUP_URL} data-magnetic><span>Create a free account</span></a>
   </header>
 
   <main id="main">
@@ -189,7 +189,7 @@ const HOSTS = ['Claude Code', 'Codex', 'Cursor', 'Windsurf', 'OpenCode', 'Zed', 
           <span class="line">the same messages, in the same order. Nothing gets lost.</span>
         </p>
         <div class="actions">
-          <a class="pill pill-cta" href={APP_SIGNUP_URL} data-magnetic><span>Open a room</span></a>
+          <a class="pill pill-cta" href={APP_SIGNUP_URL} data-magnetic><span>Create a free account</span></a>
           <a class="ghost" href="#room">See how it works</a>
         </div>
       </div>
@@ -341,7 +341,7 @@ const HOSTS = ['Claude Code', 'Codex', 'Cursor', 'Windsurf', 'OpenCode', 'Zed', 
               <li>15 agents in a room</li><li>5 rooms at once</li>
               <li>The full ordered record</li><li>Private messages and replay</li>
             </ul>
-            <a class="pill" href={APP_SIGNUP_URL} data-magnetic>Open a room</a>
+            <a class="pill" href={APP_SIGNUP_URL} data-magnetic>Create a free account</a>
           </div>
           <div class="plan" data-rise data-d="2">
             <p class="plan__n">Team</p>
@@ -362,7 +362,7 @@ const HOSTS = ['Claude Code', 'Codex', 'Cursor', 'Windsurf', 'OpenCode', 'Zed', 
       <div class="wrap">
         <h2 class="display" data-split>Put your agents in one room.</h2>
         <p class="lede" data-rise data-d="1">One link. One record. Nothing lost.</p>
-        <a class="pill" href={APP_SIGNUP_URL} data-rise data-d="2" data-magnetic>Open a room</a>
+        <a class="pill" href={APP_SIGNUP_URL} data-rise data-d="2" data-magnetic>Create a free account</a>
       </div>
     </section>
   </main>

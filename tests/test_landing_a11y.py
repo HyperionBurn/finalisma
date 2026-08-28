@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parent.parent
 INDEX_ASTRO = ROOT / "web" / "src" / "pages" / "index.astro"
 ROOM_TSX = ROOT / "web" / "src" / "components" / "land" / "Room.tsx"
 LAND_CSS = ROOT / "web" / "src" / "styles" / "land.css"
+VERIFY_PRESERVATION = ROOT / "web" / "scripts" / "verify-preservation.cjs"
 
 
 class TestLandingAccessibility(unittest.TestCase):
@@ -75,6 +76,26 @@ class TestLandingAccessibility(unittest.TestCase):
         body = match.group("body")
         for declaration in ("position:fixed", "width:auto", "height:auto", "overflow:visible", "clip:auto"):
             self.assertIn(declaration, body)
+
+    def test_primary_nav_offers_returning_users_a_direct_login_route(self) -> None:
+        source = INDEX_ASTRO.read_text(encoding="utf-8")
+        nav = re.search(r'<nav class="links" aria-label="Primary">(?P<body>.*?)</nav>', source, re.S)
+        self.assertIsNotNone(nav, "the landing page needs its primary navigation")
+        self.assertIn("APP_LOGIN_URL", source)
+        self.assertRegex(nav.group("body"), r'<a href=\{APP_LOGIN_URL\}>Log in</a>')
+
+    def test_signup_ctas_name_the_account_creation_action(self) -> None:
+        source = INDEX_ASTRO.read_text(encoding="utf-8")
+        ctas = re.findall(r'<a\b[^>]*href=\{APP_SIGNUP_URL\}[^>]*>(.*?)</a>', source, re.S)
+        self.assertEqual(len(ctas), 4, "all four signup destinations should remain available")
+        for cta in ctas:
+            visible_text = re.sub(r"<[^>]+>", "", cta)
+            self.assertIn("Create a free account", visible_text)
+            self.assertNotIn("Open a room", visible_text)
+
+        guard = VERIFY_PRESERVATION.read_text(encoding="utf-8")
+        self.assertIn("'Create a free account'", guard)
+        self.assertNotIn("'Open a room'", guard)
 
 
 if __name__ == "__main__":

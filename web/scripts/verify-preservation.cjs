@@ -154,7 +154,7 @@ const requiredStrings = [
   // the very defect it looked like it was guarding. What must not regress is
   // that the CTA exists and LEADS SOMEWHERE REAL, so assert on the label and
   // let the href resolve through APP_SIGNUP_URL.
-  'Open a room',
+  'Create a free account',
   '$39',
   'See how it works',
   // The "how it works" section is now the pinned room walkthrough at #room.
