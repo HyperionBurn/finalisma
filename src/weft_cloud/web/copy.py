@@ -14,10 +14,10 @@ that the SDK cannot use a hosted room.
 Tier 1 (MCP stdio) is the exception that makes the product usable: real MCP
 hosts (Claude Desktop, Codex, Cursor, OpenCode) launch servers as ``command`` + ``args``
 subprocesses and have no ``url`` form, so they cannot dial the hosted
-``POST /mcp`` endpoint. The installed bridge module (``python -B -m weft_mcp
---remote <origin> --token-env WEFT_TOKEN``) is the shim that lets those hosts
-reach a hosted room. The config block below is the one verified end to end by
-the dashboard's connector-config generator and by ``tests/test_stdio_bridge.py``.
+``POST /mcp`` endpoint. The standalone bridge download (``weft-mcp-bridge.py``)
+is the shim that lets those hosts reach a hosted room without installing the
+private package. The config block below is the one verified end to end by the
+dashboard's connector-config generator and by ``tests/test_stdio_bridge.py``.
 
 Windows note: the ``env`` block MUST include ``PYTHONUTF8=1``. Without it the
 host's UTF-8 JSON-RPC bytes are decoded as cp1252 and every non-ASCII
@@ -41,6 +41,8 @@ from __future__ import annotations
 
 import html
 from typing import Any
+
+from weft_cloud.web.config_gen import BRIDGE_DOWNLOAD_PATH
 
 
 def _esc(value: Any) -> str:
@@ -106,6 +108,8 @@ def connect_page_body(room_id: str, link_token: str) -> str:
         f'{{"room_id": "{room}", "link_token": "{token}",\n'
         f' "consent": true, "capabilities": []}}\n'
         f'→ 200  {{"room_id": "{room}", "agent_id": "&lt;your_account_id&gt;", "status": "active", "cursor": 0}}</pre>'
+        '<p><strong>One-line curl join (after you have a session or agent key):</strong></p>'
+        f'<pre tabindex="0" role="region" aria-label="Code example">curl -fsS -X POST https://&lt;origin&gt;/v1/rooms/join -H "Authorization: Bearer $WEFT_TOKEN" -H "Content-Type: application/json" --data \'{{"room_id":"{room}","link_token":"{token}","consent":true,"capabilities":[]}}\'</pre>'
         '<p><strong>Creator-key note:</strong> the account that creates a room '
         'auto-joins as the owner. An <code>agk_</code> key is a distinct agent '
         'identity, so the key must redeem this returned link with '
@@ -147,18 +151,19 @@ def connect_page_body(room_id: str, link_token: str) -> str:
         '<code>--token-env</code>. Windows hosts must also '
         'set <code>PYTHONUTF8=1</code>: without it the client\'s UTF-8 JSON-RPC '
         'is decoded as cp1252 and every non-ASCII character is destroyed.</p>'
-        '<p>Install the <code>weft-mcp</code> package in the Python environment '
-        'used by the client before pasting this config. The generated command '
-        'uses the installed module and never depends on the hosted server\'s '
-        'filesystem path.</p>'
+        '<p>Download the standalone bridge with one command; no package '
+        'installation or source checkout is required:</p>'
+        f'<pre tabindex="0" role="region" aria-label="Code example">curl -fsSL -o weft-mcp-bridge.py https://&lt;origin&gt;{BRIDGE_DOWNLOAD_PATH}</pre>'
+        '<p>Save the file on the machine that runs the client, then paste this '
+        'config and restart the client. The token stays in the client '
+        'environment field, never in the command arguments.</p>'
         '<pre tabindex="0" role="region" aria-label="Code example">{\n'
         '  "mcpServers": {\n'
         '    "weft": {\n'
         '      "command": "python",\n'
         '      "args": [\n'
         '        "-B",\n'
-        '        "-m",\n'
-        '        "weft_mcp",\n'
+        '        "weft-mcp-bridge.py",\n'
         '        "--remote",\n'
         '        "https://&lt;origin&gt;",\n'
         '        "--token-env",\n'
