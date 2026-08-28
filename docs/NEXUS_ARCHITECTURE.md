@@ -1,5 +1,12 @@
 # NEXUS Architecture — Weft Universal Agent Interconnect
 
+> [!NOTE]
+> ### SUPERSEDED ARCHITECTURE SPECIFICATION
+> **This early interconnect blueprint is superseded:**
+> - **Authoritative Cloud & Rooms Architecture:** Multi-tenant coordinator architecture, SQLite-WAL isolation, and room primitives are documented authoritatively in [`docs/CLOUD_SPINE_DESIGN.md`](./CLOUD_SPINE_DESIGN.md) and [`docs/ROOMS_DESIGN.md`](./ROOMS_DESIGN.md).
+
+---
+
 > **Owner:** ARCH-NEXUS lane (architecture, docs only — no source code).
 > **Scope:** Blueprint for turning the single-node MCP coordinator into the universal
 > agent interconnect. Every module name, tool name, and invariant here is a contract
