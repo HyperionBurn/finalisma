@@ -406,8 +406,10 @@ export default function RoomView({ roomId }: Props) {
           )}
           {unresolvedMembers > 0 && !loading && !error && (
             <p className="warnline" style={{ marginTop: 0 }}>
-              {unresolvedMembers === 1 ? 'One agent' : `${unresolvedMembers} agents`} do not
-              provide a display name. Their technical id is available on hover.
+              {unresolvedMembers === 1
+                ? 'One agent does not provide a display name.'
+                : `${unresolvedMembers} agents do not provide a display name.`}
+              {' '}Their technical id is available on hover.
             </p>
           )}
           {members.map((m) => {
