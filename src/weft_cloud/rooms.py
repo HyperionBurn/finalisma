@@ -415,6 +415,35 @@ def _parse_json(raw: str | None, default: Any) -> Any:
         raise ValueError("Persisted JSON is invalid")
 
 
+DISPLAY_NAME_MAX = 80
+
+
+def _validate_display_name(value: Any) -> str | None:
+    """Normalise a caller-supplied room-scoped display name (MPAI-108c).
+
+    Trim first; empty / whitespace-only becomes ``None`` (no name declared,
+    the renderer falls back). Reject anything longer than
+    :data:`DISPLAY_NAME_MAX` after trimming. Otherwise the trimmed value is
+    stored verbatim — it is untrusted text and escaping it is the renderer's
+    job, not this layer's, and silently mangling what the user typed would be
+    its own kind of dishonesty.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise RoomError("invalid_argument", "display_name must be a string", 400)
+    trimmed = value.strip()
+    if not trimmed:
+        return None
+    if len(trimmed) > DISPLAY_NAME_MAX:
+        raise RoomError(
+            "invalid_argument",
+            f"display_name too long (max {DISPLAY_NAME_MAX} characters)",
+            400,
+        )
+    return trimmed
+
+
 def _idempotent_receipts(tx: Any, tenant_id: str, room_id: str,
                          sender_agent_id: str, event_row: Any) -> list[dict]:
     """Return delivery and consumption state for a persisted send.
@@ -1299,7 +1328,8 @@ class CloudRoomService:
         return row["room_id"] if row is not None else None
 
     def join_room(self, tenant_id: str, room_id: str, link_token: str, agent_id: str,
-                  consent: Any, actor_token: str, capabilities: list[str] | None = None) -> dict:
+                  consent: Any, actor_token: str, capabilities: list[str] | None = None,
+                  display_name: str | None = None) -> dict:
         """Redeem a multi-use link to join a room.
 
         ``consent`` must be the literal JSON boolean ``true``. The link is
@@ -1322,6 +1352,11 @@ class CloudRoomService:
 
         actor_token_hash = _token_hash(actor_token)
         caps = list(capabilities) if capabilities else []
+        # A name was supplied on the wire (even blank) vs omitted entirely.
+        # Supplied -> set it (blank/whitespace normalises to NULL, an explicit
+        # clear); omitted on a re-join -> keep whatever is stored.
+        name_provided = display_name is not None
+        clean_name = _validate_display_name(display_name) if name_provided else None
         now_epoch = _time.time()
 
         # ONE transaction for the whole join. Resolve the room by its link,
@@ -1439,6 +1474,14 @@ class CloudRoomService:
                         "WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
                         (now_epoch, real_tenant_id, room_id, agent_id),
                     )
+                # A re-join that states a name updates it (explicit intent, like
+                # capabilities above); a bare re-join leaves the stored name be.
+                if name_provided:
+                    tx.execute(
+                        "UPDATE cloud_room_members SET display_name = ? "
+                        "WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
+                        (clean_name, real_tenant_id, room_id, agent_id),
+                    )
                 tx.execute(
                     "INSERT INTO cloud_room_cursors(tenant_id, room_id, agent_id, last_ack_seq, updated_at) "
                     "VALUES (?, ?, ?, 0, ?) "
@@ -1482,12 +1525,18 @@ class CloudRoomService:
                     (now_epoch, now, _json(caps), actor_token_hash,
                      real_tenant_id, room_id, agent_id),
                 )
+                if name_provided:
+                    tx.execute(
+                        "UPDATE cloud_room_members SET display_name = ? "
+                        "WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
+                        (clean_name, real_tenant_id, room_id, agent_id),
+                    )
             else:
                 tx.execute(
                     "INSERT INTO cloud_room_members("
-                    " tenant_id, room_id, agent_id, joined_at, last_seen, status, capabilities_json, actor_token_hash"
-                    ") VALUES (?, ?, ?, ?, ?, 'active', ?, ?)",
-                    (real_tenant_id, room_id, agent_id, now, now_epoch, _json(caps), actor_token_hash),
+                    " tenant_id, room_id, agent_id, joined_at, last_seen, status, display_name, capabilities_json, actor_token_hash"
+                    ") VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)",
+                    (real_tenant_id, room_id, agent_id, now, now_epoch, clean_name, _json(caps), actor_token_hash),
                 )
             tx.execute(
                 "INSERT INTO cloud_room_cursors(tenant_id, room_id, agent_id, last_ack_seq, updated_at) "

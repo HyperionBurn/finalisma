@@ -391,8 +391,14 @@ export const createRoom = async (name: string, cap: number, ttl_seconds?: number
   return room;
 };
 
-export const joinRoom = (room_id: string, link_token: string) =>
-  tool('room_join', { room_id, link_token, consent: true, capabilities: ['read', 'write'] });
+export const joinRoom = (room_id: string, link_token: string, display_name?: string) =>
+  tool('room_join', {
+    room_id,
+    link_token,
+    consent: true,
+    capabilities: ['read', 'write'],
+    ...(display_name && display_name.trim() ? { display_name: display_name.trim() } : {}),
+  });
 export interface RoomInfo {
   room_id: string;
   name?: string;

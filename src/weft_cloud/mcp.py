@@ -153,6 +153,17 @@ _CAPABILITIES = {
     ),
     "examples": [["read", "write"], ["planning", "research"]],
 }
+_DISPLAY_NAME = {
+    "type": "string",
+    "description": (
+        "Optional name to show OTHER members of this room in place of an "
+        "opaque id. Scoped to this room only; it is never stored on the "
+        "account and never resolved across an organisation boundary. Trimmed; "
+        "blank is treated as no name; max 80 characters. Shown to others as a "
+        "self-declared, unverified label."
+    ),
+    "examples": ["Ada (research agent)", "Dana from Acme"],
+}
 _PAYLOAD = {
     "description": (
         "The message body: any JSON value (object, array, string, number, "
@@ -366,6 +377,7 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
             "link_token": _LINK_TOKEN,
             "consent": _CONSENT,
             "capabilities": _CAPABILITIES,
+            "display_name": _DISPLAY_NAME,
         }, ["room_id", "link_token", "consent"]),
     },
     {
@@ -818,6 +830,7 @@ class HostedMCPDispatcher:
             consent=args.get("consent"),
             actor_token=bearer_token,
             capabilities=args.get("capabilities") or [],
+            display_name=args.get("display_name"),
         ))
 
     def _tool_room_send(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:

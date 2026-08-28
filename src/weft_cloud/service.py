@@ -36,7 +36,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from http import HTTPStatus
 from typing import Any, Callable, Mapping
-from urllib.parse import quote, urlsplit
+from urllib.parse import parse_qs, quote, urlsplit
 
 from weft_cloud.identity import (
     AccountStore,
@@ -1083,6 +1083,8 @@ class WeftCloudService:
                 f'<h2 style="font-size:18px;margin:0 0 8px;color:#fafafa;font-weight:600;letter-spacing:normal;text-transform:none;">Join {_html_esc(room_name)}</h2>'
                 f'<p style="margin:0 0 16px;color:#a7a6a6;">You have been invited to join this room. Click below to join with your account.</p>'
                 f'<form method="post" action="/j/{_html_esc(link_token)}">'
+                f'<label for="display_name" style="display:block;margin:0 0 6px;color:#a7a6a6;font-size:13px;">Your name in this room <span style="color:#6b6b6b;">(optional)</span></label>'
+                f'<input id="display_name" name="display_name" type="text" maxlength="80" autocomplete="off" placeholder="e.g. Dana from Acme" style="width:100%;box-sizing:border-box;background:#141414;color:#fafafa;border:1px solid #333;border-radius:6px;padding:9px 12px;font-size:14px;margin:0 0 14px;">'
                 f'<button type="submit" style="background:#fafafa;color:#0a0a0a;font-weight:600;font-size:14px;padding:10px 24px;border:0;border-radius:6px;cursor:pointer;">Join this room</button>'
                 f'</form>'
                 f'</div>'
@@ -1199,6 +1201,19 @@ class WeftCloudService:
             handler.end_headers()
             return
 
+        # Optional room-scoped display name from the join form. Drain the body
+        # either way so the connection is left clean.
+        display_name = None
+        try:
+            body_len = int(handler.headers.get("Content-Length", "0") or "0")
+        except ValueError:
+            body_len = 0
+        if 0 < body_len <= 8192:
+            form = parse_qs(handler.rfile.read(body_len).decode("utf-8", "replace"))
+            picked = form.get("display_name") or []
+            if picked:
+                display_name = picked[0]
+
         try:
             self.rooms.join_room(
                 ctx.tenant_id,
@@ -1207,6 +1222,7 @@ class WeftCloudService:
                 ctx.account_id,
                 consent=True,
                 actor_token=session_token,
+                display_name=display_name,
             )
             self.backend.append_audit(
                 ctx.tenant_id,
@@ -1293,11 +1309,13 @@ class WeftCloudService:
         link_token = body.get("link_token")
         consent = body.get("consent", False)
         capabilities = body.get("capabilities", [])
+        display_name = body.get("display_name")
         actor_token = _bearer_token(handler)
         if not room_id or not link_token:
             raise _ServiceError("invalid_argument", "room_id and link_token are required")
         result = self.rooms.join_room(
             ctx.tenant_id, room_id, link_token, ctx.agent_id, consent, actor_token, capabilities,
+            display_name=display_name,
         )
         self.backend.append_audit(
             ctx.tenant_id, "room.join", ctx.account_id, room_id,
