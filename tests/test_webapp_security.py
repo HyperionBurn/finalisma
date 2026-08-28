@@ -545,10 +545,10 @@ class TestNoSecretsInHtml(unittest.TestCase):
         # No link token in body
         self.assertNotRegex(body, r"rm_[A-Za-z0-9_-]+")
 
-    def test_33_member_connect_renders_link_token(self):
+    def test_33_owner_connect_renders_link_token(self):
         status, body, _ = self.d.get(f"/room/{self.room_id}/connect", extra_cookie=f"fss_session={self.cookie}")
         self.assertEqual(status, 200)
-        self.assertRegex(body, r"rm_[A-Za-z0-9_-]+", "link token must be present for members")
+        self.assertRegex(body, r"rm_[A-Za-z0-9_-]+", "link token must be present for the owner")
 
 
 class TestRoomLinkRefusals(unittest.TestCase):

@@ -25,7 +25,6 @@ import tempfile
 import threading
 import time
 import unittest
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import quote, urlencode
@@ -627,45 +626,20 @@ class TestConnectPage(unittest.TestCase):
         self.assertEqual(status, 200)
         initial_token = re.search(r"rm_[A-Za-z0-9_-]+", initial_body).group(0)
 
-        # The raw bearer token is intentionally not persisted. A restart must
-        # expose a recoverable owner action, never a blank join request.
+        # The existing bearer token is persisted in sealed form. A restart
+        # must return the same link, never rotate or blank it.
         self.driver.restart()
         status, connect_body, _ = self.driver.get(f"/room/{self.room_id}/connect")
         self.assertEqual(status, 200)
-        self.assertIn("Join link unavailable after a web restart", connect_body)
+        recovered_token = re.search(r"rm_[A-Za-z0-9_-]+", connect_body).group(0)
+        self.assertEqual(recovered_token, initial_token)
+        self.assertNotIn("Join link unavailable", connect_body)
         self.assertNotIn('link_token": ""', connect_body)
         status, detail_body, _ = self.driver.get(f"/room/{self.room_id}")
         self.assertEqual(status, 200)
-        self.assertIn("Join link unavailable after a web restart", detail_body)
+        self.assertIn(initial_token, detail_body)
         self.assertNotIn('link_token": ""', detail_body)
-        csrf = self.driver.extract_csrf(detail_body)
-        status, _, headers = self.driver.post(
-            f"/room/{self.room_id}/regenerate-link", {"_csrf": csrf}
-        )
-        self.assertEqual(status, 303)
-        self.assertTrue(headers["Location"].endswith(f"/room/{self.room_id}"))
-        regenerated_body = self.driver.get(f"/room/{self.room_id}/connect")[1]
-        regenerated_token = re.search(r"rm_[A-Za-z0-9_-]+", regenerated_body).group(0)
-        self.assertNotEqual(regenerated_token, initial_token)
-        self.assertIsNone(self.driver.app.rooms.resolve_room_by_link_token(initial_token))
-
-        # Concurrent owner clicks must leave the process cache aligned with
-        # whichever hash was committed last, not with an already-invalid token.
-        csrf = self.driver.extract_csrf(self.driver.get(f"/room/{self.room_id}")[1])
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            responses = list(pool.map(
-                lambda _: self.driver.post(
-                    f"/room/{self.room_id}/regenerate-link", {"_csrf": csrf}
-                ),
-                range(2),
-            ))
-        self.assertEqual([response[0] for response in responses], [303, 303])
-        cached_token = self.driver.app._get_room_link_token(self.room_id)
-        self.assertIsNotNone(cached_token)
-        self.assertEqual(
-            self.driver.app.rooms.resolve_room_by_link_token(cached_token),
-            self.room_id,
-        )
+        # The old destructive replacement route is no longer exposed.
         status, _, _ = self.driver.get(f"/room/{self.room_id}/regenerate-link")
         self.assertEqual(status, 404)
 
@@ -1054,9 +1028,9 @@ class TestMemberCanView(unittest.TestCase):
     The room DETAIL page is deliberately viewable by any org member (roster +
     redacted event log). The CONNECT page is different: it hands out the room's
     raw rm_ link token — a multi-use bearer capability — so it requires the
-    caller to be the room's OWNER or an ACTIVE MEMBER of THAT room. A same-org
-    member who was invited to the org but never to the room gets the identical
-    404 as a room that does not exist (no existence oracle).
+    caller to be the room's OWNER. Active non-owner members may see the page but
+    never receive the bearer token. A same-org member who was invited to the org
+    but never to the room gets the identical 404 as a room that does not exist.
     """
 
     def setUp(self):
@@ -1172,11 +1146,13 @@ class TestMemberCanView(unittest.TestCase):
         }, token=session_token)
         self.assertEqual(join_status, 200, f"member join failed: {joined}")
 
-        # 3. Now an active room member: the connect page renders the link token.
+        # 3. Now an active room member: the page remains reachable, but the
+        # owner-only recovery surface must not render the bearer token.
         status, body, _ = self.driver.get(f"/room/{self.room_id}/connect")
         self.assertEqual(status, 200)
-        self.assertIsNotNone(re.search(r"rm_[A-Za-z0-9_-]+", body),
-                             "an active room member must be able to share the link")
+        self.assertNotRegex(body, r"rm_[A-Za-z0-9_-]+",
+                            "a non-owner member must not receive the bearer link")
+        self.assertIn("Only the room owner can view or copy", body)
 
 
 class TestUnauthenticatedAccess(unittest.TestCase):
@@ -1502,4 +1478,3 @@ class TestRoomSendStrictValidation(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
