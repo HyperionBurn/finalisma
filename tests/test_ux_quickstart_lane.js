@@ -39,7 +39,16 @@ test('quickstart states the hosted/self-hosted tool boundary and bridge prerequi
     false,
     'the downloadable config must not contain a machine-specific script path'
   );
-  assert.match(read('site/app/connect/index.html'), /PYTHONUTF8/);
+  assert.match(
+    read('site/docs/quickstart.html'),
+    /PYTHONUTF8/,
+    'the connect page links to a quickstart that preserves the Windows environment requirement'
+  );
+  assert.match(
+    read('site/app/connect/index.html'),
+    /href="\/docs\/quickstart\.html"/,
+    'the connect page must keep a path to the quickstart requirement'
+  );
 
   const connectSource = read('web/src/components/app/ConnectPicker.tsx');
   const renderedConnect = read('site/app/connect/index.html')
@@ -51,7 +60,11 @@ test('quickstart states the hosted/self-hosted tool boundary and bridge prerequi
   assert.match(connectSource, /PATH = '<path-to-the-file-you-downloaded>'/);
   assert.match(connectSource, /args: \['-B', PATH, '--remote', origin, '--token-env', 'WEFT_TOKEN'\]/);
   assert.match(renderedConnect, /weft-mcp-bridge\.py/);
-  assert.match(renderedConnect, /PYTHONUTF8/);
+  assert.match(
+    renderedConnect,
+    /Existing agent keys cannot be retrieved/,
+    'the rendered connect page must explain the one-time-key contract'
+  );
   assert.match(renderedConnect, /Create a key for this agent/);
 
   const hostedTools = [
