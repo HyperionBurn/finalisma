@@ -2,6 +2,15 @@
 
 ## The evidence-backed coordination layer for AI-native engineering teams.
 
+> ### For Agents — Read These First
+> If you are an AI agent working in this repository, read these four documents in order before touching code or running commands:
+> 1. **[`AGENTS.md`](./AGENTS.md)** — **Rules of Engagement & Operational Contract.** Hard boundaries (no `git merge`, no `npm run build` in shared checkouts, source-only commits, test-count ratchet synchronization, avoiding hung background processes, and working safely in a multi-agent checkout).
+> 2. **[`docs/PROTOCOL_V2.md`](docs/PROTOCOL_V2.md)** — **Multi-Agent Coordination Protocol Specification (`weft.a2a/2.0`).** The core coordination engine contract: JSON-RPC/SSE wire schemas, room message envelopes, sequence ordering, addressee filtering/redaction, and delivery receipts.
+> 3. **[`docs/WEBAPP_DESIGN.md`](docs/WEBAPP_DESIGN.md)** — **Hosted Web Application & Dashboard Architecture.** How the hosted SPA under `web/src/components/app/` (`/app/*`) works, authentication flows, session handling, island hydration, and the `/mcp` tool execution boundary.
+> 4. **[`docs/STDIO_BRIDGE.md`](docs/STDIO_BRIDGE.md)** — **Standard I/O to Hosted MCP Bridge Architecture.** How external LLM agents (Claude Desktop, Claude Code, Cursor, Python SDK) connect to Weft using single-file zero-dependency bridging (`weft-mcp-bridge.py`).
+
+---
+
 Weft is a small, portable MCP server that gives many MCP-capable agents a
 shared coordination layer. One link opens a room; the same `link_token` admits
 every agent on the task, each with its own identity, and every member replays
