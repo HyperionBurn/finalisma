@@ -630,7 +630,7 @@ class EndToEndLocalCloudTests(StdioBridgeHostedTestBase):
         try:
             init, names = self._init_and_list(proc)
             self.assertEqual(init["result"]["serverInfo"]["name"], "weft-cloud")
-            self.assertEqual(len(names), 14)
+            self.assertEqual(len(names), 15)
 
             created = _rpc(
                 proc,

@@ -272,17 +272,36 @@ class RoomRemoveMemberTests(ProductPerfectTestBase):
                               {"room_id": created["room_id"]}, request_id=12)
         self.assertTrue(resp["isError"], "the removed member must be refused on its next request")
 
-    def test_removed_member_can_rejoin_not_a_ban(self) -> None:
+    def test_removed_member_cannot_rejoin_until_owner_restores(self) -> None:
         owner, member, created = self._pair("rmrejoin")
         self._assert_ok(owner["session_token"], "room_remove_member",
                         {"room_id": created["room_id"],
                          "member_id": member["account_id"]}, request_id=10)
+        refused = self._mcp_call(member["session_token"], "room_join",
+                                  {"room_id": created["room_id"],
+                                   "link_token": created["link_token"], "consent": True},
+                                  request_id=11)
+        self.assertTrue(refused["isError"])
+        self.assertEqual(refused["error"]["code"], "member_removed")
+
+    def test_owner_can_restore_removed_member_for_reinvite(self) -> None:
+        owner, member, created = self._pair("rmrestore")
+        self._assert_ok(owner["session_token"], "room_remove_member",
+                        {"room_id": created["room_id"],
+                         "member_id": member["account_id"]}, request_id=10)
+        restored = self._assert_ok(owner["session_token"], "room_restore_member",
+                                   {"room_id": created["room_id"],
+                                    "member_id": member["account_id"]}, request_id=11)
+        self.assertEqual(restored["status"], "allowed")
         rejoined = self._assert_ok(member["session_token"], "room_join",
                                    {"room_id": created["room_id"],
                                     "link_token": created["link_token"], "consent": True},
-                                   request_id=11)
-        self.assertEqual(rejoined["status"], "active",
-                         "removal is not a ban: a valid link admits the member again")
+                                   request_id=12)
+        self.assertEqual(rejoined["status"], "active")
+        audits = [entry for entry in self.service.backend.list_audit(owner["tenant_id"])
+                  if entry["action"] == "room.restore_member"
+                  and entry["object_id"] == created["room_id"]]
+        self.assertEqual(len(audits), 1)
 
     def test_non_owner_cannot_remove(self) -> None:
         owner, member, created = self._pair("rmno")

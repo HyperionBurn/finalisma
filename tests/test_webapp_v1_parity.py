@@ -3,9 +3,9 @@
 The hosted service exposes ONE room store behind TWO surfaces:
 
   - ``POST /mcp`` — the JSON-RPC surface (``src/weft_cloud/mcp.py``),
-    exposing exactly 14 room tools: room_create, room_list, room_join, room_send,
+    exposing exactly 15 room tools: room_create, room_list, room_join, room_send,
     room_receipts, room_poll, room_wait, room_info, room_ack, room_heartbeat,
-    room_leave, room_remove_member, room_close, room_event_log.
+    room_leave, room_remove_member, room_restore_member, room_close, room_event_log.
   - ``/v1/*`` — the REST surface (``src/weft_cloud/service.py``).
 
 Both must offer the same product operations with the same machine-readable
@@ -252,6 +252,7 @@ class TestRestRouteParityMissingEndpoints(unittest.TestCase):
             "room_heartbeat": "/v1/rooms/heartbeat",
             "room_leave": "/v1/rooms/leave",
             "room_remove_member": "/v1/rooms/remove_member",
+            "room_restore_member": "/v1/rooms/restore_member",
             "room_close": "/v1/rooms/close",
             "room_event_log": "/v1/rooms/event_log",
         }

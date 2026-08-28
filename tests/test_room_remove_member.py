@@ -1,8 +1,9 @@
 """Owner-scoped room member removal over the real cloud HTTP service.
 
 The room owner may evict an active member, immediately releasing its seat.
-Removal is not a ban: a member that still holds a valid room link may rejoin.
-The suite also locks down authorization and no-enumeration behavior.
+An owner removal is durable for that identity while the shared link remains
+usable by every other holder. A voluntary leave remains rejoinable. The suite
+also locks down authorization and no-enumeration behavior.
 """
 
 from __future__ import annotations
@@ -130,6 +131,15 @@ class OwnerRemoveMemberTests(unittest.TestCase):
     def _info(self, token: str, room_id: str) -> tuple[int, dict]:
         return _get(self.base, "/v1/rooms/info", token, f"?room_id={room_id}")
 
+    def _leave(self, token: str, room_id: str) -> tuple[int, dict]:
+        return _post(self.base, "/v1/rooms/leave", {"room_id": room_id}, token)
+
+    def _restore(self, token: str, room_id: str, member_id: str) -> tuple[int, dict]:
+        return _post(
+            self.base, "/v1/rooms/restore_member",
+            {"room_id": room_id, "member_id": member_id}, token,
+        )
+
     def _owner_with_members(self, prefix: str) -> tuple[dict, dict, dict, dict]:
         owner = self._signup(f"{prefix}-owner@example.com")
         first = self._mint_key(owner["session_token"], "first")
@@ -153,12 +163,70 @@ class OwnerRemoveMemberTests(unittest.TestCase):
 
         replacement = self._mint_key(session, "replacement")
         self._join(replacement["agent_key"], room)
-        self._join(first["agent_key"], room)
 
         status, info = self._info(session, room["room_id"])
         self.assertEqual(status, HTTPStatus.OK, info)
-        self.assertEqual(info["member_count"], 4)
+        self.assertEqual(info["member_count"], 3)
         self.assertIn(second["key_id"], {member["agent_id"] for member in info["members"]})
+
+    def test_removed_member_cannot_rejoin_same_link(self) -> None:
+        owner, first, _second, room = self._owner_with_members("remove-marker")
+        status, response = self._remove(owner["session_token"], room["room_id"], first["key_id"])
+        self.assertEqual(status, HTTPStatus.OK, response)
+
+        status, refused = _post(
+            self.base, "/v1/rooms/join",
+            {"room_id": room["room_id"], "link_token": room["link_token"], "consent": True},
+            first["agent_key"],
+        )
+        self.assertEqual(status, HTTPStatus.FORBIDDEN, refused)
+        self.assertEqual(refused["error"]["code"], "member_removed")
+
+    def test_other_holder_of_same_link_can_still_join(self) -> None:
+        owner, first, _second, room = self._owner_with_members("remove-shared-link")
+        status, response = self._remove(owner["session_token"], room["room_id"], first["key_id"])
+        self.assertEqual(status, HTTPStatus.OK, response)
+
+        other = self._signup("remove-shared-link-other@example.com")
+        status, joined = _post(
+            self.base, "/v1/rooms/join",
+            {"room_id": room["room_id"], "link_token": room["link_token"], "consent": True},
+            other["session_token"],
+        )
+        self.assertEqual(status, HTTPStatus.OK, joined)
+        self.assertEqual(joined["status"], "active")
+
+    def test_voluntary_leave_remains_rejoinable(self) -> None:
+        owner, first, _second, room = self._owner_with_members("remove-voluntary-leave")
+        status, left = self._leave(first["agent_key"], room["room_id"])
+        self.assertEqual(status, HTTPStatus.OK, left)
+        self.assertEqual(left["status"], "left")
+
+        self._join(first["agent_key"], room)
+
+    def test_owner_can_restore_removed_member_and_action_is_audited(self) -> None:
+        owner, first, _second, room = self._owner_with_members("remove-restore")
+        status, removed = self._remove(owner["session_token"], room["room_id"], first["key_id"])
+        self.assertEqual(status, HTTPStatus.OK, removed)
+
+        status, restored = self._restore(owner["session_token"], room["room_id"], first["key_id"])
+        self.assertEqual(status, HTTPStatus.OK, restored)
+        self.assertEqual(restored["status"], "allowed")
+        self._join(first["agent_key"], room)
+
+        intruder = self._signup("remove-restore-intruder@example.com")
+        self._join(intruder["session_token"], room)
+        status, refused = self._restore(intruder["session_token"], room["room_id"], first["key_id"])
+        self.assertEqual(status, HTTPStatus.FORBIDDEN, refused)
+        self.assertEqual(refused["error"]["code"], "owner_required")
+
+        audit = self.service.backend.list_audit(owner["tenant_id"])
+        restore_audits = [entry for entry in audit
+                          if entry["action"] == "room.restore_member"
+                          and entry["object_id"] == room["room_id"]]
+        self.assertEqual(len(restore_audits), 1)
+        self.assertEqual(json.loads(restore_audits[0]["payload_json"]),
+                         {"member_id": first["key_id"]})
 
     def test_non_owner_cannot_remove_a_member(self) -> None:
         _owner, first, _second, room = self._owner_with_members("remove-non-owner")

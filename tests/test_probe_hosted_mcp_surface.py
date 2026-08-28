@@ -120,7 +120,7 @@ class HostedMCPSurfaceProbeTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
         self.assertEqual(result["status"], "PASS")
-        self.assertEqual(result["tool_count"], 14)
+        self.assertEqual(result["tool_count"], 15)
         self.assertEqual(
             result["requests"],
             ["initialize", "notifications/initialized", "tools/list"],

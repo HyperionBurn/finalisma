@@ -513,12 +513,12 @@ class SDKRetryTests(unittest.TestCase):
 
 
 class SdkHostedSurfaceAuditTests(unittest.TestCase):
-    """Regression guards for the HOSTED Weft MCP surface (14 room tools).
+    """Regression guards for the HOSTED Weft MCP surface (15 room tools).
 
-    The hosted /mcp endpoint (weft_cloud/mcp.py) exposes exactly fourteen room
+    The hosted /mcp endpoint (weft_cloud/mcp.py) exposes exactly fifteen room
     tools: room_create, room_list, room_join, room_send, room_receipts, room_poll,
     room_wait, room_info, room_ack, room_heartbeat, room_leave,
-    room_remove_member, room_close, room_event_log. The SDK must be able to drive all of
+    room_remove_member, room_restore_member, room_close, room_event_log. The SDK must be able to drive all of
     them and must not lose the structured error / cursor information that
     surface emits. These tests protect the hosted SDK contract and its
     structured error and cursor behavior.
@@ -537,6 +537,7 @@ class SdkHostedSurfaceAuditTests(unittest.TestCase):
         "room_heartbeat": "room_heartbeat",
         "room_leave": "leave_room",
         "room_remove_member": "room_remove_member",
+        "room_restore_member": "room_restore_member",
         "room_close": "close_room",
         "room_event_log": "room_event_log",
     }
@@ -549,7 +550,7 @@ class SdkHostedSurfaceAuditTests(unittest.TestCase):
         host, port = server.server_address
         return server, thread, f"http://{host}:{port}/mcp"
 
-    def test_client_exposes_all_fourteen_hosted_room_tools(self) -> None:
+    def test_client_exposes_all_fifteen_hosted_room_tools(self) -> None:
         """Every tool the hosted /mcp surface exposes must have an SDK method.
 
         The mapping below keeps the hosted surface's SDK coverage explicit so
