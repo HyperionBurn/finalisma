@@ -1,124 +1,137 @@
-# Weft — agent rules (branch `isolated`)
+# Weft — agent rules (branch `hive/land`)
 
-Read `ORCHESTRATOR_BRIEF.md` in this directory before planning work or dispatching a lane.
-It contains the full analysis, lane specs, prompt template, and verification gates.
+If you are an agent working in this repo, this file is the contract. It is maintained by the
+orchestrator and is authoritative over any older document that disagrees with it.
 
-## Worktree boundary
+**Repo:** `C:\Users\Wasif\Documents\MP-web` · **Working branch:** `hive/land` · **Ships to:**
+`origin/main` (github.com/HyperionBurn/finalisma) → Azure VM
+`weft.switzerlandnorth.cloudapp.azure.com`.
 
-- This worktree is `C:\Users\Wasif\Documents\Multiplayer-AI-isolated`, branch `isolated`.
-- `C:\Users\Wasif\Documents\Multiplayer-AI` is a **separate worktree** on `master` with its own
-  uncommitted work. Never read from or write to it.
-- If your shell cwd is `C:\Users\Wasif` (the opencode session root), every `bash` call must pass
-  `workdir` = this worktree, and every read/write/edit must use an absolute path under it.
-  Restarting opencode from inside this directory fixes that permanently.
-- Do not commit from a lane. Do not run `git reset --hard`, `git checkout --`, or `git clean`.
-- Never `git add -A`. Stage explicit paths. `git add -A` is what produced the broken snapshot
-  described below.
+---
 
-## AGENT_HANDOVER.md is stale in four sections
+## 1. The rules that will get you reverted if you break them
 
-`AGENT_HANDOVER.md` is otherwise authoritative. These four sections are **wrong** and will cause
-damage if followed:
+**Never `git merge` in this repo.** Merges here have quietly reverted security fixes and the
+build guard. Check out or cherry-pick specific paths instead. This is a standing instruction from
+the repo owner, not a preference.
 
-- **§2.1 / §2.2 — the design.** They describe **DOUBLE ENTRY** (Archivo + IBM Plex Mono, 37/63
-  ledger rule, "no serif anywhere", `serifDeclarationsRemaining` must be 0). The live design is
-  **FIELD NOTES** — see `site/styles.css` line 2 — built on **Fraunces, a serif, with italics**,
-  plus Big Shoulders Display, oxblood cover bands, and ASSERT/PROVE colour roles. Fraunces is
-  correct and deliberate. **Do not "fix" serif usage. Do not restore DOUBLE ENTRY.**
-  `design-qa.md:5` is stale for the same reason.
-- **§5 — subagents.** Describes Codex tools (`multi_agent_v1__spawn_agent`) that do not exist
-  here. The mechanism in this environment is the `task` tool with
-  `subagent_type: "longcat-2.0"`, defined in `~/.config/opencode/agents/longcat-2.0.md`.
-  Subagents inherit the parent model unless the agent definition pins `model:`. Config is read at
-  session start and does not hot-reload.
-- **§9 — workspace.** Names the wrong worktree and references `apply_patch`, a Codex tool.
+**Never `git add -A`.** Stage explicit paths. `git add -A` against a mid-edit tree is what
+produced the broken `b4f3026` snapshot. With several agents sharing this checkout, `-A` will now
+also sweep up other people's half-finished work and commit it under your message.
 
-**§4.2 (traps) and §7 (security boundaries) are current — obey them.** In particular:
-`minmax(0, 1fr)` never bare `1fr`; no horizontal padding on any element carrying the split; never
-reveal with `clip-path` on an IntersectionObserver target; `overflow-x: clip` not `hidden`.
+**Commit source only. Do not run `npm run build`. Do not commit anything under `site/`.**
+Astro deletes `site/` before it regenerates, so a build that fails midway leaves the generated
+tree destroyed — this happened on 2026-08-28 and cost 91 files (recovered). Several agents share
+one checkout, so two concurrent builds are mutually destructive. The orchestrator runs the single
+authoritative build and commits `site/` immediately before gating. If your change needs a build
+to be *verified*, say so in your report and ask for one.
 
-## Resolved — do not re-investigate
+**Do not run `scripts/final-verify.sh`.** The orchestrator owns the only gate run. Concurrent
+gates share `/tmp/weft-final-verify-suite.log` and colliding temp dirs, and produce garbage — the
+same commit once returned three different verdicts. If you want to know whether something passes,
+ask.
 
-These were real defects and are all fixed. Listed so nobody spends a lane re-discovering them.
+**Commit as you go.** Two runs in this project's history ended after 30+ minutes with everything
+unstaged and lost. One concern per commit; never batch to the end.
 
-- `b4f3026` was committed with `git add -A` against a mid-edit tree and missed
-  `site/proof-engine.js` (restored, `7c95cba`). `site/docs/managed-pilot.html` was an
-  unreferenced draft superseded by `site/docs/pilot.html` and was deleted.
-- The three `test_site.py` failures were genuine defects, not stale tests: the missing
-  `[hidden] { display: none !important; }` progressive-enhancement rule, the colour-alone
-  accessibility invariant, and dangling internal links. All fixed in code, assertions kept.
-- `site/docs/pairing-ux.html` did not exist and was authored rather than the link being deleted.
-- The credential-rotation defect (a rotated actor token still authenticated) is fixed.
-- Two HIGH security findings are fixed: the `WebhookBridge` stored-hash-as-HMAC-key fallback now
-  fails closed (`bridge.py:226`), and the SDK no longer leaks coordinator response bodies into
-  exceptions (`client.py:269`).
-- The five Wave-A modules are mounted behind the MCP surface (`fe4b2c5`) with integration
-  contracts that drive real JSON-RPC dispatch, not the module APIs.
-- A real MCP host (opencode 1.18.13) loaded weft from its own config and completed a full
-  two-agent handoff (`96d76ba`, `docs/INTEROP_VALIDATION_2026-08-05.md`). The interop matrix now
-  records 1 verified host.
-- Wave E Rooms are implemented (`src/weft_mcp/room.py`): one multi-use link admits N agents
-  up to a cap, with ordered event log, per-member cursors, addressing (unicast/group/broadcast),
-  and 12 `room_*` tools. Design: `docs/ROOMS_DESIGN.md`.
-- Wave F Cloud Spine is implemented (`src/weft_cloud/`): a storage interface
-  (`StorageBackend` ABC) with a stdlib SQLite-WAL backend, structural tenancy at the storage
-  boundary (`TenantContext` guard, required `tenant_id`, `WHERE tenant_id = ?`), forward-only
-  idempotent migrations that upgrade a real v3 coordinator DB in place, plan-driven quotas and
-  rate limits, and real crash-kill durability tests. Design: `docs/CLOUD_SPINE_DESIGN.md`. The
-  coordinator plane (`weft_mcp`) is untouched and stays stdlib-only.
-- Wave G Identity is implemented (`src/weft_cloud/identity/`): accounts (scrypt, per-user
-  salt, constant-time compare, timing-invariant unknown-email auth), sessions (opaque `fss_`
-  tokens, SHA-256 at rest, rotation on role change, revoke/revoke-all), orgs (owner/admin/member,
-  org IS a tenant), invites (expiring single-use role-scoped `fiv_` tokens, email-locked, no
-  self-escalation), delivered through a pluggable `Mailer` with `LocalOutboxMailer` writing to
-  disk. Role enforcement is defence in depth: `SessionContext.require_role` at the service layer
-  PLUS `context.require_db_role` re-deriving the actor's role from `cloud_identity_members`
-  (layer 2), so a hand-forged SessionContext still cannot act above its DB role. Migrations
-  `cloud_002..cloud_006` are appended to the existing registry. 58 integration tests drive the
-  real API. Design: `docs/IDENTITY_DESIGN.md`.
+---
 
-## The one open structural gap
+## 2. The gate
 
-The interop matrix previously recorded zero verified host integrations; it now records one
-(OpenCode 1.18.13). The remaining gap is breadth: the stdio tier is host-verified, but the
-Streamable-HTTP, bridge-adapter, and SDK tiers each still need a committed transcript before
-they count as "supported" per docs/PRODUCT_ROADMAP.md §3. A negative result is valuable; a
-simulated one is not.
+`scripts/final-verify.sh` decides what ships. It must print `READY TO DEPLOY`.
 
-## Test discipline
+It verifies **`git archive HEAD` extracted into a temp dir — not your working tree.** Uncommitted
+work is invisible to it. If you did not commit it, it does not exist as far as the gate is
+concerned.
 
-- TDD, red first. Write the failing test, run it, confirm it fails, then implement.
+Three things it enforces that regularly catch people:
+
+**The test-count ratchet.** `scripts/test-count-baseline.txt`, `docs/RELEASE_EVIDENCE.md`
+(`"N tests discovered; P passed; S skipped"`, where P+S must equal N) and `docs/YC_APPLICATION.md`
+(`"N passing"`) must agree with live discovery. If your change moves the test count, **all of
+them must land in the SAME commit as the tests.** A split ratchet commit blocks the next deploy
+for whoever comes after you.
+
+**Site freshness.** `site/.web-src-hash` must match `scripts/web-src-hash.cjs` run over
+`web/src`. This is what stops a source change shipping with stale bundles — the worst failure
+shape available to us, where every signal reports success and the feature is silently absent.
+Note the hash is deliberately CR-stripped: this repo is committed with `core.autocrlf=true`, so
+worktree bytes and `git archive` bytes are *different encodings of the same blob*. Any
+cross-context hash you write here must normalise line endings or it can never pass.
+
+**Site integrity.** An exact HTML route manifest and a preservation verifier. This repo has
+destroyed `site/` before; these exist because of it.
+
+---
+
+## 3. Test discipline
+
+- **TDD, red first.** Write the failing test, run it, confirm it fails, then implement.
 - **Never weaken, skip, or delete an assertion to make a suite pass.** If a test encodes a
-  genuinely dead requirement, say so explicitly and propose the replacement invariant.
+  genuinely dead requirement, say so explicitly and propose the replacement invariant. When an
+  assertion protects something that still matters but has moved, **re-point it — do not drop the
+  coverage.**
+- A failing test is not automatically a defect in your code. It may be a stale assertion encoding
+  a contract that has since changed. Work out which, and say which.
 - No mocks for the SQLite layer. This project tests against real storage.
-- Baseline for comparison: `docs/BASELINE_2026-08-05.md` (create it if absent — pin commit, test
-  count, and exact failing test names before starting a wave).
-- The published test count is now guarded automatically by
-  `tests/test_site.py::TestCountSyncTests`, which discovers the live count with the same loader
-  and pattern as `unittest discover -s tests` and fails if any instance in `docs/`, `site/**.html`
-  or `site/llms.txt` disagrees. If you add or remove tests, that guard will tell you what to
-  update. Do not hand-maintain the number.
 - No performance figure may appear in `docs/` or `site/` that was not measured against the
-  current harness. `docs/PERFORMANCE.md` holds the provenance. Dated audit documents keep their
-  historical figures with a superseded-by note — annotate history, never rewrite it.
+  current harness. Dated audit documents keep their historical figures with a superseded-by note
+  — annotate history, never rewrite it.
+- **A test the gate does not run is not a test, it is a comment.** `tests/test_ux_a11y.js` sat
+  with a failing assertion for an unknown period because the gate invoked zero node tests.
 
-## Constraints that are product promises, not preferences
+---
+
+## 4. Self-verification — verify by a different route than you built by
+
+A claim checked the same way it was written is not checked.
+
+- **Wrote a guard? Feed it a value you know is wrong and prove it fails.** A guard never seen red
+  is not known to guard anything. Prove it in *both* directions, red and green.
+- **Claim a module is reachable? Call it through the outermost real surface**, not its Python API.
+- **A hand-set cookie is not a browser session.** Verifying the machine path proves nothing about
+  the human path. If you claim a user journey works, walk it in a real cold browser with a real
+  signup. This exact mistake produced a false "verified live" claim on this project.
+- **Do not trust a summarising tool's verdict as an answer.** `file` reported "CRLF line
+  terminators" on two files that differed precisely in their line endings, because it samples
+  rather than checks every line. When two things disagree, bisect to the smallest unit and
+  compare bytes.
+- **Docstrings are claims.** If a docstring says it covers X and Y, the code must cover X and Y.
+
+---
+
+## 5. Reporting
+
+This repo's entire positioning is "evidence-backed", so a false completion claim is a product
+bug.
+
+- Never state a number you did not measure this session.
+- Verify with a command and paste the output; never report complete on your own say-so.
+- Always state what you could not finish.
+- If you find a missing field, an absent API, or an unanswerable question — **name it as a
+  finding.** Do not paper over it with a client-side guess. A negative result is valuable; a
+  simulated one is not.
+
+---
+
+## 6. Constraints that are product promises, not preferences
 
 Python 3.11+, standard library only, SQLite state, zero runtime dependencies, no CDN, no global
-installs, no package added just to run a check. The dependency-free claim is on the website.
+installs, no package added just to run a check. **The dependency-free claim is on the website.**
 
-## Reporting
+Line endings: `.gitattributes` forces LF on `*.sh`, `*.py`, `*.service`, `*.timer`. A CRLF that
+survives into a deploy script makes bash read `set -euo pipefail\r` and abort the cutover
+mid-deploy. This really happened. Three belts defend it — `.gitattributes`, the VM-side
+normaliser, and `bash -n` on the normalised copy — and all three must be defeated at once to
+reintroduce it.
 
-Report truthfully — this repo's entire positioning is "evidence-backed", so a false completion
-claim is a product bug. Never state a number you did not measure this session. Never report a
-lane complete on the lane's own say-so; verify with a command and paste the output. Always state
-what you could not finish.
+---
 
-## Long-running processes — read before starting a server
+## 7. Long-running processes — read before starting a server
 
 This environment has hung three times on this exact mistake. A `bash` tool call does not return
-until **every** descendant holding the pipe has exited, so starting a server the normal way
-blocks the tool call forever and the whole run stalls with no error.
+until every descendant holding the pipe has exited, so starting a server the normal way blocks
+the call forever and the run stalls with no error.
 
 Never do this:
 
@@ -126,12 +139,8 @@ Never do this:
 python scripts/weft-mcp.py --transport http --port 18787 &   # BLOCKS the tool call
 ```
 
-A `Start-Process` wrapper was tried and also stalled once, for reasons not reproduced in
-isolation. Do not spend a run debugging shell process management — **avoid the whole problem
-class instead.**
-
-**Preferred: let a Python script own the child process.** One foreground command, deterministic
-cleanup, no detachment, no orphan risk:
+**Preferred: let a Python script own the child process** — one foreground command, deterministic
+cleanup, no orphan risk:
 
 ```python
 import subprocess, json, sys
@@ -141,62 +150,58 @@ proc = subprocess.Popen(
 )
 try:
     proc.stdin.write(json.dumps(request) + "\n"); proc.stdin.flush()
-    line = proc.stdout.readline()                              # parse JSON-RPC reply
+    line = proc.stdout.readline()
 finally:
     proc.terminate()
     proc.wait(timeout=10)
 ```
 
-Run it as `timeout 120 python -B scripts/<driver>.py`. The `finally` block guarantees teardown
-even when an assertion fails, which a shell sequence does not.
+Run it as `timeout 120 python -B scripts/<driver>.py`. The `finally` guarantees teardown even
+when an assertion fails, which a shell sequence does not. This is also the more faithful test:
+**stdio is MCP's primary transport** — what Claude Desktop, Claude Code and Cursor actually use.
 
-This is also the more faithful test: **stdio is MCP's primary transport** — it is what Claude
-Desktop, Claude Code and Cursor actually use — so driving the server over stdio validates the
-path real hosts take, while an HTTP server on a port does not.
+If you must bind a port: check it is free first, wrap every call in `timeout`, write scratch
+outside the repo, and never leave a listener behind. Verify with `netstat` at the end of the
+step, not the end of the run.
 
-Rules that still apply: if you must bind a port, check it is free first; write scratch under
-`AppData/Local/Temp/opencode/`, never into the repo; wrap every call in `timeout`; and never
-leave a listener behind. Verify with `netstat` at the end of the step, not at the end of the run.
+---
 
-## Self-verification — verify by a different route than you built by
+## 8. Sharing this checkout with other agents
 
-A claim checked the same way it was written is not checked. When you assert something works,
-confirm it by an independent route:
+Several agents commit to `hive/land` at once. Assume someone else is editing right now.
 
-- Wrote a guard? Feed it a value you know is wrong and prove it *fails*. A guard never seen red
-  is not known to guard anything.
-- Claim a module is reachable? Call it through the outermost real surface, not its Python API.
-- Claim a doc is accurate? Grep the tree for contradicting instances rather than re-reading your
-  own edit.
-- Docstrings are claims. If a docstring says it covers X and Y, the code must cover X and Y —
-  that exact mismatch shipped once already in `TestCountSyncTests`.
+- **Stay inside the files your dispatch names.** If the fix needs a file outside them, stop and
+  say so rather than reaching for it.
+- `web/src/pages/index.astro` and `web/src/styles/land.css` are frequently owned by a landing
+  lane. Check before touching them.
+- **HEAD moves under you.** Do not assume the commit you started from is still current.
+- Pull before you start; expect generated bundle hashes to move.
 
-## Failure modes already seen in this project
+---
 
-1. **Blocking on a background process** — see above. Cost two stalled runs.
-2. **Dying with work uncommitted** — two runs ended after 30+ minutes with everything unstaged.
-   Commit each step as it completes. Never batch commits to the end of a long run.
-3. **`git add -A`** — produced the broken `b4f3026` snapshot. Always stage explicit paths.
-4. **Stale guidance outbliving the code** — `AGENT_HANDOVER.md` described a deleted design for
-   weeks. When you change something this file or the handover describes, update it in the same
-   commit.
+## 9. Failure modes already seen in this project
 
-## Skills
+1. **Blocking on a background process** — §7. Cost two stalled runs.
+2. **Dying with work uncommitted** — two runs lost 30+ minutes of work. Commit each step.
+3. **`git add -A`** — produced the broken `b4f3026` snapshot.
+4. **Stale guidance outliving the code** — a handover document described a deleted design for
+   weeks and agents kept "fixing" the live design back to it. **When you change something a doc
+   describes, update the doc in the same commit.** This file included.
+5. **Concurrent destructive builds** — §1. Cost the generated tree once.
+6. **A guard that fails closed on its own bug** — a freshness hash blocked every deploy because it
+   compared two encodings of identical content. Failing closed is the right direction, but prove
+   your guard green on a known-good input before you commit it.
+7. **Attributing a commit by its subject line** — read `git show --stat`, not the message.
 
-The user maintains a large skill library at `C:\Users\Wasif\.agents\skills\`. Skills are
-instructions, not magic — load the ones relevant to the step you are on and follow them. Useful
-here: `agent-orchestrator` (scan → match → orchestrate before fanning out lanes),
-`test-driven-development`, `invariant-guard`, `anti-sycophancy` and `dos-verify-done-claims`
-(before writing any completion report), `find-bugs` and `production-code-audit` (review),
-`e2e-testing` and `debugging-toolkit` (host validation), `pitch-psychologist`,
-`objection-preemptor` and `clarity-gate` (investor-facing copy). Say which you loaded.
+---
 
-## Verification commands
+## 10. Verification commands
 
-```powershell
-python -B -m unittest discover -s tests
-python -B scripts/weft-smoke.py          # expect evidence_passed: true
-node --check site/app.js
-node scripts/capture-site-qa.cjs              # expect consoleErrors: [] and all booleans true
-python -B scripts/weft_performance_gate.py --baseline .omx/goals/performance/single-node-coordinator-envelope/baseline.json  # current reference: 72.221ms; must be rerun under documented host conditions
+```bash
+python -B -m unittest discover -s tests      # the suite the ratchet counts
+python -B scripts/weft-smoke.py              # expect evidence_passed: true
+node --test tests/test_ux_a11y.js            # not yet run by the gate — see §3
+node scripts/web-src-hash.cjs                # must equal site/.web-src-hash
 ```
+
+Ask the orchestrator for a gate run; do not start one yourself (§1).

@@ -1,3 +1,8 @@
+// MUST stay first: pins NODE_ENV=production for `astro build` before
+// @astrojs/react (and any transitive `require('react')`) is imported below.
+// See build-env.mjs for the full rationale.
+import './build-env.mjs';
+
 import { defineConfig } from 'astro/config';
 import react from '@astrojs/react';
 import tailwindcss from '@tailwindcss/vite';
