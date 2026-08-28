@@ -13,6 +13,17 @@
  *
  * Content-only and sorted: survives `git archive`, which does not preserve
  * mtimes, and does not depend on directory iteration order.
+ *
+ * Line-ending normalised: this repo is committed with core.autocrlf=true, so
+ * the same blob is CRLF in a Windows worktree and whatever .gitattributes says
+ * in `git archive` output -- and a worktree file that was last written by an
+ * LF-only tool is MIXED. The build stamps from the worktree and the gate checks
+ * from the archive, so a byte-literal hash compares two different encodings of
+ * identical content and fails forever. We hash CR-stripped bytes: the digest is
+ * an identity token, not the file, so collapsing 
+ -> 
+ on both sides is
+ * exactly the invariance we want.
  */
 const fs = require('fs');
 const path = require('path');
@@ -42,7 +53,10 @@ for (const file of files) {
   // Hash the path too, so moving a file without editing it still registers.
   outer.update(path.relative(root, file).split(path.sep).join('/'));
   outer.update('\0');
-  outer.update(crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'));
+  const bytes = fs.readFileSync(file);
+  // Strip CR so CRLF and LF encodings of the same source hash identically.
+  const normalised = Buffer.from(bytes.filter((b) => b !== 0x0d));
+  outer.update(crypto.createHash('sha256').update(normalised).digest('hex'));
   outer.update('\n');
 }
 process.stdout.write(outer.digest('hex') + '\n');
