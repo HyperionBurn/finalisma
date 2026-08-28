@@ -1,5 +1,12 @@
 # SITE BUILD PLAN — Wave D3: Awwwards-tier Weft Marketing Site
 
+> [!NOTE]
+> ### HISTORICAL IMPLEMENTATION PLAN (COMPLETED)
+> **This document was the implementation plan for the Wave D3 marketing site rebuild:**
+> - **Current Design System:** The marketing rebuild is complete. The ongoing authoritative design system specification is [`docs/DESIGN_SYSTEM_V2.md`](./DESIGN_SYSTEM_V2.md) (typography, color tokens, and layout guidelines).
+
+---
+
 > **Status:** BUILD-PLAN lane deliverable. Authoritative implementation spec for the Astro 5 + R3F + GSAP scroll-narrative rebuild.
 > **Scope:** Rebuilds `site/index.html` + `site/styles.css` + `site/app.js` (the marketing surface only) via an Astro 5 source tree in `web/` that builds static output to `site/`. All other committed `site/` content (blog, docs, demo, assets, 404, license, llms, robots, manifest) is PRESERVED byte-for-byte.
 > **Supersedes:** The Wave-D2 vanilla `site/agent-canvas.js` artifact (untracked) is deleted; the "FIELD NOTES" magazine framing is retired per `DESIGN_SYSTEM_V2.md`.
