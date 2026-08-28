@@ -1,5 +1,13 @@
 # Deploying Weft Cloud
 
+> [!NOTE]
+> ### SUPERSEDED DOCUMENT — DO NOT USE FOR PRODUCTION DEPLOYMENTS
+> **This document describes early container/local deployment workflows that are superseded:**
+> - **Authoritative Operations Runbook:** Production deployments run as systemd services on an Azure Linux VM (`weft-cloud.service`, `weft-outbox.service`, `nginx`), documented authoritatively in [`docs/VM_OPERATIONS.md`](./VM_OPERATIONS.md) and [`docs/LIVE_DEPLOYMENT.md`](./LIVE_DEPLOYMENT.md).
+> - Refer to [`docs/VM_OPERATIONS.md`](./VM_OPERATIONS.md) for active service management, environment variables, socket configurations, and deployment procedures.
+
+---
+
 Two processes make up the hosted SaaS surface, and both share ONE SQLite
 database file:
 
