@@ -25,6 +25,8 @@ interface Props {
   current?: string;
 }
 const { title, current = '' } = Astro.props;
+const path = Astro.url.pathname;
+const roomsCurrent = current === '' && ['/app', '/app/new', '/app/room'].includes(path);
 ---
 
 <!doctype html>
@@ -98,6 +100,15 @@ const { title, current = '' } = Astro.props;
     </aside>
 
     <main class="main" id="main-content">
+      <nav class="mbar" aria-label="Primary">
+        <a class="mbar__brand" href="/app">Weft</a>
+        <span class="mbar__nav">
+          <a class="mbar__link" href="/app" aria-current={roomsCurrent ? 'page' : undefined}>Rooms</a>
+          <a class="mbar__link" href="/app/keys" aria-current={current === 'keys' ? 'page' : undefined}>Keys</a>
+          <a class="mbar__link" href="/app/usage" aria-current={current === 'usage' ? 'page' : undefined}>Usage</a>
+        </span>
+        <a class="mbar__account" href="/app/settings" aria-current={current === 'settings' ? 'page' : undefined}>Account</a>
+      </nav>
       <slot />
     </main>
   </div>

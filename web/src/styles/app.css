@@ -341,3 +341,50 @@ h1,h2,h3,p{margin:0}
   background:rgba(95,168,118,.06);box-shadow:0 0 0 1px rgba(95,168,118,.3) inset}
 .reveal__l{font-family:var(--mono);font-size:10px;letter-spacing:.14em;
   text-transform:uppercase;color:var(--ok)}
+
+/* Mobile controls keep a real touch target even when their visual label is
+   deliberately quiet. The rail and inspector become a compact nav and a
+   stacked detail section so the room feed remains usable on a phone. */
+@media (max-width:900px){
+  .rail{display:none}
+
+  .mbar{
+    display:flex;align-items:center;gap:6px;padding:4px 8px;height:56px;
+    border-bottom:1px solid var(--line);flex:none;min-width:0;
+  }
+  .mbar__brand,.mbar__link,.mbar__account{
+    display:inline-flex;align-items:center;justify-content:center;
+    min-height:48px;border-radius:7px;white-space:nowrap;
+  }
+  .mbar__brand{padding:0 8px;font-size:15px;font-weight:600;letter-spacing:-.02em;flex:none}
+  .mbar__nav{display:flex;align-items:center;gap:2px;min-width:0;flex:1}
+  .mbar__link,.mbar__account{padding:0 7px;color:var(--muted);font-size:12px}
+  .mbar__link[aria-current="page"],.mbar__account[aria-current="page"]{
+    background:rgba(255,255,255,.06);color:var(--ink)
+  }
+  .mbar__account{flex:none}
+
+  .nav,.btn{min-height:44px}
+  .bar__t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  .row--room > :nth-child(2){min-width:0}
+  .row__sub{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  /* Keep both halves of the room available without making either pane a
+     second horizontal page. The inspector can scroll its own detail list. */
+  .room{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) minmax(0,1fr)}
+  .insp{display:flex;min-width:0;min-height:0;overflow-y:auto}
+
+  .field__i[type="range"]{min-height:44px}
+  .composer__send{width:44px;height:44px}
+  .composer__foot select{min-height:44px}
+
+  /* Credentials remain selectable on a narrow screen. The copy button has a
+     full target, while the code can be panned instead of being ellipsized. */
+  .token code{
+    min-width:0;min-height:44px;display:flex;align-items:center;
+    overflow-x:auto;overflow-y:hidden;text-overflow:clip;
+    user-select:text;-webkit-user-select:text;
+  }
+  .token button{width:44px;height:44px;flex:none}
+}
