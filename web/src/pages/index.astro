@@ -99,6 +99,7 @@ const HOSTS = ['Claude Code', 'Codex', 'Cursor', 'Windsurf', 'OpenCode', 'Zed', 
        page. No apple-touch-icon: no square source exists, and pointing at a missing
        file would just recreate the 404. -->
   <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+  <link rel="preload" as="image" href={VIDEO_POSTER} />
 
   <!-- Fonts are self-hosted (see styles/fonts.css). They used to come from
        googleapis, which production's `style-src 'self'` blocked outright — and
@@ -114,10 +115,6 @@ const HOSTS = ['Claude Code', 'Codex', 'Cursor', 'Windsurf', 'OpenCode', 'Zed', 
         href="/assets/fonts/manrope-var-latin.woff2" />
   <link rel="preload" as="font" type="font/woff2" crossorigin
         href="/assets/fonts/jetbrains-mono-var-latin.woff2" />
-  <!-- The previous <link rel="preload" as="video"> here was inert: "video" is not a
-       valid preload destination, so browsers ignore the hint entirely. The <video>
-       element's own preload attribute is what actually governs the fetch. -->
-
 
   <script type="application/ld+json" set:html={JSON.stringify({
     '@context': 'https://schema.org', '@type': 'SoftwareApplication',
