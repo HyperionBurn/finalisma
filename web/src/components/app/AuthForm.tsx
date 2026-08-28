@@ -148,7 +148,7 @@ export default function AuthForm({ mode }: Props) {
 
       <p className="auth__alt">
         {mode === 'signup'
-          ? <>Already have an account? <a href="/login">Sign in</a></>
+          ? <>Already have an account? <a href="/login">Log in</a></>
           : <>New here? <a href="/signup">Create an account</a></>}
       </p>
 

@@ -1,10 +1,11 @@
 /**
  * ConnectPicker.tsx — get a real agent into a real room.
  *
- * The config this page emits contains a key it just minted for you, so it is
- * genuinely paste-and-run. That also means it is a secret: it is generated on
- * demand rather than on page load, so merely visiting this screen does not
- * scatter live credentials into your account.
+ * The config this page emits contains a freshly revealed key, so it is
+ * genuinely paste-and-run. Raw keys are shown exactly once by the service;
+ * an older key from the Agent Keys list cannot be recovered or embedded here.
+ * That means merely visiting this screen does not scatter live credentials
+ * into the account, and the empty state must explain how to get a new reveal.
  *
  * Two invariants are load-bearing and must not drift:
  *
@@ -32,8 +33,6 @@ const CLIENTS: { id: Client; name: string; file: string }[] = [
 ];
 
 const PATH = '<path-to-the-file-you-downloaded>';
-const PLACEHOLDER = 'agk_… (create a key below)';
-
 function buildConfig(c: Client, key: string, origin: string) {
   if (c === 'codex') {
     return `[mcp_servers.weft]
@@ -97,7 +96,7 @@ export default function ConnectPicker() {
     if (typeof location !== 'undefined') setOrigin(location.origin);
   }, []);
   const meta = CLIENTS.find((c) => c.id === client)!;
-  const config = buildConfig(client, key ?? PLACEHOLDER, origin);
+  const config = key ? buildConfig(client, key, origin) : null;
 
   async function mint() {
     if (minting) return;
@@ -153,8 +152,9 @@ export default function ConnectPicker() {
               {minting ? 'Creating…' : 'Create a key for this agent'}
             </button>
             <p className="warnline" style={{ marginTop: 10 }}>
-              Nothing is created until you press this, so opening this page does not leave
-              stray credentials on your account.
+              Existing agent keys cannot be retrieved: Weft shows each raw key only once,
+              at creation. Create a new key here, or use the Agent Keys page to create one
+              and choose its “use this key on the connect page” link while it is visible.
             </p>
           </>
         )}
@@ -176,16 +176,24 @@ export default function ConnectPicker() {
           ))}
         </div>
 
-        <div className="code" id="config-tabpanel" role="tabpanel" aria-label={`${meta.name} configuration`}>
-          <div className="code__bar">
-            <span>{meta.file}</span>
-            <button className="btn btn--bare" onClick={() => copy('cfg', config)}
-                    disabled={!key} title={key ? '' : 'Create a key first'}>
-              {copied === 'cfg' ? 'Copied' : 'Copy'}
-            </button>
+        {config ? (
+          <div className="code" id="config-tabpanel" role="tabpanel" aria-label={`${meta.name} configuration`}>
+            <div className="code__bar">
+              <span>{meta.file}</span>
+              <button className="btn btn--bare" onClick={() => copy('cfg', config)}>
+                {copied === 'cfg' ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+            <pre className="code__b" tabIndex={0} aria-label={`${meta.name} config snippet`}>{config}</pre>
           </div>
-          <pre className="code__b" tabIndex={0} aria-label={`${meta.name} config snippet`}>{config}</pre>
-        </div>
+        ) : (
+          <div className="notice" role="status" id="config-tabpanel">
+            No configuration is shown until a fresh key is revealed. A key created earlier
+            cannot be loaded from the list because its raw value is never retrievable. Create
+            one above, or open <a href="/app/keys">Agent Keys</a> and use the one-time connect
+            link on the new-key notice.
+          </div>
+        )}
 
 
         <p className="warnline" style={{ marginTop: 10 }}>

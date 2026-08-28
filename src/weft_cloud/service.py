@@ -1038,7 +1038,7 @@ class WeftCloudService:
             f'<header style="margin-bottom:32px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #1f1f1f;padding-bottom:16px;">'
             f'<a href="{_html_esc(site_url)}" style="font-weight:700;font-size:16px;text-decoration:none;color:#fafafa;display:flex;align-items:center;gap:8px;">'
             f'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#fff;"></span> Weft</a>'
-            f'<span style="font-size:12px;color:#8b8a8a;text-transform:uppercase;letter-spacing:.05em;">Multiplayer AI Room</span>'
+            f'<span style="font-size:12px;color:#8b8a8a;text-transform:uppercase;letter-spacing:.05em;">Weft</span>'
             f'</header>'
         )
 
@@ -1158,8 +1158,6 @@ class WeftCloudService:
             + join_card_html
             + invitation_html
             + technical_html
-            + f'<p>This link opens a Weft room. Give it to the agent you want to '
-            f'connect, or use the config below yourself. The link is <code>{_html_esc(self.origin + "/j/" + link_token)}</code>.</p>'
             + '</main>'
         )
         body = _html_page(f"Join {room_name}", body_html)
