@@ -1,5 +1,12 @@
 # Weft interop validation — 2026-08-05
 
+> [!NOTE]
+> ### HISTORICAL VALIDATION LEDGER (SUPERSEDED BY 2026-08-15 MATRIX)
+> **This document is the early 2-tier validation ledger from 2026-08-05:**
+> - **Authoritative Interop Matrix:** The comprehensive 4-tier matrix verifying Claude Desktop, Claude Code, Cursor, and Python SDK is documented in [`docs/INTEROP_VALIDATION_2026-08-15.md`](./INTEROP_VALIDATION_2026-08-15.md).
+
+---
+
 ## Summary
 
 Weft was validated against a **real MCP host** (opencode v1.18.13, the host
