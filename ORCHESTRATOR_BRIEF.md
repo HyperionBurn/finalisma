@@ -1,5 +1,15 @@
 # WEFT — ORCHESTRATOR BRIEF
 
+> [!CAUTION]
+> ### STALE / HISTORICAL DOCUMENT — DO NOT FOLLOW PRE-HIVE ORCHESTRATION MODELS
+> **This document describes an obsolete pre-hive orchestration architecture and branch topology:**
+> 1. **Defunct Branches & Worktrees:** References to `isolated`, `feature/product-perfect`, and `Multiplayer-AI-isolated` are dead historical artifacts. All active work takes place on branch `hive/land`.
+> 2. **Pre-Hive Subagent Spawns:** The wave orchestration loop (Waves A–H) and solo opencode subagent patterns described here are superseded by the multi-agent Hive swarm (`fleet.json`, `board.md`, agent inboxes/outboxes).
+> 
+> **Authoritative Contract:** All active agents MUST follow [`AGENTS.md`](./AGENTS.md) and the Hive protocol.
+
+---
+
 **To:** the primary opencode agent (deepseek-v4-flash) running the Weft multi-lane build
 **Branch:** `isolated` · **Worktree:** `C:\Users\Wasif\Documents\Multiplayer-AI-isolated`
 **Status at brief time:** Wave A (8 LongCat-2.0 lanes) dispatched 12:19, in flight. 180 tests, 6 failures + 14 errors.
