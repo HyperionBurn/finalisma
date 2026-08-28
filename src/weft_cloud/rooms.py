@@ -697,6 +697,7 @@ CREATE TABLE IF NOT EXISTS cloud_room_members (
     status TEXT NOT NULL DEFAULT 'active'
         CHECK(status IN ('active','stale','left')),
     removed_at REAL,
+    display_name TEXT,
     capabilities_json TEXT NOT NULL DEFAULT '[]',
     actor_token_hash TEXT NOT NULL,
     PRIMARY KEY (tenant_id, room_id, agent_id)
@@ -795,6 +796,7 @@ class CloudRoomService:
             self._ensure_message_kind_column(tx)
             self._ensure_resume_marker_column(tx)
             self._ensure_member_removed_at_column(tx)
+            self._ensure_member_display_name_column(tx)
             tx.commit()
 
     def _ensure_link_ciphertext_column(self, tx: Any) -> None:
@@ -828,6 +830,20 @@ class CloudRoomService:
         ).fetchone()
         if row is None:
             tx.execute("ALTER TABLE cloud_room_members ADD COLUMN removed_at REAL")
+
+    def _ensure_member_display_name_column(self, tx: Any) -> None:
+        """Add the room-scoped self-declared member name (MPAI-108(c)).
+
+        A membership attribute, deliberately NOT a column on
+        ``cloud_identity_accounts``: the same account carries a different name
+        in each room, and resolving it never requires an identity lookup or a
+        cross-tenant query. Legacy rows are NULL, meaning 'no name declared'.
+        """
+        row = tx.execute(
+            "SELECT 1 FROM pragma_table_info('cloud_room_members') WHERE name = 'display_name'"
+        ).fetchone()
+        if row is None:
+            tx.execute("ALTER TABLE cloud_room_members ADD COLUMN display_name TEXT")
 
     # ------------------------------------------------------------------
     # Internal helpers

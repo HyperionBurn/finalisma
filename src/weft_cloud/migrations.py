@@ -364,6 +364,7 @@ CREATE TABLE IF NOT EXISTS cloud_room_members (
     status TEXT NOT NULL DEFAULT 'active'
         CHECK(status IN ('active','stale','left')),
     removed_at REAL,
+    display_name TEXT,
     capabilities_json TEXT NOT NULL DEFAULT '[]',
     actor_token_hash TEXT NOT NULL,
     PRIMARY KEY (tenant_id, room_id, agent_id)
@@ -434,6 +435,15 @@ _ROOM_MEMBER_REMOVED_AT_SQL = """
 -- durable per identity. NULL means the member was never owner-removed (a
 -- voluntary leave remains rejoinable); a timestamp is an owner removal marker.
 ALTER TABLE cloud_room_members ADD COLUMN removed_at REAL;
+"""
+
+
+_ROOM_MEMBER_DISPLAY_NAME_SQL = """
+-- MPAI-108(c): a room-scoped, self-declared member name supplied at join time.
+-- A membership attribute, NOT a column on cloud_identity_accounts: the same
+-- account can carry a different name per room, and resolving it never needs an
+-- identity lookup or a cross-tenant query. NULL means no name was declared.
+ALTER TABLE cloud_room_members ADD COLUMN display_name TEXT;
 """
 
 
@@ -515,6 +525,17 @@ def _has_room_member_removed_at(execute: Callable[[str, tuple], Any]) -> bool:
     try:
         row = execute(
             "SELECT 1 FROM pragma_table_info('cloud_room_members') WHERE name = 'removed_at'"
+        ).fetchone()
+        return row is not None
+    except Exception:
+        return False
+
+
+def _has_room_member_display_name(execute: Callable[[str, tuple], Any]) -> bool:
+    """True when room memberships carry a self-declared display name."""
+    try:
+        row = execute(
+            "SELECT 1 FROM pragma_table_info('cloud_room_members') WHERE name = 'display_name'"
         ).fetchone()
         return row is not None
     except Exception:
@@ -886,6 +907,12 @@ MIGRATIONS: list[Migration] = [
         "durable per-room/per-agent owner-removal marker",
         _ROOM_MEMBER_REMOVED_AT_SQL,
         already_applied=_has_room_member_removed_at,
+    ),
+    Migration(
+        "cloud_021_room_member_display_name",
+        "room-scoped self-declared member name (MPAI-108c)",
+        _ROOM_MEMBER_DISPLAY_NAME_SQL,
+        already_applied=_has_room_member_display_name,
     ),
 ]
 
