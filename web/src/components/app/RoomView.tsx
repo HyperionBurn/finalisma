@@ -1,9 +1,10 @@
 /**
  * RoomView.tsx — the room, against the live service.
  *
- * No fixtures. Members come from room_info, the log from room_poll, and
- * sending calls room_send. The view polls for new events so a message sent
- * by an agent elsewhere appears here without a reload.
+ * No fixtures. Members come from room_info, the human identity directory from
+ * /v1/org/members, the log from room_poll, and sending calls room_send. The
+ * view polls for new events so a message sent by an agent elsewhere appears
+ * here without a reload.
  *
  * Two behaviours worth knowing about:
  *
@@ -19,8 +20,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ApiError, closeRoom, joinRoom, me, pollRoom, roomInfo, sendMessage,
-  type Member, type RoomEvent,
+  ApiError, closeRoom, joinRoom, listOrgMembers, me, pollRoom, roomInfo, sendMessage,
+  type Member, type Me, type OrgMember, type RoomEvent,
 } from '../../lib/api';
 
 const POLL_MS = 4000;
@@ -30,6 +31,9 @@ interface Props { roomId: string }
 export default function RoomView({ roomId }: Props) {
   const [events, setEvents] = useState<RoomEvent[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
+  const [viewer, setViewer] = useState<Me | null>(null);
+  const [identityDirectory, setIdentityDirectory] = useState<Record<string, string>>({});
+  const [roomName, setRoomName] = useState<string | null>(null);
   const [link, setLink] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -55,12 +59,20 @@ export default function RoomView({ roomId }: Props) {
   const loadAll = useCallback(async () => {
     setError(null);
     try {
-      const [info, page, who] = await Promise.all([
+      const [info, page, who, org] = await Promise.all([
         roomInfo(roomId).catch(() => ({} as any)),
         pollRoom(roomId, 0, 200),
         me().catch(() => null),
+        listOrgMembers().catch(() => ({ members: [] as OrgMember[] })),
       ]);
       setMembers(info?.members ?? []);
+      setViewer(who);
+      setIdentityDirectory((prev) => mergeIdentityDirectory(
+        prev, org?.members ?? [], info?.members ?? [],
+      ));
+      if (typeof info?.name === 'string' && info.name.trim()) {
+        setRoomName(info.name.trim());
+      }
       if (info?.state) setRoomState(info.state);
       const ownerCheck = Boolean(
         info?.link_id !== undefined ||
@@ -101,13 +113,28 @@ export default function RoomView({ roomId }: Props) {
           });
         }
         const info = await roomInfo(roomId).catch(() => null);
-        if (info?.members) setMembers(info.members);
+        if (info?.members) {
+          setMembers(info.members);
+          setIdentityDirectory((prev) => mergeIdentityDirectory(prev, [], info.members ?? []));
+        }
+        if (typeof info?.name === 'string' && info.name.trim()) setRoomName(info.name.trim());
         if (info?.state) setRoomState(info.state);
       } catch { /* transient: the next tick retries */ }
     };
     const id = window.setInterval(tick, POLL_MS);
     return () => { stop = true; window.clearInterval(id); };
   }, [roomId]);
+
+  // RoomHost initially has only the URL's room id. Replace that debug-shaped
+  // heading with the server-owned room name once room_info resolves, keeping
+  // the fallback useful when the service is unavailable.
+  useEffect(() => {
+    const heading = document.querySelector<HTMLElement>('[data-room-name]');
+    if (!heading) return;
+    const label = roomName || shortAgent(roomId);
+    heading.textContent = label;
+    document.title = `${label} · Weft`;
+  }, [roomId, roomName]);
 
   async function handleClose() {
     if (closing) return;
@@ -203,6 +230,7 @@ export default function RoomView({ roomId }: Props) {
   // the honest equivalent: it is real, and it answers the same question
   // ("is this agent keeping up?") without inventing a number.
   const idle = members.filter((m) => secondsSince(m.last_seen) > 120).length;
+  const unresolvedMembers = members.filter((m) => !hasKnownIdentity(m.agent_id, viewer, identityDirectory, m)).length;
 
   return (
     <div className="room">
@@ -251,7 +279,7 @@ export default function RoomView({ roomId }: Props) {
             const isRedacted = Boolean(e.payload?.redacted);
             const text = isRedacted
               ? '[private message]'
-              : (e.payload?.text ?? e.payload?.payload?.text ?? summarise(e));
+              : (e.payload?.text ?? e.payload?.payload?.text ?? summarise(e, viewer, identityDirectory));
             const pending = e.event_id.startsWith('pending-');
             const system = e.kind !== 'room.message';
             return (
@@ -260,11 +288,15 @@ export default function RoomView({ roomId }: Props) {
                 <span className="ev__seq">{pending ? '…' : String(e.seq).padStart(3, '0')}</span>
                 <div>
                   <p className="ev__who">
-                    <span className="ev__from">{shortAgent(e.origin_agent)}</span>
+                    <span className="ev__from" title={identityTitle(e.origin_agent, viewer, identityDirectory)}>
+                      {identityLabel(e.origin_agent, viewer, identityDirectory)}
+                    </span>
                     {system && <span className="tag">{e.kind.replace('room.', '')}</span>}
                     {isRedacted && <span className="tag tag--muted">private</span>}
                   </p>
-                  <p className={`ev__body${isRedacted ? ' ev__body--muted' : ''}`}>{text}</p>
+                  <p className={`ev__body${isRedacted ? ' ev__body--muted' : ''}`}>
+                    {system ? summarise(e, viewer, identityDirectory) : text}
+                  </p>
                 </div>
               </article>
             );
@@ -287,7 +319,7 @@ export default function RoomView({ roomId }: Props) {
                     ? 'This room is closed.'
                     : target === '*'
                       ? 'Message everyone in this room…'
-                      : `Message ${shortAgent(target)} privately…`
+                      : `Message ${identityLabel(target, viewer, identityDirectory)} privately…`
               }
               onChange={(ev) => {
                 setDraft(ev.target.value);
@@ -314,7 +346,9 @@ export default function RoomView({ roomId }: Props) {
                     style={{ background: 'none', border: 0, color: 'var(--muted)', font: 'inherit', cursor: 'pointer', outline: 'none' }}>
               <option value="*">everyone</option>
               {members.map((m) => (
-                <option key={m.agent_id} value={m.agent_id}>{shortAgent(m.agent_id)} · private</option>
+                <option key={m.agent_id} value={m.agent_id}>
+                  {identityOptionLabel(m.agent_id, viewer, identityDirectory)} · private
+                </option>
               ))}
             </select>
             <span style={{ flex: 1 }} />
@@ -336,6 +370,12 @@ export default function RoomView({ roomId }: Props) {
               Member list unavailable.
             </p>
           )}
+          {unresolvedMembers > 0 && !loading && !error && (
+            <p className="warnline" style={{ marginTop: 0 }}>
+              {unresolvedMembers === 1 ? 'One agent' : `${unresolvedMembers} agents`} do not
+              provide a display name. Their technical id is available on hover.
+            </p>
+          )}
           {members.map((m) => {
             const secs = secondsSince(m.last_seen);
             const off = m.status && m.status !== 'active';
@@ -343,7 +383,9 @@ export default function RoomView({ roomId }: Props) {
             return (
               <div className={`mem${quiet ? ' mem--lag' : ''}${off ? ' mem--off' : ''}`} key={m.agent_id}>
                 <span className={`dot dot--${off ? 'off' : quiet ? 'warn' : 'live'}`} />
-                <span className="mem__n">{shortAgent(m.agent_id)}</span>
+                <span className="mem__n" title={identityTitle(m.agent_id, viewer, identityDirectory, m)}>
+                  {identityLabel(m.agent_id, viewer, identityDirectory, m)}
+                </span>
                 <span className="mem__c">{lastSeen(secs)}</span>
               </div>
             );
@@ -445,6 +487,83 @@ function lastSeen(secs: number) {
   return h < 24 ? `${h}h` : `${Math.round(h / 24)}d`;
 }
 
+function cleanIdentity(value: unknown) {
+  if (typeof value !== 'string') return null;
+  const clean = value.trim();
+  return clean || null;
+}
+
+function mergeIdentityDirectory(
+  previous: Record<string, string>,
+  orgMembers: OrgMember[],
+  roomMembers: Member[],
+) {
+  const next = { ...previous };
+  for (const member of orgMembers) {
+    const label = cleanIdentity(member.email);
+    if (label) next[member.account_id] = label;
+  }
+  for (const member of roomMembers) {
+    const label = cleanIdentity(member.display_name) || cleanIdentity(member.email);
+    if (label) next[member.agent_id] = label;
+  }
+  return next;
+}
+
+function isViewerIdentity(id: string, viewer: Me | null) {
+  return Boolean(viewer && (id === viewer.account_id || id === viewer.agent_id));
+}
+
+function hasKnownIdentity(
+  id: string,
+  viewer: Me | null,
+  directory: Record<string, string>,
+  member?: Member,
+) {
+  return id === '*' || id === 'you' || isViewerIdentity(id, viewer) || Boolean(
+    cleanIdentity(member?.display_name) || cleanIdentity(member?.email) || directory[id],
+  );
+}
+
+function identityLabel(
+  id: string,
+  viewer: Me | null,
+  directory: Record<string, string>,
+  member?: Member,
+) {
+  if (id === '*') return 'everyone';
+  if (id === 'you' || isViewerIdentity(id, viewer)) {
+    const email = cleanIdentity(viewer?.email);
+    return email ? `You · ${email}` : 'You';
+  }
+  return cleanIdentity(member?.display_name)
+    || cleanIdentity(member?.email)
+    || directory[id]
+    || 'Agent (name unavailable)';
+}
+
+function identityOptionLabel(id: string, viewer: Me | null, directory: Record<string, string>) {
+  const label = identityLabel(id, viewer, directory);
+  return label === 'Agent (name unavailable)' ? `${label} · ${shortAgent(id)}` : label;
+}
+
+function identityTitle(
+  id: string,
+  viewer: Me | null,
+  directory: Record<string, string>,
+  member?: Member,
+) {
+  if (id === '*') return 'All members';
+  if (id === 'you' || isViewerIdentity(id, viewer)) {
+    const email = cleanIdentity(viewer?.email);
+    return email ? `Your account: ${email}` : 'Your account';
+  }
+  const label = cleanIdentity(member?.display_name) || cleanIdentity(member?.email) || directory[id];
+  return label
+    ? `${label} · agent id ${id}`
+    : `No display name provided · agent id ${id}`;
+}
+
 function shortAgent(id: string) {
   if (!id) return 'unknown';
   if (id === 'you' || id === '*') return id;
@@ -457,11 +576,16 @@ function shortAgent(id: string) {
 // missed and the feed rendered bare words like "joined" and "created" instead of
 // a sentence. Matching the kinds the engine actually sends, and covering
 // room.closed rather than letting it fall through the same way.
-function summarise(e: RoomEvent) {
+function summarise(
+  e: RoomEvent,
+  viewer: Me | null = null,
+  directory: Record<string, string> = {},
+) {
   const kind = e.kind.replace('room.', '');
-  if (kind === 'joined') return `${shortAgent(e.payload?.agent_id ?? '')} joined the room`;
+  const actor = e.payload?.agent_id ?? e.origin_agent;
+  if (kind === 'joined') return `${identityLabel(actor, viewer, directory)} joined the room`;
   if (kind === 'created') return `room opened · cap ${e.payload?.cap ?? '—'}`;
-  if (kind === 'left') return `${shortAgent(e.payload?.agent_id ?? '')} left`;
+  if (kind === 'left') return `${identityLabel(actor, viewer, directory)} left`;
   if (kind === 'closed') return 'room closed';
   if (e.payload?.redacted) return '[private message]';
   return kind;

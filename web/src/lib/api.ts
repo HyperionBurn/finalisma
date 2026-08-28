@@ -207,6 +207,13 @@ export interface Me {
   email: string; agent_id: string;
 }
 
+export interface OrgMember {
+  account_id: string;
+  email: string;
+  role: string;
+  joined_at?: string;
+}
+
 /**
  * Who is signed in. Measured shape - the service returns exactly these five
  * fields and NO plan or quota information, so anything plan-shaped in the UI
@@ -222,6 +229,18 @@ export async function me(): Promise<Me> {
   if (!res.ok) throw new ApiError(`Could not load your account (${res.status})`, 'load_failed', res.status);
   return res.json();
 }
+
+/**
+ * The signed-in organisation's human identity directory. Room tools expose
+ * only room-facing agent ids (and intentionally do not expose other
+ * members' email addresses), so the room view uses this separate, authorised
+ * directory to turn account-backed members into recognisable labels.
+ *
+ * Agent-key identities and members from another tenant are not present here;
+ * callers must keep those ids visibly unresolved rather than guessing a name.
+ */
+export const listOrgMembers = () =>
+  rest<{ members: OrgMember[] }>('/v1/org/members', undefined, requireAuth());
 
 export interface AgentKey {
   key_id: string; label: string; agent_key?: string; created_at: string;
@@ -317,6 +336,8 @@ export interface RoomEvent {
 }
 export interface Member {
   agent_id: string; status: string; joined_at?: string;
+  /** Optional identity fields from a richer room service response. */
+  email?: string | null; display_name?: string | null;
   /** Epoch SECONDS as a float, not an ISO string. */
   last_seen?: number | string;
   cursor?: number; capabilities?: string[];
