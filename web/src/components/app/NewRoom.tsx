@@ -8,11 +8,9 @@
  * mock.
  *
  * The screen does NOT navigate on success, and that is deliberate. The
- * service returns `shareable_link` from room_create and from nowhere else -
- * not room_info, not room_list. Redirecting to the room view would destroy
- * the only copy of the credential the room exists to hand out. So the link
- * is shown here, with copy, and opening the room is offered as a next step
- * the person chooses.
+ * service returns `shareable_link` from room_create. The room owner can also
+ * recover the same link from inside the room after navigating away, so the
+ * creation screen can offer opening the room without stranding the credential.
  *
  * The cap control states the rule that catches everyone out: the account
  * creating the room occupies one of the places, so the default cap of 15 admits
@@ -99,7 +97,7 @@ export default function NewRoom() {
 
         {room.shareable_link ? (
           <section className="reveal" role="alert">
-            <p className="reveal__l">Copy this now — it is not shown again</p>
+            <p className="reveal__l">Your room link</p>
             <div className="token" style={{ marginTop: 10 }}>
               <code>{room.shareable_link}</code>
               <button onClick={copy} aria-label="Copy the join link">{copied ? '✓' : '⧉'}</button>
@@ -111,15 +109,15 @@ export default function NewRoom() {
               </p>
             )}
             <p className="warnline">
-              The service returns this link only when the room is created, so it cannot be
-              looked up later. Anyone holding it can join until the room closes — treat it like
-              a password. If you lose it, create another room.
+              This link stays valid until the room closes, and you can recover it from the room
+              owner's JOIN LINK panel later. Anyone holding it can join until then, so treat it
+              like a password.
             </p>
           </section>
         ) : (
           <p className="notice notice--bad" role="alert">
-            The room was created, but the service did not return a join link. Open the room
-            and create another if you need one to share.
+            The room was created, but this response did not include the join link. Open the room
+            to recover it from the owner-only JOIN LINK panel.
           </p>
         )}
 

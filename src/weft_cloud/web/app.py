@@ -77,7 +77,6 @@ _ROOM_AUDIT_RE = re.compile(r"^/room/([A-Za-z0-9_-]+)/audit$")
 _ROOM_CONNECT_RE = re.compile(r"^/room/([A-Za-z0-9_-]+)/connect$")
 _ROOM_CLOSE_RE = re.compile(r"^/room/([A-Za-z0-9_-]+)/close$")
 _ROOM_REVOKE_LINK_RE = re.compile(r"^/room/([A-Za-z0-9_-]+)/revoke-link$")
-_ROOM_REGENERATE_LINK_RE = re.compile(r"^/room/([A-Za-z0-9_-]+)/regenerate-link$")
 
 # Exact paths served to UNAUTHENTICATED callers. This is a fixed allowlist of
 # specific strings — deliberately never a prefix or wildcard rule — so a typo
@@ -902,11 +901,13 @@ class WeftWebApp:
 
     def _room_connect_entitled(self, tenant_id: str, room_id: str,
                                account_id: str) -> bool:
-        """True only if ``account_id`` may receive this room's raw link token.
+        """True only if ``account_id`` may reach this room's connect page.
 
         The ``rm_`` link token is a multi-use bearer capability that admits
-        anyone to the room, so the caller must be the room's OWNER or an ACTIVE
-        MEMBER of THIS specific room. Org membership alone is NOT enough.
+        anyone to the room, so the page is limited to the room's OWNER or an
+        ACTIVE MEMBER of THIS specific room. The raw token itself is exposed
+        only to the OWNER by the connect handler. Org membership alone is NOT
+        enough.
 
         This deliberately returns False for both "the room does not exist in
         this tenant" and "the room exists but the caller is neither owner nor
@@ -1077,7 +1078,7 @@ class WeftWebApp:
             if not raw_token:
                 return None
 
-            # The raw token is process-local, but its validity is durable
+            # The token cache is only a fast path; its validity is durable
             # state. A close, revoke, or expiry can happen through the API
             # after the token entered this cache. Never render a cached bearer
             # capability unless the corresponding room and link are still
@@ -1112,13 +1113,24 @@ class WeftWebApp:
         with self._link_token_lock:
             self._link_token_cache[room_id] = raw_token
 
-    def _get_room_link_state(self, room_id: str) -> str:
-        """Return why a room's cached join link cannot be rendered.
+    def _recover_room_link_token(
+        self, tenant_id: str, room_id: str, account_id: str,
+    ) -> str | None:
+        """Recover the existing owner link through the owner-gated service."""
+        try:
+            result = self.rooms.room_link(
+                tenant_id, room_id, account_id, owner_agent_id=account_id,
+            )
+        except RoomError:
+            return None
+        raw_token = result.get("link_token")
+        if not isinstance(raw_token, str) or not raw_token:
+            return None
+        self._store_link_token(room_id, raw_token)
+        return raw_token
 
-        ``None`` from ``_get_room_link_token`` can mean a normal process
-        restart or a durable invalidation. The page must distinguish those
-        states because only a restart can use the replacement-link action.
-        """
+    def _get_room_link_state(self, room_id: str) -> str:
+        """Return why a room's join link cannot be rendered."""
         with self.backend.transaction() as tx:
             row = tx.execute(
                 "SELECT r.state, r.expires_at AS room_expires_at, "
@@ -2490,19 +2502,31 @@ class WeftWebApp:
         if not events_html:
             events_html = '<li class="muted">No events yet.</li>'
 
-        # Link control surface — owner and active members only.
+        # Link control surface — owner may recover/copy; active members may
+        # view the room but never receive its bearer capability.
         link_section = ""
         if entitled:
-            revoked = info.get("link_revoked", False)
-            if revoked:
+            if not is_owner:
                 link_section = (
-                    '<div class="warn"><strong>Join link revoked.</strong> This '
-                    'link no longer admits anyone. Create a new room (or, if '
-                    're-enabling is desired, contact support) — revocation is '
-                    'permanent for this link.</div>'
+                    '<div class="flash"><strong>Join link.</strong> Only the '
+                    'room owner can view or copy this link. Ask the owner to '
+                    'share it with the agents they intend to admit.</div>'
                 )
             else:
-                raw_token = self._get_room_link_token(room_id) or ""
+                revoked = info.get("link_revoked", False)
+                if revoked:
+                    link_section = (
+                        '<div class="warn"><strong>Join link revoked.</strong> This '
+                        'link no longer admits anyone. Revocation is permanent for '
+                        'this link.</div>'
+                    )
+                    raw_token = ""
+                else:
+                    raw_token = self._get_room_link_token(room_id) or ""
+                    if not raw_token:
+                        raw_token = self._recover_room_link_token(
+                            ctx.tenant_id, room_id, ctx.account_id,
+                        ) or ""
                 if raw_token:
                     shareable = f"{public_origin()}/j/{raw_token}"
                     link_section = (
@@ -2515,29 +2539,18 @@ class WeftWebApp:
                         'revoke it the moment it is leaked or no longer needed.</p>'
                         '</div>'
                     )
-                else:
+                elif not revoked:
                     link_state = self._get_room_link_state(room_id)
                     if link_state in {"room_expired", "link_expired"}:
                         link_section = (
                             '<div class="warn"><strong>Join link expired.</strong> '
-                            'This link cannot be restored. Create a new room to '
-                            'connect an agent.</div>'
+                            'This room and its link are no longer available.</div>'
                         )
                     else:
                         link_section = (
-                            '<div class="flash"><strong>Join link unavailable after '
-                            'a web restart.</strong> The raw token is stored only in '
-                            'the creating process (the database keeps only its hash). '
-                            'The room is still intact; the owner can safely generate '
-                            'a replacement link below.</div>'
-                        )
-                    if is_owner and link_state == "valid":
-                        link_section += (
-                            '<form method="post" '
-                            f'action="/room/{_esc(room_id)}/regenerate-link">'
-                            f'{_csrf_input(csrf)}'
-                            '<button type="submit">Generate replacement join link</button>'
-                            '</form>'
+                            '<div class="flash"><strong>Join link unavailable.</strong> '
+                            'Try again shortly. No replacement was generated, and any '
+                            'link already shared remains valid.</div>'
                         )
             if is_owner and info.get("link_id"):
                 revoke_form = (
@@ -2712,9 +2725,9 @@ class WeftWebApp:
         if ctx is None:
             return
         # The page returns the room's raw rm_ link token — a multi-use bearer
-        # capability that admits anyone to the room. Only the room's OWNER or
-        # an ACTIVE MEMBER of THIS room may receive it. The caller's identity
-        # comes from the authenticated session, never from the request.
+        # capability that admits anyone to the room. Only the room's OWNER may
+        # receive it. The caller's identity comes from the authenticated
+        # session, never from the request.
         # A caller who is not entitled (including a same-org member who was
         # never in the room) gets the IDENTICAL 404 as a room that does not
         # exist, so the endpoint is not an existence oracle.
@@ -2722,79 +2735,48 @@ class WeftWebApp:
             self._send_html(handler, HTTPStatus.NOT_FOUND,
                             _page("Not found", '<p>Room not found.</p>'))
             return
-        link_token = self._get_room_link_token(room_id) or ""
+        info = self._room_info_for_member(ctx.tenant_id, room_id, ctx.account_id)
+        is_owner = info.get("owner_agent_id") == ctx.account_id
+        link_token = self._get_room_link_token(room_id) if is_owner else None
+        if is_owner and not link_token:
+            link_token = self._recover_room_link_token(
+                ctx.tenant_id, room_id, ctx.account_id,
+            )
         if link_token:
             body_html = connect_page_body(room_id, link_token)
             csrf_token = None
         else:
-            info = self._room_info_for_member(ctx.tenant_id, room_id, ctx.account_id)
             link_state = self._get_room_link_state(room_id)
-            csrf_token = _new_csrf()
-            if info.get("link_revoked") or link_state in {"closed", "revoked"}:
+            csrf_token = None
+            if not is_owner:
+                body_html = (
+                    '<h1>Connect an agent</h1>'
+                    '<div class="flash"><strong>Join link.</strong> Only the '
+                    'room owner can view or copy this link. Ask the owner to '
+                    'share it with the agents they intend to admit.</div>'
+                )
+            elif info.get("link_revoked") or link_state in {"closed", "revoked"}:
                 body_html = (
                     '<h1>Connect an agent</h1>'
                     '<div class="warn"><strong>Join link revoked.</strong> This '
-                    'link no longer admits anyone. Create a new room to connect '
-                    'an agent.</div>'
+                    'link no longer admits anyone.</div>'
                 )
             elif link_state in {"room_expired", "link_expired"}:
                 body_html = (
                     '<h1>Connect an agent</h1>'
                     '<div class="warn"><strong>Join link expired.</strong> This '
-                    'link cannot be restored. Create a new room to connect an '
-                    'agent.</div>'
+                    'room and its link are no longer available.</div>'
                 )
             else:
                 body_html = (
                     '<h1>Connect an agent</h1>'
-                    '<div class="warn"><strong>Join link unavailable after a web '
-                    'restart.</strong> The owner can generate a replacement link; '
-                    'no blank or unusable join request is shown.</div>'
-                )
-            if info.get("owner_agent_id") == ctx.account_id and link_state == "valid":
-                body_html += (
-                    '<form method="post" '
-                    f'action="/room/{_esc(room_id)}/regenerate-link">'
-                    f'{_csrf_input(csrf_token)}'
-                    '<button type="submit">Generate replacement join link</button>'
-                    '</form>'
+                    '<div class="warn"><strong>Join link unavailable.</strong> '
+                    'Try again shortly. No replacement was generated, and any '
+                    'link already shared remains valid.</div>'
                 )
         body_html = body_html + f'<p><a href="/room/{_esc(room_id)}">Back to room</a></p>'
         body = _page("Connect an agent", body_html, csrf_token=csrf_token)
         self._send_html(handler, HTTPStatus.OK, body)
-
-    def handle_post_room_regenerate_link(self, handler: BaseHTTPRequestHandler,
-                                         room_id: str) -> None:
-        """POST /room/{room_id}/regenerate-link — replace an unavailable link."""
-        ctx = self._require_auth(handler)
-        if ctx is None:
-            return
-        if not self._room_belongs_to_tenant(room_id, ctx.tenant_id):
-            self._send_html(handler, HTTPStatus.NOT_FOUND,
-                            _page("Not found", '<p>Room not found.</p>'))
-            return
-        form = self._read_form(handler)
-        try:
-            self._validate_csrf(handler, form)
-        except _WebError:
-            self._send_html(handler, HTTPStatus.FORBIDDEN,
-                            _page("Forbidden", '<p>CSRF validation failed.</p>'))
-            return
-        try:
-            # Keep the database replacement and the process-local cache update
-            # in one critical section. Otherwise two owner clicks can leave
-            # the UI holding the first token after the database has accepted
-            # the second one.
-            with self._link_token_lock:
-                result = self.rooms.regenerate_link(
-                    ctx.tenant_id, room_id, ctx.account_id
-                )
-                self._store_link_token(room_id, result["link_token"])
-        except RoomError as exc:
-            self._send_html(handler, exc.status,
-                            _page("Regenerate link failed", f'<p>{_esc(exc.message)}</p>'))
-            return
-        self._redirect(handler, f"/room/{room_id}")
 
     def handle_post_room_close(self, handler: BaseHTTPRequestHandler, room_id: str) -> None:
         ctx = self._require_auth(handler)
@@ -3120,13 +3102,6 @@ def _build_handler(app: WeftWebApp) -> type[BaseHTTPRequestHandler]:
                 if method == "POST":
                     app.handle_post_room_revoke_link(self, room_id)
                 return
-
-            regenerate_match = _ROOM_REGENERATE_LINK_RE.match(path)
-            if regenerate_match:
-                room_id = regenerate_match.group(1)
-                if method == "POST":
-                    app.handle_post_room_regenerate_link(self, room_id)
-                    return
 
             # Static files
             if method == "GET" and app.static_dir:

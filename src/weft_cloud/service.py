@@ -15,7 +15,8 @@ Architecture (per docs/PRODUCT_ROADMAP.md §1):
 The service is a thin JSON-RPC-over-HTTP layer. Every request authenticates
 via a Bearer cloud credential (``fss_`` session or ``agk_`` agent key) except
 signup/signin. Room mutations
-require the actor to be an active member; room reads are member-only.
+require the actor to be an active member; room reads are member-only, while
+the bearer link recovery read is owner-only.
 
 One link, many agents: the room link (``/r/{room_id}#{token}``) is multi-use
 up to the room cap. Any number of distinct agents can redeem it.
@@ -72,8 +73,8 @@ from weft_cloud.rooms import (
 from weft_cloud.storage import SqliteWalBackend, StorageBackend
 from weft_cloud.web.security_headers import security_headers
 
-# Secrets are never logged. Tokens are hashed at rest, never stored raw.
-# The service never echoes a raw token or password in any response or error.
+# Secrets are never logged. Tokens are hashed for lookup and sealed for the
+# explicit owner-only recovery response; no raw token is echoed elsewhere.
 
 
 class _ServiceError(Exception):
@@ -1326,6 +1327,32 @@ class WeftCloudService:
         )
         return _json_response(HTTPStatus.OK, result)
 
+    def handle_room_link(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
+        """Return the existing join link to its room owner only.
+
+        Room metadata remains member-readable, but the bearer link is exposed
+        through this separate owner-gated endpoint. The domain method checks
+        both membership and ownership; this adapter only resolves the caller's
+        tenant and adds the public origin to the unchanged token.
+        """
+        ctx = self._authenticate(handler)
+        params = {}
+        if "?" in handler.path:
+            qs = handler.path.split("?", 1)[1]
+            for pair in qs.split("&"):
+                if "=" in pair:
+                    k, v = pair.split("=", 1)
+                    params[k] = v
+        room_id = params.get("room_id")
+        if not room_id:
+            raise _ServiceError("invalid_argument", "room_id query parameter is required")
+        tenant_id = self._room_tenant(room_id, ctx.agent_id)
+        result = self.rooms.room_link(
+            tenant_id, room_id, ctx.agent_id, owner_agent_id=ctx.account_id,
+        )
+        result["shareable_link"] = f"{self.origin}/j/{result['link_token']}"
+        return _json_response(HTTPStatus.OK, result)
+
     def handle_room_poll(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
         ctx = self._authenticate(handler)
         body = _read_body(handler)
@@ -2038,6 +2065,9 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
             return
         if path in {"/v1/rooms/info"}:
             self._handle("GET", self.service.handle_room_info)
+            return
+        if path in {"/v1/rooms/link"}:
+            self._handle("GET", self.service.handle_room_link)
             return
         if path in {"/v1/me"}:
             self._handle("GET", self.service.handle_me)

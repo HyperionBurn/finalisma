@@ -107,7 +107,14 @@ def _load_room_link_key(backend: StorageBackend) -> bytes:
     except FileNotFoundError:
         key = secrets.token_bytes(_ROOM_LINK_KEY_BYTES)
         try:
-            fd = os.open(str(key_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            # ``os.open`` defaults to text mode on Windows. Without
+            # ``O_BINARY``, a random 0a byte is expanded to CRLF and the
+            # persisted key becomes 33 bytes, making the next service start
+            # fail its length check. Keep this sidecar byte-for-byte stable.
+            binary = getattr(os, "O_BINARY", 0)
+            fd = os.open(
+                str(key_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL | binary, 0o600
+            )
         except FileExistsError:
             key = key_path.read_bytes()
         else:
@@ -116,6 +123,11 @@ def _load_room_link_key(backend: StorageBackend) -> bytes:
                 os.fsync(fd)
             finally:
                 os.close(fd)
+    # Sidecars written by an older Windows process may contain the text-mode
+    # expansion of one LF byte (CRLF instead of LF). Recover that exact key so
+    # existing ciphertext remains readable, while rejecting other corruption.
+    if len(key) == _ROOM_LINK_KEY_BYTES + 1 and key.count(b"\r\n") == 1:
+        key = key.replace(b"\r\n", b"\n")
     if len(key) != _ROOM_LINK_KEY_BYTES:
         raise RuntimeError("room-link key has invalid length")
     try:

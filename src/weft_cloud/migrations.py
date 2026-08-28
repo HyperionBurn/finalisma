@@ -435,6 +435,14 @@ ALTER TABLE cloud_room_cursors ADD COLUMN resume_marker_seq INTEGER;
 """
 
 
+_ROOM_LINK_CIPHERTEXT_SQL = """
+-- Keep the room-link lookup hash-only while retaining an operator-sealed copy
+-- that the room owner can recover after a service restart. The key is held
+-- outside SQLite by the room service; this column never contains plaintext.
+ALTER TABLE cloud_room_links ADD COLUMN token_ciphertext TEXT;
+"""
+
+
 _ROOM_RECEIPTS_SQL = """
 -- Durable per-recipient consumption state. ``cloud_outbox.status`` remains
 -- delivery state (queued/claimed/delivered/dead); ``read_status`` records the
@@ -476,6 +484,17 @@ def _has_room_cursor_resume_marker(execute: Callable[[str, tuple], Any]) -> bool
     try:
         row = execute(
             "SELECT 1 FROM pragma_table_info('cloud_room_cursors') WHERE name = 'resume_marker_seq'"
+        ).fetchone()
+        return row is not None
+    except Exception:
+        return False
+
+
+def _has_room_link_ciphertext(execute: Callable[[str, tuple], Any]) -> bool:
+    """True when cloud_room_links already has recoverable token ciphertext."""
+    try:
+        row = execute(
+            "SELECT 1 FROM pragma_table_info('cloud_room_links') WHERE name = 'token_ciphertext'"
         ).fetchone()
         return row is not None
     except Exception:
@@ -835,6 +854,12 @@ MIGRATIONS: list[Migration] = [
         "cloud_018_identity_outbox_expires_at",
         "outbox expiry column so stale mail is never delivered",
         statements=_IDENTITY_OUTBOX_EXPIRY_STATEMENTS,
+    ),
+    Migration(
+        "cloud_019_room_link_ciphertext",
+        "sealed room-link capability for owner recovery",
+        _ROOM_LINK_CIPHERTEXT_SQL,
+        already_applied=_has_room_link_ciphertext,
     ),
 ]
 

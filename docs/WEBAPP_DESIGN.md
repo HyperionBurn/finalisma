@@ -258,16 +258,16 @@ The app reuses `site/styles.css` tokens and the `site/assets/fonts/` font files.
 > a `cloud_room_links` table holding the raw link token). The shipped
 > implementation drives `CloudRoomService` over the single cloud database —
 > the same store `/v1` and `/mcp` use — and keeps the raw link token in an
-> **in-process cache** on the web app (`WeftWebApp._link_token_cache`, a dict;
-> populated at room creation and read by the connect page). No
-> `cloud_room_links` table as designed here exists (the `cloud_room_links`
-> table in `rooms.py` is the cloud room service's link table: `token_hash`
-> only, no raw token, no `owner_actor_token`), no per-tenant coordinator DB is
-> opened, and `bind_room` is not called. Consequences: (a) the link token
-> cannot be re-rendered after a web-server restart because the raw secret is
-> never persisted; the owner can use the CSRF-protected
-> `POST /room/{room_id}/regenerate-link` action to atomically replace the hash,
-> invalidate the old token, and repopulate the current process cache; (b) org
+> **in-process cache** on the web app (`WeftWebApp._link_token_cache`, a dict)
+> as a fast path. MPAI-22 adds an additive `token_ciphertext` column to the
+> cloud room link row: the token is sealed with a private 0600 key sidecar (or
+> the operator's `WEFT_ROOM_LINK_KEY`) and can therefore be recovered after a
+> service restart without putting plaintext in SQLite. The owner-only
+> `GET /v1/rooms/link?room_id=...` adapter returns the existing token; a
+> non-owner active member receives `403 owner_required`. The legacy server
+> connect/detail pages use the same owner-gated domain method. The old
+> `POST /room/{room_id}/regenerate-link` action is no longer exposed: recovery
+> never rotates or invalidates a live link. (b) org
 > membership (not room membership)
 > gates the room pages, with payload redaction still applied per viewer
 > (`_filter_payload_for_agent`); (c) room ownership is the creating account,
@@ -278,25 +278,31 @@ The app reuses `site/styles.css` tokens and the `site/assets/fonts/` font files.
 When an admin+ member creates a room:
 
 1. **Input:** `name` (optional), `cap` (default 8, min 2, max per plan), `ttl_seconds` (default 86400).
-2. **Generate synthetic identity:** `owner_agent_id = "web:{tenant_id}"`, `actor_token = secrets.token_urlsafe(32)`, `actor_token_hash = hashlib.sha256(actor_token).hexdigest()`.
-3. **Open (or create) the coordinator DB for this tenant:** the web app maintains ONE coordinator DB per tenant at `coordinator_db_path = <state_dir>/coordinator/<tenant_id>/rooms.db`. This path is stored in `cloud_tenant_rooms` via `bind_room`.
-4. **Instantiate `RoomStore(coordinator_db_path)`** and call `room_store.create_room(team_id=tenant_id, owner_agent_id=owner_agent_id, cap=cap, actor_token_hash=actor_token_hash, name=name, ttl_seconds=ttl_seconds)`.
-5. **Bind to tenant:** `backend.bind_room(tenant_id, room_id, coordinator_db_path)`.
-6. **Store the raw link token + synthetic owner actor token** for the copy-link UX: the web app stores `link_token` and `owner_actor_token` in a new `cloud_room_links` table (migration `cloud_019_web_room_links` — proposed id; `cloud_007`/`cloud_008` are already taken by `cloud_007_room_tables` and `cloud_008_identity_outbox_delivery`, and migration ids are never mutated) so the connect page can re-render it for members. The raw link token is NEVER exposed to non-members (see §9); the raw `owner_actor_token` is never rendered anywhere.
-7. **Audit:** `backend.append_audit(tenant_id, "room.created", ctx.account_id, room_id, json_payload)`.
-8. **Redirect** 303 to `/room/{room_id}`.
+2. **Create through `CloudRoomService`:** the authenticated account is the
+   `owner_agent_id`, and the account auto-joins the cloud room.
+3. **Persist the capability safely:** `cloud_room_links.token_hash` remains the
+   lookup index; `token_ciphertext` stores an operator-sealed copy for owner
+   recovery (migration `cloud_019_room_link_ciphertext`).
+4. **Audit:** `backend.append_audit(tenant_id, "room.created", ctx.account_id, room_id, json_payload)`.
+5. **Return** the `shareable_link` to the creation response. The owner can
+   later recover that same link through `GET /v1/rooms/link`.
 
-**Why one coordinator DB per tenant:** isolation. A tenant's room state is fully contained in its own SQLite file. The web app never opens another tenant's coordinator DB. Cross-tenant room access is impossible by construction (the session's `tenant_id` scopes the DB path lookup).
+**Why tenant scoping remains structural:** every cloud-room query carries the
+tenant id, and link recovery first resolves the room through active membership.
+Cross-tenant join links remain valid by design, while room metadata and owner
+link recovery never cross the authenticated membership boundary.
 
 ### 6.2 Join link storage
 
-- `RoomStore.create_room` returns `link_token` (raw, `rm_` prefix) and `link_id`.
-- The web app stores `(tenant_id, room_id, link_id, link_token, created_at)` in `cloud_room_links` (a new cloud-plane table, NOT the coordinator's `room_links` table). This is the ONLY place the raw link token persists in the cloud plane.
-- The connect page (`/room/{room_id}/render`) reads this row and renders the raw token into the copy-paste config blocks.
-- **Access control:** only members of the tenant can view the connect page. Non-members get 303→`/login`. The raw link token is never rendered to non-members.
-
-> **Delta:** superseded by the in-process `_link_token_cache` (see §6.0) and
-> by the hosted connector-config generator (see §7).
+- `CloudRoomService.create_room` returns `link_token` (raw, `rm_` prefix) and
+  `link_id` only in the creation response.
+- The cloud room row stores `token_hash` for join validation and an authenticated
+  `token_ciphertext` sealed outside SQLite. The web cache is only a fast path.
+- `GET /v1/rooms/link?room_id=...` checks active membership and then requires
+  the authenticated account to be the room owner. A non-owner active member
+  receives `403 owner_required`; a non-member receives the normal not-found mask.
+- The owner-only response contains the same token and absolute shareable URL;
+  no regeneration or invalidation occurs.
 
 ### 6.3 Live roster / presence
 
@@ -482,11 +488,11 @@ These are the exact negative tests the RED lanes will write. Each specifies: the
 
 | # | Action | Expected refusal | Invariant |
 | --- | --- | --- | --- |
-| 29 | Inspect any rendered page (dashboard, room, org, connect) | Assert: no raw password, no raw session token, no raw link_token (except on connect page for members), no raw reset/verify token in HTML | No raw secret in rendered output |
+| 29 | Inspect any rendered page (dashboard, room, org, connect) | Assert: no raw password, no raw session token, no raw link_token (except on the owner connect page), no raw reset/verify token in HTML | No raw secret in rendered output |
 | 30 | Trigger any auth failure (bad login, expired session) | Assert: error page does not contain the submitted password or token | No raw secret in error pages |
 | 31 | Inspect URL of any redirect | Assert: no token in query string (tokens are in cookies or POST bodies, never URLs) | No raw secret in URLs |
 | 32 | Inspect `/room/{room_id}/connect` as a non-member | 303→/login, raw link_token never rendered | Link token not exposed to non-members |
-| 33 | Inspect `/room/{room_id}/connect` as a member | Raw link_token IS rendered (this is the copy-link UX) | Link token available to members |
+| 33 | Inspect `/room/{room_id}/connect` as the room owner | Raw link_token IS rendered (this is the copy-link UX) | Link token available to the owner |
 
 ### 9.6 Room join link refusals
 
@@ -610,11 +616,11 @@ Mirrors IDENTITY_DESIGN.md §14 style.
 
 4. **CSRF token is bound to the session and verified on every state-changing POST.** The orchestrator must verify: every state-changing form includes `_csrf`, every state-changing handler verifies it with `hmac.compare_digest`, and no state-changing POST is processed without a valid token.
 
-5. **The raw room link token is only exposed to members.** The connect page must check membership before rendering the raw `link_token`. The orchestrator must verify: a non-member hitting `/room/{room_id}/connect` gets 303→/login, never the token.
+5. **The raw room link token is only exposed to the owner.** The connect page must check active membership and room ownership before rendering the raw `link_token`. The orchestrator must verify: a non-owner member gets the page without the token, and a non-member hitting `/room/{room_id}/connect` gets 303→/login, never the token.
 
 6. **One-org-per-account is enforced at invite-accept.** The current `invites.accept` does not check whether the accepter already belongs to a different org. The web app's invite-accept handler must check this (or a new wrapper must be added). The orchestrator must verify: an account in org A cannot accept an invite to org B.
 
-7. **No raw secret in any rendered HTML, URL, or error page.** The orchestrator must run a grep proof: no raw password, session token, link_token (except connect page for members), reset/verify token, or signing secret (except at generation time) appears in any template, redirect URL, or error message.
+7. **No raw secret in any rendered HTML, URL, or error page.** The orchestrator must run a grep proof: no raw password, session token, link_token (except the owner connect page), reset/verify token, or signing secret (except at generation time) appears in any template, redirect URL, or error message.
 
 8. **The coordinator plane (`weft_mcp/`) is untouched.** The web app must not modify any file in `src/weft_mcp/`. The orchestrator must verify: the diff for Wave H touches only `src/weft_cloud/web/`, `src/weft_cloud/identity/` (for the new agent-token primitive), `src/weft_cloud/storage.py` (for new migrations), and `tests/`.
 
@@ -634,12 +640,12 @@ Mirrors IDENTITY_DESIGN.md §14 style.
 | `orgs.membership_count(backend, account_id) -> int` | `src/weft_cloud/identity/orgs.py` | Returns the number of memberships for an account (additive helper; used to enforce one-org-per-account at invite-accept in the web layer). **Delta:** shipped as a private `WeftWebApp._membership_count` method in `web/app.py` instead — `orgs.py` untouched. |
 | `SessionContext.session_id` (optional field) | `src/weft_cloud/identity/context.py` | Backward-compatible optional field filled by `sessions.validate` so the web layer can read the session's CSRF row. **Delta:** not shipped. `SessionContext` instead gained `_agent_id` + an `agent_id` property (agent-key room identity); CSRF is cookie-based and needs no session id. |
 | `cloud_identity_csrf(session_id, csrf_token)` | migration `cloud_015_web_csrf` (proposed id — ledger head is `cloud_014`; ids are never mutated) | Stores per-session CSRF tokens (separate table — no ALTER on Wave G tables). **Delta:** not shipped; the registry still ends at `cloud_014`. CSRF is the `fss_csrf` cookie + `secrets.compare_digest` scheme (§4.4). |
-| `cloud_room_links(tenant_id, room_id, link_id, link_token, owner_actor_token, created_at)` | migration `cloud_016_web_room_links` (proposed id — `cloud_007`/`cloud_008` are taken) | Stores raw room link token (connect-page UX) and the synthetic room-owner actor token (for RoomStore calls), both tenant-scoped. **Delta:** not shipped. The raw link token lives in the in-process `_link_token_cache`; the synthetic owner token was never needed (§6.0). The `cloud_room_links` table that DOES exist belongs to the cloud room service (hash-only link rows, created by `cloud_007_room_tables`). |
+| `cloud_room_links.token_ciphertext` | migration `cloud_019_room_link_ciphertext` | Stores the operator-sealed room-link capability for owner recovery. `token_hash` remains the join lookup value; plaintext is never stored in SQLite. The web `_link_token_cache` is only a fast path, and the owner-only `GET /v1/rooms/link` response never rotates the link. |
 
 All migrations are additive — no existing Wave F/G table is altered. The
 historical proposal rows above predate the shipped `cloud_015` through
-`cloud_017` migrations. Any future migration proposal must use an id after
-`cloud_017`.
+`cloud_019` migrations. Any future migration proposal must use an id after
+`cloud_019`.
 
 ---
 

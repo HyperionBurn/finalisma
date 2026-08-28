@@ -366,7 +366,7 @@ export interface CreatedRoom {
   room_id: string;
   link_id?: string;
   link_token?: string;
-  /** The full https://…/j/<token> URL. Returned HERE AND NOWHERE ELSE. */
+  /** The full URL returned at creation and owner recovery. */
   shareable_link?: string;
   /** Unix seconds (float) when the link stops working. */
   expires_at?: number;
@@ -378,10 +378,9 @@ export interface CreatedRoom {
 /**
  * Create a room.
  *
- * The response carries `shareable_link`, and this is the only call in the
- * whole API that ever returns it — room_info and room_list do not. Losing
- * this response means losing the link, and the only recovery is creating a
- * different room. Callers must show it before navigating anywhere.
+ * The response carries `shareable_link`; the room owner can recover the same
+ * link later through `roomLink`, while room_info and room_list remain free of
+ * bearer credentials.
  */
 export const createRoom = async (name: string, cap: number, ttl_seconds?: number): Promise<CreatedRoom> => {
   const room = await tool<CreatedRoom>('room_create', { name, cap, ...(ttl_seconds ? { ttl_seconds } : {}) });
@@ -404,7 +403,7 @@ export interface RoomInfo {
   member_count?: number;
   members?: Member[];
   owner_agent_id?: string;
-  /** The link's identifier - NOT the token. The token is unrecoverable. */
+  /** The link's identifier - NOT the token. Use roomLink as the owner-only reveal. */
   link_id?: string;
   link_revoked?: boolean;
 }
@@ -415,11 +414,21 @@ export interface RoomInfo {
  * so `info.room.link_token` was read on every load and was always undefined.
  *
  * room_info reports link_id and link_revoked, which identify the link and say
- * whether it still works, but never the secret itself. Only room_create
- * returns that, once.
+ * whether it still works, but never the secret itself. The owner-only
+ * roomLink call returns the existing bearer when the UI needs to display it.
  */
 export const roomInfo = (room_id: string) =>
   tool<RoomInfo>('room_info', { room_id });
+export interface RoomLink {
+  room_id: string;
+  link_id: string;
+  link_token: string;
+  shareable_link: string;
+  expires_at: number;
+}
+/** Recover the existing link; the service refuses non-owner members with 403. */
+export const roomLink = (room_id: string) =>
+  rest<RoomLink>(`/v1/rooms/link?room_id=${encodeURIComponent(room_id)}`, undefined, requireAuth());
 export const pollRoom = (room_id: string, after_seq?: number, limit = 100) =>
   tool<{ events: RoomEvent[]; next_seq?: number }>('room_poll',
     { room_id, ...(after_seq !== undefined ? { after_seq } : {}), limit });
