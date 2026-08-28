@@ -243,7 +243,14 @@ export default function RoomView({ roomId }: Props) {
   // the honest equivalent: it is real, and it answers the same question
   // ("is this agent keeping up?") without inventing a number.
   const idle = members.filter((m) => secondsSince(m.last_seen) > 120).length;
-  const unresolvedMembers = members.filter((m) => !hasKnownIdentity(m.agent_id, viewer, identityDirectory, m)).length;
+  const unresolved = members.filter((m) => !hasKnownIdentity(m.agent_id, viewer, identityDirectory, m));
+  const unresolvedMembers = unresolved.length;
+  // A signed-in person from another workspace and an anonymous agent key both
+  // arrive here without a name (room_info only resolves names within the room's
+  // own tenant), but they are not the same thing and must not read the same.
+  // The id namespace tells them apart: accounts are acct_*, agent keys are key_*.
+  const externalPeople = unresolved.filter((m) => isAccountId(m.agent_id)).length;
+  const anonAgents = unresolvedMembers - externalPeople;
   const expiryLabel = fmtExpiry(expiresAt ?? undefined);
 
   return (
@@ -406,10 +413,13 @@ export default function RoomView({ roomId }: Props) {
           )}
           {unresolvedMembers > 0 && !loading && !error && (
             <p className="warnline" style={{ marginTop: 0 }}>
-              {unresolvedMembers === 1
-                ? 'One agent does not provide a display name.'
-                : `${unresolvedMembers} agents do not provide a display name.`}
-              {' '}Their technical id is available on hover.
+              {externalPeople > 0 && (externalPeople === 1
+                ? 'One member is signed in from another workspace; their name is not shared across workspaces. '
+                : `${externalPeople} members are signed in from other workspaces; their names are not shared across workspaces. `)}
+              {anonAgents > 0 && (anonAgents === 1
+                ? 'One agent does not provide a display name. '
+                : `${anonAgents} agents do not provide a display name. `)}
+              Their technical id is available on hover.
             </p>
           )}
           {members.map((m) => {
@@ -587,12 +597,14 @@ function identityLabel(
   return cleanIdentity(member?.display_name)
     || cleanIdentity(member?.email)
     || directory[id]
-    || 'Agent (name unavailable)';
+    || (isAccountId(id) ? 'Member from another workspace' : 'Agent (name unavailable)');
 }
+
+const UNRESOLVED_LABELS = ['Agent (name unavailable)', 'Member from another workspace'];
 
 function identityOptionLabel(id: string, viewer: Me | null, directory: Record<string, string>) {
   const label = identityLabel(id, viewer, directory);
-  return label === 'Agent (name unavailable)' ? `${label} · ${shortAgent(id)}` : label;
+  return UNRESOLVED_LABELS.includes(label) ? `${label} · ${shortAgent(id)}` : label;
 }
 
 function identityTitle(
@@ -607,9 +619,14 @@ function identityTitle(
     return email ? `Your account: ${email}` : 'Your account';
   }
   const label = cleanIdentity(member?.display_name) || cleanIdentity(member?.email) || directory[id];
-  return label
-    ? `${label} · agent id ${id}`
+  if (label) return `${label} · agent id ${id}`;
+  return isAccountId(id)
+    ? `Signed in from another workspace — name not shared across workspaces · agent id ${id}`
     : `No display name provided · agent id ${id}`;
+}
+
+function isAccountId(id: string) {
+  return typeof id === 'string' && id.startsWith('acct_');
 }
 
 function shortAgent(id: string) {
