@@ -1,5 +1,16 @@
 # Handover: Claude → Codex
 
+> [!CAUTION]
+> ### STALE / HISTORICAL DOCUMENT — DO NOT FOLLOW OBSOLETE BRANCH OR SCRIPT WORKFLOWS
+> **This document is a historical handover from 2026-08-12 and contains obsolete references that MUST NOT be used:**
+> 1. **Defunct Branch & Checkouts:** `Multiplayer-AI-integration` and `integration` branches are dead. Active development is strictly on branch `hive/land`.
+> 2. **Obsolete Scripts:** `scripts/check-all.sh` and related pre-hive test wrappers are retired.
+> 3. **Bypassing Hive Protocol:** Do not operate as an uncoordinated lone orchestrator. All work flows through the multi-agent Hive protocol.
+> 
+> **Authoritative Contract:** All active agents MUST follow [`AGENTS.md`](./AGENTS.md).
+
+---
+
 Written 2026-08-12 by the Claude orchestrator, at the owner's instruction, because my usage limit
 is close. You are taking over. Read this whole file before you touch anything.
 
