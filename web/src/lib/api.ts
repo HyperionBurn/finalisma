@@ -98,20 +98,41 @@ export function requireAuth(): string {
   return t;
 }
 
+/* ── network helper with timeout ──────────────────────────────────── */
+const REQUEST_TIMEOUT_MS = 15000;
+
+async function fetchWithTimeout(url: string, init?: RequestInit, timeoutMs = REQUEST_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+    return res;
+  } catch (err: any) {
+    if (err?.name === 'AbortError') {
+      throw new ApiError('The request timed out. Check your connection and try again.', 'timeout');
+    }
+    throw new ApiError('Could not reach the service. Check your connection.', 'offline');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /* ── REST ────────────────────────────────────────────────────────── */
 async function rest<T>(path: string, body?: unknown, token?: string | null): Promise<T> {
-  let res: Response;
-  try {
-    res = await fetch(API_ORIGIN + path, {
-      method: body === undefined ? 'GET' : 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-  } catch {
-    throw new ApiError('Could not reach the service. Check your connection.', 'offline');
+  const res = await fetchWithTimeout(API_ORIGIN + path, {
+    method: body === undefined ? 'GET' : 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+
+  if (res.status === 502 || res.status === 503 || res.status === 504) {
+    throw new ApiError('The service is temporarily unavailable. Please try again in a moment.', 'service_unavailable', res.status);
   }
 
   const text = await res.text();
@@ -193,10 +214,11 @@ export interface Me {
  */
 export async function me(): Promise<Me> {
   const token = requireAuth();
-  const res = await fetch(API_ORIGIN + '/v1/me', {
+  const res = await fetchWithTimeout(API_ORIGIN + '/v1/me', {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (res.status === 401) { clearToken(); location.replace('/login?expired=1'); throw new ApiError('Session expired', 'unauthenticated', 401); }
+  if (res.status === 502 || res.status === 503 || res.status === 504) throw new ApiError('The service is temporarily unavailable. Please try again in a moment.', 'service_unavailable', res.status);
   if (!res.ok) throw new ApiError(`Could not load your account (${res.status})`, 'load_failed', res.status);
   return res.json();
 }
@@ -232,29 +254,27 @@ let rpcId = 1;
  */
 export async function tool<T = any>(name: string, args: Record<string, unknown> = {}): Promise<T> {
   const token = requireAuth();
-  let res: Response;
-  try {
-    res = await fetch(API_ORIGIN + '/mcp', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json, text/event-stream',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        jsonrpc: '2.0', id: rpcId++, method: 'tools/call',
-        params: { name, arguments: args },
-      }),
-    });
-  } catch {
-    throw new ApiError('Could not reach the service. Check your connection.', 'offline');
-  }
+  const res = await fetchWithTimeout(API_ORIGIN + '/mcp', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json, text/event-stream',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0', id: rpcId++, method: 'tools/call',
+      params: { name, arguments: args },
+    }),
+  });
 
   if (res.status === 401) {
     clearToken();
     const back = encodeURIComponent(location.pathname + location.search);
     location.replace(`/login?next=${back}&expired=1`);
     throw new ApiError('Your session expired.', 'unauthenticated', 401);
+  }
+  if (res.status === 502 || res.status === 503 || res.status === 504) {
+    throw new ApiError('The service is temporarily unavailable. Please try again in a moment.', 'service_unavailable', res.status);
   }
 
   let raw = await res.text();

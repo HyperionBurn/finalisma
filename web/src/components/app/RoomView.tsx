@@ -110,6 +110,7 @@ export default function RoomView({ roomId }: Props) {
   }, [roomId]);
 
   async function handleClose() {
+    if (closing) return;
     if (!armingClose) {
       setArmingClose(true);
       window.setTimeout(() => setArmingClose(false), 5000);
@@ -143,7 +144,7 @@ export default function RoomView({ roomId }: Props) {
   /* ── send ───────────────────────────────────────────────────── */
   async function send() {
     const text = draft.trim();
-    if (!text || sending) return;
+    if (!text || sending || roomState === 'closed' || Boolean(error)) return;
     setSending(true);
     setSendError(null);
 
@@ -237,10 +238,11 @@ export default function RoomView({ roomId }: Props) {
 
           {!loading && !error && events.length === 0 && (
             <div className="empty">
-              <p className="empty__t">Nothing here yet</p>
+              <p className="empty__t">{roomState === 'closed' ? 'This room is closed' : 'Nothing here yet'}</p>
               <p className="empty__d">
-                This room is open and empty. Send the first message below, or hand the join
-                link to an agent and it will appear here as soon as it connects.
+                {roomState === 'closed'
+                  ? 'This room was closed by its owner and has no recorded messages.'
+                  : 'This room is open and empty. Send the first message below, or hand the join link to an agent and it will appear here as soon as it connects.'}
               </p>
             </div>
           )}
@@ -277,13 +279,15 @@ export default function RoomView({ roomId }: Props) {
             <textarea
               ref={input} className="composer__in" rows={1} value={draft}
               aria-label="Message"
-              disabled={roomState === 'closed'}
+              disabled={roomState === 'closed' || Boolean(error)}
               placeholder={
-                roomState === 'closed'
-                  ? 'This room is closed.'
-                  : target === '*'
-                    ? 'Message everyone in this room…'
-                    : `Message ${shortAgent(target)} privately…`
+                error
+                  ? 'Room unavailable.'
+                  : roomState === 'closed'
+                    ? 'This room is closed.'
+                    : target === '*'
+                      ? 'Message everyone in this room…'
+                      : `Message ${shortAgent(target)} privately…`
               }
               onChange={(ev) => {
                 setDraft(ev.target.value);
@@ -295,7 +299,7 @@ export default function RoomView({ roomId }: Props) {
                 if ((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter') { ev.preventDefault(); send(); }
               }}
             />
-            <button className="composer__send" onClick={send} disabled={roomState === 'closed' || !draft.trim() || sending}
+            <button className="composer__send" onClick={send} disabled={roomState === 'closed' || Boolean(error) || !draft.trim() || sending}
                     aria-label="Send message">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="M5 12h14M13 6l6 6-6 6" stroke="#050505" strokeWidth="2.4"
@@ -306,6 +310,7 @@ export default function RoomView({ roomId }: Props) {
           <div className="composer__foot">
             <label htmlFor="target" style={{ color: 'var(--faint)' }}>to</label>
             <select id="target" value={target} onChange={(e) => setTarget(e.target.value)}
+                    disabled={roomState === 'closed' || Boolean(error)}
                     style={{ background: 'none', border: 0, color: 'var(--muted)', font: 'inherit', cursor: 'pointer', outline: 'none' }}>
               <option value="*">everyone</option>
               {members.map((m) => (
@@ -321,9 +326,14 @@ export default function RoomView({ roomId }: Props) {
       <aside className="insp" aria-label="Room details" tabIndex={0} role="region">
         <div className="insp__sec">
           <p className="insp__l">Who is here · {members.length}</p>
-          {members.length === 0 && !loading && (
+          {members.length === 0 && !loading && !error && (
             <p className="warnline" style={{ marginTop: 0 }}>
               No agents have joined yet. Share the link below to bring one in.
+            </p>
+          )}
+          {error && !loading && (
+            <p className="warnline" style={{ marginTop: 0 }}>
+              Member list unavailable.
             </p>
           )}
           {members.map((m) => {

@@ -45,6 +45,7 @@ export default function AuthForm({ mode }: Props) {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (busy) return;
     const emailTrimmed = email.trim();
     const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!EMAIL_RE.test(emailTrimmed)) {
@@ -69,7 +70,7 @@ export default function AuthForm({ mode }: Props) {
       location.assign(next());
     } catch (err) {
       const e = err as ApiError;
-      if (e.code === 'offline') {
+      if (e.code === 'offline' || e.code === 'timeout') {
         setError('Could not reach the service. Check your connection and try again.');
       } else if (mode === 'signup'
                  && (e.code === 'email_exists' || e.status === 409 || /exist/i.test(e.message))) {

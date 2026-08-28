@@ -34,7 +34,6 @@ export default function KeysManager() {
       setKeys(r.keys ?? []);
     } catch (err) {
       setError((err as ApiError).message);
-      setKeys([]);
     }
   }, []);
 
@@ -59,6 +58,7 @@ export default function KeysManager() {
   }
 
   async function revoke(keyId: string) {
+    if (revoking) return;
     if (arming !== keyId) {           // first click only arms it
       setArming(keyId);
       window.setTimeout(() => setArming((a) => (a === keyId ? null : a)), 5000);
@@ -125,7 +125,7 @@ export default function KeysManager() {
         </p>
       )}
 
-      {keys === null ? (
+      {keys === null && !error ? (
         <div className="list" aria-busy="true">
           {[0, 1].map((i) => (
             <div className="row row--key" key={i}>
@@ -134,7 +134,17 @@ export default function KeysManager() {
             </div>
           ))}
         </div>
-      ) : keys.length === 0 ? (
+      ) : error && (keys === null || keys.length === 0) ? (
+        <div className="empty">
+          <p className="empty__t">Could not load agent keys</p>
+          <p className="empty__d">
+            We were unable to fetch your keys from the service. Check your connection and try again.
+          </p>
+          <div style={{ display: 'flex', gap: 10, marginTop: 16, justifyContent: 'center' }}>
+            <button className="btn btn--pri" onClick={load}>Try again</button>
+          </div>
+        </div>
+      ) : keys && keys.length === 0 ? (
         <div className="empty">
           <p className="empty__t">No keys yet</p>
           <p className="empty__d">
@@ -150,7 +160,7 @@ export default function KeysManager() {
             <span className="metric__l">Created</span>
             <span className="metric__l" style={{ textAlign: 'right' }}>Status / action</span>
           </div>
-          {keys.map((k) => {
+          {(keys ?? []).map((k) => {
             const revoked = Boolean(k.revoked_at);
             return (
               <div className="row row--key" key={k.key_id}>

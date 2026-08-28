@@ -200,6 +200,56 @@ class TestDashboardPapercutsMPAI60(unittest.TestCase):
                 server.shutdown()
                 server.server_close()
 
+    def test_spa_failure_empty_and_loading_states_mpai73(self):
+        """Audit and assert failure, empty, loading, timeout, and double-submit states across SPA components (MPAI-73)."""
+        api_src = API_TS.read_text(encoding="utf-8")
+        rooms_list_src = ROOMS_LIST_TSX.read_text(encoding="utf-8")
+        room_view_src = ROOM_VIEW_TSX.read_text(encoding="utf-8")
+        usage_view_src = (ROOT / "web" / "src" / "components" / "app" / "UsageView.tsx").read_text(encoding="utf-8")
+        new_room_src = (ROOT / "web" / "src" / "components" / "app" / "NewRoom.tsx").read_text(encoding="utf-8")
+        keys_manager_src = (ROOT / "web" / "src" / "components" / "app" / "KeysManager.tsx").read_text(encoding="utf-8")
+        connect_picker_src = (ROOT / "web" / "src" / "components" / "app" / "ConnectPicker.tsx").read_text(encoding="utf-8")
+        auth_form_src = (ROOT / "web" / "src" / "components" / "app" / "AuthForm.tsx").read_text(encoding="utf-8")
+        settings_view_src = (ROOT / "web" / "src" / "components" / "app" / "SettingsView.tsx").read_text(encoding="utf-8")
+
+        # 1. api.ts has fetch timeout and 502/503/504 handler
+        self.assertIn("REQUEST_TIMEOUT_MS", api_src)
+        self.assertIn("fetchWithTimeout", api_src)
+        self.assertIn("service_unavailable", api_src)
+
+        # 2. RoomsList: error state does not collide with 0 rooms onboarding, has retry button
+        self.assertIn("Could not load your rooms", rooms_list_src)
+        self.assertIn("Try again", rooms_list_src)
+
+        # 3. RoomView: closed empty room message, composer disabled on error, double submit guard
+        self.assertIn("This room is closed", room_view_src)
+        self.assertIn("disabled={roomState === 'closed' || Boolean(error)", room_view_src)
+        self.assertIn("if (closing) return;", room_view_src)
+
+        # 4. UsageView: retry button on error, onboarding empty state
+        self.assertIn("No usage recorded yet", usage_view_src)
+        self.assertIn("Could not load usage data", usage_view_src)
+
+        # 5. NewRoom: double submit guard, quota limit guidance
+        self.assertIn("if (busy) return;", new_room_src)
+        self.assertIn("close an inactive room", new_room_src)
+
+        # 6. KeysManager: retry button on error, no 'No keys yet' on error, revoking guard
+        self.assertIn("Could not load agent keys", keys_manager_src)
+        self.assertIn("if (revoking) return;", keys_manager_src)
+
+        # 7. ConnectPicker: double mint guard
+        self.assertIn("if (minting) return;", connect_picker_src)
+
+        # 8. AuthForm: double submit guard, timeout error mapping
+        self.assertIn("if (busy) return;", auth_form_src)
+        self.assertIn("e.code === 'timeout'", auth_form_src)
+
+        # 9. SettingsView: retry on error, signout escape hatch
+        self.assertIn("Could not load account details", settings_view_src)
+        self.assertIn("Try again", settings_view_src)
+
 
 if __name__ == "__main__":
     unittest.main()
+

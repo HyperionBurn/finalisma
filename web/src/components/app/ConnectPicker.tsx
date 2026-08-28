@@ -89,6 +89,7 @@ export default function ConnectPicker() {
   const config = buildConfig(client, key ?? PLACEHOLDER, origin);
 
   async function mint() {
+    if (minting) return;
     setMinting(true);
     setError(null);
     try {

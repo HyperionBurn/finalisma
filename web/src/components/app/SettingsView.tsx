@@ -12,31 +12,27 @@
  * answers 200 before the call and 401 after. Skipping it left a live token
  * behind for anyone who had copied it.
  */
-import { useEffect, useState } from 'react';
-import { ApiError, clearToken, signout } from '../../lib/api';
-
-interface Me {
-  account_id: string; tenant_id: string; role: string; email: string; agent_id: string;
-}
+import { useCallback, useEffect, useState } from 'react';
+import { ApiError, clearToken, me as getMe, signout, type Me } from '../../lib/api';
 
 export default function SettingsView() {
   const [me, setMe] = useState<Me | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const token = localStorage.getItem('weft.session');
-        if (!token) { location.replace('/login'); return; }
-        const res = await fetch('/v1/me', { headers: { Authorization: `Bearer ${token}` } });
-        if (res.status === 401) { clearToken(); location.replace('/login?expired=1'); return; }
-        if (!res.ok) throw new ApiError(`Could not load your account (${res.status})`, 'load');
-        setMe(await res.json());
-      } catch (err) {
-        setError((err as ApiError).message);
-      }
-    })();
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      const data = await getMe();
+      setMe(data);
+    } catch (err) {
+      const e = err as ApiError;
+      if (e.code !== 'unauthenticated') setError(e.message);
+    }
   }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const [leaving, setLeaving] = useState(false);
 
@@ -48,7 +44,27 @@ export default function SettingsView() {
     location.assign('/login');
   }
 
-  if (error) return <p className="notice notice--bad" role="alert">{error}</p>;
+  if (error && !me) {
+    return (
+      <>
+        <div className="empty">
+          <p className="notice notice--bad" role="alert" style={{ marginBottom: 16 }}>
+            {error}
+          </p>
+          <p className="empty__t">Could not load account details</p>
+          <p className="empty__d">
+            We were unable to read your profile from the service. Check your connection and try again.
+          </p>
+          <div style={{ display: 'flex', gap: 10, marginTop: 16, justifyContent: 'center' }}>
+            <button className="btn btn--pri" onClick={load}>Try again</button>
+            <button className="btn btn--quiet" onClick={signOut} disabled={leaving}>
+              {leaving ? 'Signing out…' : 'Sign out'}
+            </button>
+          </div>
+        </div>
+      </>
+    );
+  }
 
   if (!me) {
     return (

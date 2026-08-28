@@ -17,7 +17,7 @@
  * limit cannot be established that way, the tile shows the count alone rather
  * than an invented denominator.
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ApiError, listAgentKeys, listRooms, roomInfo, type Room } from '../../lib/api';
 
 const MEMBER_CAP_FREE = 15; // measured: quota refusal reports value 15, plan "free"
@@ -28,37 +28,39 @@ export default function UsageView() {
   const [largest, setLargest] = useState<{ name: string; used: number; cap: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const list = await listRooms();
-        const rs = list.rooms ?? [];
-        setRooms(rs);
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      const list = await listRooms();
+      const rs = list.rooms ?? [];
+      setRooms(rs);
 
-        // member counts are per-room; ask each one rather than assume
-        const infos = await Promise.all(
-          rs.slice(0, 12).map((r) => roomInfo(r.room_id).catch(() => null)),
-        );
-        let best: { name: string; used: number; cap: number } | null = null;
-        infos.forEach((info, i) => {
-          if (!info) return;
-          const used = (info as any).member_count ?? (info as any).members?.length ?? 0;
-          const cap = (info as any).cap ?? rs[i].cap ?? MEMBER_CAP_FREE;
-          if (!best || used > best.used) best = { name: rs[i].name || rs[i].room_id, used, cap };
-        });
-        setLargest(best);
+      // member counts are per-room; ask each one rather than assume
+      const infos = await Promise.all(
+        rs.slice(0, 12).map((r) => roomInfo(r.room_id).catch(() => null)),
+      );
+      let best: { name: string; used: number; cap: number } | null = null;
+      infos.forEach((info, i) => {
+        if (!info) return;
+        const used = (info as any).member_count ?? (info as any).members?.length ?? 0;
+        const cap = (info as any).cap ?? rs[i].cap ?? MEMBER_CAP_FREE;
+        if (!best || used > best.used) best = { name: rs[i].name || rs[i].room_id, used, cap };
+      });
+      setLargest(best);
 
-        const kd = await listAgentKeys();
-        setKeys((kd.keys ?? []).filter((key) => !key.revoked_at).length);
-      } catch (err) {
-        const e = err as ApiError;
-        if (e.code !== 'unauthenticated') setError(e.message);
-        setRooms([]);
-      }
-    })();
+      const kd = await listAgentKeys();
+      setKeys((kd.keys ?? []).filter((key) => !key.revoked_at).length);
+    } catch (err) {
+      const e = err as ApiError;
+      if (e.code !== 'unauthenticated') setError(e.message);
+    }
   }, []);
 
-  if (rooms === null) {
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  if (rooms === null && !error) {
     return (
       <div className="metrics" aria-busy="true">
         {[0, 1, 2].map((i) => (
@@ -71,17 +73,38 @@ export default function UsageView() {
     );
   }
 
-  const open = rooms.filter((r) => (r.state ?? 'open') !== 'closed').length;
+  if (error && rooms === null) {
+    return (
+      <div className="empty">
+        <p className="notice notice--bad" role="alert" style={{ marginBottom: 16 }}>
+          {error}
+        </p>
+        <p className="empty__t">Could not load usage data</p>
+        <p className="empty__d">
+          We were unable to calculate your account metrics. Check your connection and try again.
+        </p>
+        <div style={{ display: 'flex', gap: 10, marginTop: 16, justifyContent: 'center' }}>
+          <button className="btn btn--pri" onClick={load}>Try again</button>
+        </div>
+      </div>
+    );
+  }
+
+  const open = (rooms ?? []).filter((r) => (r.state ?? 'open') !== 'closed').length;
 
   return (
     <>
-      {error && <p className="notice notice--bad" role="alert">{error}</p>}
+      {error && (
+        <p className="notice notice--bad" role="alert">
+          {error} <button className="btn btn--bare" onClick={load}>Try again</button>
+        </p>
+      )}
 
       <section className="metrics" aria-label="Measured usage">
         <div className="metric">
           <p className="metric__l">Rooms open</p>
           <p className="metric__v">{open}</p>
-          <p className="metric__d">{rooms.length} total, including closed</p>
+          <p className="metric__d">{(rooms ?? []).length} total, including closed</p>
         </div>
         <div className="metric">
           <p className="metric__l">Largest room</p>
@@ -97,7 +120,20 @@ export default function UsageView() {
         </div>
       </section>
 
-      {rooms.length > 0 && (
+      {rooms && rooms.length === 0 && (
+        <div className="empty" style={{ marginTop: 24 }}>
+          <p className="empty__t">No usage recorded yet</p>
+          <p className="empty__d">
+            Your usage counters update in real time as you create rooms, invite agents, and generate keys.
+          </p>
+          <div style={{ display: 'flex', gap: 10, marginTop: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <a className="btn btn--pri" href="/app/new">Create a room</a>
+            <a className="btn btn--quiet" href="/app/connect">Connect an agent</a>
+          </div>
+        </div>
+      )}
+
+      {rooms && rooms.length > 0 && (
         <div className="list">
           <div className="row row--room" style={{ borderBottomColor: 'var(--line-2)', paddingBottom: 9 }}>
             <span />

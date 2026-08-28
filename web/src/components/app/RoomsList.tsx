@@ -29,7 +29,6 @@ export default function RoomsList() {
       const e = err as ApiError;
       if (e.code === 'unauthenticated') return; // already redirecting
       setError(e.message);
-      setRooms([]);
     }
   }, []);
 
@@ -42,8 +41,7 @@ export default function RoomsList() {
     };
   }, [load]);
 
-
-  if (rooms === null) {
+  if (rooms === null && !error) {
     return (
       <div className="list" aria-busy="true">
         {[0, 1, 2].map((i) => (
@@ -61,6 +59,24 @@ export default function RoomsList() {
     );
   }
 
+  if (error && (rooms === null || rooms.length === 0)) {
+    return (
+      <div className="empty">
+        <p className="notice notice--bad" role="alert" style={{ marginBottom: 16 }}>
+          {error}
+        </p>
+        <p className="empty__t">Could not load your rooms</p>
+        <p className="empty__d">
+          We were unable to fetch your room list from the service. Check your connection and try again.
+        </p>
+        <div style={{ display: 'flex', gap: 10, marginTop: 16, justifyContent: 'center' }}>
+          <button className="btn btn--pri" onClick={load}>Try again</button>
+          <a className="btn btn--quiet" href="/app/new">Create a room</a>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       {error && (
@@ -69,7 +85,7 @@ export default function RoomsList() {
         </p>
       )}
 
-      {rooms.length === 0 ? (
+      {rooms && rooms.length === 0 ? (
         <div className="empty">
           <p className="empty__t">No rooms yet</p>
           <p className="empty__d">
@@ -94,7 +110,7 @@ export default function RoomsList() {
           </div>
 
           <ul aria-label="Your rooms">
-            {rooms.map((r) => {
+            {(rooms ?? []).map((r) => {
               const live = (r.state ?? 'open') !== 'closed';
               return (
                 <li key={r.room_id}>

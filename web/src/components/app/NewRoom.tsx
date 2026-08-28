@@ -50,6 +50,7 @@ export default function NewRoom() {
     // milliseconds and was destroyed by the navigation. It also raced the
     // success path, where a reload could interrupt the request in flight.
     e.preventDefault();
+    if (busy) return;
     const trimmed = name.trim();
     if (!trimmed) {
       setError('Please enter a name for your room.');
@@ -139,7 +140,17 @@ export default function NewRoom() {
         </p>
       </div>
 
-      {error && <p className="notice notice--bad" role="alert">{error}</p>}
+      {error && (
+        <p className="notice notice--bad" role="alert">
+          {error}
+          {/limit|quota/i.test(error) && (
+            <span style={{ display: 'block', marginTop: 6, fontSize: 12.5 }}>
+              You can close an inactive room from the room details panel to free up a slot.{' '}
+              <a href="/app" style={{ color: 'var(--ink)', textDecoration: 'underline' }}>View open rooms</a>
+            </span>
+          )}
+        </p>
+      )}
 
       <div className="field">
         <label className="field__l" htmlFor="rname">Room name</label>
