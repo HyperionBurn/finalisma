@@ -145,7 +145,11 @@ export default function UsageView() {
           </div>
           <ul aria-label="Rooms by size">
             {rooms.map((r) => {
-              const live = (r.state ?? 'open') !== 'closed';
+              // The service uses forming/active/closed internally. Keep that
+              // lifecycle detail out of the customer-facing dashboard: both
+              // forming and active are simply an open room here.
+              const stateLabel = r.state === 'closed' ? 'closed' : 'open';
+              const live = stateLabel === 'open';
               return (
                 <li key={r.room_id}>
                   <a className="row row--room"
@@ -157,7 +161,7 @@ export default function UsageView() {
                     </span>
                     <span className="row__m row__hide">{r.cap ?? '—'}</span>
                     <span className="row__hide">
-                      <span className={`tag ${live ? 'tag--live' : 'tag--off'}`}>{r.state ?? 'open'}</span>
+                      <span className={`tag ${live ? 'tag--live' : 'tag--off'}`}>{stateLabel}</span>
                     </span>
                     <span className="row__hide" />
                     <span className="row__t" aria-hidden="true">→</span>

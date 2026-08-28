@@ -229,6 +229,8 @@ class TestDashboardPapercutsMPAI60(unittest.TestCase):
         # 4. UsageView: retry button on error, onboarding empty state
         self.assertIn("No usage recorded yet", usage_view_src)
         self.assertIn("Could not load usage data", usage_view_src)
+        self.assertIn("const stateLabel = r.state === 'closed' ? 'closed' : 'open';", usage_view_src)
+        self.assertIn("{stateLabel}", usage_view_src)
 
         # 5. NewRoom: double submit guard, quota limit guidance
         self.assertIn("if (busy) return;", new_room_src)
