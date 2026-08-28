@@ -22,21 +22,21 @@ database file:
 The surface a deployment must serve is:
 
 - **REST rooms API** — `POST /v1/rooms/{create,connect,join,leave,
-  remove_member,close,send,receipts,poll,wait,ack,heartbeat,revoke_link,
+  remove_member,restore_member,close,send,receipts,poll,wait,ack,heartbeat,revoke_link,
   event_log,groups}` plus `GET /v1/rooms` and `GET /v1/rooms/info`
   (`src/weft_cloud/service.py` route table). `receipts` and `remove_member`
   are the newest pair (`1e0aa5a`). Malformed cursors are a caller error:
   non-integer / negative / beyond-head `after_seq` and negative `seq` return
   **400** `invalid_argument` or `invalid_cursor` — never a 500
   (`src/weft_cloud/rooms.py`).
-- **Hosted MCP** — `POST /mcp` exposes exactly **14 room tools**
+- **Hosted MCP** — `POST /mcp` exposes exactly **15 room tools**
   (`room_create` `room_list` `room_join` `room_send` `room_receipts` `room_poll`
   `room_wait` `room_info` `room_ack` `room_heartbeat` `room_leave`
-  `room_remove_member` `room_close` `room_event_log`), pinned by
+  `room_remove_member` `room_restore_member` `room_close` `room_event_log`), pinned by
   `test_hosted_surface_is_a_small_correct_set`. Identity is never an
   argument: `agent_id` resolves from the authenticated `fss_` session or
   `agk_` agent key, and client-supplied identity fields are rejected.
-- **SDK** — `src/weft_sdk/client.py` drives all 14 hosted tools; in hosted
+- **SDK** — `src/weft_sdk/client.py` drives all 15 hosted tools; in hosted
   mode it strips identity arguments and surfaces HTTP 429 as structured
   `rate_limited` errors with `retry_after` (`c9f4e0e`).
 - **Identity** — `POST /v1/auth/signout` with an `agk_` bearer truthfully

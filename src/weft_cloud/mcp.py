@@ -451,8 +451,20 @@ HOSTED_TOOLS: list[dict[str, Any]] = [
         "name": "room_remove_member",
         "description": (
             "Owner-only: remove a member from a Room. The removed member is refused "
-            "on its very next request and its seat is freed. Removal is NOT a ban: "
-            "a removed member who still holds a valid link can rejoin."
+            "on its very next request and its seat is freed. The durable owner-removal "
+            "marker refuses a later join until the owner explicitly restores the member."
+        ),
+        "inputSchema": _object_schema({
+            "room_id": _ROOM_ID,
+            "member_id": _MEMBER_ID,
+        }, ["room_id", "member_id"]),
+    },
+    {
+        "name": "room_restore_member",
+        "description": (
+            "Owner-only: clear a durable owner-removal marker for a deliberate "
+            "re-invite. The member is not activated by this action and must "
+            "redeem the existing room link again."
         ),
         "inputSchema": _object_schema({
             "room_id": _ROOM_ID,
@@ -906,6 +918,19 @@ class HostedMCPDispatcher:
             target_agent_id=member_id,
             caller_agent_id=ctx.agent_id,
         ))
+
+    def _tool_room_restore_member(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:
+        room_id = self._required(args, "room_id")
+        member_id = self._required(args, "member_id")
+        tenant_id = self._room_tenant(room_id, ctx.agent_id)
+        result = self._room_call(lambda: self.rooms.restore_member(
+            tenant_id=tenant_id,
+            room_id=room_id,
+            owner_agent_id=ctx.account_id,
+            target_agent_id=member_id,
+            caller_agent_id=ctx.agent_id,
+        ))
+        return result
 
     def _tool_room_close(self, ctx: SessionContext, args: dict[str, Any], bearer_token: str | None) -> dict[str, Any]:
         room_id = self._required(args, "room_id")

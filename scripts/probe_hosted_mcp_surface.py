@@ -41,6 +41,7 @@ EXPECTED_TOOL_NAMES = (
     "room_heartbeat",
     "room_leave",
     "room_remove_member",
+    "room_restore_member",
     "room_close",
     "room_event_log",
 )

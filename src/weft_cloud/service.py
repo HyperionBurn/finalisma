@@ -1513,8 +1513,8 @@ class WeftCloudService:
 
         REST parity with the hosted MCP tool ``room_remove_member``: the
         owner frees a member's seat exactly as over MCP. The removed member is
-        refused on its very next request; removal is NOT a ban — a removed
-        member who still holds a valid link can rejoin.
+        refused on its very next request; the owner-removal marker also
+        refuses a later join until an explicit owner restore.
         """
         ctx = self._authenticate(handler)
         body = _read_body(handler)
@@ -1531,6 +1531,26 @@ class WeftCloudService:
         self.backend.append_audit(
             tenant_id, "room.remove_member", ctx.account_id, room_id,
             json.dumps({"member_id": member_id}),
+        )
+        return _json_response(HTTPStatus.OK, result)
+
+    def handle_room_restore_member(self, handler: BaseHTTPRequestHandler) -> tuple[int, bytes]:
+        """Owner-only clearing of a durable removal marker.
+
+        Restoring only allows a deliberate re-invite; it does not activate the
+        member or consume a seat. The member must redeem the room link again.
+        """
+        ctx = self._authenticate(handler)
+        body = _read_body(handler)
+        self._reject_identity_args(body)
+        room_id = body.get("room_id")
+        member_id = body.get("member_id")
+        if not room_id or not member_id:
+            raise _ServiceError("invalid_argument", "room_id and member_id are required")
+        tenant_id = self._room_tenant(room_id, ctx.agent_id)
+        result = self.rooms.restore_member(
+            tenant_id, room_id, ctx.account_id, member_id,
+            caller_agent_id=ctx.agent_id,
         )
         return _json_response(HTTPStatus.OK, result)
 
@@ -2125,6 +2145,7 @@ class _CloudHTTPHandler(BaseHTTPRequestHandler):
             "/v1/rooms/join": self.service.handle_join_room,
             "/v1/rooms/leave": self.service.handle_room_leave,
             "/v1/rooms/remove_member": self.service.handle_room_remove_member,
+            "/v1/rooms/restore_member": self.service.handle_room_restore_member,
             "/v1/rooms/close": self.service.handle_room_close,
             "/v1/rooms/send": self.service.handle_room_send,
             "/v1/rooms/receipts": self.service.handle_room_receipts,

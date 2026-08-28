@@ -64,14 +64,16 @@ Exposed — the room set the product promise depends on, one MCP tool per
 
 `room_create` `room_list` `room_join` `room_send` `room_receipts` `room_poll`
 `room_wait` `room_info` `room_ack` `room_heartbeat` `room_leave`
-`room_remove_member` `room_close` `room_event_log`
+`room_remove_member` `room_restore_member` `room_close` `room_event_log`
 
 The member lifecycle is complete: `room_leave` frees a member's seat
 immediately (`room.left` event, history and attribution preserved), and the
 owner-only `room_remove_member` frees a target member's seat — removal is NOT
-a ban (a removed member who still holds a valid link can rejoin). The tool set
-is pinned by a test (`test_hosted_surface_is_a_small_correct_set`), which
-asserts exactly 14 tools. `room_list` lets a client discover active and
+a re-invite: the owner-removal marker refuses that identity's later join until
+`room_restore_member` explicitly allows it, while the same link remains usable
+by every other identity. The tool set is pinned by a test
+(`test_hosted_surface_is_a_small_correct_set`), which asserts exactly 15 tools.
+`room_list` lets a client discover active and
 closed rooms where its identity is still a member. `room_close` is owner-only,
 revokes every link, preserves the audit history, releases one active-room
 quota slot, and is idempotent.
@@ -98,7 +100,7 @@ before any quota or room row is written. `room_join` runs in the caller's
 authenticated cloud tenant; the
 member-gated tools (`room_list`, `room_info`, `room_poll`, `room_wait`, `room_ack`,
 `room_heartbeat`, `room_send`, `room_receipts`, `room_event_log`,
-`room_leave`, `room_remove_member`, `room_close`) resolve the tenant via the caller's membership
+`room_leave`, `room_remove_member`, `room_restore_member`, `room_close`) resolve the tenant via the caller's membership
 row (`CloudRoomService._resolve_room_tenant`, exactly as
 `WeftCloudService._room_tenant` does), so a member who joined through a link
 in another tenant can operate in the room's tenant. Because resolution goes
@@ -213,7 +215,7 @@ The SDK maps `invalid_cursor` to `ConflictError` (`src/weft_sdk/client.py`
 ## MCP protocol details
 
 - `POST /mcp`, Streamable-HTTP JSON-RPC framing identical to the coordinator:
-  `initialize` negotiates the protocol version, `tools/list` returns the 14
+  `initialize` negotiates the protocol version, `tools/list` returns the 15
   tools, `tools/call` returns `structuredContent` (or an `isError` result with
   a structured `{"error": {code, message}}`), notifications
   (`notifications/initialized`, `notifications/cancelled`) return 202 with no

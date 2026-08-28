@@ -111,8 +111,8 @@ The goal is complete only when **every** line is true and independently verified
 > 960/960 green):**
 > the last four closes against this line:
 >
-> - **SDK drives all 14 hosted room tools** (`c9f4e0e`). `WeftClient` grew
->   `room_wait`, `room_event_log`, and `room_remove_member`, so every tool in
+> - **SDK drives all 15 hosted room tools** (`c9f4e0e`). `WeftClient` grew
+>   `room_wait`, `room_event_log`, `room_remove_member`, and `room_restore_member`, so every tool in
 >   the hosted 14-tool surface (`docs/HOSTED_MCP_DESIGN.md`, pinned by
 >   `test_hosted_surface_is_a_small_correct_set`) has an SDK method. Hosted
 >   mode strips client-supplied identity arguments (`team_id` / `agent_id` /

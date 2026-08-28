@@ -11,7 +11,7 @@ The hosted Weft service (`weft_cloud`, e.g. `https://weft.switzerlandnorth.
 cloudapp.azure.com`) exposes its rooms as a **Streamable-HTTP** MCP endpoint:
 `POST /mcp`, authenticated with a Bearer session token or agent key. The local
 hosted-service test suite verifies the contract — 401 unauthenticated, 200
-authenticated, and 14 room tools. A fresh public-deployment probe is still
+authenticated, and 15 room tools. A fresh public-deployment probe is still
 required before treating those results as current production behavior.
 
 But the MCP hosts people actually use speak **stdio**. Claude Desktop, Cursor,
@@ -109,7 +109,7 @@ list, and revoke keys.
 - **Full JSON-RPC passthrough.** `initialize`, `notifications/initialized`,
   `tools/list`, `tools/call`, `ping` — all forwarded unchanged. The tool set is
   never filtered or rewritten: whatever the hosted endpoint exposes is exactly
-  what the client sees (the 14 hosted room tools).
+  what the client sees (the 15 hosted room tools).
 - **Both Streamable-HTTP response shapes are unwrapped.** The hosted endpoint
   may reply with plain JSON (`application/json`) or an SSE-framed body
   (`text/event-stream`: `event:` / `data:` lines, including multi-line `data`).

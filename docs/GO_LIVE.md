@@ -12,7 +12,7 @@ This is the launch plan for a truthful design-partner release. The current
 product has three real surfaces: the dependency-free single-node coordinator
 (`weft_mcp`, local), the hosted cloud service (`weft_cloud` — accounts,
 sessions, agent keys, rooms over `/v1`, and the authenticated hosted MCP
-endpoint `POST /mcp` with the 14 room tools, including room discovery and
+endpoint `POST /mcp` with the 15 room tools, including room discovery and
 owner-only quota-releasing close; deploy runbook in
 `docs/DEPLOY.md`), and the local static site. The hosted service is a
 **single-instance SQLite-WAL pair** — one machine, one disk, one writer. It

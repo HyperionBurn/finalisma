@@ -696,6 +696,7 @@ CREATE TABLE IF NOT EXISTS cloud_room_members (
     last_seen REAL NOT NULL,
     status TEXT NOT NULL DEFAULT 'active'
         CHECK(status IN ('active','stale','left')),
+    removed_at REAL,
     capabilities_json TEXT NOT NULL DEFAULT '[]',
     actor_token_hash TEXT NOT NULL,
     PRIMARY KEY (tenant_id, room_id, agent_id)
@@ -793,6 +794,7 @@ class CloudRoomService:
             self._ensure_link_ciphertext_column(tx)
             self._ensure_message_kind_column(tx)
             self._ensure_resume_marker_column(tx)
+            self._ensure_member_removed_at_column(tx)
             tx.commit()
 
     def _ensure_link_ciphertext_column(self, tx: Any) -> None:
@@ -818,6 +820,14 @@ class CloudRoomService:
         ).fetchone()
         if row is None:
             tx.execute("ALTER TABLE cloud_room_cursors ADD COLUMN resume_marker_seq INTEGER")
+
+    def _ensure_member_removed_at_column(self, tx: Any) -> None:
+        """Add owner-removal history to databases created before MPAI-110."""
+        row = tx.execute(
+            "SELECT 1 FROM pragma_table_info('cloud_room_members') WHERE name = 'removed_at'"
+        ).fetchone()
+        if row is None:
+            tx.execute("ALTER TABLE cloud_room_members ADD COLUMN removed_at REAL")
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -1373,6 +1383,17 @@ class CloudRoomService:
                 (real_tenant_id, room_id, agent_id),
             ).fetchone()
 
+            # Owner removal is a durable per-room/per-agent decision. Keep it
+            # distinct from a voluntary ``room_leave`` (which leaves this
+            # marker NULL), so the shared link remains usable by other holders
+            # without silently re-admitting the identity the owner ejected.
+            if existing is not None and existing["removed_at"] is not None:
+                raise RoomError(
+                    "member_removed",
+                    "This member was removed by the room owner",
+                    403,
+                )
+
             if existing is not None and existing["status"] == "active":
                 # Existing active membership for THIS account: refresh presence.
                 # Identity is the account, so the same human re-joining after a
@@ -1440,7 +1461,7 @@ class CloudRoomService:
                 # is re-counted now that it is being taken again).
                 tx.execute(
                     "UPDATE cloud_room_members SET status = 'active', last_seen = ?, "
-                    "joined_at = ?, capabilities_json = ?, actor_token_hash = ? "
+                    "joined_at = ?, removed_at = NULL, capabilities_json = ?, actor_token_hash = ? "
                     "WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
                     (now_epoch, now, _json(caps), actor_token_hash,
                      real_tenant_id, room_id, agent_id),
@@ -1647,7 +1668,8 @@ class CloudRoomService:
             if row is None:
                 raise RoomError("member_required", "Only room members can leave", 403)
             tx.execute(
-                "UPDATE cloud_room_members SET status = 'left' WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
+                "UPDATE cloud_room_members SET status = 'left', removed_at = NULL "
+                "WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
                 (tenant_id, room_id, agent_id),
             )
             # A leaving member frees a seat: the member counter tracks ACTIVE
@@ -1673,8 +1695,10 @@ class CloudRoomService:
     ) -> dict:
         """Remove one active member from a room, releasing its seat atomically.
 
-        Owner-only. Removal is NOT a ban: a removed member who still holds a
-        valid link can rejoin. The membership row flips to ``left`` (history
+        Owner-only. Removal records a durable per-room/per-agent marker. The
+        shared link remains usable by other identities, but the removed
+        identity cannot rejoin until the owner explicitly restores it. The
+        membership row flips to ``left`` (history
         and attribution preserved), group membership and the member's cursor
         row are cleaned up, the member counter is decremented, and a
         ``room.left`` event records the removal with ``reason:
@@ -1701,9 +1725,9 @@ class CloudRoomService:
             if target is None:
                 raise RoomError("member_not_found", "Member not found in this room", 404)
             tx.execute(
-                "UPDATE cloud_room_members SET status = 'left' "
+                "UPDATE cloud_room_members SET status = 'left', removed_at = ? "
                 "WHERE tenant_id = ? AND room_id = ? AND agent_id = ? AND status = 'active'",
-                (tenant_id, room_id, target_agent_id),
+                (_time.time(), tenant_id, room_id, target_agent_id),
             )
             tx.execute(
                 "DELETE FROM cloud_room_group_members "
@@ -1726,6 +1750,63 @@ class CloudRoomService:
             )
             tx.commit()
         return {"room_id": room_id, "agent_id": target_agent_id, "status": "left"}
+
+    def restore_member(
+        self,
+        tenant_id: str,
+        room_id: str,
+        owner_agent_id: str,
+        target_agent_id: str,
+        caller_agent_id: str | None = None,
+    ) -> dict:
+        """Clear an owner-removal marker for a deliberate re-invite.
+
+        Owner-only. This does not activate the member or consume a seat; it
+        only clears the durable marker so the target may redeem the existing
+        multi-use link again. The target must subsequently call ``room_join``
+        and still pass the normal link, room, and quota checks.
+        """
+        if not isinstance(target_agent_id, str) or not target_agent_id.strip():
+            raise RoomError("invalid_argument", "member_id must be a non-empty string", 400)
+        with self.backend.transaction() as tx:
+            room = self._require_room(tx, tenant_id, room_id)
+            caller_identity = caller_agent_id or owner_agent_id
+            self._require_member(tx, tenant_id, room_id, caller_identity)
+            self._touch_member(tx, tenant_id, room_id, caller_identity)
+            if room["owner_agent_id"] != owner_agent_id:
+                raise RoomError("owner_required", "Only the room owner can restore a member", 403)
+            if caller_identity != owner_agent_id:
+                self._require_member(tx, tenant_id, room_id, owner_agent_id)
+            target = tx.execute(
+                "SELECT removed_at FROM cloud_room_members "
+                "WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",
+                (tenant_id, room_id, target_agent_id),
+            ).fetchone()
+            if target is None or target["removed_at"] is None:
+                # Collapse unknown, active, voluntary-left, and already
+                # restored identities to the same response; the marker is not
+                # an existence oracle for room members.
+                raise RoomError("member_not_found", "Member not found in this room", 404)
+            tx.execute(
+                "UPDATE cloud_room_members SET removed_at = NULL "
+                "WHERE tenant_id = ? AND room_id = ? AND agent_id = ? "
+                "AND removed_at IS NOT NULL",
+                (tenant_id, room_id, target_agent_id),
+            )
+            self._append_event(
+                tx, tenant_id, room_id, caller_identity, "room.member_restored",
+                {"agent_id": target_agent_id, "reason": "restored_by_owner"},
+            )
+            tx.commit()
+        # Keep the allow decision auditable regardless of whether the caller
+        # reached this domain method through REST, hosted MCP, or a service
+        # integration. The membership transition and event are committed
+        # first, matching the existing cloud room audit adapters.
+        self.backend.append_audit(
+            tenant_id, "room.restore_member", owner_agent_id, room_id,
+            _json({"member_id": target_agent_id}),
+        )
+        return {"room_id": room_id, "agent_id": target_agent_id, "status": "allowed"}
 
     def close_room(
         self,

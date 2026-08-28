@@ -363,6 +363,7 @@ CREATE TABLE IF NOT EXISTS cloud_room_members (
     last_seen REAL NOT NULL,
     status TEXT NOT NULL DEFAULT 'active'
         CHECK(status IN ('active','stale','left')),
+    removed_at REAL,
     capabilities_json TEXT NOT NULL DEFAULT '[]',
     actor_token_hash TEXT NOT NULL,
     PRIMARY KEY (tenant_id, room_id, agent_id)
@@ -425,6 +426,14 @@ _ROOM_MESSAGE_KIND_SQL = """
 -- The cloud_009 migration is guarded by already_applied (column present),
 -- so this ALTER only ever runs against a table that actually lacks the column.
 ALTER TABLE cloud_room_event_log ADD COLUMN message_kind TEXT;
+"""
+
+
+_ROOM_MEMBER_REMOVED_AT_SQL = """
+-- Forward-only upgrade for databases created before owner removals became
+-- durable per identity. NULL means the member was never owner-removed (a
+-- voluntary leave remains rejoinable); a timestamp is an owner removal marker.
+ALTER TABLE cloud_room_members ADD COLUMN removed_at REAL;
 """
 
 
@@ -495,6 +504,17 @@ def _has_room_link_ciphertext(execute: Callable[[str, tuple], Any]) -> bool:
     try:
         row = execute(
             "SELECT 1 FROM pragma_table_info('cloud_room_links') WHERE name = 'token_ciphertext'"
+        ).fetchone()
+        return row is not None
+    except Exception:
+        return False
+
+
+def _has_room_member_removed_at(execute: Callable[[str, tuple], Any]) -> bool:
+    """True when room memberships persist owner-removal markers."""
+    try:
+        row = execute(
+            "SELECT 1 FROM pragma_table_info('cloud_room_members') WHERE name = 'removed_at'"
         ).fetchone()
         return row is not None
     except Exception:
@@ -860,6 +880,12 @@ MIGRATIONS: list[Migration] = [
         "sealed room-link capability for owner recovery",
         _ROOM_LINK_CIPHERTEXT_SQL,
         already_applied=_has_room_link_ciphertext,
+    ),
+    Migration(
+        "cloud_020_room_member_removal_marker",
+        "durable per-room/per-agent owner-removal marker",
+        _ROOM_MEMBER_REMOVED_AT_SQL,
+        already_applied=_has_room_member_removed_at,
     ),
 ]
 

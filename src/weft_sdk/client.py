@@ -87,6 +87,7 @@ _ERROR_MAP = {
     "link_revoked": ConflictError,
     "link_expired": ConflictError,
     "invalid_link": ConflictError,
+    "member_removed": AuthError,
     "member_required": AuthError,
     "owner_required": AuthError,
     "invalid_cursor": ConflictError,
@@ -1125,10 +1126,24 @@ class WeftClient:
     def room_remove_member(self, room_id: str, member_id: str, agent_id: str | None = None,
                            **kwargs: Any) -> dict[str, Any]:
         """Owner-only: remove a member from a Room. The removed member is
-        refused on its very next request and its seat is freed. Removal is NOT
-        a ban: a removed member who still holds a valid link can rejoin."""
+        refused on its very next request and its seat is freed. The durable
+        owner-removal marker refuses a later join until the owner restores it."""
         return self._call(
             "room_remove_member",
+            room_id=room_id,
+            member_id=member_id,
+            agent_id=agent_id or self.agent_id,
+            **kwargs,
+        )
+
+    def room_restore_member(self, room_id: str, member_id: str, agent_id: str | None = None,
+                            **kwargs: Any) -> dict[str, Any]:
+        """Owner-only: clear an owner-removal marker for a deliberate re-invite.
+
+        The member remains inactive until it redeems the room's existing link.
+        """
+        return self._call(
+            "room_restore_member",
             room_id=room_id,
             member_id=member_id,
             agent_id=agent_id or self.agent_id,
