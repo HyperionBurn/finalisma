@@ -155,10 +155,20 @@ class LinkErrorUniformityTests(unittest.TestCase):
 
     # ---- anti-oracle: unknown token, real vs fabricated room ------------
     def test_unknown_link_does_not_reveal_whether_room_exists(self):
-        """An unknown token against a real room_id and against a fabricated
-        room_id must give the same refusal. Diverging here (e.g. room_not_found
-        for the fake, invalid_link for the real) turns room_join into a
-        room-id enumeration oracle.
+        """THE anti-oracle guard for this card. An unknown token against a real
+        room_id and against a fabricated room_id must give a byte-identical
+        refusal on the PRE-AUTH surface (no valid link, no actor check yet).
+
+        The failure it prevents, concretely: a change to _resolve_room_for_link
+        that probes `SELECT ... FROM cloud_rooms WHERE room_id = ?` (worse,
+        unscoped) and returns room_not_found for an absent id but invalid_link
+        for a present one. That lets a caller holding no valid token read room
+        existence straight off the status code, across tenants - a room-id
+        enumeration oracle. This assertion fails automatically if anyone adds
+        that branch, whether in the code, the message, or the HTTP status.
+        Do not "improve" the pre-auth error by naming the room or the service
+        origin; endpoint diagnosis lives in the SDK transport layer, where the
+        input is our config and not an attacker's guess.
         """
         fabricated = "room_" + "0" * 32
         s_real, b_real = self._join_attempt(room_id=self.room["room_id"], link_token=UNKNOWN_TOKEN)
