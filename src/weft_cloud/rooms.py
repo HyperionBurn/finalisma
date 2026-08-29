@@ -1755,13 +1755,24 @@ class CloudRoomService:
 
     def leave_room(self, tenant_id: str, room_id: str, agent_id: str) -> dict:
         with self.backend.transaction() as tx:
-            self._require_room(tx, tenant_id, room_id)
+            room = self._require_room(tx, tenant_id, room_id)
             row = tx.execute(
                 "SELECT * FROM cloud_room_members WHERE tenant_id = ? AND room_id = ? AND agent_id = ? AND status = 'active'",
                 (tenant_id, room_id, agent_id),
             ).fetchone()
             if row is None:
                 raise RoomError("member_required", "Only room members can leave", 403)
+            # The owner leaving would orphan the room: owner_agent_id would point
+            # at a non-member, and nobody could close it or manage members until
+            # its TTL. The owner's exit is close_room. Ownership transfer is a
+            # separate product decision and is deliberately not built here.
+            if room["owner_agent_id"] == agent_id:
+                raise RoomError(
+                    "owner_cannot_leave",
+                    "The room owner can't leave a room - close it, or keep it "
+                    "open for the others.",
+                    403,
+                )
             tx.execute(
                 "UPDATE cloud_room_members SET status = 'left', removed_at = NULL "
                 "WHERE tenant_id = ? AND room_id = ? AND agent_id = ?",

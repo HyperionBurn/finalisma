@@ -670,7 +670,14 @@ class RoomStore:
     def leave_room(self, team_id: str, room_id: str, agent_id: str, actor_token: str) -> dict[str, Any]:
         _validate_id(agent_id, "agent_id")
         with self._transaction() as conn:
-            self._require_authenticated_member(conn, team_id, room_id, agent_id, actor_token)
+            room = self._require_authenticated_member(conn, team_id, room_id, agent_id, actor_token)
+            # The owner leaving would orphan the room. Their exit is close_room.
+            if room["owner_agent_id"] == agent_id:
+                raise RoomError(
+                    "owner_cannot_leave",
+                    "The room owner can't leave a room - close it, or keep it "
+                    "open for the others.",
+                )
             conn.execute(
                 "UPDATE room_members SET status = 'left' WHERE room_id = ? AND agent_id = ?",
                 (room_id, agent_id),

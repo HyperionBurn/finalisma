@@ -456,3 +456,18 @@ export const closeRoom = async (room_id: string) => {
   }
   return res;
 };
+
+/**
+ * Leave a room as a non-owner member. Frees the seat and emits a `room.left`
+ * event. A voluntary leaver carries no ejection marker, so they can rejoin
+ * with the same link while it is still valid. The service refuses the room
+ * owner with `owner_cannot_leave` — the owner's exit is `closeRoom`.
+ */
+export const leaveRoom = async (room_id: string) => {
+  const res = await tool('room_leave', { room_id });
+  listRoomsInFlight = null;
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('weft:rooms_changed', { detail: { room_id, left: true } }));
+  }
+  return res;
+};

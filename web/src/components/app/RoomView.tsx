@@ -20,7 +20,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ApiError, closeRoom, joinRoom, listOrgMembers, me, pollRoom, roomInfo, roomLink, sendMessage,
+  ApiError, closeRoom, joinRoom, leaveRoom, listOrgMembers, me, pollRoom, roomInfo, roomLink, sendMessage,
   type Member, type Me, type OrgMember, type RoomEvent,
 } from '../../lib/api';
 
@@ -49,6 +49,9 @@ export default function RoomView({ roomId }: Props) {
   const [armingClose, setArmingClose] = useState(false);
   const [closing, setClosing] = useState(false);
   const [closeError, setCloseError] = useState<string | null>(null);
+  const [armingLeave, setArmingLeave] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  const [leaveError, setLeaveError] = useState<string | null>(null);
 
   const cursor = useRef<number>(0);
   const scroller = useRef<HTMLDivElement>(null);
@@ -166,6 +169,27 @@ export default function RoomView({ roomId }: Props) {
       setCloseError((err as ApiError).message);
     } finally {
       setClosing(false);
+    }
+  }
+
+  async function handleLeave() {
+    if (leaving) return;
+    if (!armingLeave) {
+      setArmingLeave(true);
+      window.setTimeout(() => setArmingLeave(false), 5000);
+      return;
+    }
+    setArmingLeave(false);
+    setLeaving(true);
+    setLeaveError(null);
+    try {
+      await leaveRoom(roomId);
+      // The member is out; take them back to the room list rather than
+      // leaving them staring at a room they are no longer part of.
+      if (typeof window !== 'undefined') window.location.assign('/app');
+    } catch (err) {
+      setLeaveError((err as ApiError).message);
+      setLeaving(false);
     }
   }
 
@@ -532,6 +556,32 @@ export default function RoomView({ roomId }: Props) {
                 </p>
               </>
             )}
+          </div>
+        )}
+
+        {!isOwner && roomState !== 'closed' && (
+          <div className="insp__sec">
+            <p className="insp__l">Leave this room</p>
+            {leaveError && (
+              <p className="notice notice--bad" role="alert" style={{ marginBottom: 10 }}>{leaveError}</p>
+            )}
+            <button
+              className={`btn ${armingLeave ? 'btn--danger' : 'btn--quiet'}`}
+              onClick={handleLeave}
+              disabled={leaving}
+              aria-label={armingLeave ? 'Confirm leaving this room' : 'Leave room'}
+              style={{ width: '100%' }}
+            >
+              {leaving
+                ? 'Leaving…'
+                : armingLeave
+                  ? 'Sure? Leave this room'
+                  : 'Leave room'}
+            </button>
+            <p className="warnline">
+              You'll stop receiving messages and drop off the member list. You can
+              rejoin with the same link, as long as it's still valid.
+            </p>
           </div>
         )}
       </aside>

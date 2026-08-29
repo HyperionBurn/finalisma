@@ -212,9 +212,13 @@ class TestMembershipSurvivesRelogin(ReloginRoomTestBase):
         }, token2)
         self.assertEqual(s, 200, "re-login wait must not 404")
 
+        # The owner cannot leave their own room (MPAI-125: that would orphan
+        # it) - but the leave ENDPOINT must still resolve the room via the
+        # fresh token and reach the guard, not 404. A non-owner leave-after-
+        # relogin is covered separately below.
         s, left = _post(self.base, "/v1/rooms/leave", {"room_id": room_id}, token2)
-        self.assertEqual(s, 200, "re-login leave must not 404")
-        self.assertEqual(left["status"], "left")
+        self.assertEqual(s, 403, "re-login leave must reach the room, not 404")
+        self.assertEqual(left["error"]["code"], "owner_cannot_leave")
 
     def test_joined_member_can_operate_after_relogin(self) -> None:
         owner = self._signup("relogin-owner2@example.com", "CorrectHorse!1")
@@ -239,6 +243,12 @@ class TestMembershipSurvivesRelogin(ReloginRoomTestBase):
             "room_id": room["room_id"], "target_spec": "*", "payload": {"text": "hi"},
         }, token2)
         self.assertEqual(s, 200, "re-login member send must not 404")
+
+        # A non-owner CAN leave after re-login (this is the happy path the
+        # owner sweep above can no longer cover, MPAI-125).
+        s, left = _post(self.base, "/v1/rooms/leave", {"room_id": room["room_id"]}, token2)
+        self.assertEqual(s, 200, "re-login member leave must not 404")
+        self.assertEqual(left["status"], "left")
 
     def test_relogin_does_not_duplicate_membership(self) -> None:
         owner = self._signup("relogin-owner3@example.com", "CorrectHorse!1")
