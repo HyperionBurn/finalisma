@@ -100,7 +100,7 @@ class HostedMCPMultiAgentProofTests(HostedMCPTestBase):
         if list_status != HTTPStatus.OK:
             return {"index": index, "stage": "tools/list", "status": list_status, "body": listing}
         tools = ((listing or {}).get("result") or {}).get("tools") or []
-        if len(tools) != 14:
+        if len(tools) != 15:
             return {
                 "index": index,
                 "stage": "tools/list",
@@ -221,6 +221,15 @@ class HostedMCPMultiAgentProofTests(HostedMCPTestBase):
 
             for result in joins:
                 self.assertEqual(result["status"], HTTPStatus.OK, result)
+                if "tool_count" in result:
+                    self.fail(
+                        f"Agent {result.get('index')} failed at stage {result.get('stage')!r}: "
+                        f"expected 15 tools, got {result.get('tool_count')}"
+                    )
+                if "joined" not in result:
+                    self.fail(
+                        f"Agent {result.get('index')} failed at stage {result.get('stage')!r}: {result}"
+                    )
                 self.assertNotIn("_error", result["joined"], result)
                 self.assertEqual(result["joined"].get("status"), "active", result)
                 self.assertTrue(result["joined"].get("agent_id", "").startswith("key_"), result)
