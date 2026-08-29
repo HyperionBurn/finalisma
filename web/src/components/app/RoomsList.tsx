@@ -72,7 +72,6 @@ export default function RoomsList() {
             <span><span className="skel skel--w40" /><span className="skel skel--w24" style={{ marginTop: 7 }} /></span>
             <span className="skel skel--w12 row__hide" />
             <span className="skel skel--w12 row__hide" />
-            <span className="skel skel--w16 row__hide" />
             <span />
           </div>
         ))}
@@ -99,6 +98,40 @@ export default function RoomsList() {
     );
   }
 
+  const renderRoomRow = (r: Room) => {
+    const live = (r.state ?? 'open') !== 'closed';
+    const expiryLabel = fmtExpiry(r.expires_at);
+    return (
+      <li key={r.room_id}>
+        <a className="row row--room"
+           href={`/app/room?id=${encodeURIComponent(r.room_id)}`}>
+          <span className={`dot dot--${live ? 'live' : 'off'}`} aria-hidden="true" />
+          <span>
+            <span className="row__n">
+              {!live && (
+                <span className="tag tag--off" style={{ marginRight: 8, verticalAlign: 'middle' }}>closed</span>
+              )}
+              {r.name || r.room_id}
+            </span>
+            <span className="row__sub" style={{ display: 'block' }}>{r.room_id}</span>
+            {live && expiryLabel && (
+              <span className="row__sub" style={{ display: 'block' }}>Closes {expiryLabel}</span>
+            )}
+          </span>
+          <span className="row__m row__hide">
+            {typeof r.member_count === 'number' ? (
+              <><b>{r.member_count}</b>{r.cap ? ` / ${r.cap}` : ''}</>
+            ) : (
+              <span aria-label="Member count unavailable">unavailable</span>
+            )}
+          </span>
+          <span className="row__t row__hide">{fmt(r.created_at)}</span>
+          <span className="row__t" aria-hidden="true">→</span>
+        </a>
+      </li>
+    );
+  };
+
   return (
     <>
       {error && (
@@ -120,54 +153,39 @@ export default function RoomsList() {
             Agent setup is optional until you have a room; this link is here if you need it first.
           </p>
         </div>
-      ) : (
-        <div className="list">
-          <div className="row row--room" style={{ borderBottomColor: 'var(--line-2)', paddingBottom: 9 }}>
-            <span />
-            <span className="metric__l">Room</span>
-            <span className="metric__l row__hide">Members</span>
-            <span className="metric__l row__hide">Created</span>
-            <span className="metric__l row__hide">State</span>
-            <span />
-          </div>
+      ) : (() => {
+        const all = rooms ?? [];
+        const activeRooms = all.filter((r) => (r.state ?? 'open') !== 'closed');
+        const closedRooms = all.filter((r) => (r.state ?? 'open') === 'closed');
+        return (
+          <div className="list">
+            <div className="row row--room" style={{ borderBottomColor: 'var(--line-2)', paddingBottom: 9 }}>
+              <span />
+              <span className="metric__l">Room</span>
+              <span className="metric__l row__hide">Members</span>
+              <span className="metric__l row__hide">Created</span>
+              <span />
+            </div>
 
-          <ul aria-label="Your rooms">
-            {(rooms ?? []).map((r) => {
-              const live = (r.state ?? 'open') !== 'closed';
-              const expiryLabel = fmtExpiry(r.expires_at);
-              return (
-                <li key={r.room_id}>
-                  <a className="row row--room"
-                     href={`/app/room?id=${encodeURIComponent(r.room_id)}`}>
-                    <span className={`dot dot--${live ? 'live' : 'off'}`} aria-hidden="true" />
-                    <span>
-                      <span className="row__n">{r.name || r.room_id}</span>
-                      <span className="row__sub" style={{ display: 'block' }}>{r.room_id}</span>
-                      {expiryLabel && (
-                        <span className="row__sub" style={{ display: 'block' }}>
-                          Closes {expiryLabel}
-                        </span>
-                      )}
-                    </span>
-                    <span className="row__m row__hide">
-                      {typeof r.member_count === 'number' ? (
-                        <><b>{r.member_count}</b>{r.cap ? ` / ${r.cap}` : ''}</>
-                      ) : (
-                        <span aria-label="Member count unavailable">unavailable</span>
-                      )}
-                    </span>
-                    <span className="row__t row__hide">{fmt(r.created_at)}</span>
-                    <span className="row__hide">
-                      <span className={`tag ${live ? 'tag--live' : 'tag--off'}`}>{live ? 'open' : 'closed'}</span>
-                    </span>
-                    <span className="row__t" aria-hidden="true">→</span>
-                  </a>
+            <ul aria-label="Your rooms">
+              {activeRooms.map(renderRoomRow)}
+
+              {closedRooms.length > 0 && (
+                <li>
+                  <p className="metric__l" style={{
+                    padding: '18px 4px 8px', color: 'var(--faint)',
+                    borderTop: activeRooms.length > 0 ? '1px solid var(--line-2)' : undefined,
+                  }}>
+                    Closed · {closedRooms.length}
+                  </p>
                 </li>
-              );
-            })}
-          </ul>
-        </div>
-      )}
+              )}
+
+              {closedRooms.map(renderRoomRow)}
+            </ul>
+          </div>
+        );
+      })()}
     </>
   );
 }
