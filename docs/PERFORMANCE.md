@@ -51,6 +51,69 @@ fixed `5,000 ms` post-DOM observation window. The no-interaction after run is
 the first-visit measurement; the pointerdown run is a separate preservation
 check. All figures in this section come from those captures.
 
+## 2026-08-29 MPAI-102 browser measurement — poster preload on deploy `d4fb469`
+
+This is the follow-up after deploy `d4fb4697be9d734fbb79a79a4ffbfe472dc797cc`
+(`d4fb469`) to `https://finalisma.vercel.app` (Vercel deployment
+`dpl_DEFVnauN5DTt7oV9GBaT9c8xDc6d`, production). The run was captured at
+`2026-08-29T15:04:55.264Z` with the private `mpai102_measure_after.cjs`
+harness. The binary card criterion is the first line:
+
+**`/assets/hero.mp4` was requested zero times before user interaction (0 B) in
+all three landing samples.**
+
+The primary landing comparison is absolute, against the like-for-like pre-fix
+landing capture above. It is not a landing-minus-control before/after delta:
+the pre-fix landing capture did not include a same-window control route.
+
+| landing capture | transfer | HTTP requests | FCP | LCP | main-thread TaskDuration |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| pre-fix baseline, eager video (2026-08-28) | 1,546,280 B | 13 | 712 ms | 784 ms | 329.0 ms |
+| post-fix, no interaction (2026-08-29) | 214,741 B | 12 | 372 ms | 372 ms | 315.5 ms |
+
+Relative to that pre-fix capture, the post-fix landing transferred `1,331,539 B`
+less (`86.1%`) and made one fewer request; FCP was `340 ms` lower, LCP was
+`412 ms` lower, and TaskDuration was `13.5 ms` lower in this window. The
+landing samples fetched the poster once each (`22,184`, `22,209`, and
+`22,210 B`; median `22,209 B`), had no video preload hint, had the poster
+image preload in the DOM, and had no console errors. A separate cache-busted
+document-only fetch measured `25,282 B`; that is not contradictory to the
+`214,741 B` total browser transfer, which includes the document's CSS, JS,
+fonts, poster, and other first-view resources. The previous document-only
+check was `25,439 B` while the previous total-transfer baseline was
+`1,546,280 B`.
+
+The browser identified the LCP element as `VIDEO.plate-video` in all three
+landing samples, with `poster="/assets/hero-poster.webp"`, no `src`, and no
+`currentSrc`. This directly verifies that the poster-backed video element, not
+an inferred resource, was the LCP candidate after the preload fix.
+
+The secondary unchanged control route was `/app/connect/` on the service origin
+(`https://weft.switzerlandnorth.cloudapp.azure.com`), because Vercel's
+`/app/*` redirect deliberately sends that route there. Its same-window median
+was `282,593 B / 13 requests / FCP 536 ms / LCP 564 ms / TaskDuration 86.9 ms`
+(three interleaved samples; range `282,593–283,021 B`). It is environment
+context, not the headline and not a pre-fix delta. The landing-versus-control
+same-window differences were `-67,852 B`, `-1` request, `-164 ms` FCP,
+`-192 ms` LCP, and `+228.6 ms` TaskDuration. One control sample logged a 404
+console error; landing logged none. The control route reached the old backend
+and used a probe session only to render the authenticated path; this browser
+measurement makes no claim that backend changes were deployed or verified.
+
+Method for this follow-up: one Chrome instance, three interleaved route pairs
+in order landing/control, control/landing, landing/control; fresh context for
+each sample; viewport `1440x900`; cache disabled; service workers blocked;
+unique `mpai102after` query strings; no pointer, keyboard, scroll, touch, or
+other user input; and a fixed `5,000 ms` post-DOM observation window. Transfer
+used CDP encoded bytes, hero-fetch status counted any `/assets/hero.mp4`
+request during navigation plus that no-input window, preload presence came
+from the DOM, and FCP/LCP/TaskDuration used the same CDP/Performance methods
+as the earlier section. The earlier post-deferral run remains historical
+evidence: it measured lower transfer but slower FCP/LCP, and authenticated
+routes also slowed then, so its caveat about causal paint attribution remains
+visible. This new run records the observed recovery on the deployed origin; it
+does not erase that earlier uncertainty.
+
 ## Current verified result (latest local run)
 
 On the Windows development host, the reference file records a seven-trial
