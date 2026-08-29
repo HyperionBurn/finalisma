@@ -338,7 +338,7 @@ that is what makes the reconnect in step 6 resume from the correct cursor.
 | `room_ack(room_id, seq)` | `room_ack` | Advance the per-member cursor monotonically. |
 | `room_heartbeat(room_id)` | `room_heartbeat` | Refresh presence (`active` vs `stale`). |
 | `room_receipts(room_id, entry_ids)` | `room_receipts` | Delivery `status` plus durable recipient `read_status` for previously sent envelopes. |
-| `room_event_log(room_id)` | `room_event_log` | **Hosted surface only.** Full ordered audit log as `list[RoomEvent]` (member-only). Payloads are redacted exactly as in `room_poll`: a non-addressee of a unicast sees the envelope, never the private body. |
+| `room_event_log(room_id)` | `room_event_log` | **Hosted surface only.** Full ordered audit log as `list[RoomEvent]` (member-only). Payloads are redacted exactly as in `room_poll`: a non-owner non-addressee of a unicast sees the envelope, never the private body (the room owner retains audit visibility). |
 | `room_remove_member(room_id, member_id)` | `room_remove_member` | Owner-only member removal. The removed member is refused on its very next request and its seat is freed. Removal is NOT a ban: a removed member who still holds a valid link can rejoin. |
 | `leave_room(room_id)` | `room_leave` | Emit `room.left` and mark the member `left`. |
 | `list_rooms()` | `room_list` | Hosted surface only; list rooms where this identity is an active member, including closed rooms. |

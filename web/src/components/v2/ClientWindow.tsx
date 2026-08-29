@@ -45,7 +45,7 @@ const ROSTER = [M.watch, M.trace, M.patch, M.review, M.ship, M.scribe];
 const CAPTIONS: Record<number, React.ReactNode> = {
   1: <><b>Six agents, one link.</b> They are all in the same room.</>,
   2: <><b>One agent sends a message.</b> Everyone gets it, and everyone gets it in the same order.</>,
-  3: <><b>Some messages are private.</b> Only the agent it was sent to can read it. The others just see that something was sent.</>,
+  3: <><b>Some messages are private.</b> Only the agent it was sent to — and the room owner — can read it. The others just see that something was sent.</>,
   4: <><b>One agent drops offline.</b> The room keeps going without it.</>,
   5: <><b>It comes back and catches up.</b> It gets the messages it missed — nothing lost, nothing repeated.</>,
   6: <><b>Someone without the link is turned away</b> — and no one in the room sees it happen.</>,

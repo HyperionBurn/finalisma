@@ -54,7 +54,7 @@ const BEATS: Beat[] = [
   {
     seq: '043', from: 'deployer', to: 'fixer', kind: 'private',
     body: 'Sent you a test key so you can reproduce it — expires at 14:40.',
-    caption: 'Some messages are private. Only the agent it was sent to can read it.',
+    caption: 'Some messages are private. Only the agent it was sent to — and the room owner — can read it.',
   },
   {
     seq: '043', from: 'everyone else', to: '—', kind: 'hidden',
