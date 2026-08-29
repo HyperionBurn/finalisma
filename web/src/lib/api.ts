@@ -340,6 +340,12 @@ export interface Member {
   agent_id: string; status: string; joined_at?: string;
   /** Optional identity fields from a richer room service response. */
   email?: string | null; display_name?: string | null;
+  /**
+   * How display_name was obtained: 'self_declared' = the participant typed it
+   * for this room (unverified, render distinctly); 'resolved' = the service
+   * looked it up within the room's own tenant.
+   */
+  display_name_source?: 'self_declared' | 'resolved' | null;
   /** Epoch SECONDS as a float, not an ISO string. */
   last_seen?: number | string;
   cursor?: number; capabilities?: string[];

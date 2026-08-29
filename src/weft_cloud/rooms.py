@@ -1588,22 +1588,39 @@ class CloudRoomService:
                 (tenant_id, room_id),
             ).fetchall()
             member_list = []
+            member_cols = members[0].keys() if members else ()
             for m in members:
                 age = max(0.0, _time.time() - float(m["last_seen"]))
                 display_name = None
-                key_row = tx.execute(
-                    "SELECT label FROM cloud_identity_agent_keys WHERE tenant_id = ? AND key_id = ?",
-                    (tenant_id, m["agent_id"]),
-                ).fetchone()
-                if key_row is not None:
-                    display_name = key_row["label"]
+                display_name_source = None
+                # 1. A room-scoped self-declared name wins. This is a plain read
+                #    of the membership row — it is NEVER an identity lookup and
+                #    NEVER crosses a tenant boundary. Do not "improve" this by
+                #    resolving cross-tenant names: that was considered and
+                #    rejected (MPAI-108). The test suite guards it.
+                raw_self = m["display_name"] if "display_name" in member_cols else None
+                if isinstance(raw_self, str) and raw_self.strip():
+                    display_name = raw_self.strip()
+                    display_name_source = "self_declared"
                 else:
-                    acct_row = tx.execute(
-                        "SELECT email FROM cloud_identity_accounts WHERE tenant_id = ? AND account_id = ?",
+                    # 2. Fall back to a same-tenant directory lookup, already
+                    #    scoped to THIS room's tenant. Only reached when the
+                    #    member declared no name of their own.
+                    key_row = tx.execute(
+                        "SELECT label FROM cloud_identity_agent_keys WHERE tenant_id = ? AND key_id = ?",
                         (tenant_id, m["agent_id"]),
                     ).fetchone()
-                    if acct_row is not None:
-                        display_name = acct_row["email"]
+                    if key_row is not None:
+                        display_name = key_row["label"]
+                        display_name_source = "resolved"
+                    else:
+                        acct_row = tx.execute(
+                            "SELECT email FROM cloud_identity_accounts WHERE tenant_id = ? AND account_id = ?",
+                            (tenant_id, m["agent_id"]),
+                        ).fetchone()
+                        if acct_row is not None:
+                            display_name = acct_row["email"]
+                            display_name_source = "resolved"
                 mem_item = {
                     "agent_id": m["agent_id"],
                     "status": "stale" if age > ROOM_STALE_AFTER_SECONDS else "active",
@@ -1613,6 +1630,7 @@ class CloudRoomService:
                 }
                 if display_name:
                     mem_item["display_name"] = display_name
+                    mem_item["display_name_source"] = display_name_source
                 member_list.append(mem_item)
             result = {
                 "room_id": room_id,

@@ -251,6 +251,20 @@ export default function RoomView({ roomId }: Props) {
   // The id namespace tells them apart: accounts are acct_*, agent keys are key_*.
   const externalPeople = unresolved.filter((m) => isAccountId(m.agent_id)).length;
   const anonAgents = unresolvedMembers - externalPeople;
+  // A self-declared name is a name the participant typed for this room — shown
+  // to others as identity but never verified. Render it in quotes, and if it
+  // collides with another member's rendered name, show the id alongside it so
+  // the owner can still tell an impersonator from the real member.
+  const selfDeclaredCount = members.filter((m) => m.display_name_source === 'self_declared').length;
+  const labelCounts = members.reduce<Record<string, number>>((acc, m) => {
+    const l = identityLabel(m.agent_id, viewer, identityDirectory, m);
+    acc[l] = (acc[l] ?? 0) + 1;
+    return acc;
+  }, {});
+  const rosterLabel = (m: Member) => {
+    const label = identityLabel(m.agent_id, viewer, identityDirectory, m);
+    return labelCounts[label] > 1 ? `${label} · ${shortAgent(m.agent_id)}` : label;
+  };
   const expiryLabel = fmtExpiry(expiresAt ?? undefined);
 
   return (
@@ -422,6 +436,11 @@ export default function RoomView({ roomId }: Props) {
               Their technical id is available on hover.
             </p>
           )}
+          {selfDeclaredCount > 0 && !loading && !error && (
+            <p className="warnline" style={{ marginTop: 0 }}>
+              Names in “quotes” were chosen by that participant for this room and are not verified.
+            </p>
+          )}
           {members.map((m) => {
             const secs = secondsSince(m.last_seen);
             const off = m.status && m.status !== 'active';
@@ -430,7 +449,7 @@ export default function RoomView({ roomId }: Props) {
               <div className={`mem${quiet ? ' mem--lag' : ''}${off ? ' mem--off' : ''}`} key={m.agent_id}>
                 <span className={`dot dot--${off ? 'off' : quiet ? 'warn' : 'live'}`} />
                 <span className="mem__n" title={identityTitle(m.agent_id, viewer, identityDirectory, m)}>
-                  {identityLabel(m.agent_id, viewer, identityDirectory, m)}
+                  {rosterLabel(m)}
                 </span>
                 <span className="mem__c">{lastSeen(secs)}</span>
               </div>
@@ -594,8 +613,13 @@ function identityLabel(
     const email = cleanIdentity(viewer?.email);
     return email ? `You · ${email}` : 'You';
   }
-  return cleanIdentity(member?.display_name)
-    || cleanIdentity(member?.email)
+  const declared = cleanIdentity(member?.display_name);
+  if (declared) {
+    // A name the participant chose for this room is shown in quotes so it can
+    // never be mistaken for one the service verified.
+    return member?.display_name_source === 'self_declared' ? `“${declared}”` : declared;
+  }
+  return cleanIdentity(member?.email)
     || directory[id]
     || (isAccountId(id) ? 'Member from another workspace' : 'Agent (name unavailable)');
 }
@@ -618,7 +642,11 @@ function identityTitle(
     const email = cleanIdentity(viewer?.email);
     return email ? `Your account: ${email}` : 'Your account';
   }
-  const label = cleanIdentity(member?.display_name) || cleanIdentity(member?.email) || directory[id];
+  const declared = cleanIdentity(member?.display_name);
+  if (declared && member?.display_name_source === 'self_declared') {
+    return `“${declared}” — a name this participant chose for this room, not verified · agent id ${id}`;
+  }
+  const label = declared || cleanIdentity(member?.email) || directory[id];
   if (label) return `${label} · agent id ${id}`;
   return isAccountId(id)
     ? `Signed in from another workspace — name not shared across workspaces · agent id ${id}`
