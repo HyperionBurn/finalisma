@@ -379,11 +379,14 @@ h1,h2,h3,p{margin:0}
   .composer__send{width:44px;height:44px}
   .composer__foot select{min-height:44px}
 
-  /* Credentials remain selectable on a narrow screen. The copy button has a
-     full target, while the code can be panned instead of being ellipsized. */
+  /* Credentials remain selectable on a narrow screen. The copy button keeps a
+     full target; the link wraps to its natural height rather than becoming a
+     horizontal pan region a keyboard user cannot reach or read (MPAI-127).
+     display:block is required for min-height to apply once flex is dropped. */
+  .token{align-items:flex-start}
   .token code{
-    min-width:0;min-height:44px;display:flex;align-items:center;
-    overflow-x:auto;overflow-y:hidden;text-overflow:clip;
+    min-width:0;min-height:44px;display:block;
+    white-space:normal;overflow-wrap:anywhere;overflow:visible;
     user-select:text;-webkit-user-select:text;
   }
   .token button{width:44px;height:44px;flex:none}
