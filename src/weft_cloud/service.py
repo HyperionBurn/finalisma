@@ -287,6 +287,36 @@ pre code{background:none;border:0;padding:0;color:#d6d5d5;white-space:pre}
 """
 
 
+_JOIN_PAGE_FAVICON = (
+    "data:image/svg+xml,"
+    "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E"
+    "%3Ccircle cx='8' cy='8' r='8' fill='%23fafafa'/%3E"
+    "%3C/svg%3E"
+)
+_JOIN_PAGE_HEADER_STYLE = (
+    "margin-bottom:32px;display:flex;align-items:center;"
+    "justify-content:space-between;border-bottom:1px solid #1f1f1f;padding-bottom:16px;"
+)
+_JOIN_PAGE_CARD_STYLE = (
+    "background:#0e0e0e;border:1px solid #222;border-radius:8px;"
+    "padding:20px;margin-bottom:28px;"
+)
+
+
+def _join_header_html(site_url: str) -> str:
+    """Return the shared Weft header used by every human join page."""
+    return (
+        f'<header style="{_JOIN_PAGE_HEADER_STYLE}">'
+        f'<a href="{_html_esc(site_url)}" style="font-weight:700;font-size:16px;'
+        f'text-decoration:none;color:#fafafa;display:flex;align-items:center;gap:8px;">'
+        f'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;'
+        f'background:#fff;"></span> Weft</a>'
+        f'<span style="font-size:12px;color:#8b8a8a;text-transform:uppercase;'
+        f'letter-spacing:.05em;">Weft</span>'
+        f'</header>'
+    )
+
+
 def _html_page(title: str, body_html: str) -> bytes:
     """Readable, self-contained HTML page for the human-facing /j/<token> view."""
     document = (
@@ -295,6 +325,7 @@ def _html_page(title: str, body_html: str) -> bytes:
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         '<meta name="color-scheme" content="dark">'
         '<meta name="robots" content="noindex,nofollow">'
+        f'<link rel="icon" type="image/svg+xml" href="{_JOIN_PAGE_FAVICON}">'
         f'<title>{_html_esc(title)}</title>'
         f'<style>{_JOIN_PAGE_CSS}</style></head>\n'
         f'<body>{body_html}</body></html>'
@@ -932,15 +963,18 @@ class WeftCloudService:
         retry_html = ""
         if retry:
             retry_html = f'<a href="/j/{_html_esc(link_token)}">Try again</a> · '
+        site_url = os.environ.get("WEFT_SITE_URL", "https://finalisma.vercel.app")
         body = _html_page(
             heading,
-            '<main id="main" tabindex="-1">'
+            _join_header_html(site_url)
+            + '<main id="main" tabindex="-1">'
+            + f'<div style="{_JOIN_PAGE_CARD_STYLE}">'
             f'<h1>{_html_esc(heading)}</h1>'
             f'<p>{_html_esc(message)}</p>'
             f'<p>{retry_html}<a href="/">Back to Weft</a> · '
             '<a href="/login">Sign in</a> · '
             '<a href="/signup">Create account</a></p>'
-            '</main>',
+            '</div></main>',
         )
         handler.send_response(status)
         handler.send_header("Content-Type", "text/html; charset=utf-8")
@@ -1034,13 +1068,7 @@ class WeftCloudService:
         # Human audience — reuse the connect-page copy and provide a direct join affordance.
         from weft_cloud.web.copy import connect_page_body
         site_url = os.environ.get("WEFT_SITE_URL", "https://finalisma.vercel.app")
-        header_html = (
-            f'<header style="margin-bottom:32px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #1f1f1f;padding-bottom:16px;">'
-            f'<a href="{_html_esc(site_url)}" style="font-weight:700;font-size:16px;text-decoration:none;color:#fafafa;display:flex;align-items:center;gap:8px;">'
-            f'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#fff;"></span> Weft</a>'
-            f'<span style="font-size:12px;color:#8b8a8a;text-transform:uppercase;letter-spacing:.05em;">Weft</span>'
-            f'</header>'
-        )
+        header_html = _join_header_html(site_url)
 
         room_name = "Room"
         with self.backend.transaction() as tx:
@@ -1071,7 +1099,7 @@ class WeftCloudService:
 
         if ctx is not None and is_member:
             join_card_html = (
-                f'<div style="background:#0e0e0e;border:1px solid #222;border-radius:8px;padding:20px;margin-bottom:28px;">'
+                f'<div style="{_JOIN_PAGE_CARD_STYLE}">'
                 f'<h2 style="font-size:18px;margin:0 0 8px;color:#fafafa;font-weight:600;letter-spacing:normal;text-transform:none;">{_html_esc(room_name)}</h2>'
                 f'<p style="margin:0 0 16px;color:#a7a6a6;">You are already a member of this room.</p>'
                 f'<a href="/app" style="display:inline-block;background:#fafafa;color:#0a0a0a;font-weight:600;font-size:14px;padding:10px 20px;border-radius:6px;text-decoration:none;">Open Dashboard</a>'
@@ -1079,7 +1107,7 @@ class WeftCloudService:
             )
         elif ctx is not None and not is_member:
             join_card_html = (
-                f'<div style="background:#0e0e0e;border:1px solid #222;border-radius:8px;padding:20px;margin-bottom:28px;">'
+                f'<div style="{_JOIN_PAGE_CARD_STYLE}">'
                 f'<h2 style="font-size:18px;margin:0 0 8px;color:#fafafa;font-weight:600;letter-spacing:normal;text-transform:none;">Join {_html_esc(room_name)}</h2>'
                 f'<p style="margin:0 0 16px;color:#a7a6a6;">You have been invited to join this room. Click below to join with your account.</p>'
                 f'<form method="post" action="/j/{_html_esc(link_token)}">'
@@ -1091,7 +1119,7 @@ class WeftCloudService:
             )
         else:
             join_card_html = (
-                f'<div style="background:#0e0e0e;border:1px solid #222;border-radius:8px;padding:20px;margin-bottom:28px;">'
+                f'<div style="{_JOIN_PAGE_CARD_STYLE}">'
                 f'<h2 style="font-size:18px;margin:0 0 8px;color:#fafafa;font-weight:600;letter-spacing:normal;text-transform:none;">Join {_html_esc(room_name)}</h2>'
                 f'<p style="margin:0 0 16px;color:#a7a6a6;">You have been invited to join <strong>{_html_esc(room_name)}</strong> on Weft. Sign in to your account or create a new one to join.</p>'
                 f'<div style="display:flex;gap:12px;align-items:center;">'
