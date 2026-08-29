@@ -1291,13 +1291,25 @@ class CloudRoomService:
         try:
             link_hash = _token_hash(link_token)
         except ValueError:
-            raise RoomError("invalid_link", "Link is not valid for this room", 403)
+            raise RoomError(
+                "invalid_link",
+                "This link is invalid or expired. Check that you copied the whole "
+                "link, and that you're joining through the same Weft service that "
+                "created it.",
+                403,
+            )
         link_row = tx.execute(
             "SELECT * FROM cloud_room_links WHERE room_id = ? AND token_hash = ?",
             (room_id, link_hash),
         ).fetchone()
         if link_row is None:
-            raise RoomError("invalid_link", "Link is not valid for this room", 403)
+            raise RoomError(
+                "invalid_link",
+                "This link is invalid or expired. Check that you copied the whole "
+                "link, and that you're joining through the same Weft service that "
+                "created it.",
+                403,
+            )
         real_tenant_id = link_row["tenant_id"]
         room = self._require_room(tx, real_tenant_id, room_id)
         return real_tenant_id, room, link_row

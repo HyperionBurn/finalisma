@@ -347,6 +347,16 @@ class _JsonRpcTransport:
         self._lock = threading.Lock()
         self._id_counter = 0
 
+    def _endpoint(self) -> str:
+        """``scheme://host:port`` for diagnostics. Never carries a credential —
+        the bearer token travels in a header, and base_url userinfo is dropped
+        by ``urlsplit(...).hostname``.
+        """
+        scheme = self._scheme or "http"
+        if self._port:
+            return f"{scheme}://{self._host}:{self._port}"
+        return f"{scheme}://{self._host}"
+
     def _connection(self) -> http.client.HTTPConnection | http.client.HTTPSConnection:
         if self._scheme == "https":
             cls = http.client.HTTPSConnection
@@ -418,8 +428,17 @@ class _JsonRpcTransport:
                 if attempt < _MAX_RETRIES - 1:
                     time.sleep(_BASE_BACKOFF * (2 ** attempt) + secrets.randbelow(10) / 100.0)
                     continue
-                raise TimeoutError("transport_error", f"Transport failure: {exc}") from exc
-        raise TimeoutError("transport_error", f"Transport failure after retries: {last_exc}")
+                raise TimeoutError(
+                    "transport_error",
+                    f"Could not reach the Weft coordinator at {self._endpoint()} "
+                    f"({exc}). Check the service is running and the base URL is correct.",
+                ) from exc
+        raise TimeoutError(
+            "transport_error",
+            f"Could not reach the Weft coordinator at {self._endpoint()} after "
+            f"{_MAX_RETRIES} attempts ({last_exc}). Check the service is running "
+            f"and the base URL is correct.",
+        )
 
     @staticmethod
     def _http_error(status: int, body: bytes, retry_after_header: str | None) -> WeftError:
@@ -559,8 +578,17 @@ class _JsonRpcTransport:
                 if is_idempotent and attempt < _MAX_RETRIES - 1:
                     time.sleep(_BASE_BACKOFF * (2 ** attempt) + secrets.randbelow(10) / 100.0)
                     continue
-                raise TimeoutError("transport_error", f"Transport failure: {exc}") from exc
-        raise TimeoutError("transport_error", f"Transport failure after retries: {last_exc}")
+                raise TimeoutError(
+                    "transport_error",
+                    f"Could not reach the Weft coordinator at {self._endpoint()} "
+                    f"({exc}). Check the service is running and the base URL is correct.",
+                ) from exc
+        raise TimeoutError(
+            "transport_error",
+            f"Could not reach the Weft coordinator at {self._endpoint()} after "
+            f"{_MAX_RETRIES} attempts ({last_exc}). Check the service is running "
+            f"and the base URL is correct.",
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -560,13 +560,23 @@ class RoomStore:
             try:
                 link_hash = _token_hash(link_token)
             except (TypeError, ValueError):
-                raise RoomError("invalid_link", "Link is not valid for this room") from None
+                raise RoomError(
+                    "invalid_link",
+                    "This link is invalid or expired. Check that you copied the "
+                    "whole link, and that you're joining through the same Weft "
+                    "service that created it.",
+                ) from None
             link = conn.execute(
                 "SELECT * FROM room_links WHERE room_id = ? AND token_hash = ?",
                 (room_id, link_hash),
             ).fetchone()
             if link is None:
-                raise RoomError("invalid_link", "Link is not valid for this room")
+                raise RoomError(
+                    "invalid_link",
+                    "This link is invalid or expired. Check that you copied the "
+                    "whole link, and that you're joining through the same Weft "
+                    "service that created it.",
+                )
             if link["revoked"]:
                 raise RoomError("link_revoked", "Link has been revoked")
             if float(link["expires_at"]) < _epoch():
