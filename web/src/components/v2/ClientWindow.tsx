@@ -143,7 +143,7 @@ export default function ClientWindow() {
         push({
           key: 'e44', seq: '044', who: M.patch, to: 'everyone',
           body: <>Fixed. If that service does not answer within a second, we use the last known price instead.</>,
-          tool: <><i>changed 1 file</i> · all 1,313 tests still pass</>,
+          tool: <><i>changed 1 file</i> · all 48 checkout tests still pass</>,
         });
         setDelivered((d) => d + 5);
         await sleep(2400);

@@ -64,7 +64,7 @@ const BEATS: Beat[] = [
   {
     seq: '044', from: 'fixer', to: 'everyone',
     body: 'Fixed. If that service does not answer within a second, we use the last known price instead.',
-    meta: 'changed 1 file · all 1,313 tests still pass',
+    meta: 'changed 1 file · all 48 checkout tests still pass',
     offline: ['reviewer'],
     caption: 'One agent drops offline. The room keeps going without it.',
   },

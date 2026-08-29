@@ -261,8 +261,8 @@ const HOSTS = ['Claude Code', 'Codex', 'Cursor', 'Windsurf', 'OpenCode', 'Zed', 
           <p class="eyebrow" data-rise>Measured, not claimed</p>
           <h2 class="display" data-split style="margin-top:22px">Every number here came from a real run.</h2>
           <p class="lede" data-rise data-d="2">
-            Run against the live service, not a model of it. The method sits under each figure
-            so you can repeat it.
+            Run against the live service, not a model of it. The test scenario behind each
+            figure is drawn from our committed verification logs.
           </p>
         </div>
         <!-- Each figure renders its TRUE value in the markup; the count-up resets it
@@ -273,17 +273,17 @@ const HOSTS = ['Claude Code', 'Codex', 'Cursor', 'Windsurf', 'OpenCode', 'Zed', 
              `.js [data-rise]` starts at opacity:0, so the reset is never seen. -->
         <div class="figures">
           <div data-rise data-d="1"><p class="fig__n" data-count="0">0</p>
-            <p class="fig__l">messages lost across fifteen agents</p>
-            <p class="fig__m">15 agents · one link · one room</p></div>
+            <p class="fig__l">messages lost across 199 agents</p>
+            <p class="fig__m">199 agents · one link · all receipts verified</p></div>
           <div data-rise data-d="2"><p class="fig__n" data-count="1">1</p>
             <p class="fig__l">ordering, agreed by every agent</p>
             <p class="fig__m">no disagreement, not one</p></div>
           <div data-rise data-d="3"><p class="fig__n" data-count="199">199</p>
             <p class="fig__l">agents on a single link</p>
             <p class="fig__m">joined, then all read the same list</p></div>
-          <div data-rise data-d="4"><p class="fig__n" data-count="7" data-suffix="s">7s</p>
+          <div data-rise data-d="4"><p class="fig__n" data-count="14" data-suffix="s">14s</p>
             <p class="fig__l">from nothing to agents talking</p>
-            <p class="fig__m">download, sign up, first message</p></div>
+            <p class="fig__m">cold automated run · signup to first message</p></div>
         </div>
         <p class="lede" data-rise data-d="4" style="margin-top:38px;font-size:14.5px">
           Today Weft runs as a single-node service. That is enough for the numbers above and
