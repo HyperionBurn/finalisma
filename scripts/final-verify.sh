@@ -550,12 +550,74 @@ elif ! command -v node >/dev/null 2>&1; then
   fail=$((fail+1))
 else
   NODE_LOG="${TMPDIR:-/tmp}/weft-final-node-$$.log"
-  if node --test $node_test_files > "$NODE_LOG" 2>&1; then
-    echo "  PASS  node --test  $(grep -aoE 'pass [0-9]+' "$NODE_LOG" | head -1)"
+  # Use Node's explicit TAP reporter and disable colour so diagnostics have a
+  # stable shape regardless of the caller's FORCE_COLOR setting. The default
+  # reporter is human-oriented and its coloured check marks do not identify
+  # the failing test or assertion when the gate captures redirected output.
+  if NO_COLOR=1 FORCE_COLOR=0 node --test --test-reporter=tap $node_test_files > "$NODE_LOG" 2>&1; then
+    node_passes="$(sed -n 's/^# pass \([0-9][0-9]*\)$/\1/p' "$NODE_LOG" | tail -1)"
+    echo "  PASS  node --test  ${node_passes:-unknown} passed"
     pass=$((pass+1))
   else
-    echo "  FAIL  node --test - real failures"
-    grep -aE '^(not ok|# fail|fail [0-9]+)' "$NODE_LOG" 2>/dev/null | head -8 | sed 's/^/           /'
+    node_failures="$(sed -n 's/^# fail \([0-9][0-9]*\)$/\1/p' "$NODE_LOG" | tail -1)"
+    echo "  FAIL  node --test - ${node_failures:-unknown} failed test(s)"
+    "$PYTHON" - "$NODE_LOG" <<'PYEOF'
+import re
+import sys
+
+ansi = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+failure_line = re.compile(r"^\s*not ok(?: \d+)? - (.*)$")
+location_line = re.compile(r"^\s*location:\s*(['\"])(.*)\1\s*$")
+stack_location = re.compile(r"\((file:///[^)]+:\d+:\d+)\)")
+
+with open(sys.argv[1], encoding="utf-8", errors="replace") as stream:
+    lines = [ansi.sub("", line.rstrip("\r\n")) for line in stream]
+
+failures = []
+current = None
+in_error = False
+for line in lines:
+    match = failure_line.match(line)
+    if match:
+        if current is not None:
+            failures.append(current)
+        current = {"name": match.group(1), "file": "", "message": ""}
+        in_error = False
+        continue
+    if current is None:
+        continue
+
+    match = location_line.match(line)
+    if match and not current["file"]:
+        current["file"] = match.group(2).replace("\\\\", "\\")
+        continue
+
+    if re.match(r"^\s*error:\s*\|", line):
+        in_error = True
+        continue
+    if in_error:
+        if line.startswith("    ") and line.strip() and not current["message"]:
+            current["message"] = line.strip()
+            continue
+        if line.strip() and not line.startswith(" "):
+            in_error = False
+
+    if not current["file"]:
+        match = stack_location.search(line)
+        if match:
+            current["file"] = match.group(1).replace("\\\\", "\\")
+
+if current is not None:
+    failures.append(current)
+
+for failure in failures[:8]:
+    print(f"           test: {failure['name'] or '<unnamed>'}")
+    print(f"           file: {failure['file'] or '<unknown>'}")
+    print(f"           message: {failure['message'] or '<no assertion message>'}")
+
+if not failures:
+    print("           reporter output contained no parseable TAP failure record")
+PYEOF
     fail=$((fail+1))
   fi
   rm -f "$NODE_LOG"
