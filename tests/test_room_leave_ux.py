@@ -183,7 +183,7 @@ class RoomLeaveUxTests(unittest.TestCase):
 
     def test_room_owner_cannot_leave(self):
         # Leaving as owner would orphan the room. The owner's exit is Close room.
-        _, body = self._leave(self.owner, expect=HTTPStatus.FORBIDDEN)
+        body = self._leave(self.owner, expect=HTTPStatus.FORBIDDEN)
         self.assertEqual(body["error"]["code"], "owner_cannot_leave")
         self.assertIn("close", body["error"]["message"].lower())
 
