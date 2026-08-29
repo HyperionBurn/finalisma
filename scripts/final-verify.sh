@@ -224,6 +224,152 @@ else
   echo "  FAIL  exact HTML route manifest"
   fail=$((fail+1))
 fi
+
+# --- asset presence: site/ must not reference assets missing from the artifact (MPAI-115)
+# A commit can include generated HTML but silently ignore untracked content-hashed
+# bundles (_astro/*.js, connect.css, etc.) when using 'git commit -- site/'. The
+# route manifest passes because all HTML pages exist, but client islands 404.
+# Scan HTML, CSS, and JS in the extracted artifact to ensure every local asset
+# reference resolves to an actual file inside the artifact.
+site_assets_check="$("$PYTHON" - site <<'PYEOF'
+import sys
+import re
+from pathlib import Path
+from html.parser import HTMLParser
+from urllib.parse import urlparse, unquote
+
+site_root = Path(sys.argv[1]).resolve()
+if not site_root.is_dir():
+    print(f"site directory missing: {site_root}")
+    raise SystemExit(1)
+
+CSS_URL_RE = re.compile(r"""url\s*\(\s*(?:"([^"]*)"|'([^']*)'|([^)'"\s]+))\s*\)""", re.IGNORECASE)
+JS_IMPORT_RE = re.compile(r"""(?:from|import)\s*\(?["'](\.[^"']+)["']\)?;?""")
+
+def is_external_or_ignored(url):
+    u = url.strip()
+    if not u or u.startswith("#") or u.startswith("data:") or u.startswith("mailto:") or u.startswith("javascript:") or u.startswith("tel:"):
+        return True
+    parsed = urlparse(u)
+    if parsed.scheme or u.startswith("//"):
+        return True
+    return False
+
+class HTMLAssetParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.refs = []
+        self.in_style = False
+        self.style_buffer = []
+
+    def handle_starttag(self, tag, attrs):
+        attr_dict = dict(attrs)
+        # script src
+        if tag == "script" and "src" in attr_dict:
+            self.refs.append(attr_dict["src"])
+        # link href (stylesheets, icons, preloads, manifests)
+        elif tag == "link" and "href" in attr_dict:
+            self.refs.append(attr_dict["href"])
+        # media assets
+        elif tag in ("img", "video", "audio", "source", "track"):
+            for a in ("src", "poster"):
+                if a in attr_dict:
+                    self.refs.append(attr_dict[a])
+        # astro islands and hydration bundles
+        for a in ("component-url", "renderer-url", "before-hydration-url"):
+            if a in attr_dict:
+                self.refs.append(attr_dict[a])
+        # meta tags with asset content
+        if tag == "meta":
+            prop = attr_dict.get("property", "") or attr_dict.get("name", "")
+            if prop in ("og:image", "og:video", "twitter:image") and "content" in attr_dict:
+                self.refs.append(attr_dict["content"])
+        # inline style attributes
+        if "style" in attr_dict:
+            for m in CSS_URL_RE.finditer(attr_dict["style"]):
+                val = m.group(1) or m.group(2) or m.group(3)
+                if val:
+                    self.refs.append(val)
+        if tag == "style":
+            self.in_style = True
+
+    def handle_endtag(self, tag):
+        if tag == "style":
+            self.in_style = False
+            content = "".join(self.style_buffer)
+            self.style_buffer = []
+            for m in CSS_URL_RE.finditer(content):
+                val = m.group(1) or m.group(2) or m.group(3)
+                if val:
+                    self.refs.append(val)
+
+    def handle_data(self, data):
+        if self.in_style:
+            self.style_buffer.append(data)
+
+missing = {}
+checked_assets = set()
+
+def resolve_and_check(referencing_file, raw_ref):
+    if is_external_or_ignored(raw_ref):
+        return
+    path_part = unquote(urlparse(raw_ref).path)
+    if not path_part:
+        return
+    if path_part.startswith("/"):
+        target = (site_root / path_part.lstrip("/")).resolve()
+    else:
+        target = (referencing_file.parent / path_part).resolve()
+
+    try:
+        rel_target = target.relative_to(site_root).as_posix()
+    except ValueError:
+        rel_target = str(target)
+
+    checked_assets.add(rel_target)
+    if not target.is_file():
+        ref_file_rel = referencing_file.relative_to(site_root).as_posix()
+        missing.setdefault(rel_target, set()).add(ref_file_rel)
+
+for h in sorted(site_root.rglob("*.html")):
+    content = h.read_text(encoding="utf-8", errors="replace")
+    parser = HTMLAssetParser()
+    parser.feed(content)
+    for ref in parser.refs:
+        resolve_and_check(h, ref)
+
+for c in sorted(site_root.rglob("*.css")):
+    content = c.read_text(encoding="utf-8", errors="replace")
+    for m in CSS_URL_RE.finditer(content):
+        val = m.group(1) or m.group(2) or m.group(3)
+        if val:
+            resolve_and_check(c, val)
+
+for j in sorted(site_root.rglob("*.js")):
+    content = j.read_text(encoding="utf-8", errors="replace")
+    for m in JS_IMPORT_RE.finditer(content):
+        val = m.group(1)
+        if val:
+            resolve_and_check(j, val)
+
+if missing:
+    for target, referrers in sorted(missing.items()):
+        refs_str = ", ".join(sorted(referrers))
+        print(f"missing asset: site/{target} (referenced by {refs_str})")
+    raise SystemExit(1)
+
+print(f"{len(checked_assets)} referenced assets verified")
+PYEOF
+)"
+site_assets_rc=$?
+if [ "$site_assets_rc" -eq 0 ]; then
+  echo "  PASS  all referenced site assets present in artifact"
+  pass=$((pass+1))
+else
+  echo "  FAIL  referenced site assets missing from artifact:"
+  printf '%s\n' "$site_assets_check" | sed 's/^/        /'
+  fail=$((fail+1))
+fi
 chk "uncommitted deletions (from the ORIGINAL working tree)" "0" "$DELETIONS"
 if [ -f "web/scripts/verify-preservation.cjs" ]; then
   if command -v node >/dev/null 2>&1 && node "web/scripts/verify-preservation.cjs" >/dev/null 2>&1; then
