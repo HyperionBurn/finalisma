@@ -6,12 +6,13 @@ compatibility claim.
 
 ## Latest regression evidence
 
-Measured locally on the current source/test stack (merged base `main` at
-`873796f`; PR114 candidate branch `codex/ops-timer-enforcement-2026-08-23`):
+Measured locally on a detached clone pinned at `467b06f34d97b49a9ee72343590ddf1f642542cb`, verified clean
+before the run (no working-tree contamination):
 
-- Command: `python -B -m unittest discover -s tests`
-- Result: **1389 tests discovered; 1373 passed; 16 skipped**
-- Duration: 621.487 seconds on the local Windows runner
+- Command: `python -B -m unittest discover -s tests` (discovery count) and
+  `python -m pytest tests -q` on the same pinned clone (pass/skip breakdown)
+- Result: **1408 tests discovered; 1392 passed; 16 skipped**
+- Duration: 588.56 seconds on the local Windows runner
 - Focused API-readiness routing/identity suite: 69 tests passed locally
   (`tests.test_probe_live_release`, `tests.test_probe_live_release_contract`,
   `tests.test_deploy_gate`, and `tests.test_deploy_ops`)
