@@ -9,7 +9,7 @@ const read = (file) => fs.readFileSync(path.join(ROOT, file), 'utf8');
 test('quickstart states the hosted/self-hosted tool boundary and bridge prerequisite', () => {
   const html = read('site/docs/quickstart.html');
 
-  assert.match(html, /14 MCP tools on POST \/mcp/);
+  assert.match(html, /15 MCP tools on POST \/mcp/);
   assert.doesNotMatch(html, /\b9 MCP tools\b|No local install|&lt;absolute-path-to-repo&gt;/);
   assert.match(html, /Python 3\.11\+/);
   assert.match(html, /Install the <code>weft-mcp<\/code> package/);
@@ -70,7 +70,7 @@ test('quickstart states the hosted/self-hosted tool boundary and bridge prerequi
   const hostedTools = [
     'room_create', 'room_join', 'room_send', 'room_receipts', 'room_poll',
     'room_wait', 'room_info', 'room_ack', 'room_heartbeat',
-    'room_remove_member', 'room_close', 'room_event_log', 'room_leave', 'room_list'
+    'room_remove_member', 'room_restore_member', 'room_close', 'room_event_log', 'room_leave', 'room_list'
   ];
   assert.equal(
     hostedTools.filter((name) => html.includes(`<code>${name}</code>`)).length,

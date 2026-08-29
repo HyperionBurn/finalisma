@@ -15,13 +15,13 @@ drive. A caller that presents no valid credential is refused with the same
 generic error regardless of why the token is bad, so the endpoint leaks
 nothing about which tenants, rooms, or agents exist.
 
-Tools exposed (the room set the product promise depends on):
+Tools exposed (the 15-tool room set the product promise depends on):
 
     room_create, room_list, room_join, room_send, room_receipts, room_poll,
     room_wait, room_info, room_ack, room_heartbeat, room_leave,
-    room_remove_member, room_close, room_event_log
+    room_remove_member, room_restore_member, room_close, room_event_log
 
-The full self-hosted 58-tool surface (``register_agent``, pairing, task,
+The full self-hosted 59-tool surface (``register_agent``, pairing, task,
 roster, outbox, bridge, metrics, tenancy, …) is intentionally NOT exposed
 here: those tools assume a self-hosted team/actor-token model and would each
 need a per-tenant reimplementation to be safe to serve. A smaller correct

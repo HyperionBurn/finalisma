@@ -323,7 +323,7 @@ class HostedMCPHandshakeTests(HostedMCPTestBase):
 
     def test_hosted_surface_is_a_small_correct_set(self) -> None:
         """The hosted surface exposes ONLY the room tools, never the full
-        self-hosted 58-tool surface (register_agent, pairing, task, …)."""
+        self-hosted 59-tool surface (register_agent, pairing, task, …)."""
         acct = self._signup("smallset@example.com")
         token = acct["session_token"]
         _, listing = _mcp(self.base, "tools/list", None, token=token, request_id=1)

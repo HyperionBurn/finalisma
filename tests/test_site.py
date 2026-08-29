@@ -88,7 +88,7 @@ class LaunchSurfaceTests(unittest.TestCase):
         self.assertIn("Simulated account · no credentials · no live session", html)
         self.assertIn("MCP is the tool protocol", html)
         self.assertIn("single-node", html.lower())
-        self.assertIn("POST /mcp</code> exposes 14 room tools", html)
+        self.assertIn("POST /mcp</code> exposes 15 room tools", html)
         self.assertIn("self-hosted coordinator", html)
         self.assertIn("59", html)
         self.assertNotIn("exposes 11", html)

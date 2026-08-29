@@ -156,7 +156,7 @@ Remove-Item Env:WEFT_MCP_PROBE_TOKEN
 ~~~
 
 This probe sends only initialize, notifications/initialized, and tools/list. It requires the exact
-14-tool hosted catalog, including room_list and room_close. It never mutates a
+15-tool hosted catalog, including room_list and room_close. It never mutates a
 Room and never prints the token or response body. Exit 0 is required before
 connecting a real customer to the hosted MCP endpoint. Exit 2 means the
 service is reachable but the authenticated release surface has drifted, exit
