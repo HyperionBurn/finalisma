@@ -539,6 +539,7 @@ echo "=== NODE TESTS ==="
 # against a landing section the redesign removed, and nothing reported it, because
 # the gate only ever ran the Python suite. A test the gate does not run is not a
 # test, it is a comment.
+# Deliberate glob: every tests/*.js file is auto-discovered and joins this gate.
 node_test_files="$(ls tests/*.js 2>/dev/null | tr '
 ' ' ')"
 if [ -z "$node_test_files" ]; then

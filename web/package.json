@@ -10,6 +10,7 @@
     "build": "astro build",
     "preview": "astro preview --port 4175",
     "astro": "astro",
+    "test": "node --experimental-strip-types --test ../tests/test_web_unit.js",
     "postbuild": "node ../scripts/web-src-hash.cjs > ../site/.web-src-hash"
   },
   "dependencies": {
