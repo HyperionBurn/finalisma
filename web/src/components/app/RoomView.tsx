@@ -528,9 +528,15 @@ export default function RoomView({ roomId }: Props) {
               <p className="notice notice--bad" role="alert" style={{ marginBottom: 10 }}>{closeError}</p>
             )}
             {roomState === 'closed' ? (
-              <p className="warnline" style={{ marginTop: 0 }}>
-                This room is closed. It no longer accepts messages or connections.
-              </p>
+              <>
+                <p className="warnline" style={{ marginTop: 0 }}>
+                  This room is closed. It no longer accepts messages or connections.
+                  The history stays visible here.
+                </p>
+                <a className="btn btn--quiet" href="/app/new" style={{ width: '100%', marginTop: 10 }}>
+                  Start a new room
+                </a>
+              </>
             ) : (
               <>
                 <button
@@ -556,6 +562,19 @@ export default function RoomView({ roomId }: Props) {
                 </p>
               </>
             )}
+          </div>
+        )}
+
+        {!isOwner && roomState === 'closed' && (
+          <div className="insp__sec">
+            <p className="insp__l">This room is closed</p>
+            <p className="warnline" style={{ marginTop: 0 }}>
+              It's no longer accepting messages. The conversation history stays
+              visible here.
+            </p>
+            <a className="btn btn--quiet" href="/app" style={{ width: '100%', marginTop: 10 }}>
+              Back to your rooms
+            </a>
           </div>
         )}
 
