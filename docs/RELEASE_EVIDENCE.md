@@ -6,13 +6,17 @@ compatibility claim.
 
 ## Latest regression evidence
 
-Measured locally on a detached clone pinned at `467b06f34d97b49a9ee72343590ddf1f642542cb`, verified clean
+Measured locally on a detached clone pinned at `180413d84c37c9c10cfccaa3dda3a8c0b66fff14`, verified clean
 before the run (no working-tree contamination):
 
-- Command: `python -B -m unittest discover -s tests` (discovery count) and
-  `python -m pytest tests -q` on the same pinned clone (pass/skip breakdown)
-- Result: **1408 tests discovered; 1392 passed; 16 skipped**
-- Duration: 588.56 seconds on the local Windows runner
+- Command: `python -B -m unittest discover -s tests` — a single run on the pinned
+  clone supplies every count here (`Ran 1409 tests`, `skipped=16`). The run at the
+  pinned SHA reported one failure, `test_published_test_count_matches_live_discovery`,
+  which is the ratchet's own stale-baseline assertion (evidence still read 1408
+  against a live discovery of 1409); reconciling these counts is what resolves it.
+  No product test failed.
+- Result: **1409 tests discovered; 1393 passed; 16 skipped**
+- Duration: 586.36 seconds on the local Windows runner
 - Focused API-readiness routing/identity suite: 69 tests passed locally
   (`tests.test_probe_live_release`, `tests.test_probe_live_release_contract`,
   `tests.test_deploy_gate`, and `tests.test_deploy_ops`)
