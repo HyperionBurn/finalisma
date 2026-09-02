@@ -26,6 +26,14 @@ class MPAI109CopyTests(unittest.TestCase):
         expected = 'Already have an account? <a href="/login">Log in</a>'
         self.assertIn(expected, auth_form)
         self.assertIn(expected, signup_page)
+        self.assertIn(
+            "Your session ended. Sign in to return to where you left off.",
+            auth_form,
+        )
+        self.assertIn(
+            "Sign in to continue to the room you were invited to.",
+            auth_form,
+        )
 
     def test_join_page_uses_weft_brand_and_keeps_link_in_technical_section(self) -> None:
         source = (ROOT / "src/weft_cloud/service.py").read_text(encoding="utf-8")

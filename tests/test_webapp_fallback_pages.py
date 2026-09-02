@@ -143,7 +143,10 @@ class TestFallbackPagesMPAI63(unittest.TestCase):
         self.assertIn("</main>", body)
         self.assertIn("<h1>", body)
         self.assertIn("</h1>", body)
-        self.assertIn("This link does not open a room.", body)
+        self.assertIn("This link is broken or incomplete.", body)
+        self.assertIn("Ask the person who sent it to send the invite again.", body)
+        self.assertNotIn('href="/login"', body)
+        self.assertNotIn('href="/signup"', body)
 
     def test_valid_join_route_returns_200_with_h1_and_main_landmark(self):
         """GET /j/<valid_token> returns 200 with h1 and <main> landmark."""

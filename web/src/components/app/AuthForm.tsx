@@ -24,17 +24,20 @@ export default function AuthForm({ mode }: Props) {
   const [field, setField] = useState<'email' | 'password' | null>(null);
   const [expired, setExpired] = useState(false);
   const [migrated, setMigrated] = useState(false);
+  const [returnKind, setReturnKind] = useState<'session' | 'invite' | null>(null);
 
   useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const nextPath = params.get('next');
     // The join page intentionally sends no referrer because its URL carries a
     // bearer token. Preserve its validated /j/<token> next path before auth
     // navigation so the eventual room view can offer rejoin after a leave.
     try {
-      const nextPath = new URLSearchParams(location.search).get('next');
       if (nextPath) rememberInvitePath(sessionStorage, nextPath, location.origin);
     } catch {}
+    if (nextPath?.startsWith('/j/')) setReturnKind('invite');
+    else if (nextPath?.startsWith('/')) setReturnKind('session');
     if (isSignedIn()) { location.replace('/app'); return; }
-    const params = new URLSearchParams(location.search);
     setExpired(params.has('expired'));
     setMigrated(params.has('migrated'));
   }, []);
@@ -99,8 +102,17 @@ export default function AuthForm({ mode }: Props) {
 
   return (
     <form onSubmit={submit} noValidate>
-      {expired && (
+      {returnKind === 'session' ? (
+        <p className="notice" role="status">
+          {expired
+            ? 'Your session expired. Sign in again to return to where you were.'
+            : 'Your session ended. Sign in to return to where you left off.'}
+        </p>
+      ) : expired && (
         <p className="notice" role="status">Your session expired. Sign in again to continue.</p>
+      )}
+      {returnKind === 'invite' && (
+        <p className="notice" role="status">Sign in to continue to the room you were invited to.</p>
       )}
       {migrated && (
         <p className="notice" role="status">

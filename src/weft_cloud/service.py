@@ -928,7 +928,7 @@ class WeftCloudService:
         copy = {
             "invalid": (
                 "Room link not found",
-                "This link does not open a room. It may be invalid or no longer available.",
+                "This link is broken or incomplete. Ask the person who sent it to send the invite again.",
             ),
             "closed": (
                 "Room is closed",
@@ -963,6 +963,12 @@ class WeftCloudService:
         retry_html = ""
         if retry:
             retry_html = f'<a href="/j/{_html_esc(link_token)}">Try again</a> · '
+        if state == "invalid":
+            action_html = '<a href="/">Back to Weft</a>'
+        else:
+            action_html = '<a href="/">Back to Weft</a> · '
+            action_html += '<a href="/login">Sign in</a> · '
+            action_html += '<a href="/signup">Create account</a>'
         site_url = os.environ.get("WEFT_SITE_URL", "https://finalisma.vercel.app")
         body = _html_page(
             heading,
@@ -971,9 +977,7 @@ class WeftCloudService:
             + f'<div style="{_JOIN_PAGE_CARD_STYLE}">'
             f'<h1>{_html_esc(heading)}</h1>'
             f'<p>{_html_esc(message)}</p>'
-            f'<p>{retry_html}<a href="/">Back to Weft</a> · '
-            '<a href="/login">Sign in</a> · '
-            '<a href="/signup">Create account</a></p>'
+            f'<p>{retry_html}{action_html}</p>'
             '</div></main>',
         )
         handler.send_response(status)
