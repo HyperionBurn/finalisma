@@ -3,6 +3,20 @@ import assert from 'node:assert/strict';
 import { register } from 'node:module';
 
 /**
+ * ============================================================================
+ * LOCAL-ONLY. THE RELEASE GATE DOES NOT RUN THIS FILE.
+ * ============================================================================
+ * scripts/final-verify.sh runs `node --test` against a bare `git archive` of
+ * the commit - no node_modules, and no install step is ever run there
+ * (deliberately: an install step would put a network dependency inside the
+ * release gate). This file needs react, react-dom, jsdom and esbuild, none
+ * of which exist in that archive, so it lives under tests/local-only/ -
+ * ONE level below tests/ - specifically so scripts/final-verify.sh's
+ * non-recursive `ls tests/*.js` glob does not find it (MPAI-148). It is a
+ * real, working test, but it is NOT gate-enforced: a regression here will
+ * not fail a release on its own. Run it manually, from web/, with deps
+ * installed: `cd web && npm ci && node --test ../tests/local-only/*.js`.
+ *
  * The first component-level test in this repo. MPAI-131 and MPAI-144 both
  * had to settle for testing an extracted, non-JSX mechanism because
  * RoomView.tsx itself could not be imported under node --test - Node's
@@ -14,15 +28,11 @@ import { register } from 'node:module';
  * imports TypeScript allows but Node's ESM resolver does not), jsdom
  * supplies document/window, and mountReact wraps react-dom/client so a
  * real element can be rendered and asserted on. See PROOF below.
- *
- * Stays inside the existing node --test lane per MPAI-148 - no vitest, no
- * browser runner - and is picked up by scripts/final-verify.sh's
- * `ls tests/*.js` glob exactly like every other file here.
  */
-register(new URL('../web/test-support/tsx-loader.mjs', import.meta.url));
+register(new URL('../../web/test-support/tsx-loader.mjs', import.meta.url));
 
-const { installDom, uninstallDom } = await import(new URL('../web/test-support/domEnv.mjs', import.meta.url));
-const { mount, React } = await import(new URL('../web/test-support/mountReact.mjs', import.meta.url));
+const { installDom, uninstallDom } = await import(new URL('../../web/test-support/domEnv.mjs', import.meta.url));
+const { mount, React } = await import(new URL('../../web/test-support/mountReact.mjs', import.meta.url));
 
 const originalFetch = globalThis.fetch;
 let activeMount = null;
@@ -108,7 +118,7 @@ async function mountRoomView(roomId, roomState, { left = false, missing = false,
     if (invitePath) window.sessionStorage.setItem(`weft.room.invite.${roomId}`, invitePath);
   }
   mockRoomFetch(roomState, { missing });
-  const { default: RoomView } = await import(new URL('../web/src/components/app/RoomView.tsx', import.meta.url));
+  const { default: RoomView } = await import(new URL('../../web/src/components/app/RoomView.tsx', import.meta.url));
   activeMount = await mount(React.createElement(RoomView, { roomId }), { settleMs: 80 });
   return activeMount.container;
 }
