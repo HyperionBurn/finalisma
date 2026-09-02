@@ -16,3 +16,21 @@ export function knownCountDisplay(known: boolean, count: number): string {
 export function knownHeadDisplay(known: boolean, head: number): string {
   return known ? `#${String(head).padStart(3, '0')}` : '#—';
 }
+
+/**
+ * The visual forms above lean on convention a screen reader cannot hear:
+ * the em-dash reads as "hyphen" or nothing, and "#000" as "pound zero
+ * zero zero". So the AX tree got no meaningful loading state and no spoken
+ * value — the same not-known-vs-known-and-empty ambiguity MPAI-153 removed
+ * for sighted users, still live for everyone else (MPAI-159). These carry
+ * words instead: the unknown state says it is not known yet, the known
+ * state speaks the plain value (a real zero included). Pair each with its
+ * *Display sibling marked aria-hidden so exactly one reaches the AX tree.
+ */
+export function knownCountLabel(known: boolean, count: number): string {
+  return known ? String(count) : 'not known yet';
+}
+
+export function knownHeadLabel(known: boolean, head: number): string {
+  return known ? `position ${head}` : 'not known yet';
+}

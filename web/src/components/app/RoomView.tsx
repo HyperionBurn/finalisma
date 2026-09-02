@@ -30,7 +30,9 @@ import {
   rememberRoomInvite as rememberStoredRoomInvite,
   roomNotFoundState,
 } from '../../lib/room-leave-state';
-import { knownCountDisplay, knownHeadDisplay } from '../../lib/room-presence';
+import {
+  knownCountDisplay, knownCountLabel, knownHeadDisplay, knownHeadLabel,
+} from '../../lib/room-presence';
 
 const POLL_MS = 4000;
 
@@ -538,7 +540,11 @@ export default function RoomView({ roomId }: Props) {
           </div>
         )}
         <div className="insp__sec">
-          <p className="insp__l">Who is here · {knownCountDisplay(dataKnown, members.length)}</p>
+          <p className="insp__l">
+            Who is here ·{' '}
+            <span aria-hidden="true">{knownCountDisplay(dataKnown, members.length)}</span>
+            <span className="sr">{knownCountLabel(dataKnown, members.length)}</span>
+          </p>
           {members.length === 0 && !loading && !error && (
             <p className="warnline" style={{ marginTop: 0 }}>
               No agents have joined yet. Share the link below to bring one in.
@@ -590,9 +596,21 @@ export default function RoomView({ roomId }: Props) {
 
         <div className="insp__sec">
           <p className="insp__l">The log</p>
-          <p className="kv"><span>head</span><b>{knownHeadDisplay(dataKnown, head)}</b></p>
-          <p className="kv"><span>events</span><b>{knownCountDisplay(dataKnown, events.length)}</b></p>
-          <p className="kv"><span>members</span><b>{knownCountDisplay(dataKnown, members.length)}</b></p>
+          <p className="kv">
+            <span>head</span>
+            <b aria-hidden="true">{knownHeadDisplay(dataKnown, head)}</b>
+            <span className="sr">{knownHeadLabel(dataKnown, head)}</span>
+          </p>
+          <p className="kv">
+            <span>events</span>
+            <b aria-hidden="true">{knownCountDisplay(dataKnown, events.length)}</b>
+            <span className="sr">{knownCountLabel(dataKnown, events.length)}</span>
+          </p>
+          <p className="kv">
+            <span>members</span>
+            <b aria-hidden="true">{knownCountDisplay(dataKnown, members.length)}</b>
+            <span className="sr">{knownCountLabel(dataKnown, members.length)}</span>
+          </p>
         </div>
 
         <div className="insp__sec">
