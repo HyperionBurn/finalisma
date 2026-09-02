@@ -29,6 +29,21 @@ class TestLandingAccessibility(unittest.TestCase):
             source,
             "the host compatibility claim needs one stable, non-duplicated accessible copy",
         )
+        self.assertIn(
+            "Only Claude Code 2.1.250 and Codex CLI 0.149.1 have verified Weft host configurations.",
+            source,
+            "the landing page must identify the host/version configurations actually verified",
+        )
+        self.assertIn(
+            "OpenCode 1.18.23 completed a bridge round-trip through a native wrapper, but its page-generated setup is not verified.",
+            source,
+            "OpenCode compatibility must not be presented as page-generated host onboarding",
+        )
+        self.assertIn(
+            "Cursor, Windsurf, Zed, Cline, and VS Code are documented MCP hosts, not tested Weft integrations.",
+            source,
+            "unverified host names need an explicit boundary on the landing page",
+        )
 
     def test_room_has_static_transcript_and_no_js_preview_notice(self) -> None:
         index = INDEX_ASTRO.read_text(encoding="utf-8")
