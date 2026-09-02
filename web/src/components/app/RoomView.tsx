@@ -26,6 +26,47 @@ import {
 import { onTabVisible } from '../../lib/visibility';
 
 const POLL_MS = 4000;
+const ROOM_LEFT_MARKER_PREFIX = 'weft.room.left.';
+const ROOM_INVITE_PATH_PREFIX = 'weft.room.invite.';
+
+function roomStorageKey(prefix: string, roomId: string) {
+  return `${prefix}${roomId}`;
+}
+
+/** Remember the same-tab invite path so a voluntary leaver can return to it. */
+function rememberRoomInvite(roomId: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    const referrer = document.referrer;
+    if (!referrer) return;
+    const invite = new URL(referrer, window.location.origin);
+    if (invite.origin !== window.location.origin || !/^\/j\/[^/]+\/?$/.test(invite.pathname)) return;
+    window.sessionStorage.setItem(roomStorageKey(ROOM_INVITE_PATH_PREFIX, roomId), invite.pathname);
+  } catch {}
+}
+
+function readRoomInvite(roomId: string) {
+  if (typeof window === 'undefined') return null;
+  try {
+    const invite = window.sessionStorage.getItem(roomStorageKey(ROOM_INVITE_PATH_PREFIX, roomId));
+    return invite && /^\/j\/[^/]+\/?$/.test(invite) ? invite : null;
+  } catch { return null; }
+}
+
+function markRoomLeft(roomId: string) {
+  if (typeof window === 'undefined') return;
+  try { window.sessionStorage.setItem(roomStorageKey(ROOM_LEFT_MARKER_PREFIX, roomId), '1'); } catch {}
+}
+
+function hasRoomLeft(roomId: string) {
+  if (typeof window === 'undefined') return false;
+  try { return window.sessionStorage.getItem(roomStorageKey(ROOM_LEFT_MARKER_PREFIX, roomId)) === '1'; } catch { return false; }
+}
+
+function clearRoomLeft(roomId: string) {
+  if (typeof window === 'undefined') return;
+  try { window.sessionStorage.removeItem(roomStorageKey(ROOM_LEFT_MARKER_PREFIX, roomId)); } catch {}
+}
 
 interface Props { roomId: string }
 
@@ -45,6 +86,8 @@ export default function RoomView({ roomId }: Props) {
   const [sending, setSending] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isOwner, setIsOwner] = useState(false);
+  const [leftRoom, setLeftRoom] = useState(false);
+  const [rejoinLink, setRejoinLink] = useState<string | null>(null);
   const [roomState, setRoomState] = useState<string>('open');
   const [expiresAt, setExpiresAt] = useState<number | null>(null);
   const [armingClose, setArmingClose] = useState(false);
@@ -63,7 +106,9 @@ export default function RoomView({ roomId }: Props) {
 
   /* ── initial load ───────────────────────────────────────────── */
   const loadAll = useCallback(async () => {
+    rememberRoomInvite(roomId);
     setError(null);
+    setLeftRoom(false);
     try {
       const [info, page, who, org] = await Promise.all([
         roomInfo(roomId).catch(() => ({} as any)),
@@ -102,9 +147,23 @@ export default function RoomView({ roomId }: Props) {
       const evs = page.events ?? [];
       setEvents(evs);
       cursor.current = evs.length ? evs[evs.length - 1].seq : 0;
+      clearRoomLeft(roomId);
+      setRejoinLink(null);
     } catch (err) {
       const e = err as ApiError;
-      if (e.code !== 'unauthenticated') setError(e.message);
+      if (e.code === 'room_not_found' && hasRoomLeft(roomId)) {
+        setLeftRoom(true);
+        setRejoinLink(readRoomInvite(roomId));
+        setEvents([]);
+        setMembers([]);
+        setRoomState('open');
+        setExpiresAt(null);
+        setError(null);
+      } else if (e.code !== 'unauthenticated') {
+        setLeftRoom(false);
+        setRejoinLink(null);
+        setError(e.message);
+      }
     } finally {
       setLoading(false);
     }
@@ -116,7 +175,7 @@ export default function RoomView({ roomId }: Props) {
   useEffect(() => {
     let stop = false;
     const tick = async () => {
-      if (stop || document.hidden) return;
+      if (stop || document.hidden || leftRoom) return;
       try {
         const page = await pollRoom(roomId, cursor.current, 100);
         const fresh = page.events ?? [];
@@ -144,7 +203,7 @@ export default function RoomView({ roomId }: Props) {
     // instant the tab is looked at, rather than waiting on that timer.
     const stopVisibilityRefresh = onTabVisible(document, tick);
     return () => { stop = true; window.clearInterval(id); stopVisibilityRefresh(); };
-  }, [roomId]);
+  }, [roomId, leftRoom]);
 
   // RoomHost initially has only the URL's room id. Replace that debug-shaped
   // heading with the server-owned room name once room_info resolves, keeping
@@ -189,6 +248,9 @@ export default function RoomView({ roomId }: Props) {
     setLeaveError(null);
     try {
       await leaveRoom(roomId);
+      markRoomLeft(roomId);
+      setLeftRoom(true);
+      setRejoinLink(readRoomInvite(roomId));
       // The member is out; take them back to the room list rather than
       // leaving them staring at a room they are no longer part of.
       if (typeof window !== 'undefined') window.location.assign('/app');
@@ -332,13 +394,34 @@ export default function RoomView({ roomId }: Props) {
             </div>
           )}
 
-          {!loading && error && (
+          {!loading && leftRoom && (
+            <div className="empty" role="status">
+              <p className="empty__t">You left this room</p>
+              <p className="empty__d">
+                You are no longer a member, so this room's messages are hidden.
+              </p>
+              {rejoinLink ? (
+                <a className="btn btn--quiet" href={rejoinLink} style={{ marginTop: 10 }}>
+                  Rejoin this room
+                </a>
+              ) : (
+                <p className="empty__d">
+                  Open the original invite link to rejoin while it is still valid.
+                </p>
+              )}
+              <a className="btn btn--quiet" href="/app" style={{ marginTop: 10 }}>
+                Back to your rooms
+              </a>
+            </div>
+          )}
+
+          {!loading && !leftRoom && error && (
             <p className="notice notice--bad" role="alert">
               {error} <button className="btn btn--bare" onClick={loadAll}>Try again</button>
             </p>
           )}
 
-          {!loading && !error && events.length === 0 && (
+          {!loading && !leftRoom && !error && events.length === 0 && (
             <div className="empty">
               <p className="empty__t">{roomState === 'closed' ? 'This room is closed' : 'Nothing here yet'}</p>
               <p className="empty__d">
@@ -349,7 +432,7 @@ export default function RoomView({ roomId }: Props) {
             </div>
           )}
 
-          {events.map((e) => {
+          {!leftRoom && events.map((e) => {
             const isRedacted = Boolean(e.payload?.redacted);
             const text = extractEventText(e, viewer, identityDirectory);
             const pending = e.event_id.startsWith('pending-');
@@ -375,7 +458,7 @@ export default function RoomView({ roomId }: Props) {
           })}
         </div>
 
-        <div className="composer">
+        {!leftRoom && <div className="composer">
           {sendError && (
             <p className="notice notice--bad" role="alert" style={{ marginBottom: 10 }}>{sendError}</p>
           )}
@@ -426,10 +509,31 @@ export default function RoomView({ roomId }: Props) {
             <span style={{ flex: 1 }} />
             <kbd>⌘ / Ctrl</kbd><kbd>↵</kbd><span>to send</span>
           </div>
-        </div>
+        </div>}
       </section>
 
       <aside className="insp" aria-label="Room details" tabIndex={0} role="region">
+        {leftRoom ? (
+          <div className="insp__sec">
+            <p className="insp__l">You left this room</p>
+            <p className="warnline" style={{ marginTop: 0 }}>
+              You are no longer a member, so the room's messages and member list are hidden.
+            </p>
+            {rejoinLink ? (
+              <a className="btn btn--quiet" href={rejoinLink} style={{ width: '100%', marginTop: 10 }}>
+                Rejoin this room
+              </a>
+            ) : (
+              <p className="warnline" style={{ marginTop: 0 }}>
+                Open the original invite link to rejoin while it is still valid.
+              </p>
+            )}
+            <a className="btn btn--quiet" href="/app" style={{ width: '100%', marginTop: 10 }}>
+              Back to your rooms
+            </a>
+          </div>
+        ) : (
+          <>
         {expiryLabel && (
           <div className="insp__sec">
             <p className="insp__l">Room lifetime</p>
@@ -607,6 +711,8 @@ export default function RoomView({ roomId }: Props) {
               rejoin with the same link, as long as it's still valid.
             </p>
           </div>
+        )}
+          </>
         )}
       </aside>
     </div>

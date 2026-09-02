@@ -43,12 +43,22 @@ function jsonResponse(status, payload) {
   });
 }
 
+function mcpErrorResponse(body, code = 'room_not_found', message = 'Room not found') {
+  return jsonResponse(200, {
+    jsonrpc: '2.0', id: body.id,
+    result: {
+      isError: true,
+      content: [{ type: 'text', text: JSON.stringify({ error: { code, message } }) }],
+    },
+  });
+}
+
 const VIEWER = 'acct_viewer';
 const OWNER = 'acct_owner_other';
 
 /** Mocks exactly the four calls RoomView's initial load makes: room_info,
  * room_poll, GET /v1/me, GET /v1/org/members - as a non-owner viewer. */
-function mockRoomFetch(roomState) {
+function mockRoomFetch(roomState, { missing = false } = {}) {
   globalThis.fetch = async (url, init) => {
     const u = String(url);
     if (u.startsWith('/v1/me')) {
@@ -63,6 +73,9 @@ function mockRoomFetch(roomState) {
     if (u.startsWith('/mcp')) {
       const body = JSON.parse(init.body);
       const { name } = body.params;
+      if (missing && (name === 'room_info' || name === 'room_poll')) {
+        return mcpErrorResponse(body);
+      }
       if (name === 'room_info') {
         return jsonResponse(200, {
           jsonrpc: '2.0', id: body.id,
@@ -87,10 +100,14 @@ function mockRoomFetch(roomState) {
   };
 }
 
-async function mountRoomView(roomId, roomState) {
+async function mountRoomView(roomId, roomState, { left = false, missing = false, invitePath = null } = {}) {
   installDom(`http://localhost/app/room?id=${roomId}`);
   globalThis.localStorage.setItem('weft.session', 'tok_test');
-  mockRoomFetch(roomState);
+  if (left) {
+    window.sessionStorage.setItem(`weft.room.left.${roomId}`, '1');
+    if (invitePath) window.sessionStorage.setItem(`weft.room.invite.${roomId}`, invitePath);
+  }
+  mockRoomFetch(roomState, { missing });
   const { default: RoomView } = await import(new URL('../web/src/components/app/RoomView.tsx', import.meta.url));
   activeMount = await mount(React.createElement(RoomView, { roomId }), { settleMs: 80 });
   return activeMount.container;
@@ -125,4 +142,36 @@ test('a real mounted RoomView leaves the composer enabled and shows no closed no
   const textarea = container.querySelector('textarea');
   assert.ok(textarea, 'the composer textarea must be present');
   assert.equal(textarea.disabled, false, 'the composer must stay enabled while the room is open');
+});
+
+test('a voluntary leaver sees a branded state and can rejoin with the original invite', async () => {
+  const container = await mountRoomView('room_left_test', 'open', {
+    left: true,
+    missing: true,
+    invitePath: '/j/room-token',
+  });
+
+  assert.match(container.textContent, /You left this room/);
+  assert.match(container.textContent, /Rejoin this room/);
+  assert.doesNotMatch(container.textContent, /Room not found/);
+  assert.doesNotMatch(container.textContent, /Member list unavailable/);
+  assert.doesNotMatch(container.textContent, /Room unavailable/);
+  assert.doesNotMatch(container.textContent, /Who is here/);
+
+  const rejoin = container.querySelector('a[href="/j/room-token"]');
+  assert.ok(rejoin, 'the original bearer invite must be offered as the rejoin path');
+  assert.equal(rejoin.textContent, 'Rejoin this room');
+  assert.equal(container.querySelector('textarea'), null, 'a leaver must not see a dead composer');
+});
+
+test('an unmarked room_not_found remains the genuine generic error state', async () => {
+  const container = await mountRoomView('room_missing_test', 'open', { missing: true });
+
+  assert.match(container.textContent, /Room not found/);
+  assert.match(container.textContent, /Member list unavailable/);
+  assert.doesNotMatch(container.textContent, /You left this room/);
+  assert.equal(container.querySelector('a[href^="/j/"]'), null);
+  const textarea = container.querySelector('textarea');
+  assert.ok(textarea, 'the genuine error state must keep the composer visible');
+  assert.equal(textarea.placeholder, 'Room unavailable.');
 });
