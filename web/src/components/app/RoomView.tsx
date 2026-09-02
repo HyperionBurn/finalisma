@@ -23,6 +23,7 @@ import {
   ApiError, closeRoom, joinRoom, leaveRoom, listOrgMembers, me, pollRoom, roomInfo, roomLink, sendMessage,
   type Member, type Me, type OrgMember, type RoomEvent,
 } from '../../lib/api';
+import { onTabVisible } from '../../lib/visibility';
 
 const POLL_MS = 4000;
 
@@ -138,7 +139,11 @@ export default function RoomView({ roomId }: Props) {
       } catch { /* transient: the next tick retries */ }
     };
     const id = window.setInterval(tick, POLL_MS);
-    return () => { stop = true; window.clearInterval(id); };
+    // A tab backgrounded when the room closes stays stale until the
+    // interval happens to fire again — re-run the exact same tick the
+    // instant the tab is looked at, rather than waiting on that timer.
+    const stopVisibilityRefresh = onTabVisible(document, tick);
+    return () => { stop = true; window.clearInterval(id); stopVisibilityRefresh(); };
   }, [roomId]);
 
   // RoomHost initially has only the URL's room id. Replace that debug-shaped
