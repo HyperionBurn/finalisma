@@ -24,48 +24,29 @@ import {
   type Member, type Me, type OrgMember, type RoomEvent,
 } from '../../lib/api';
 import { onTabVisible } from '../../lib/visibility';
+import {
+  clearRoomLeft,
+  markRoomLeft,
+  rememberRoomInvite as rememberStoredRoomInvite,
+  roomNotFoundState,
+} from '../../lib/room-leave-state';
 
 const POLL_MS = 4000;
-const ROOM_LEFT_MARKER_PREFIX = 'weft.room.left.';
-const ROOM_INVITE_PATH_PREFIX = 'weft.room.invite.';
 
-function roomStorageKey(prefix: string, roomId: string) {
-  return `${prefix}${roomId}`;
+function roomSessionStorage() {
+  if (typeof window === 'undefined') return null;
+  try { return window.sessionStorage; } catch { return null; }
 }
 
 /** Remember the same-tab invite path so a voluntary leaver can return to it. */
 function rememberRoomInvite(roomId: string) {
-  if (typeof window === 'undefined') return;
-  try {
-    const referrer = document.referrer;
-    if (!referrer) return;
-    const invite = new URL(referrer, window.location.origin);
-    if (invite.origin !== window.location.origin || !/^\/j\/[^/]+\/?$/.test(invite.pathname)) return;
-    window.sessionStorage.setItem(roomStorageKey(ROOM_INVITE_PATH_PREFIX, roomId), invite.pathname);
-  } catch {}
+  const storage = roomSessionStorage();
+  if (storage) rememberStoredRoomInvite(storage, roomId, document.referrer, window.location.origin);
 }
 
-function readRoomInvite(roomId: string) {
-  if (typeof window === 'undefined') return null;
-  try {
-    const invite = window.sessionStorage.getItem(roomStorageKey(ROOM_INVITE_PATH_PREFIX, roomId));
-    return invite && /^\/j\/[^/]+\/?$/.test(invite) ? invite : null;
-  } catch { return null; }
-}
-
-function markRoomLeft(roomId: string) {
-  if (typeof window === 'undefined') return;
-  try { window.sessionStorage.setItem(roomStorageKey(ROOM_LEFT_MARKER_PREFIX, roomId), '1'); } catch {}
-}
-
-function hasRoomLeft(roomId: string) {
-  if (typeof window === 'undefined') return false;
-  try { return window.sessionStorage.getItem(roomStorageKey(ROOM_LEFT_MARKER_PREFIX, roomId)) === '1'; } catch { return false; }
-}
-
-function clearRoomLeft(roomId: string) {
-  if (typeof window === 'undefined') return;
-  try { window.sessionStorage.removeItem(roomStorageKey(ROOM_LEFT_MARKER_PREFIX, roomId)); } catch {}
+function roomNotFoundLeaveState(roomId: string) {
+  const storage = roomSessionStorage();
+  return storage ? roomNotFoundState(storage, roomId) : { leftRoom: false, rejoinLink: null };
 }
 
 interface Props { roomId: string }
@@ -147,13 +128,15 @@ export default function RoomView({ roomId }: Props) {
       const evs = page.events ?? [];
       setEvents(evs);
       cursor.current = evs.length ? evs[evs.length - 1].seq : 0;
-      clearRoomLeft(roomId);
+      const storage = roomSessionStorage();
+      if (storage) clearRoomLeft(storage, roomId);
       setRejoinLink(null);
     } catch (err) {
       const e = err as ApiError;
-      if (e.code === 'room_not_found' && hasRoomLeft(roomId)) {
+      const leaveState = e.code === 'room_not_found' ? roomNotFoundLeaveState(roomId) : null;
+      if (leaveState?.leftRoom) {
         setLeftRoom(true);
-        setRejoinLink(readRoomInvite(roomId));
+        setRejoinLink(leaveState.rejoinLink);
         setEvents([]);
         setMembers([]);
         setRoomState('open');
@@ -248,9 +231,10 @@ export default function RoomView({ roomId }: Props) {
     setLeaveError(null);
     try {
       await leaveRoom(roomId);
-      markRoomLeft(roomId);
+      const storage = roomSessionStorage();
+      if (storage) markRoomLeft(storage, roomId);
       setLeftRoom(true);
-      setRejoinLink(readRoomInvite(roomId));
+      setRejoinLink(roomNotFoundLeaveState(roomId).rejoinLink);
       // The member is out; take them back to the room list rather than
       // leaving them staring at a room they are no longer part of.
       if (typeof window !== 'undefined') window.location.assign('/app');
