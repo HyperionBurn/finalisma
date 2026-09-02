@@ -34,3 +34,28 @@ export function knownCountLabel(known: boolean, count: number): string {
 export function knownHeadLabel(known: boolean, head: number): string {
   return known ? `position ${head}` : 'not known yet';
 }
+
+export interface RoomCountersKnown {
+  /** room_info resolved: the roster / "who is here" count is real. */
+  members: boolean;
+  /**
+   * The initial room_poll resolved AND its events were applied: the event
+   * count and the `head` position derived from it are real.
+   */
+  log: boolean;
+}
+
+/**
+ * The member roster comes from room_info; the event log (and `head`,
+ * derived as the last event's seq) comes from a separate room_poll. They
+ * resolve independently, and loadAll awaits a third call — roomLink, owner
+ * only — between applying room_info and applying the poll. So a single
+ * "loaded" flag set after room_info commits a render where members is real
+ * but events is still the initial empty array: a confident "0" / "position
+ * 0" for a log that has not loaded (MPAI-163 — the MPAI-153 bug surviving
+ * in a second field). Each counter must be governed by ITS OWN source
+ * resolving, never by the other's.
+ */
+export function roomCountersKnown(infoLoaded: boolean, logLoaded: boolean): RoomCountersKnown {
+  return { members: infoLoaded, log: logLoaded };
+}

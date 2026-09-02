@@ -31,7 +31,7 @@ import {
   roomNotFoundState,
 } from '../../lib/room-leave-state';
 import {
-  knownCountDisplay, knownCountLabel, knownHeadDisplay, knownHeadLabel,
+  knownCountDisplay, knownCountLabel, knownHeadDisplay, knownHeadLabel, roomCountersKnown,
 } from '../../lib/room-presence';
 
 const POLL_MS = 4000;
@@ -63,11 +63,15 @@ export default function RoomView({ roomId }: Props) {
   const [link, setLink] = useState<string | null>(null);
   const [shareableLink, setShareableLink] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  // Distinct from `loading`: `loading` clears on failure too, but a failed
-  // fetch has NOT told us the room's real counts, so they must keep
-  // reading as unknown rather than a confident zero. This is set once
-  // (never back to false) inside loadAll's success path only.
-  const [dataKnown, setDataKnown] = useState(false);
+  // Distinct from `loading` (which clears on failure too), and split in
+  // two because room_info and the initial room_poll resolve independently
+  // with an await between them in loadAll: a failed or not-yet-applied
+  // fetch has NOT told us that value, so it must keep reading as unknown
+  // rather than a confident zero. Each is set once, never back to false,
+  // and only in loadAll's success path — infoLoaded after the roster is
+  // applied, logLoaded after the event page is (MPAI-163).
+  const [infoLoaded, setInfoLoaded] = useState(false);
+  const [logLoaded, setLogLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
@@ -106,7 +110,7 @@ export default function RoomView({ roomId }: Props) {
         listOrgMembers().catch(() => ({ members: [] as OrgMember[] })),
       ]);
       setMembers(info?.members ?? []);
-      setDataKnown(true);
+      setInfoLoaded(true);
       setViewer(who);
       setIdentityDirectory((prev) => mergeIdentityDirectory(
         prev, org?.members ?? [], info?.members ?? [],
@@ -136,6 +140,7 @@ export default function RoomView({ roomId }: Props) {
       }
       const evs = page.events ?? [];
       setEvents(evs);
+      setLogLoaded(true);
       cursor.current = evs.length ? evs[evs.length - 1].seq : 0;
       const storage = roomSessionStorage();
       if (storage) clearRoomLeft(storage, roomId);
@@ -350,6 +355,7 @@ export default function RoomView({ roomId }: Props) {
     return labelCounts[label] > 1 ? `${label} · ${shortAgent(m.agent_id)}` : label;
   };
   const expiryLabel = fmtExpiry(expiresAt ?? undefined);
+  const counters = roomCountersKnown(infoLoaded, logLoaded);
 
   return (
     <div className="room">
@@ -542,8 +548,8 @@ export default function RoomView({ roomId }: Props) {
         <div className="insp__sec">
           <p className="insp__l">
             Who is here ·{' '}
-            <span aria-hidden="true">{knownCountDisplay(dataKnown, members.length)}</span>
-            <span className="sr">{knownCountLabel(dataKnown, members.length)}</span>
+            <span aria-hidden="true">{knownCountDisplay(counters.members, members.length)}</span>
+            <span className="sr">{knownCountLabel(counters.members, members.length)}</span>
           </p>
           {members.length === 0 && !loading && !error && (
             <p className="warnline" style={{ marginTop: 0 }}>
@@ -598,18 +604,18 @@ export default function RoomView({ roomId }: Props) {
           <p className="insp__l">The log</p>
           <p className="kv">
             <span>head</span>
-            <b aria-hidden="true">{knownHeadDisplay(dataKnown, head)}</b>
-            <span className="sr">{knownHeadLabel(dataKnown, head)}</span>
+            <b aria-hidden="true">{knownHeadDisplay(counters.log, head)}</b>
+            <span className="sr">{knownHeadLabel(counters.log, head)}</span>
           </p>
           <p className="kv">
             <span>events</span>
-            <b aria-hidden="true">{knownCountDisplay(dataKnown, events.length)}</b>
-            <span className="sr">{knownCountLabel(dataKnown, events.length)}</span>
+            <b aria-hidden="true">{knownCountDisplay(counters.log, events.length)}</b>
+            <span className="sr">{knownCountLabel(counters.log, events.length)}</span>
           </p>
           <p className="kv">
             <span>members</span>
-            <b aria-hidden="true">{knownCountDisplay(dataKnown, members.length)}</b>
-            <span className="sr">{knownCountLabel(dataKnown, members.length)}</span>
+            <b aria-hidden="true">{knownCountDisplay(counters.members, members.length)}</b>
+            <span className="sr">{knownCountLabel(counters.members, members.length)}</span>
           </p>
         </div>
 
