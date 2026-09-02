@@ -857,7 +857,7 @@ class LaunchSurfaceTests(unittest.TestCase):
 
         A self-hosted marketing site must be indexable: /robots.txt and
         /sitemap.xml return 200 with the correct content types and no
-        redirect, and /favicon.ico is a plain 404 (no icon ships).
+        redirect, and /favicon.ico serves the shipped icon without a redirect.
         """
         handler = lambda *args, **kwargs: QuietSiteHandler(*args, directory=str(ROOT), **kwargs)
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
@@ -892,8 +892,10 @@ class LaunchSurfaceTests(unittest.TestCase):
             self.assertTrue(content_type(headers).startswith("application/xml"))
             self.assertIn("<urlset", body)
 
-            status, headers, _ = get("/favicon.ico")
-            self.assertEqual(status, 404)
+            status, headers, body = get("/favicon.ico")
+            self.assertEqual(status, 200)
+            self.assertTrue(body, "favicon.ico must have a non-empty response body")
+            self.assertTrue(content_type(headers).startswith("image/"))
             self.assertNotIn("Location", headers)
         finally:
             server.shutdown()

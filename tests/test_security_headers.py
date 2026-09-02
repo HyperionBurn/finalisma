@@ -377,10 +377,15 @@ class TestPublicPathAllowlist(unittest.TestCase):
         self.assertIn("sitemap", body)
 
     def test_favicon_ico_never_redirects_to_login(self):
-        # No favicon.ico ships in the bundle, so the correct answer is 404 —
-        # but it must be a real 404, NEVER a redirect to /login.
-        status, _, hdrs = self.d.get("/favicon.ico")
-        self.assertEqual(status, 404)
+        # favicon.ico is now a shipped public asset, so it must return the
+        # icon itself — NEVER a redirect to /login.
+        status, body, hdrs = self.d.get("/favicon.ico")
+        self.assertEqual(status, 200)
+        self.assertTrue(body, "favicon.ico must have a non-empty response body")
+        self.assertTrue(
+            hdrs.get("Content-Type", "").lower().startswith("image/"),
+            f"favicon.ico must have an image content type, got {hdrs.get('Content-Type')!r}",
+        )
         self.assertNotIn("Location", hdrs)
 
     def test_public_paths_carry_the_security_header_block(self):
