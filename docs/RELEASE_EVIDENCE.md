@@ -6,17 +6,19 @@ compatibility claim.
 
 ## Latest regression evidence
 
-Measured locally on a detached clone pinned at `180413d84c37c9c10cfccaa3dda3a8c0b66fff14`, verified clean
-before the run (no working-tree contamination):
+Measured locally on a detached clone pinned at `abb305eb9f81f2f9a5913b8a44c643821ecf1a40`, verified clean before the run
+(HEAD asserted, working tree empty). This release ships at `037d1208c6a17fb9587b3e88cceb009cb345e319`,
+one commit earlier. The counts transfer exactly because the two commits that
+follow it touch no Python at all (verified: `git show --name-only` lists no
+`.py` path in either), so `tests/` and `src/` are identical at both SHAs.
 
-- Command: `python -B -m unittest discover -s tests` — a single run on the pinned
-  clone supplies every count here (`Ran 1409 tests`, `skipped=16`). The run at the
-  pinned SHA reported one failure, `test_published_test_count_matches_live_discovery`,
-  which is the ratchet's own stale-baseline assertion (evidence still read 1408
-  against a live discovery of 1409); reconciling these counts is what resolves it.
-  No product test failed.
-- Result: **1409 tests discovered; 1393 passed; 16 skipped**
-- Duration: 586.36 seconds on the local Windows runner
+- Command: `python -B -m unittest discover -s tests` — a single run supplies
+  every count here. That run reported one failure,
+  `test_published_test_count_matches_live_discovery`, which is the ratchet's own
+  stale-baseline assertion (evidence read 1409 against a live discovery of 1410);
+  reconciling these counts is what resolves it. No product test failed.
+- Result: **1410 tests discovered; 1394 passed; 16 skipped**
+- Duration: 744.88 seconds on the local Windows runner
 - Focused API-readiness routing/identity suite: 69 tests passed locally
   (`tests.test_probe_live_release`, `tests.test_probe_live_release_contract`,
   `tests.test_deploy_gate`, and `tests.test_deploy_ops`)
