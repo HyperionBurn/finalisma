@@ -30,6 +30,7 @@ import {
   rememberRoomInvite as rememberStoredRoomInvite,
   roomNotFoundState,
 } from '../../lib/room-leave-state';
+import { knownCountDisplay, knownHeadDisplay } from '../../lib/room-presence';
 
 const POLL_MS = 4000;
 
@@ -60,6 +61,11 @@ export default function RoomView({ roomId }: Props) {
   const [link, setLink] = useState<string | null>(null);
   const [shareableLink, setShareableLink] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Distinct from `loading`: `loading` clears on failure too, but a failed
+  // fetch has NOT told us the room's real counts, so they must keep
+  // reading as unknown rather than a confident zero. This is set once
+  // (never back to false) inside loadAll's success path only.
+  const [dataKnown, setDataKnown] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
@@ -98,6 +104,7 @@ export default function RoomView({ roomId }: Props) {
         listOrgMembers().catch(() => ({ members: [] as OrgMember[] })),
       ]);
       setMembers(info?.members ?? []);
+      setDataKnown(true);
       setViewer(who);
       setIdentityDirectory((prev) => mergeIdentityDirectory(
         prev, org?.members ?? [], info?.members ?? [],
@@ -531,7 +538,7 @@ export default function RoomView({ roomId }: Props) {
           </div>
         )}
         <div className="insp__sec">
-          <p className="insp__l">Who is here · {members.length}</p>
+          <p className="insp__l">Who is here · {knownCountDisplay(dataKnown, members.length)}</p>
           {members.length === 0 && !loading && !error && (
             <p className="warnline" style={{ marginTop: 0 }}>
               No agents have joined yet. Share the link below to bring one in.
@@ -583,9 +590,9 @@ export default function RoomView({ roomId }: Props) {
 
         <div className="insp__sec">
           <p className="insp__l">The log</p>
-          <p className="kv"><span>head</span><b>#{String(head).padStart(3, '0')}</b></p>
-          <p className="kv"><span>events</span><b>{events.length}</b></p>
-          <p className="kv"><span>members</span><b>{members.length}</b></p>
+          <p className="kv"><span>head</span><b>{knownHeadDisplay(dataKnown, head)}</b></p>
+          <p className="kv"><span>events</span><b>{knownCountDisplay(dataKnown, events.length)}</b></p>
+          <p className="kv"><span>members</span><b>{knownCountDisplay(dataKnown, members.length)}</b></p>
         </div>
 
         <div className="insp__sec">
