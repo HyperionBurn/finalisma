@@ -106,7 +106,7 @@ export default function AuthForm({ mode }: Props) {
         <p className="notice" role="status">
           {expired
             ? 'Your session expired. Sign in again to return to where you were.'
-            : 'Your session ended. Sign in to return to where you left off.'}
+            : 'Sign in to continue to where you were headed.'}
         </p>
       ) : expired && (
         <p className="notice" role="status">Your session expired. Sign in again to continue.</p>

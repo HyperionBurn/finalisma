@@ -27,13 +27,27 @@ class MPAI109CopyTests(unittest.TestCase):
         self.assertIn(expected, auth_form)
         self.assertIn(expected, signup_page)
         self.assertIn(
-            "Your session ended. Sign in to return to where you left off.",
+            "Sign in to continue to where you were headed.",
+            auth_form,
+        )
+        self.assertIn(
+            "Your session expired. Sign in again to return to where you were.",
             auth_form,
         )
         self.assertIn(
             "Sign in to continue to the room you were invited to.",
             auth_form,
         )
+
+    def test_bare_next_login_copy_makes_no_session_claim(self) -> None:
+        auth_form = (ROOT / "web/src/components/app/AuthForm.tsx").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn(
+            "Your session ended. Sign in to return to where you left off.",
+            auth_form,
+        )
+        self.assertIn("Sign in to continue to where you were headed.", auth_form)
 
     def test_join_page_uses_weft_brand_and_keeps_link_in_technical_section(self) -> None:
         source = (ROOT / "src/weft_cloud/service.py").read_text(encoding="utf-8")
