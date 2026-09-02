@@ -31,6 +31,7 @@
     "@types/react": "19.0.0",
     "@types/react-dom": "19.0.0",
     "@types/three": "0.170.0",
+    "esbuild": "^0.25.12",
     "jsdom": "^30.0.1",
     "tailwindcss": "4.3.3",
     "typescript": "5.7.3"
