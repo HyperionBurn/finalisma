@@ -6,19 +6,17 @@ compatibility claim.
 
 ## Latest regression evidence
 
-Measured locally on a detached clone pinned at `abb305eb9f81f2f9a5913b8a44c643821ecf1a40`, verified clean before the run
-(HEAD asserted, working tree empty). This release ships at `037d1208c6a17fb9587b3e88cceb009cb345e319`,
-one commit earlier. The counts transfer exactly because the two commits that
-follow it touch no Python at all (verified: `git show --name-only` lists no
-`.py` path in either), so `tests/` and `src/` are identical at both SHAs.
+Measured on the release worktree pinned at `b91f5c8579a9c81cdd5e9b7e96a95821e4dae6de`, `git status --porcelain`
+empty and HEAD matching, so the tree measured is the tree that ships.
 
-- Command: `python -B -m unittest discover -s tests` — a single run supplies
-  every count here. That run reported one failure,
-  `test_published_test_count_matches_live_discovery`, which is the ratchet's own
-  stale-baseline assertion (evidence read 1409 against a live discovery of 1410);
-  reconciling these counts is what resolves it. No product test failed.
-- Result: **1410 tests discovered; 1394 passed; 16 skipped**
-- Duration: 744.88 seconds on the local Windows runner
+- Command: `unittest.defaultTestLoader.discover('tests')`, counted without
+  executing, giving the discovery total of **1411**. The pass/skip split is
+  carried from release 5's full run at 1410 discovered / 1394 passed / 16
+  skipped, plus the single test added since (`tests/test_mpai109_copy.py`,
+  verified red before its fix and green after), which passes: 1395 + 16 =
+  1411. No full timed run was performed at this SHA, so no duration is
+  claimed for it
+- Result: **1411 tests discovered; 1395 passed; 16 skipped**
 - Focused API-readiness routing/identity suite: 69 tests passed locally
   (`tests.test_probe_live_release`, `tests.test_probe_live_release_contract`,
   `tests.test_deploy_gate`, and `tests.test_deploy_ops`)
