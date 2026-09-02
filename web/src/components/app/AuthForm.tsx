@@ -11,6 +11,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { ApiError, isSignedIn, setToken, signin, signup } from '../../lib/api';
+import { rememberInvitePath } from '../../lib/room-leave-state';
 
 interface Props { mode: 'signup' | 'login' }
 
@@ -25,6 +26,13 @@ export default function AuthForm({ mode }: Props) {
   const [migrated, setMigrated] = useState(false);
 
   useEffect(() => {
+    // The join page intentionally sends no referrer because its URL carries a
+    // bearer token. Preserve its validated /j/<token> next path before auth
+    // navigation so the eventual room view can offer rejoin after a leave.
+    try {
+      const nextPath = new URLSearchParams(location.search).get('next');
+      if (nextPath) rememberInvitePath(sessionStorage, nextPath, location.origin);
+    } catch {}
     if (isSignedIn()) { location.replace('/app'); return; }
     const params = new URLSearchParams(location.search);
     setExpired(params.has('expired'));

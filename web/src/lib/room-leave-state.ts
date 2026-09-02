@@ -21,10 +21,31 @@ export interface RoomNotFoundState {
 
 const ROOM_LEFT_MARKER_PREFIX = 'weft.room.left.';
 const ROOM_INVITE_PATH_PREFIX = 'weft.room.invite.';
+const PENDING_INVITE_PATH_KEY = 'weft.room.invite.pending';
 const INVITE_PATH = /^\/j\/[^/]+\/?$/;
 
 function roomStorageKey(prefix: string, roomId: string) {
   return `${prefix}${roomId}`;
+}
+
+function invitePath(candidate: string, origin: string) {
+  if (!candidate) return null;
+  try {
+    const invite = new URL(candidate, origin);
+    if (invite.origin !== origin || !INVITE_PATH.test(invite.pathname)) return null;
+    return invite.pathname;
+  } catch { return null; }
+}
+
+/** Remember an invite path while auth redirects away from the join page. */
+export function rememberInvitePath(
+  storage: RoomSessionStorage,
+  candidate: string,
+  origin: string,
+) {
+  const path = invitePath(candidate, origin);
+  if (!path) return;
+  try { storage.setItem(PENDING_INVITE_PATH_KEY, path); } catch {}
 }
 
 /** Remember only a same-origin human invite path, never a referrer's query. */
@@ -34,16 +55,30 @@ export function rememberRoomInvite(
   referrer: string,
   origin: string,
 ) {
-  if (!referrer) return;
+  const path = invitePath(referrer, origin) ?? readPendingInvite(storage);
+  if (!path) return;
+  if (!writeRoomInvite(storage, roomId, path)) return;
   try {
-    const invite = new URL(referrer, origin);
-    if (invite.origin !== origin || !INVITE_PATH.test(invite.pathname)) return;
-    storage.setItem(roomStorageKey(ROOM_INVITE_PATH_PREFIX, roomId), invite.pathname);
+    storage.removeItem(PENDING_INVITE_PATH_KEY);
   } catch {}
 }
 
 export function markRoomLeft(storage: RoomSessionStorage, roomId: string) {
   try { storage.setItem(roomStorageKey(ROOM_LEFT_MARKER_PREFIX, roomId), '1'); } catch {}
+}
+
+function writeRoomInvite(storage: RoomSessionStorage, roomId: string, path: string) {
+  try {
+    storage.setItem(roomStorageKey(ROOM_INVITE_PATH_PREFIX, roomId), path);
+    return true;
+  } catch { return false; }
+}
+
+function readPendingInvite(storage: RoomSessionStorage) {
+  try {
+    const invite = storage.getItem(PENDING_INVITE_PATH_KEY);
+    return invite && INVITE_PATH.test(invite) ? invite : null;
+  } catch { return null; }
 }
 
 function readRoomInvite(storage: RoomSessionStorage, roomId: string) {

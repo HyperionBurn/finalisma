@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 const {
   clearRoomLeft,
   markRoomLeft,
+  rememberInvitePath,
   rememberRoomInvite,
   roomNotFoundState,
 } = await import(new URL('../web/src/lib/room-leave-state.ts', import.meta.url).href);
@@ -24,6 +25,19 @@ test('a marked room_not_found renders the left-room state with its same-origin r
   markRoomLeft(storage, 'room_left_test');
 
   assert.deepEqual(roomNotFoundState(storage, 'room_left_test'), {
+    leftRoom: true,
+    rejoinLink: '/j/room-token',
+  });
+});
+
+test('an invite captured before auth survives until the left-room state renders', () => {
+  const storage = makeStorage();
+
+  rememberInvitePath(storage, '/j/room-token?from=auth', 'http://localhost');
+  rememberRoomInvite(storage, 'room_left_after_auth', '', 'http://localhost');
+  markRoomLeft(storage, 'room_left_after_auth');
+
+  assert.deepEqual(roomNotFoundState(storage, 'room_left_after_auth'), {
     leftRoom: true,
     rejoinLink: '/j/room-token',
   });
