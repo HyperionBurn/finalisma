@@ -161,10 +161,11 @@ li{list-style:none}
   padding:0 calc(75.5 * var(--u));overflow:hidden}
 .hosts b{font-family:'JetBrains Mono',monospace;font-size:calc(12 * var(--u));
   letter-spacing:.18em;text-transform:uppercase;font-weight:400;flex:none;
-  /* Was opacity:.7 over --strip, which composites to #454545 on --void:
-     2.12:1, well under AA. --dim at full opacity keeps the badge quieter
-     than the host names it sits beside and measures 5.57:1. */
-  color:var(--dim)}
+  /* A flex-wrapped qualifier can place this badge over the hero poster on
+     narrow screens. Keep the film out of the contrast calculation: --dim
+     at full opacity over --void measures 5.57:1, safely above AA. */
+  color:var(--dim);background:var(--void);padding:calc(2 * var(--u)) calc(6 * var(--u));
+  border-radius:calc(3 * var(--u))}
 .mq{overflow:hidden;flex:1;mask-image:linear-gradient(to right,transparent,#000 6%,#000 84%,transparent)}
 .mq__row{display:flex;gap:calc(46 * var(--u));width:max-content}
 .mq__row span{font-size:calc(17 * var(--u));font-weight:500;letter-spacing:-.01em;white-space:nowrap}
